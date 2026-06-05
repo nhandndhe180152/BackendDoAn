@@ -2,7 +2,6 @@ using System;
 using System.Linq.Expressions;
 using Backend.Application.DTOs.ActivityLogs;
 using Backend.Application.DTOs.AuditLogs;
-using Backend.Application.DTOs.Feedbacks;
 using Backend.Application.Implements;
 using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
@@ -13,59 +12,6 @@ using Microsoft.AspNetCore.Http;
 using Moq;
 
 namespace Backend.UnitTest.Services;
-
-// ════════════════════════════════════════════════════════════════════════════
-// FeedbackService — ctor: (IFeedbackRepository)
-// ════════════════════════════════════════════════════════════════════════════
-public class FeedbackServiceTests
-{
-    private readonly Mock<IFeedbackRepository> _repo = new();
-    private FeedbackService Sut() => new(_repo.Object);
-
-    [Fact]
-    [Trait("Service", "Feedback")]
-    public async Task GetAllAsync_ReturnsSuccess()
-    {
-        _repo.Setup(r => r.FindByCondition(It.IsAny<Expression<Func<Feedback, bool>>>(), It.IsAny<bool>()))
-             .Returns(Enumerable.Empty<Feedback>().AsQueryable().BuildMock());
-        var result = await Sut().GetAllAsync();
-        result.Should().NotBeNull();
-    }
-
-    [Fact]
-    [Trait("Service", "Feedback")]
-    public async Task GetByIdAsync_NotFound_Returns404()
-    {
-        _repo.Setup(r => r.FindByCondition(It.IsAny<Expression<Func<Feedback, bool>>>(), It.IsAny<bool>()))
-             .Returns(Enumerable.Empty<Feedback>().AsQueryable().BuildMock());
-        var result = await Sut().GetByIdAsync(999);
-        result.Status.Should().Be(404);
-    }
-
-    [Fact]
-    [Trait("Service", "Feedback")]
-    public async Task SoftDeleteAsync_NotFound_Returns400()
-    {
-        _repo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<Expression<Func<Feedback, bool>>>(), false))
-             .ReturnsAsync((Feedback?)null);
-        var result = await Sut().SoftDeleteAsync(999);
-        result.Status.Should().Be(400);
-    }
-
-    [Fact]
-    [Trait("Service", "Feedback")]
-    public async Task CreateAsync_Valid_CallsRepository()
-    {
-        _repo.Setup(r => r.CreateAsync(It.IsAny<Feedback>())).Returns(Task.CompletedTask);
-        _repo.Setup(r => r.SaveChangesAsync()).Returns(Task.FromResult(1));
-
-        var dto = new CreateFeedbackDto { Title = "Test", Content = "Content", CreatedBy = 1 };
-        var result = await Sut().CreateAsync(dto);
-
-        result.Should().NotBeNull();
-        _repo.Verify(r => r.CreateAsync(It.IsAny<Feedback>()), Times.Once);
-    }
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 // ActivityLogService — ctor: (IActivityLogRepository, IHttpContextAccessor, IUserRepository)

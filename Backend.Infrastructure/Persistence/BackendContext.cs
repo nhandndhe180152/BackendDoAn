@@ -19,13 +19,6 @@ public class BackendContext : DbContext
 
     public virtual DbSet<Domain.Entities.Action> Actions { get; set; }
     public virtual DbSet<ActivityLog> ActivityLogs { get; set; }
-    public virtual DbSet<BlogPostCategory> BlogPostCategories { get; set; }
-    public virtual DbSet<BlogPostComment> BlogPostComments { get; set; }
-    public virtual DbSet<BlogPostLayout> BlogPostLayouts { get; set; }
-    public virtual DbSet<BlogPost> BlogPosts { get; set; }
-    public virtual DbSet<BlogPostStatus> BlogPostStatuses { get; set; }
-    public virtual DbSet<BlogPostTag> BlogPostTags { get; set; }
-    public virtual DbSet<Feedback> Feedbacks { get; set; }
     public virtual DbSet<FileUpload> FileUploads { get; set; }
     public virtual DbSet<FolderUpload> FolderUploads { get; set; }
     public virtual DbSet<Menu> Menus { get; set; }
@@ -34,8 +27,6 @@ public class BackendContext : DbContext
     public virtual DbSet<Permission> Permissions { get; set; }
     public virtual DbSet<Role> Roles { get; set; }
     public virtual DbSet<SystemConfig> SystemConfigs { get; set; }
-    public virtual DbSet<Tag> Tags { get; set; }
-    public virtual DbSet<TagType> TagTypes { get; set; }
     public virtual DbSet<User> Users { get; set; }
     public virtual DbSet<UserDevice> UserDevices { get; set; }
     public virtual DbSet<UserNotification> UserNotifications { get; set; }

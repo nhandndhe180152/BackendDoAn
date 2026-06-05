@@ -14,7 +14,5 @@ public class FileUpload : EntityAuditBase<int>
         [JsonIgnore]
         public virtual ICollection<User> Users { get; set; }
         [JsonIgnore]
-        public virtual ICollection<BlogPost> BlogPosts { get; set; }
-        [JsonIgnore]
         public virtual FolderUpload FolderUpload { get; set; }  
     }
