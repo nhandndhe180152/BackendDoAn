@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Đăng ký tài khoản</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f6f6f6;
+        }
+
+        .container {
+            width: 100%;
+            padding: 20px;
+        }
+
+        .email-content {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 15px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+        }
+
+        .header {
+            text-align: center;
+            padding: 20px;
+            border-bottom: 2px solid #007bff;
+        }
+
+            .header h1 {
+                color: #007bff;
+                font-size: 24px;
+            }
+
+        .body {
+            font-size: 16px;
+            color: #555;
+            line-height: 1.6;
+            margin-top: 20px;
+        }
+
+        .button-container {
+            text-align: left; /* Căn giữa nút */
+            margin: 20px auto;
+            width: fit-content;
+            padding: 15px;
+            color: white;
+            font-weight: bold;
+        }
+
+        .button {
+            display: inline-block;
+            padding: 12px 25px;
+            background-color: #007bff;
+            color: white !important;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            transition: background-color 0.3s;
+        }
+
+            .button:hover {
+                background-color: #0056b3;
+            }
+
+        .footer {
+            text-align: center;
+            font-size: 12px;
+            color: #777;
+            margin-top: 30px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="email-content">
+            <div class="header">
+                <img src="{{link}}/admin/assets/media/pages/login/logo.png" alt="V-CAR Logo" style="max-width:150px; height:auto;" />
+                <h1>Xác thực tài khoản</h1>
+            </div>
+            <div class="body">
+                <p>Xin chào {{fullname}},</p>
+                <p>Cảm ơn bạn đã đăng ký tài khoản trên hệ thống.</p>
+                <p>Vui lòng nhấp vào nút bên dưới để xác thực tài khoản của bạn:</p>
+                <div class="button-container">
+                    <a href="{{activeLink}}" target="_blank" style="display:inline-block; padding:12px 25px; background-color:#007bff; color:white; text-decoration:none; border-radius:5px; font-weight:bold;">Xác thực tài khoản</a>
+                </div>
+                
+    <div class="warning" style="background:#fff3cd; padding:15px; border:1px solid #ffeeba; border-radius:5px; margin-top:20px; color:#856404;">
+        <strong>Lưu ý:</strong> Liên kết xác thực này có thể sẽ hết hạn sau một thời gian nhất định. Nếu không thực hiện sớm, bạn có thể cần đăng ký lại.
+    </div>
+    <p>Nếu bạn không thực hiện tạo tài khoản, vui lòng bỏ qua email này.</p>
+    
+                <p>Trân trọng,</p>
+                <p><strong>Đội ngũ V-CAR</strong></p>
+            </div>
+            <div class="footer">
+                <p>© {{dateTime}} V-CAR. Tất cả quyền được bảo lưu.</p>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

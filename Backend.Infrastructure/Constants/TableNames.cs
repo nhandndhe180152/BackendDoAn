@@ -1,0 +1,66 @@
+using System;
+
+namespace Backend.Infrastructure.Constants;
+
+public static class TableNames
+{
+    public const string Action = nameof(Action);
+    public const string ActionInMenu = nameof(ActionInMenu);
+    public const string ActivityLog = nameof(ActivityLog);
+    public const string BlogPostCategory = nameof(BlogPostCategory);
+    public const string BlogPostComment = nameof(BlogPostComment);
+    public const string BlogPostLayout = nameof(BlogPostLayout);
+    public const string BlogPost = nameof(BlogPost);
+    public const string BlogPostStatus = nameof(BlogPostStatus);
+    public const string BlogPostTag = nameof(BlogPostTag);
+    public const string Feedback = nameof(Feedback);
+    public const string FileUpload = nameof(FileUpload);
+    public const string FolderUpload = nameof(FolderUpload);
+    public const string Menu = nameof(Menu);
+    public const string Notification = nameof(Notification);
+    public const string NotificationType = nameof(NotificationType);
+    public const string NotificationCategory = nameof(NotificationCategory);
+    public const string Permission = nameof(Permission);
+    public const string Role = nameof(Role);
+    public const string SystemConfig = nameof(SystemConfig);
+    public const string Tag = nameof(Tag);
+    public const string TagType = nameof(TagType);
+    public const string User = nameof(User);
+    public const string UserDevice = nameof(UserDevice);
+    public const string UserNotification = nameof(UserNotification);
+    public const string UserRole = nameof(UserRole);
+    public const string UserSession = nameof(UserSession);
+    public const string UserStatus = nameof(UserStatus);
+    public const string UserVerificationToken = nameof(UserVerificationToken);
+    public const string Province = nameof(Province);
+    public const string Ward = nameof(Ward);
+    public const string PaymentTransaction = nameof(PaymentTransaction);
+    public const string PaymentStatus = nameof(PaymentStatus);
+    public const string PaymentMethod = nameof(PaymentMethod);
+    public const string AuditLog = nameof(AuditLog);
+    public const string DeliveryNote = nameof(DeliveryNote);
+    public const string FcmNotificationLog = nameof(FcmNotificationLog);
+    public const string Inventory = nameof(Inventory);
+    public const string InventoryTransaction = nameof(InventoryTransaction);
+    public const string IotDevice = nameof(IotDevice);
+    public const string IotDeviceCommand = nameof(IotDeviceCommand);
+    public const string IotWeightLog = nameof(IotWeightLog);
+    public const string Location = nameof(Location);
+    public const string Product = nameof(Product);
+    public const string ProductAttribute = nameof(ProductAttribute);
+    public const string ProductCategory = nameof(ProductCategory);
+    public const string ProductVariant = nameof(ProductVariant);
+    public const string PurchaseOrder = nameof(PurchaseOrder);
+    public const string PurchaseOrderItem = nameof(PurchaseOrderItem);
+    public const string PurchaseOrderStatus = nameof(PurchaseOrderStatus);
+    public const string SalesOrder = nameof(SalesOrder);
+    public const string SalesOrderItem = nameof(SalesOrderItem);
+    public const string SalesOrderStatus = nameof(SalesOrderStatus);
+    public const string StockAlertConfig = nameof(StockAlertConfig);
+    public const string StockTake = nameof(StockTake);
+    public const string StockTakeItem = nameof(StockTakeItem);
+    public const string StockTakeStatus = nameof(StockTakeStatus);
+    public const string Supplier = nameof(Supplier);
+    public const string UnitOfMeasure = nameof(UnitOfMeasure);
+    public const string Warehouse = nameof(Warehouse);
+}

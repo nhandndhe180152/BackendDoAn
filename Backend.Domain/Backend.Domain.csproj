@@ -1,0 +1,30 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.19" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Backend.Share/Backend.Share.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Abstractions/" />
+    <Folder Include="Abstractions/Entities/" />
+    <Folder Include="Abstractions/Repositories/" />
+    <Folder Include="Aggregates/" />
+    <Folder Include="Commons/" />
+    <Folder Include="DTParameters/" />
+    <Folder Include="Entities/" />
+    <Folder Include="Enums/" />
+    <Folder Include="Interfaces/" />
+    <Folder Include="Interfaces/Repositories/" />
+  </ItemGroup>
+
+</Project>

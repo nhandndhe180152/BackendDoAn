@@ -1,0 +1,105 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Backend.Domain/Backend.Domain.csproj" />
+    <ProjectReference Include="../Backend.Share/Backend.Share.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Constants/" />
+    <Folder Include="DependencyInjection/" />
+    <Folder Include="DependencyInjection/Extentions/" />
+    <Folder Include="DependencyInjection/Options/" />
+    <Folder Include="DTOs/" />
+    <Folder Include="DTOs/Actions/" />
+    <Folder Include="DTOs/ActivityLogs/" />
+    <Folder Include="DTOs/AuditLogs/" />
+    <Folder Include="DTOs/Auths/" />
+    <Folder Include="DTOs/BlogPostCategories/" />
+    <Folder Include="DTOs/BlogPostComments/" />
+    <Folder Include="DTOs/BlogPostLayouts/" />
+    <Folder Include="DTOs/BlogPosts/" />
+    <Folder Include="DTOs/BlogPostStatuses/" />
+    <Folder Include="DTOs/BlogPostTags/" />
+    <Folder Include="DTOs/Dashboards/" />
+    <Folder Include="DTOs/Emails/" />
+    <Folder Include="DTOs/ExportExcels/" />
+    <Folder Include="DTOs/Feedbacks/" />
+    <Folder Include="DTOs/FileUploads/" />
+    <Folder Include="DTOs/FolderUploads/" />
+    <Folder Include="DTOs/Inventories/" />
+    <Folder Include="DTOs/InventoryTransactions/" />
+    <Folder Include="DTOs/IotDeviceCommands/" />
+    <Folder Include="DTOs/IotDevices/" />
+    <Folder Include="DTOs/IotWeights/" />
+    <Folder Include="DTOs/Menus/" />
+    <Folder Include="DTOs/NotificationCategories/" />
+    <Folder Include="DTOs/Notifications/" />
+    <Folder Include="DTOs/NotificationTypes/" />
+    <Folder Include="DTOs/PaymentMethods/" />
+    <Folder Include="DTOs/PaymentStatuses/" />
+    <Folder Include="DTOs/PaymentTransactions/" />
+    <Folder Include="DTOs/Permissions/" />
+    <Folder Include="DTOs/Provinces/" />
+    <Folder Include="DTOs/Roles/" />
+    <Folder Include="DTOs/SystemConfigs/" />
+    <Folder Include="DTOs/Tags/" />
+    <Folder Include="DTOs/TagTypes/" />
+    <Folder Include="DTOs/UserDevices/" />
+    <Folder Include="DTOs/UserNotifications/" />
+    <Folder Include="DTOs/UserRoles/" />
+    <Folder Include="DTOs/Users/" />
+    <Folder Include="DTOs/UserSessions/" />
+    <Folder Include="DTOs/UserStatuses/" />
+    <Folder Include="DTOs/UserVerificationTokens/" />
+    <Folder Include="DTOs/Wards/" />
+    <Folder Include="Implements/" />
+    <Folder Include="Interfaces/" />
+    <Folder Include="Mappings/" />
+    <Folder Include="Validators/" />
+    <Folder Include="Validators/Actions/" />
+    <Folder Include="Validators/ActivityLogs/" />
+    <Folder Include="Validators/Auths/" />
+    <Folder Include="Validators/BlogCategories/" />
+    <Folder Include="Validators/BlogLayouts/" />
+    <Folder Include="Validators/BlogPosts/" />
+    <Folder Include="Validators/Feedbacks/" />
+    <Folder Include="Validators/FolderUploads/" />
+    <Folder Include="Validators/InventoryTransactions/" />
+    <Folder Include="Validators/IotDeviceCommands/" />
+    <Folder Include="Validators/IotDevices/" />
+    <Folder Include="Validators/IotWeights/" />
+    <Folder Include="Validators/Menus/" />
+    <Folder Include="Validators/NotificationCategories/" />
+    <Folder Include="Validators/Notifications/" />
+    <Folder Include="Validators/NotificationTypes/" />
+    <Folder Include="Validators/PaymentMethods/" />
+    <Folder Include="Validators/PaymentStatuses/" />
+    <Folder Include="Validators/Provinces/" />
+    <Folder Include="Validators/Roles/" />
+    <Folder Include="Validators/SystemConfigs/" />
+    <Folder Include="Validators/Tags/" />
+    <Folder Include="Validators/TagTypes/" />
+    <Folder Include="Validators/Users/" />
+    <Folder Include="Validators/UserStatuses/" />
+    <Folder Include="Validators/Wards/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BouncyCastle" Version="1.8.9" />
+    <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
+    <PackageReference Include="Handlebars.Net" Version="2.1.6" />
+    <PackageReference Include="itext7" Version="7.2.5" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.19" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="9.0.5" />
+    <PackageReference Include="NPOI" Version="2.7.4" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.10.0" />
+  </ItemGroup>
+
+</Project>
