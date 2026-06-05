@@ -43,11 +43,6 @@ public class BackendContext : DbContext
     public virtual DbSet<UserSession> UserSessions { get; set; }
     public virtual DbSet<UserStatus> UserStatuses { get; set; }
     public virtual DbSet<UserVerificationToken> UserVerificationTokens { get; set; }
-    public virtual DbSet<Province> Provinces { get; set; }
-    public virtual DbSet<Ward> Wards { get; set; }
-    public virtual DbSet<PaymentTransaction> PaymentTransactions { get; set; }
-    public virtual DbSet<PaymentStatus> PaymentStatuses { get; set; }
-    public virtual DbSet<PaymentMethod> PaymentMethods { get; set; }
     public virtual DbSet<AuditLog> AuditLogs { get; set; }
     public virtual DbSet<NotificationType> NotificationTypes { get; set; }
     public virtual DbSet<DeliveryNote> DeliveryNotes { get; set; }

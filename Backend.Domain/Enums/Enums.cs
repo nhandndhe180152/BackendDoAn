@@ -64,28 +64,11 @@ public static class Enums
             NOTIFICATION = 18,
             NOTIFICATION_LIST,
             NOTIFICATION_TYPE = 20,
-            MANAGE_TRANSACTION,
-            PAYMENT_METHOD = 22,
-            PAYMENT_STATUS = 23,
-            PAYMENT_TRANSACTION = 24,
             PROVINCE = 29,
             PRODUCT = 30,
             PRODUCT_CATEGORY = 31,
             PRODUCT_VARIANT = 32,
             PRODUCT_ATTRIBUTE = 33,
-        }
-
-        public enum PaymentStatus
-        {
-            PENDING = 1,
-            PAID,
-            PAID_FAILED
-        }
-
-        public enum PaymentMethod
-        {
-            BY_CASH = 1,
-            BY_BANK_TRANSFER
         }
 
         public enum Role

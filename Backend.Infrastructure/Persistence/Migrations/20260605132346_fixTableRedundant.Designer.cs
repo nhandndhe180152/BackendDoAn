@@ -4,6 +4,7 @@ using Backend.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Backend.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(BackendContext))]
-    partial class BackendContextModelSnapshot : ModelSnapshot
+    [Migration("20260605132346_fixTableRedundant")]
+    partial class fixTableRedundant
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2149,6 +2152,61 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.ToTable("ProductVariant", (string)null);
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.Province", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+
+                    b.Property<bool>("IsCentral")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValueSql("(0)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Province", (string)null);
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.Role", b =>
                 {
                     b.Property<int>("Id")
@@ -2713,6 +2771,9 @@ namespace Backend.Infrastructure.Persistence.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("varchar(500)");
 
+                    b.Property<int?>("ProvinceId")
+                        .HasColumnType("int");
+
                     b.Property<int?>("UpdatedBy")
                         .HasColumnType("int");
 
@@ -2724,11 +2785,18 @@ namespace Backend.Infrastructure.Persistence.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
 
+                    b.Property<int?>("WardId")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AvatarId");
 
+                    b.HasIndex("ProvinceId");
+
                     b.HasIndex("UserStatusId");
+
+                    b.HasIndex("WardId");
 
                     b.ToTable("User", (string)null);
 
@@ -3106,6 +3174,68 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("UserVerificationToken", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.Ward", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValueSql("(0)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("ProvinceCode")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int>("ProvinceId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProvinceId");
+
+                    b.ToTable("Ward", (string)null);
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.Warehouse", b =>
@@ -3683,11 +3813,19 @@ namespace Backend.Infrastructure.Persistence.Migrations
                         .HasForeignKey("AvatarId")
                         .HasConstraintName("FK_FileUpload_User");
 
+                    b.HasOne("Backend.Domain.Entities.Province", null)
+                        .WithMany("Users")
+                        .HasForeignKey("ProvinceId");
+
                     b.HasOne("Backend.Domain.Entities.UserStatus", "UserStatus")
                         .WithMany("Users")
                         .HasForeignKey("UserStatusId")
                         .IsRequired()
                         .HasConstraintName("FK_UserStatus_User");
+
+                    b.HasOne("Backend.Domain.Entities.Ward", null)
+                        .WithMany("Users")
+                        .HasForeignKey("WardId");
 
                     b.Navigation("Avatar");
 
@@ -3770,6 +3908,17 @@ namespace Backend.Infrastructure.Persistence.Migrations
                         .HasConstraintName("FK_User_UserVerificationToken");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.Ward", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.Province", "Province")
+                        .WithMany("Wards")
+                        .HasForeignKey("ProvinceId")
+                        .IsRequired()
+                        .HasConstraintName("FK_Province_Ward");
+
+                    b.Navigation("Province");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.Action", b =>
@@ -3884,6 +4033,13 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Navigation("SubCategories");
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.Province", b =>
+                {
+                    b.Navigation("Users");
+
+                    b.Navigation("Wards");
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.Role", b =>
                 {
                     b.Navigation("Permissions");
@@ -3932,6 +4088,11 @@ namespace Backend.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.UserStatus", b =>
+                {
+                    b.Navigation("Users");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.Ward", b =>
                 {
                     b.Navigation("Users");
                 });
