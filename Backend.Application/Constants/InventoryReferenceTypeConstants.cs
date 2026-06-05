@@ -4,16 +4,16 @@ namespace Backend.Application.Constants;
 
 public static class InventoryReferenceTypeConstants
 {
-    public const string PurchaseOrder = "PURCHASE_ORDER";
-    public const string SalesOrder = "SALES_ORDER";
+    public const string InboundOrder = "INBOUND_ORDER";
+    public const string OutboundOrder = "OUTBOUND_ORDER";
     public const string StockTake = "STOCK_TAKE";
     public const string Manual = "MANUAL";
     public const string OpeningBalance = "OPENING_BALANCE";
 
     public static readonly string[] All =
     [
-        PurchaseOrder,
-        SalesOrder,
+        InboundOrder,
+        OutboundOrder,
         StockTake,
         Manual,
         OpeningBalance
@@ -33,8 +33,8 @@ public static class InventoryReferenceTypeConstants
 
         return value switch
         {
-            "PO" or "PURCHASEORDER" or "PURCHASE_ORDER" => PurchaseOrder,
-            "SO" or "SALESORDER" or "SALES_ORDER" => SalesOrder,
+            "PO" or "PURCHASEORDER" or "PURCHASE_ORDER" or "IO" or "INBOUNDORDER" or "INBOUND_ORDER" => InboundOrder,
+            "SO" or "SALESORDER" or "SALES_ORDER" or "OO" or "OUTBOUNDORDER" or "OUTBOUND_ORDER" => OutboundOrder,
             "ST" or "STOCKTAKE" or "STOCK_TAKE" => StockTake,
             "OPENING" or "OPENING_BALANCE" => OpeningBalance,
             "MANUAL" => Manual,

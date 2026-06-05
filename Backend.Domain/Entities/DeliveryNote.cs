@@ -5,7 +5,7 @@ namespace Backend.Domain.Entities;
 
 public class DeliveryNote : EntityAuditBase<int>
 {
-    public int? PurchaseOrderId { get; set; }
+    public int? InboundOrderId { get; set; }
     public string? TrackingCode { get; set; }
     public string? CarrierName { get; set; }
     public string? SenderName { get; set; }
@@ -21,5 +21,5 @@ public class DeliveryNote : EntityAuditBase<int>
     public bool IsConfirmed { get; set; }
     
     public virtual FileUpload? OriginalImageFile { get; set; }
-    public virtual PurchaseOrder? PurchaseOrder { get; set; }
+    public virtual InboundOrder? InboundOrder { get; set; }
 }

@@ -3,9 +3,9 @@ using Backend.Domain.Abstractions;
 
 namespace Backend.Domain.Entities;
 
-public class SalesOrderItem : EntityAuditBase<int>
+public class OutboundOrderItem : EntityAuditBase<int>
 {
-    public int SalesOrderId { get; set; }
+    public int OutboundOrderId { get; set; }
     public int ProductVariantId { get; set; }
     public int QuantityOrdered { get; set; }
     public int QuantityPicked { get; set; }
@@ -15,6 +15,6 @@ public class SalesOrderItem : EntityAuditBase<int>
     public bool QRScanned { get; set; }
     public string? Note { get; set; }
 
-    public virtual SalesOrder SalesOrder { get; set; } = null!;
+    public virtual OutboundOrder OutboundOrder { get; set; } = null!;
     public virtual ProductVariant ProductVariant { get; set; } = null!;
 }

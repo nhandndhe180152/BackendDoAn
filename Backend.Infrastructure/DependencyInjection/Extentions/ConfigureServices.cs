@@ -92,8 +92,8 @@ public static class ConfigureServices
             .AddScoped<IIotDeviceCommandRepository, IotDeviceCommandRepository>()
             .AddScoped<IWarehouseRepository, WarehouseRepository>()
             .AddScoped<ILocationRepository, LocationRepository>()
-            .AddScoped<IPurchaseOrderItemRepository, PurchaseOrderItemRepository>()
-            .AddScoped<ISalesOrderItemRepository, SalesOrderItemRepository>()
+            .AddScoped<IInboundOrderItemRepository, InboundOrderItemRepository>()
+            .AddScoped<IOutboundOrderItemRepository, OutboundOrderItemRepository>()
             .AddScoped<IStockTakeItemRepository, StockTakeItemRepository>()
             .AddScoped<IInventoryRepository, InventoryRepository>()
             .AddScoped<IInventoryTransactionRepository, InventoryTransactionRepository>();

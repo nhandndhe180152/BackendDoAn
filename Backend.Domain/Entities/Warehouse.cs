@@ -14,8 +14,8 @@ public class Warehouse : EntityCommonBase<int>
     public virtual ICollection<Inventory> Inventories { get; set; } = new List<Inventory>();
     public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
     public virtual ICollection<IotDevice> IotDevices { get; set; } = new List<IotDevice>();
-    public virtual ICollection<PurchaseOrder> PurchaseOrders { get; set; } = new List<PurchaseOrder>();
-    public virtual ICollection<SalesOrder> SalesOrders { get; set; } = new List<SalesOrder>();
+    public virtual ICollection<InboundOrder> InboundOrders { get; set; } = new List<InboundOrder>();
+    public virtual ICollection<OutboundOrder> OutboundOrders { get; set; } = new List<OutboundOrder>();
     public virtual ICollection<StockTake> StockTakes { get; set; } = new List<StockTake>();
     public virtual ICollection<StockAlertConfig> StockAlertConfigs { get; set; } = new List<StockAlertConfig>();
 }

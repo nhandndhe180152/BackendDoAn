@@ -8,7 +8,7 @@ public class Inventory : EntityBase<int>
     public int WarehouseId { get; set; }
     public int? LocationId { get; set; }
     public int ProductVariantId { get; set; }
-    public int? PurchaseOrderId { get; set; }
+    public int? InboundOrderId { get; set; }
     public decimal CostPrice { get; set; }
     public int QuantityOnHand { get; set; }
     public int QuantityReserved { get; set; }
@@ -20,6 +20,6 @@ public class Inventory : EntityBase<int>
     public virtual Warehouse Warehouse { get; set; } = null!;
     public virtual ProductVariant ProductVariant { get; set; } = null!;
     public virtual Location? Location { get; set; }
-    public virtual PurchaseOrder? PurchaseOrder { get; set; } = null!;
+    public virtual InboundOrder? InboundOrder { get; set; } = null!;
     public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
 }

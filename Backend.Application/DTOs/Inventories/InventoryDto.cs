@@ -24,7 +24,7 @@ public class InventoryDto
 
     public string? ProductName { get; set; }
 
-    public int? PurchaseOrderId { get; set; }
+    public int? InboundOrderId { get; set; }
 
     public decimal CostPrice { get; set; }
 

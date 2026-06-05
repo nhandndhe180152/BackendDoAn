@@ -17,8 +17,8 @@ public class IotWeightService : IIotWeightService
     private readonly IIotWeightLogRepository _iotWeightLogRepository;
 
     private readonly IProductVariantRepository _productVariantRepository;
-    private readonly IPurchaseOrderItemRepository _purchaseOrderItemRepository;
-    private readonly ISalesOrderItemRepository _salesOrderItemRepository;
+    private readonly IInboundOrderItemRepository _inboundOrderItemRepository;
+    private readonly IOutboundOrderItemRepository _outboundOrderItemRepository;
     private readonly IStockTakeItemRepository _stockTakeItemRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
 
@@ -26,16 +26,16 @@ public class IotWeightService : IIotWeightService
         IIotDeviceRepository iotDeviceRepository,
         IIotWeightLogRepository iotWeightLogRepository,
         IProductVariantRepository productVariantRepository,
-        IPurchaseOrderItemRepository purchaseOrderItemRepository,
-        ISalesOrderItemRepository salesOrderItemRepository,
+        IInboundOrderItemRepository inboundOrderItemRepository,
+        IOutboundOrderItemRepository outboundOrderItemRepository,
         IStockTakeItemRepository stockTakeItemRepository,
         IHttpContextAccessor httpContextAccessor)
     {
         _iotDeviceRepository = iotDeviceRepository;
         _iotWeightLogRepository = iotWeightLogRepository;
         _productVariantRepository = productVariantRepository;
-        _purchaseOrderItemRepository = purchaseOrderItemRepository;
-        _salesOrderItemRepository = salesOrderItemRepository;
+        _inboundOrderItemRepository = inboundOrderItemRepository;
+        _outboundOrderItemRepository = outboundOrderItemRepository;
         _stockTakeItemRepository = stockTakeItemRepository;
         _httpContextAccessor = httpContextAccessor;
     }
@@ -180,12 +180,12 @@ public class IotWeightService : IIotWeightService
 
             switch (referenceType)
             {
-                case IotWeightReferenceTypeConstants.PurchaseOrder:
-                    referenceItemActualWeightKg = await AttachPurchaseOrderContextAsync(dto, log);
+                case IotWeightReferenceTypeConstants.InboundOrder:
+                    referenceItemActualWeightKg = await AttachInboundOrderContextAsync(dto, log);
                     break;
 
-                case IotWeightReferenceTypeConstants.SalesOrder:
-                    referenceItemActualWeightKg = await AttachSalesOrderContextAsync(dto, log);
+                case IotWeightReferenceTypeConstants.OutboundOrder:
+                    referenceItemActualWeightKg = await AttachOutboundOrderContextAsync(dto, log);
                     break;
 
                 case IotWeightReferenceTypeConstants.StockTake:
@@ -237,27 +237,27 @@ public class IotWeightService : IIotWeightService
         }
     }
 
-    private async Task<decimal?> AttachPurchaseOrderContextAsync(AttachIotWeightContextDto dto, Domain.Entities.IotWeightLog log)
+    private async Task<decimal?> AttachInboundOrderContextAsync(AttachIotWeightContextDto dto, Domain.Entities.IotWeightLog log)
     {
         if (!dto.ReferenceId.HasValue || !dto.ReferenceItemId.HasValue || !dto.ProductVariantId.HasValue)
         {
-            throw new InvalidOperationException("Thiếu ReferenceId, ReferenceItemId hoặc ProductVariantId cho PURCHASE_ORDER.");
+            throw new InvalidOperationException("Thiếu ReferenceId, ReferenceItemId hoặc ProductVariantId cho INBOUND_ORDER.");
         }
 
-        var item = await _purchaseOrderItemRepository.GetByIdForWeightAttachAsync(dto.ReferenceItemId.Value);
+        var item = await _inboundOrderItemRepository.GetByIdForWeightAttachAsync(dto.ReferenceItemId.Value);
         if (item == null)
         {
-            throw new KeyNotFoundException("Không tìm thấy PurchaseOrderItem.");
+            throw new KeyNotFoundException("Không tìm thấy InboundOrderItem.");
         }
 
-        if (item.PurchaseOrderId != dto.ReferenceId.Value)
+        if (item.InboundOrderId != dto.ReferenceId.Value)
         {
-            throw new InvalidOperationException("PurchaseOrderItem không thuộc PurchaseOrder được gửi lên.");
+            throw new InvalidOperationException("InboundOrderItem không thuộc InboundOrder được gửi lên.");
         }
 
         if (item.ProductVariantId != dto.ProductVariantId.Value)
         {
-            throw new InvalidOperationException("SKU của PurchaseOrderItem không khớp với ProductVariantId được gửi lên.");
+            throw new InvalidOperationException("SKU của InboundOrderItem không khớp với ProductVariantId được gửi lên.");
         }
 
         if (dto.UpdateReferenceItemActualWeight)
@@ -266,33 +266,33 @@ public class IotWeightService : IIotWeightService
             item.UpdatedBy = _httpContextAccessor.HttpContext?.GetCurrentUserId();
             item.LastModifiedDate = DateTime.Now;
 
-            await _purchaseOrderItemRepository.UpdateAsync(item);
+            await _inboundOrderItemRepository.UpdateAsync(item);
         }
 
         return item.ActualWeightKg;
     }
 
-    private async Task<decimal?> AttachSalesOrderContextAsync(AttachIotWeightContextDto dto, Domain.Entities.IotWeightLog log)
+    private async Task<decimal?> AttachOutboundOrderContextAsync(AttachIotWeightContextDto dto, Domain.Entities.IotWeightLog log)
     {
         if (!dto.ReferenceId.HasValue || !dto.ReferenceItemId.HasValue || !dto.ProductVariantId.HasValue)
         {
-            throw new InvalidOperationException("Thiếu ReferenceId, ReferenceItemId hoặc ProductVariantId cho SALES_ORDER.");
+            throw new InvalidOperationException("Thiếu ReferenceId, ReferenceItemId hoặc ProductVariantId cho OUTBOUND_ORDER.");
         }
 
-        var item = await _salesOrderItemRepository.GetByIdForWeightAttachAsync(dto.ReferenceItemId.Value);
+        var item = await _outboundOrderItemRepository.GetByIdForWeightAttachAsync(dto.ReferenceItemId.Value);
         if (item == null)
         {
-            throw new KeyNotFoundException("Không tìm thấy SalesOrderItem.");
+            throw new KeyNotFoundException("Không tìm thấy OutboundOrderItem.");
         }
 
-        if (item.SalesOrderId != dto.ReferenceId.Value)
+        if (item.OutboundOrderId != dto.ReferenceId.Value)
         {
-            throw new InvalidOperationException("SalesOrderItem không thuộc SalesOrder được gửi lên.");
+            throw new InvalidOperationException("OutboundOrderItem không thuộc OutboundOrder được gửi lên.");
         }
 
         if (item.ProductVariantId != dto.ProductVariantId.Value)
         {
-            throw new InvalidOperationException("SKU của SalesOrderItem không khớp với ProductVariantId được gửi lên.");
+            throw new InvalidOperationException("SKU của OutboundOrderItem không khớp với ProductVariantId được gửi lên.");
         }
 
         if (dto.UpdateReferenceItemActualWeight)
@@ -301,7 +301,7 @@ public class IotWeightService : IIotWeightService
             item.UpdatedBy = _httpContextAccessor.HttpContext?.GetCurrentUserId();
             item.LastModifiedDate = DateTime.Now;
 
-            await _salesOrderItemRepository.UpdateAsync(item);
+            await _outboundOrderItemRepository.UpdateAsync(item);
         }
 
         return item.ActualWeightKg;
