@@ -31,10 +31,5 @@ public class FileUploadConfiguration : IEntityTypeConfiguration<FileUpload>
             .HasForeignKey(x => x.AvatarId)
             .HasConstraintName("FK_FileUpload_User")
             .OnDelete(DeleteBehavior.ClientSetNull);
-        builder.HasMany(x => x.BlogPosts)
-            .WithOne(x => x.CoverImage)
-            .HasForeignKey(x => x.CoverImageId)
-            .HasConstraintName("FK_FileUpload_BlogPost")
-            .OnDelete(DeleteBehavior.ClientSetNull);
     }
 }

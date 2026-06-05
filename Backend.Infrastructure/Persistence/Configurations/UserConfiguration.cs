@@ -48,11 +48,6 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             .HasForeignKey(x => x.UserId)
             .HasConstraintName("FK_User_UserRole")
             .OnDelete(DeleteBehavior.ClientSetNull);
-        builder.HasMany(x => x.BlogPosts)
-            .WithOne(x => x.Author)
-            .HasForeignKey(x => x.AuthorId)
-            .HasConstraintName("FK_User_BlogPost")
-            .OnDelete(DeleteBehavior.ClientSetNull);
         builder.HasMany(x => x.UserNotifications)
             .WithOne(x => x.User)
             .HasForeignKey(x => x.UserId)

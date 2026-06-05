@@ -4,6 +4,7 @@ using Backend.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Backend.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(BackendContext))]
-    partial class BackendContextModelSnapshot : ModelSnapshot
+    [Migration("20260605133717_fixTableRedundantV2")]
+    partial class fixTableRedundantV2
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -269,6 +272,345 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.ToTable("AuditLog", (string)null);
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.BlogPost", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ApprovalDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("AuthorId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("BlogPostCategoryId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("BlogPostLayoutId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("BlogPostStatusId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<int?>("CoverImageId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<bool>("IsApproved")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValueSql("(0)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValueSql("(0)");
+
+                    b.Property<bool>("IsPopular")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValueSql("(0)");
+
+                    b.Property<bool>("IsShowOnHomePage")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValueSql("(0)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("PublicationDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("SeoAlias")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuthorId");
+
+                    b.HasIndex("BlogPostCategoryId");
+
+                    b.HasIndex("BlogPostLayoutId");
+
+                    b.HasIndex("BlogPostStatusId");
+
+                    b.HasIndex("CoverImageId");
+
+                    b.ToTable("BlogPost", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.BlogPostCategory", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValueSql("(0)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("SeoAlias")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("BlogPostCategory", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.BlogPostComment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ApprovalDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("BlogPostId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+
+                    b.Property<bool>("IsApproved")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValueSql("(0)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValueSql("(0)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("ParentId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TreeIds")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BlogPostId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("BlogPostComment", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.BlogPostLayout", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValueSql("(0)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("BlogPostLayout", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.BlogPostStatus", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValueSql("(0)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("BlogPostStatus", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.BlogPostTag", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BlogPostId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValueSql("(0)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("TagId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BlogPostId");
+
+                    b.HasIndex("TagId");
+
+                    b.ToTable("BlogPostTag", (string)null);
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.DeliveryNote", b =>
                 {
                     b.Property<int>("Id")
@@ -406,6 +748,48 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("FcmNotificationLog", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.Feedback", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValueSql("(0)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Feedback", (string)null);
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.FileUpload", b =>
@@ -2118,6 +2502,93 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.ToTable("SystemConfig", (string)null);
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.Tag", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValueSql("(0)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int>("TagTypeId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TagTypeId");
+
+                    b.ToTable("Tag", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.TagType", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValueSql("(0)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("TagType", (string)null);
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.UnitOfMeasure", b =>
                 {
                     b.Property<int>("Id")
@@ -2704,6 +3175,86 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Navigation("Menu");
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.BlogPost", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.User", "Author")
+                        .WithMany("BlogPosts")
+                        .HasForeignKey("AuthorId")
+                        .IsRequired()
+                        .HasConstraintName("FK_User_BlogPost");
+
+                    b.HasOne("Backend.Domain.Entities.BlogPostCategory", "BlogCategory")
+                        .WithMany("BlogPosts")
+                        .HasForeignKey("BlogPostCategoryId")
+                        .IsRequired()
+                        .HasConstraintName("FK_BlogCategory_BlogPost");
+
+                    b.HasOne("Backend.Domain.Entities.BlogPostLayout", "BlogPostLayout")
+                        .WithMany("BlogPosts")
+                        .HasForeignKey("BlogPostLayoutId")
+                        .IsRequired()
+                        .HasConstraintName("FK_BlogPostLayout_BlogPost");
+
+                    b.HasOne("Backend.Domain.Entities.BlogPostStatus", "BlogPostStatus")
+                        .WithMany("BlogPosts")
+                        .HasForeignKey("BlogPostStatusId")
+                        .IsRequired()
+                        .HasConstraintName("FK_BlogPostStaus_BlogPost");
+
+                    b.HasOne("Backend.Domain.Entities.FileUpload", "CoverImage")
+                        .WithMany("BlogPosts")
+                        .HasForeignKey("CoverImageId")
+                        .HasConstraintName("FK_FileUpload_BlogPost");
+
+                    b.Navigation("Author");
+
+                    b.Navigation("BlogCategory");
+
+                    b.Navigation("BlogPostLayout");
+
+                    b.Navigation("BlogPostStatus");
+
+                    b.Navigation("CoverImage");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.BlogPostComment", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.BlogPost", "BlogPost")
+                        .WithMany("BlogComments")
+                        .HasForeignKey("BlogPostId")
+                        .IsRequired()
+                        .HasConstraintName("FK_BlogPost_BlogComment");
+
+                    b.HasOne("Backend.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("BlogPost");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.BlogPostTag", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.BlogPost", "BlogPost")
+                        .WithMany("BlogTags")
+                        .HasForeignKey("BlogPostId")
+                        .IsRequired()
+                        .HasConstraintName("FK_BlogPost_BlogTag");
+
+                    b.HasOne("Backend.Domain.Entities.Tag", "Tag")
+                        .WithMany("BlogTags")
+                        .HasForeignKey("TagId")
+                        .IsRequired()
+                        .HasConstraintName("FK_Tag_BlogTag");
+
+                    b.Navigation("BlogPost");
+
+                    b.Navigation("Tag");
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.DeliveryNote", b =>
                 {
                     b.HasOne("Backend.Domain.Entities.FileUpload", "OriginalImageFile")
@@ -3117,6 +3668,17 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Navigation("StockTake");
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.Tag", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.TagType", "TagType")
+                        .WithMany("Tags")
+                        .HasForeignKey("TagTypeId")
+                        .IsRequired()
+                        .HasConstraintName("FK_TagType_Tag");
+
+                    b.Navigation("TagType");
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.User", b =>
                 {
                     b.HasOne("Backend.Domain.Entities.FileUpload", "Avatar")
@@ -3220,6 +3782,28 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Navigation("Permissions");
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.BlogPost", b =>
+                {
+                    b.Navigation("BlogComments");
+
+                    b.Navigation("BlogTags");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.BlogPostCategory", b =>
+                {
+                    b.Navigation("BlogPosts");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.BlogPostLayout", b =>
+                {
+                    b.Navigation("BlogPosts");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.BlogPostStatus", b =>
+                {
+                    b.Navigation("BlogPosts");
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.DeliveryNote", b =>
                 {
                     b.Navigation("InboundOrder");
@@ -3227,6 +3811,8 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Backend.Domain.Entities.FileUpload", b =>
                 {
+                    b.Navigation("BlogPosts");
+
                     b.Navigation("Users");
                 });
 
@@ -3318,8 +3904,20 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Navigation("StockTakes");
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.Tag", b =>
+                {
+                    b.Navigation("BlogTags");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.TagType", b =>
+                {
+                    b.Navigation("Tags");
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.User", b =>
                 {
+                    b.Navigation("BlogPosts");
+
                     b.Navigation("UserDevices");
 
                     b.Navigation("UserNotifications");

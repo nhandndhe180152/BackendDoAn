@@ -35,8 +35,6 @@ public class User : EntityAuditBase<int>
     [JsonIgnore]
     public virtual ICollection<UserRole> UserRoles { get; set; }
     [JsonIgnore]
-    public virtual ICollection<BlogPost> BlogPosts { get; set; }
-    [JsonIgnore]
     public virtual ICollection<UserNotification> UserNotifications { get; set; }
     [JsonIgnore]
     public virtual ICollection<UserVerificationToken> UserVerificationTokens { get; set; }
