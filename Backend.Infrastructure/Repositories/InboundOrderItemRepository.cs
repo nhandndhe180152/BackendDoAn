@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Backend.Domain.Abstractions;
 using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
@@ -7,19 +8,19 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Infrastructure.Repositories;
 
-public class PurchaseOrderItemRepository : RepositoryBase<PurchaseOrderItem, int>, IPurchaseOrderItemRepository
+public class InboundOrderItemRepository : RepositoryBase<InboundOrderItem, int>, IInboundOrderItemRepository
 {
     private readonly BackendContext _context;
 
-    public PurchaseOrderItemRepository(BackendContext context, IUnitOfWork unitOfWork) : base(context, unitOfWork)
+    public InboundOrderItemRepository(BackendContext context, IUnitOfWork unitOfWork) : base(context, unitOfWork)
     {
         _context = context;
     }
 
-    public async Task<PurchaseOrderItem?> GetByIdForWeightAttachAsync(int id)
+    public async Task<InboundOrderItem?> GetByIdForWeightAttachAsync(int id)
     {
-        return await _context.PurchaseOrderItems
-            .Include(x => x.PurchaseOrder)
+        return await _context.InboundOrderItems
+            .Include(x => x.InboundOrder)
             .Include(x => x.ProductVariant)
             .FirstOrDefaultAsync(x => !x.IsDeleted && x.Id == id);
     }

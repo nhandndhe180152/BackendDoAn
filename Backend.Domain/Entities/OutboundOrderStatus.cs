@@ -4,10 +4,10 @@ using Backend.Domain.Abstractions;
 
 namespace Backend.Domain.Entities;
 
-public class SalesOrderStatus : EntityAuditBase<int>
+public class OutboundOrderStatus : EntityAuditBase<int>
 {
     public string Name { get; set; } = null!;
     public string Color { get; set; } = null!;
 
-    public virtual ICollection<SalesOrder> SalesOrders { get; set; } = new List<SalesOrder>();
+    public virtual ICollection<OutboundOrder> OutboundOrders { get; set; } = new List<OutboundOrder>();
 }

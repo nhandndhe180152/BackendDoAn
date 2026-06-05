@@ -6,21 +6,21 @@ using Backend.Domain.Entities;
 
 namespace Backend.Infrastructure.Persistence.Configurations;
 
-public class PurchaseOrderConfiguration : IEntityTypeConfiguration<PurchaseOrder>
+public class InboundOrderConfiguration : IEntityTypeConfiguration<InboundOrder>
 {
-    public void Configure(EntityTypeBuilder<PurchaseOrder> builder)
+    public void Configure(EntityTypeBuilder<InboundOrder> builder)
     {
-        builder.ToTable(TableNames.PurchaseOrder);
+        builder.ToTable(TableNames.InboundOrder);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id)
             .ValueGeneratedOnAdd();
 
-        builder.Property(x => x.TotalAmount)
+        builder.Property(x => x.TotalAssetValue)
             .HasColumnType("decimal(18,2)");
 
         builder.HasOne(x => x.DeliveryNote)
-            .WithOne(x => x.PurchaseOrder)
-            .HasForeignKey<PurchaseOrder>(x => x.DeliveryNoteId)
+            .WithOne(x => x.InboundOrder)
+            .HasForeignKey<InboundOrder>(x => x.DeliveryNoteId)
             .IsRequired(false);
     }
 }

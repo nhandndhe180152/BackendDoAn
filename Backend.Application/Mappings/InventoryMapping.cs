@@ -31,7 +31,7 @@ public static class InventoryMapping
             ProductVariantName = entity.ProductVariant?.Name,
             ProductId = entity.ProductVariant?.ProductId ?? 0,
             ProductName = entity.ProductVariant?.Product?.Name,
-            PurchaseOrderId = entity.PurchaseOrderId,
+            InboundOrderId = entity.InboundOrderId,
             CostPrice = entity.CostPrice,
             QuantityOnHand = entity.QuantityOnHand,
             QuantityReserved = entity.QuantityReserved,

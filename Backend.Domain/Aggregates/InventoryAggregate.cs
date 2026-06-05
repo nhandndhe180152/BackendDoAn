@@ -24,7 +24,7 @@ public class InventoryAggregate
 
     public string ProductName { get; set; } = null!;
 
-    public int? PurchaseOrderId { get; set; }
+    public int? InboundOrderId { get; set; }
 
     public decimal CostPrice { get; set; }
 

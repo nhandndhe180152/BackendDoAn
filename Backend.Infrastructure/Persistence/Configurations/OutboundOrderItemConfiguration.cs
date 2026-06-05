@@ -6,11 +6,11 @@ using Backend.Domain.Entities;
 
 namespace Backend.Infrastructure.Persistence.Configurations;
 
-public class PurchaseOrderItemConfiguration : IEntityTypeConfiguration<PurchaseOrderItem>
+public class OutboundOrderItemConfiguration : IEntityTypeConfiguration<OutboundOrderItem>
 {
-    public void Configure(EntityTypeBuilder<PurchaseOrderItem> builder)
+    public void Configure(EntityTypeBuilder<OutboundOrderItem> builder)
     {
-        builder.ToTable(TableNames.PurchaseOrderItem);
+        builder.ToTable(TableNames.OutboundOrderItem);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id)
             .ValueGeneratedOnAdd();

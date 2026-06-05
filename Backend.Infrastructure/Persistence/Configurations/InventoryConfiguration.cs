@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Backend.Infrastructure.Constants;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -39,9 +39,9 @@ public class InventoryConfiguration : IEntityTypeConfiguration<Inventory>
             .HasForeignKey(x => x.ProductVariantId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        builder.HasOne(x => x.PurchaseOrder)
+        builder.HasOne(x => x.InboundOrder)
             .WithMany()
-            .HasForeignKey(x => x.PurchaseOrderId)
+            .HasForeignKey(x => x.InboundOrderId)
             .OnDelete(DeleteBehavior.SetNull);
 
         builder.HasIndex(x => x.LocationId)

@@ -22,8 +22,8 @@ public class ProductVariantService : IProductVariantService
     private readonly IProductVariantRepository _productVariantRepository;
     private readonly IStorageService _storageService;
     private readonly IRepositoryBase<Inventory, int> _inventoryRepository;
-    private readonly IRepositoryBase<PurchaseOrderItem, int> _purchaseOrderItemRepository;
-    private readonly IRepositoryBase<SalesOrderItem, int> _salesOrderItemRepository;
+    private readonly IRepositoryBase<InboundOrderItem, int> _inboundOrderItemRepository;
+    private readonly IRepositoryBase<OutboundOrderItem, int> _outboundOrderItemRepository;
     private readonly IRepositoryBase<StockTakeItem, int> _stockTakeItemRepository;
 
     /// Khởi tạo ProductVariantService
@@ -31,15 +31,15 @@ public class ProductVariantService : IProductVariantService
         IProductVariantRepository productVariantRepository,
         IStorageService storageService,
         IRepositoryBase<Inventory, int> inventoryRepository,
-        IRepositoryBase<PurchaseOrderItem, int> purchaseOrderItemRepository,
-        IRepositoryBase<SalesOrderItem, int> salesOrderItemRepository,
+        IRepositoryBase<InboundOrderItem, int> inboundOrderItemRepository,
+        IRepositoryBase<OutboundOrderItem, int> outboundOrderItemRepository,
         IRepositoryBase<StockTakeItem, int> stockTakeItemRepository)
     {
         _productVariantRepository = productVariantRepository;
         _storageService = storageService;
         _inventoryRepository = inventoryRepository;
-        _purchaseOrderItemRepository = purchaseOrderItemRepository;
-        _salesOrderItemRepository = salesOrderItemRepository;
+        _inboundOrderItemRepository = inboundOrderItemRepository;
+        _outboundOrderItemRepository = outboundOrderItemRepository;
         _stockTakeItemRepository = stockTakeItemRepository;
     }
 
@@ -295,11 +295,11 @@ public class ProductVariantService : IProductVariantService
         // Nếu có truyền kèm tài liệu liên quan, kiểm tra xem biến thể này có thuộc chứng từ đó không
         if (!string.IsNullOrEmpty(documentType) && documentId.HasValue)
         {
-            if (documentType.Equals("PurchaseOrder", StringComparison.OrdinalIgnoreCase))
+            if (documentType.Equals("PurchaseOrder", StringComparison.OrdinalIgnoreCase) || documentType.Equals("InboundOrder", StringComparison.OrdinalIgnoreCase))
             {
                 // Kiểm tra xem sản phẩm có nằm trong Phiếu mua hàng (Nhập kho) không
-                var poItem = await _purchaseOrderItemRepository
-                    .FindByCondition(x => x.PurchaseOrderId == documentId.Value && x.ProductVariantId == variant.Id && !x.IsDeleted)
+                var poItem = await _inboundOrderItemRepository
+                    .FindByCondition(x => x.InboundOrderId == documentId.Value && x.ProductVariantId == variant.Id && !x.IsDeleted)
                     .FirstOrDefaultAsync();
 
                 if (poItem != null)
@@ -308,18 +308,18 @@ public class ProductVariantService : IProductVariantService
                     result.DocumentQuantityOrdered = poItem.QuantityOrdered;
                     result.DocumentQuantityProcessed = poItem.QuantityReceived;
                     result.IsQrScanned = poItem.QRScanned;
-                    result.Message = "Sản phẩm hợp lệ và thuộc Phiếu mua hàng (Purchase Order).";
+                    result.Message = "Sản phẩm hợp lệ và thuộc Phiếu mua hàng (Inbound Order).";
                 }
                 else
                 {
                     result.Message = "Sản phẩm KHÔNG thuộc Phiếu mua hàng này.";
                 }
             }
-            else if (documentType.Equals("SalesOrder", StringComparison.OrdinalIgnoreCase))
+            else if (documentType.Equals("SalesOrder", StringComparison.OrdinalIgnoreCase) || documentType.Equals("OutboundOrder", StringComparison.OrdinalIgnoreCase))
             {
                 // Kiểm tra xem sản phẩm có nằm trong Đơn bán hàng (Xuất kho) không
-                var soItem = await _salesOrderItemRepository
-                    .FindByCondition(x => x.SalesOrderId == documentId.Value && x.ProductVariantId == variant.Id && !x.IsDeleted)
+                var soItem = await _outboundOrderItemRepository
+                    .FindByCondition(x => x.OutboundOrderId == documentId.Value && x.ProductVariantId == variant.Id && !x.IsDeleted)
                     .FirstOrDefaultAsync();
 
                 if (soItem != null)
@@ -328,7 +328,7 @@ public class ProductVariantService : IProductVariantService
                     result.DocumentQuantityOrdered = soItem.QuantityOrdered;
                     result.DocumentQuantityProcessed = soItem.QuantityPicked;
                     result.IsQrScanned = soItem.QRScanned;
-                    result.Message = "Sản phẩm hợp lệ và thuộc Đơn bán hàng (Sales Order).";
+                    result.Message = "Sản phẩm hợp lệ và thuộc Đơn bán hàng (Outbound Order).";
                 }
                 else
                 {
@@ -377,10 +377,10 @@ public class ProductVariantService : IProductVariantService
         if (variant == null)
             return ApiResponse.NotFound(message: $"Không tìm thấy biến thể sản phẩm với SKU '{request.Sku}'.");
 
-        if (request.DocumentType.Equals("PurchaseOrder", StringComparison.OrdinalIgnoreCase))
+        if (request.DocumentType.Equals("PurchaseOrder", StringComparison.OrdinalIgnoreCase) || request.DocumentType.Equals("InboundOrder", StringComparison.OrdinalIgnoreCase))
         {
-            var poItem = await _purchaseOrderItemRepository
-                .FindByCondition(x => x.PurchaseOrderId == request.DocumentId && x.ProductVariantId == variant.Id && !x.IsDeleted)
+            var poItem = await _inboundOrderItemRepository
+                .FindByCondition(x => x.InboundOrderId == request.DocumentId && x.ProductVariantId == variant.Id && !x.IsDeleted)
                 .FirstOrDefaultAsync();
 
             if (poItem == null)
@@ -390,15 +390,15 @@ public class ProductVariantService : IProductVariantService
             poItem.QuantityReceived += request.Quantity;
             poItem.LastModifiedDate = DateTime.Now;
             
-            await _purchaseOrderItemRepository.UpdateAsync(poItem);
-            await _purchaseOrderItemRepository.SaveChangesAsync();
+            await _inboundOrderItemRepository.UpdateAsync(poItem);
+            await _inboundOrderItemRepository.SaveChangesAsync();
 
             return ApiResponse.Success(message: "Xác nhận quét mã QR nhập kho thành công.");
         }
-        else if (request.DocumentType.Equals("SalesOrder", StringComparison.OrdinalIgnoreCase))
+        else if (request.DocumentType.Equals("SalesOrder", StringComparison.OrdinalIgnoreCase) || request.DocumentType.Equals("OutboundOrder", StringComparison.OrdinalIgnoreCase))
         {
-            var soItem = await _salesOrderItemRepository
-                .FindByCondition(x => x.SalesOrderId == request.DocumentId && x.ProductVariantId == variant.Id && !x.IsDeleted)
+            var soItem = await _outboundOrderItemRepository
+                .FindByCondition(x => x.OutboundOrderId == request.DocumentId && x.ProductVariantId == variant.Id && !x.IsDeleted)
                 .FirstOrDefaultAsync();
 
             if (soItem == null)
@@ -408,8 +408,8 @@ public class ProductVariantService : IProductVariantService
             soItem.QuantityPicked += request.Quantity;
             soItem.LastModifiedDate = DateTime.Now;
 
-            await _salesOrderItemRepository.UpdateAsync(soItem);
-            await _salesOrderItemRepository.SaveChangesAsync();
+            await _outboundOrderItemRepository.UpdateAsync(soItem);
+            await _outboundOrderItemRepository.SaveChangesAsync();
 
             return ApiResponse.Success(message: "Xác nhận quét mã QR xuất kho thành công.");
         }

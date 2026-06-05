@@ -4,15 +4,15 @@ namespace Backend.Application.Constants;
 
 public static class IotWeightReferenceTypeConstants
 {
-    public const string PurchaseOrder = "PURCHASE_ORDER";
-    public const string SalesOrder = "SALES_ORDER";
+    public const string InboundOrder = "INBOUND_ORDER";
+    public const string OutboundOrder = "OUTBOUND_ORDER";
     public const string StockTake = "STOCK_TAKE";
     public const string Manual = "MANUAL";
 
     public static readonly string[] All =
     [
-        PurchaseOrder,
-        SalesOrder,
+        InboundOrder,
+        OutboundOrder,
         StockTake,
         Manual
     ];
@@ -31,8 +31,8 @@ public static class IotWeightReferenceTypeConstants
 
         return value switch
         {
-            "PO" or "PURCHASEORDER" or "PURCHASE_ORDER" => PurchaseOrder,
-            "SO" or "SALESORDER" or "SALES_ORDER" => SalesOrder,
+            "PO" or "PURCHASEORDER" or "PURCHASE_ORDER" or "IO" or "INBOUNDORDER" or "INBOUND_ORDER" => InboundOrder,
+            "SO" or "SALESORDER" or "SALES_ORDER" or "OO" or "OUTBOUNDORDER" or "OUTBOUND_ORDER" => OutboundOrder,
             "ST" or "STOCKTAKE" or "STOCK_TAKE" => StockTake,
             "MANUAL" => Manual,
             _ => value
@@ -48,6 +48,6 @@ public static class IotWeightReferenceTypeConstants
     public static bool RequiresReferenceItem(string? referenceType)
     {
         var normalized = Normalize(referenceType);
-        return normalized is PurchaseOrder or SalesOrder or StockTake;
+        return normalized is InboundOrder or OutboundOrder or StockTake;
     }
 }

@@ -62,12 +62,12 @@ public class BackendContext : DbContext
     public virtual DbSet<ProductAttribute> ProductAttributes { get; set; }
     public virtual DbSet<ProductCategory> ProductCategories { get; set; }
     public virtual DbSet<ProductVariant> ProductVariants { get; set; }
-    public virtual DbSet<PurchaseOrder> PurchaseOrders { get; set; }
-    public virtual DbSet<PurchaseOrderItem> PurchaseOrderItems { get; set; }
-    public virtual DbSet<PurchaseOrderStatus> PurchaseOrderStatuses { get; set; }
-    public virtual DbSet<SalesOrder> SalesOrders { get; set; }
-    public virtual DbSet<SalesOrderItem> SalesOrderItems { get; set; }
-    public virtual DbSet<SalesOrderStatus> SalesOrderStatuses { get; set; }
+    public virtual DbSet<InboundOrder> InboundOrders { get; set; }
+    public virtual DbSet<InboundOrderItem> InboundOrderItems { get; set; }
+    public virtual DbSet<InboundOrderStatus> InboundOrderStatuses { get; set; }
+    public virtual DbSet<OutboundOrder> OutboundOrders { get; set; }
+    public virtual DbSet<OutboundOrderItem> OutboundOrderItems { get; set; }
+    public virtual DbSet<OutboundOrderStatus> OutboundOrderStatuses { get; set; }
     public virtual DbSet<StockAlertConfig> StockAlertConfigs { get; set; }
     public virtual DbSet<StockTake> StockTakes { get; set; }
     public virtual DbSet<StockTakeItem> StockTakeItems { get; set; }
