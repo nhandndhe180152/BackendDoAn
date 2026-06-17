@@ -5,7 +5,7 @@ namespace Backend.Domain.Entities;
 
 public class DeliveryNote : EntityAuditBase<int>
 {
-    public int? InboundOrderId { get; set; }
+    // InboundOrderId scalar removed — quan hệ 1-1 do InboundOrder.DeliveryNoteId sở hữu
     public string? TrackingCode { get; set; }
     public string? CarrierName { get; set; }
     public string? SenderName { get; set; }
@@ -19,7 +19,7 @@ public class DeliveryNote : EntityAuditBase<int>
     public string? RawOcrText { get; set; }
     public int? OriginalImageFileId { get; set; }
     public bool IsConfirmed { get; set; }
-    
+
     public virtual FileUpload? OriginalImageFile { get; set; }
     public virtual InboundOrder? InboundOrder { get; set; }
 }

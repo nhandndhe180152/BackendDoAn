@@ -63,4 +63,11 @@ public static class TableNames
     public const string Supplier = nameof(Supplier);
     public const string UnitOfMeasure = nameof(UnitOfMeasure);
     public const string Warehouse = nameof(Warehouse);
+    public const string Alert = nameof(Alert);
+    public const string CustomerReturnOrder = nameof(CustomerReturnOrder);
+    public const string CustomerReturnOrderItem = nameof(CustomerReturnOrderItem);
+    public const string CustomerReturnOrderStatus = nameof(CustomerReturnOrderStatus);
+    public const string ReturnToSupplierOrder = nameof(ReturnToSupplierOrder);
+    public const string ReturnToSupplierOrderItem = nameof(ReturnToSupplierOrderItem);
+    public const string ReturnToSupplierOrderStatus = nameof(ReturnToSupplierOrderStatus);
 }

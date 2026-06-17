@@ -15,9 +15,15 @@ public class InboundOrderConfiguration : IEntityTypeConfiguration<InboundOrder>
         builder.Property(x => x.Id)
             .ValueGeneratedOnAdd();
 
+        builder.Property(x => x.POCode).HasMaxLength(50);
         builder.Property(x => x.TotalAssetValue)
             .HasColumnType("decimal(18,2)");
 
+        builder.HasIndex(x => x.POCode)
+            .IsUnique()
+            .HasDatabaseName("UX_InboundOrder_POCode");
+
+        // 1-1 DeliveryNote — InboundOrder sở hữu FK
         builder.HasOne(x => x.DeliveryNote)
             .WithOne(x => x.InboundOrder)
             .HasForeignKey<InboundOrder>(x => x.DeliveryNoteId)

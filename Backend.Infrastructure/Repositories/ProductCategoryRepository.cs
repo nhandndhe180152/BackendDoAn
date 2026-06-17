@@ -47,7 +47,7 @@ public class ProductCategoryRepository : RepositoryBase<ProductCategory, int>, I
                 Id = x.Id,
                 Name = x.Name,
                 Description = x.Description,
-                ParentId = x.ParentId,
+                ParentId = x.ParentCategoryId,
                 ParentName = x.ParentCategory != null ? x.ParentCategory.Name : null,
                 TreeIds = x.TreeIds,
                 SortOrder = x.SortOrder,

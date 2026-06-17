@@ -6,7 +6,7 @@ namespace Backend.Domain.Entities;
 
 public class ProductCategory : EntityCommonBase<int>
 {
-    public int? ParentId { get; set; }
+    public int? ParentCategoryId { get; set; }
     public string TreeIds { get; set; } = null!;
     public int SortOrder { get; set; }
 

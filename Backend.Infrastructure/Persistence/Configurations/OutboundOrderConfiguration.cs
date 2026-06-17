@@ -15,7 +15,12 @@ public class OutboundOrderConfiguration : IEntityTypeConfiguration<OutboundOrder
         builder.Property(x => x.Id)
             .ValueGeneratedOnAdd();
 
+        builder.Property(x => x.SOCode).HasMaxLength(50);
         builder.Property(x => x.TotalDispatchedValue)
             .HasColumnType("decimal(18,2)");
+
+        builder.HasIndex(x => x.SOCode)
+            .IsUnique()
+            .HasDatabaseName("UX_OutboundOrder_SOCode");
     }
 }

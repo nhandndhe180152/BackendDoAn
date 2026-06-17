@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Backend.Domain.Abstractions;
 
 namespace Backend.Domain.Entities;
@@ -16,10 +17,12 @@ public class Inventory : EntityBase<int>
     public DateTime? LastStockTakeDate { get; set; }
     public DateTime? CreatedDate { get; set; }
     public DateTime? LastModifiedDate { get; set; }
+    public int? CreatedBy { get; set; }
+    public int? UpdatedBy { get; set; }
 
     public virtual Warehouse Warehouse { get; set; } = null!;
     public virtual ProductVariant ProductVariant { get; set; } = null!;
     public virtual Location? Location { get; set; }
-    public virtual InboundOrder? InboundOrder { get; set; } = null!;
+    public virtual InboundOrder? InboundOrder { get; set; }
     public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
 }

@@ -62,7 +62,7 @@ public class LocationService : ILocationService
     public async Task<ApiResponse> GetAllAsync()
     {
         var data = await _locationRepository
-            .FindByCondition(x => !x.IsDeleted, false, x => x.Warehouse)
+            .FindByCondition(x => !x.IsDeleted, false, x => x.Warehouse, x => x.AllowedCategory)
             .Select(x => x.ToDto())
             .ToListAsync();
 
@@ -71,7 +71,7 @@ public class LocationService : ILocationService
 
     public async Task<ApiResponse> GetByIdAsync(int id)
     {
-        var data = await _locationRepository.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, false, x => x.Warehouse);
+        var data = await _locationRepository.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, false, x => x.Warehouse, x => x.AllowedCategory);
         if (data == null)
             return ApiResponse.NotFound();
 
@@ -83,7 +83,7 @@ public class LocationService : ILocationService
     public async Task<ApiResponse> GetPagedAsync(SearchQuery query)
     {
         var data = _locationRepository
-            .FindByCondition(x => !x.IsDeleted, false, x => x.Warehouse)
+            .FindByCondition(x => !x.IsDeleted, false, x => x.Warehouse, x => x.AllowedCategory)
             .Select(x => x.ToListDto());
 
         var totalRecord = await data.CountAsync();

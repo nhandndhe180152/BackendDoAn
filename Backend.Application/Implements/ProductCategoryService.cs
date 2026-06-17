@@ -192,7 +192,7 @@ public class ProductCategoryService : IProductCategoryService
         // Lọc theo Id của danh mục cha
         if (query.ParentId.HasValue)
         {
-            data = data.Where(x => x.ParentId == query.ParentId.Value);
+            data = data.Where(x => x.ParentCategoryId == query.ParentId.Value);
         }
 
         if (!string.IsNullOrEmpty(query.OrderBy))
