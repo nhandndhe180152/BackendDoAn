@@ -61,6 +61,13 @@ public class BackendContext : DbContext
     public virtual DbSet<Supplier> Suppliers { get; set; }
     public virtual DbSet<UnitOfMeasure> UnitOfMeasures { get; set; }
     public virtual DbSet<Warehouse> Warehouses { get; set; }
+    public virtual DbSet<Alert> Alerts { get; set; }
+    public virtual DbSet<CustomerReturnOrder> CustomerReturnOrders { get; set; }
+    public virtual DbSet<CustomerReturnOrderItem> CustomerReturnOrderItems { get; set; }
+    public virtual DbSet<CustomerReturnOrderStatus> CustomerReturnOrderStatuses { get; set; }
+    public virtual DbSet<ReturnToSupplierOrder> ReturnToSupplierOrders { get; set; }
+    public virtual DbSet<ReturnToSupplierOrderItem> ReturnToSupplierOrderItems { get; set; }
+    public virtual DbSet<ReturnToSupplierOrderStatus> ReturnToSupplierOrderStatuses { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

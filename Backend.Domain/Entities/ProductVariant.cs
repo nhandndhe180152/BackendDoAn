@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Backend.Domain.Abstractions;
 
 namespace Backend.Domain.Entities;
@@ -16,6 +17,7 @@ public class ProductVariant : EntityCommonBase<int>
     public int? ImageId { get; set; }
     public bool IsActive { get; set; }
     public decimal? MinStockLevel { get; set; }
+    public bool IsIoTRequired { get; set; } // FE-09
 
     public virtual Product Product { get; set; } = null!;
     public virtual UnitOfMeasure UnitOfMeasure { get; set; } = null!;

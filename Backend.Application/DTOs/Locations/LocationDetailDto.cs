@@ -14,5 +14,10 @@ public class LocationDetailDto
     public int? MaxCapacity { get; set; }
     public string? Description { get; set; }
     public bool IsActive { get; set; }
+    public int CurrentOccupancy { get; set; }
+    public int? AllowedCategoryId { get; set; }
+    public string? AllowedCategoryName { get; set; }
+    public int Priority { get; set; }
+    public bool IsQuarantine { get; set; }
     public DateTime CreatedDate { get; set; }
 }
