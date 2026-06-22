@@ -39,10 +39,10 @@ public class InventoryConfiguration : IEntityTypeConfiguration<Inventory>
             .HasForeignKey(x => x.ProductVariantId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        builder.HasOne(x => x.InboundOrder)
-            .WithMany()
-            .HasForeignKey(x => x.InboundOrderId)
-            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.Property(x => x.RowVersion)
+            .IsRowVersion()
+            .HasColumnName("RowVersion");
 
         builder.HasIndex(x => x.LocationId)
             .HasDatabaseName("IX_Inventory_LocationId");

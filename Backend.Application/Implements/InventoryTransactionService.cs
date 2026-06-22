@@ -235,9 +235,6 @@ public class InventoryTransactionService : IInventoryTransactionService
                     WarehouseId = request.WarehouseId,
                     LocationId = request.LocationId,
                     ProductVariantId = request.ProductVariantId,
-                    InboundOrderId = referenceType == InventoryReferenceTypeConstants.InboundOrder
-                        ? request.ReferenceId
-                        : null,
                     CostPrice = request.CostPrice ?? productVariant.CostPrice,
                     QuantityOnHand = 0,
                     QuantityReserved = 0,
