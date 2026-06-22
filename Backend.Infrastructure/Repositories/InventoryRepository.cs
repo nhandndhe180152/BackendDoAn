@@ -61,7 +61,6 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
                 ProductVariantName = x.ProductVariant.Name,
                 ProductId = x.ProductVariant.ProductId,
                 ProductName = x.ProductVariant.Product.Name,
-                InboundOrderId = x.InboundOrderId,
                 CostPrice = x.CostPrice,
                 QuantityOnHand = x.QuantityOnHand,
                 QuantityReserved = x.QuantityReserved,

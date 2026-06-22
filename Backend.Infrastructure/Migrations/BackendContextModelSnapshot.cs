@@ -4,19 +4,16 @@ using Backend.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
 
-namespace Backend.Infrastructure.Persistence.Migrations
+namespace Backend.Infrastructure.Migrations
 {
     [DbContext(typeof(BackendContext))]
-    [Migration("20260602143233_RemoveBarcodeFromProductVariant")]
-    partial class RemoveBarcodeFromProductVariant
+    partial class BackendContextModelSnapshot : ModelSnapshot
     {
-        /// <inheritdoc />
-        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -211,6 +208,91 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.ToTable("ActivityLog", (string)null);
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.Alert", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("AcknowledgedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("AcknowledgedBy")
+                        .HasColumnType("int");
+
+                    b.Property<string>("AlertType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("LocationId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<int?>("ProductVariantId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("RelatedEntityId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RelatedEntityType")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("varchar(30)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<int>("WarehouseId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AcknowledgedBy");
+
+                    b.HasIndex("AlertType")
+                        .HasDatabaseName("IX_Alert_AlertType");
+
+                    b.HasIndex("LocationId");
+
+                    b.HasIndex("ProductVariantId");
+
+                    b.HasIndex("WarehouseId", "Status")
+                        .HasDatabaseName("IX_Alert_WarehouseId_Status");
+
+                    b.ToTable("Alert", (string)null);
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.AuditLog", b =>
                 {
                     b.Property<int>("Id")
@@ -272,7 +354,7 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.ToTable("AuditLog", (string)null);
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.BlogPost", b =>
+            modelBuilder.Entity("Backend.Domain.Entities.CustomerReturnOrder", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -280,209 +362,70 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<DateTime?>("ApprovalDate")
+                    b.Property<int?>("ApprovedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("ApprovedDate")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<int>("AuthorId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("BlogPostCategoryId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("BlogPostLayoutId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("BlogPostStatusId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Content")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<int?>("CoverImageId")
-                        .HasColumnType("int");
+                    b.Property<DateTime?>("CompletedDate")
+                        .HasColumnType("datetime(6)");
 
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
 
                     b.Property<DateTime>("CreatedDate")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime(6)")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+                        .HasColumnType("datetime(6)");
 
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
-
-                    b.Property<bool>("IsApproved")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValueSql("(0)");
+                    b.Property<int>("CustomerReturnOrderStatusId")
+                        .HasColumnType("int");
 
                     b.Property<bool>("IsDeleted")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValueSql("(0)");
-
-                    b.Property<bool>("IsPopular")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValueSql("(0)");
-
-                    b.Property<bool>("IsShowOnHomePage")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValueSql("(0)");
+                        .HasColumnType("tinyint(1)");
 
                     b.Property<DateTime?>("LastModifiedDate")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<DateTime?>("PublicationDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("SeoAlias")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
-
-                    b.Property<int?>("UpdatedBy")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AuthorId");
-
-                    b.HasIndex("BlogPostCategoryId");
-
-                    b.HasIndex("BlogPostLayoutId");
-
-                    b.HasIndex("BlogPostStatusId");
-
-                    b.HasIndex("CoverImageId");
-
-                    b.ToTable("BlogPost", (string)null);
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.BlogPostCategory", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Color")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<int?>("CreatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedDate")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime(6)")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
-
-                    b.Property<bool>("IsDeleted")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValueSql("(0)");
-
-                    b.Property<DateTime?>("LastModifiedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<string>("SeoAlias")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<int?>("UpdatedBy")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("BlogPostCategory", (string)null);
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.BlogPostComment", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime?>("ApprovalDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int>("BlogPostId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Content")
-                        .IsRequired()
+                    b.Property<string>("Note")
                         .HasMaxLength(1000)
                         .HasColumnType("varchar(1000)");
 
-                    b.Property<int?>("CreatedBy")
+                    b.Property<int?>("OutboundOrderId")
                         .HasColumnType("int");
 
-                    b.Property<DateTime>("CreatedDate")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime(6)")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
-
-                    b.Property<bool>("IsApproved")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValueSql("(0)");
-
-                    b.Property<bool>("IsDeleted")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValueSql("(0)");
-
-                    b.Property<DateTime?>("LastModifiedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int?>("ParentId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("TreeIds")
+                    b.Property<string>("ReturnCode")
                         .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("ReturnReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
 
                     b.Property<int?>("UpdatedBy")
                         .HasColumnType("int");
 
-                    b.Property<int>("UserId")
+                    b.Property<int>("WarehouseId")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("BlogPostId");
+                    b.HasIndex("ApprovedBy");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("CustomerReturnOrderStatusId");
 
-                    b.ToTable("BlogPostComment", (string)null);
+                    b.HasIndex("OutboundOrderId");
+
+                    b.HasIndex("ReturnCode")
+                        .IsUnique()
+                        .HasDatabaseName("UX_CustomerReturnOrder_ReturnCode");
+
+                    b.HasIndex("WarehouseId");
+
+                    b.ToTable("CustomerReturnOrder", (string)null);
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.BlogPostLayout", b =>
+            modelBuilder.Entity("Backend.Domain.Entities.CustomerReturnOrderItem", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -494,36 +437,68 @@ namespace Backend.Infrastructure.Persistence.Migrations
                         .HasColumnType("int");
 
                     b.Property<DateTime>("CreatedDate")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime(6)")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+                        .HasColumnType("datetime(6)");
 
-                    b.Property<string>("Description")
+                    b.Property<int>("CustomerReturnOrderId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DamageReason")
                         .HasMaxLength(500)
                         .HasColumnType("varchar(500)");
 
                     b.Property<bool>("IsDeleted")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValueSql("(0)");
+                        .HasColumnType("tinyint(1)");
 
                     b.Property<DateTime?>("LastModifiedDate")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<string>("Name")
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<int?>("ProductVariantId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("QRScanned")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("QualityStatus")
                         .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
+                        .HasMaxLength(30)
+                        .HasColumnType("varchar(30)");
+
+                    b.Property<int>("QuantityDamaged")
+                        .HasColumnType("int");
+
+                    b.Property<int>("QuantityGood")
+                        .HasColumnType("int");
+
+                    b.Property<int>("QuantityReturned")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("QuarantineLocationId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("RestockLocationId")
+                        .HasColumnType("int");
 
                     b.Property<int?>("UpdatedBy")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
 
-                    b.ToTable("BlogPostLayout", (string)null);
+                    b.HasIndex("CustomerReturnOrderId");
+
+                    b.HasIndex("ProductVariantId");
+
+                    b.HasIndex("QuarantineLocationId");
+
+                    b.HasIndex("RestockLocationId");
+
+                    b.ToTable("CustomerReturnOrderItem", (string)null);
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.BlogPostStatus", b =>
+            modelBuilder.Entity("Backend.Domain.Entities.CustomerReturnOrderStatus", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -533,82 +508,32 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Color")
                         .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
+                        .HasMaxLength(30)
+                        .HasColumnType("varchar(30)");
 
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
 
                     b.Property<DateTime>("CreatedDate")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime(6)")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
+                        .HasColumnType("datetime(6)");
 
                     b.Property<bool>("IsDeleted")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValueSql("(0)");
+                        .HasColumnType("tinyint(1)");
 
                     b.Property<DateTime?>("LastModifiedDate")
                         .HasColumnType("datetime(6)");
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
 
                     b.Property<int?>("UpdatedBy")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
 
-                    b.ToTable("BlogPostStatus", (string)null);
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.BlogPostTag", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("BlogPostId")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("CreatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedDate")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime(6)")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
-
-                    b.Property<bool>("IsDeleted")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValueSql("(0)");
-
-                    b.Property<DateTime?>("LastModifiedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int>("TagId")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("UpdatedBy")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BlogPostId");
-
-                    b.HasIndex("TagId");
-
-                    b.ToTable("BlogPostTag", (string)null);
+                    b.ToTable("CustomerReturnOrderStatus", (string)null);
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.DeliveryNote", b =>
@@ -620,10 +545,11 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<decimal?>("CODAmount")
-                        .HasColumnType("decimal(65,30)");
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<string>("CarrierName")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
 
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
@@ -632,7 +558,7 @@ namespace Backend.Infrastructure.Persistence.Migrations
                         .HasColumnType("datetime(6)");
 
                     b.Property<decimal?>("DeclaredWeight")
-                        .HasColumnType("decimal(65,30)");
+                        .HasColumnType("decimal(18,3)");
 
                     b.Property<bool>("IsConfirmed")
                         .HasColumnType("tinyint(1)");
@@ -646,32 +572,36 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Property<int?>("OriginalImageFileId")
                         .HasColumnType("int");
 
-                    b.Property<int?>("PurchaseOrderId")
-                        .HasColumnType("int");
-
                     b.Property<string>("RawOcrText")
                         .HasColumnType("longtext");
 
                     b.Property<string>("ReceiverAddress")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
 
                     b.Property<string>("ReceiverName")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
 
                     b.Property<string>("ReceiverPhone")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
 
                     b.Property<string>("SenderAddress")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
 
                     b.Property<string>("SenderName")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
 
                     b.Property<string>("SenderPhone")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
 
                     b.Property<string>("TrackingCode")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
 
                     b.Property<int?>("UpdatedBy")
                         .HasColumnType("int");
@@ -748,48 +678,6 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("FcmNotificationLog", (string)null);
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.Feedback", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Content")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("varchar(1000)");
-
-                    b.Property<int?>("CreatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedDate")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime(6)")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
-
-                    b.Property<bool>("IsDeleted")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValueSql("(0)");
-
-                    b.Property<DateTime?>("LastModifiedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
-
-                    b.Property<int?>("UpdatedBy")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("Feedback", (string)null);
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.FileUpload", b =>
@@ -897,6 +785,171 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.ToTable("FolderUpload", (string)null);
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.InboundOrder", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("CompletedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("DeliveryNoteId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("ExpectedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("InboundOrderStatusId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("POCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("SupplierId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("TotalAssetValue")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<int>("WarehouseId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeliveryNoteId")
+                        .IsUnique();
+
+                    b.HasIndex("InboundOrderStatusId");
+
+                    b.HasIndex("POCode")
+                        .IsUnique()
+                        .HasDatabaseName("UX_InboundOrder_POCode");
+
+                    b.HasIndex("SupplierId");
+
+                    b.HasIndex("WarehouseId");
+
+                    b.ToTable("InboundOrder", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.InboundOrderItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal?>("ActualWeightKg")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<decimal?>("ExpectedWeightKg")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<int>("InboundOrderId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("longtext");
+
+                    b.Property<int?>("ProductVariantId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("QRScanned")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<int>("QuantityOrdered")
+                        .HasColumnType("int");
+
+                    b.Property<int>("QuantityReceived")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("UnitCostPrice")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InboundOrderId");
+
+                    b.HasIndex("ProductVariantId");
+
+                    b.ToTable("InboundOrderItem", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.InboundOrderStatus", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("InboundOrderStatus", (string)null);
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.Inventory", b =>
                 {
                     b.Property<int>("Id")
@@ -907,6 +960,9 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     b.Property<decimal>("CostPrice")
                         .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
 
                     b.Property<DateTime?>("CreatedDate")
                         .HasColumnType("datetime(6)");
@@ -926,9 +982,6 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Property<int>("ProductVariantId")
                         .HasColumnType("int");
 
-                    b.Property<int?>("PurchaseOrderId")
-                        .HasColumnType("int");
-
                     b.Property<int>("QuantityOnHand")
                         .HasColumnType("int");
 
@@ -936,6 +989,15 @@ namespace Backend.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
                         .HasDefaultValue(0);
+
+                    b.Property<DateTime?>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("timestamp(6)")
+                        .HasColumnName("RowVersion");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
 
                     b.Property<int>("WarehouseId")
                         .HasColumnType("int");
@@ -947,8 +1009,6 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ProductVariantId")
                         .HasDatabaseName("IX_Inventory_ProductVariantId");
-
-                    b.HasIndex("PurchaseOrderId");
 
                     b.HasIndex("WarehouseId")
                         .HasDatabaseName("IX_Inventory_WarehouseId");
@@ -1329,11 +1389,21 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("AllowedCategoryId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("CreatedDate")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<int>("CurrentOccupancy")
+                        .HasColumnType("int");
+
                     b.Property<string>("Description")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("tinyint(1)");
@@ -1341,26 +1411,48 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("tinyint(1)");
 
+                    b.Property<bool>("IsQuarantine")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<int?>("MaxCapacity")
                         .HasColumnType("int");
 
+                    b.Property<int>("Priority")
+                        .HasColumnType("int");
+
                     b.Property<string>("ShelfLevel")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
 
                     b.Property<string>("ShelfRow")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
 
                     b.Property<string>("SlotCode")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
 
                     b.Property<int>("WarehouseId")
                         .HasColumnType("int");
 
                     b.Property<string>("ZoneName")
                         .IsRequired()
-                        .HasColumnType("longtext");
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AllowedCategoryId")
+                        .HasDatabaseName("IX_Location_AllowedCategoryId");
+
+                    b.HasIndex("IsQuarantine")
+                        .HasDatabaseName("IX_Location_IsQuarantine");
 
                     b.HasIndex("WarehouseId");
 
@@ -1578,7 +1670,7 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.ToTable("NotificationType", (string)null);
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.PaymentMethod", b =>
+            modelBuilder.Entity("Backend.Domain.Entities.OutboundOrder", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -1586,40 +1678,128 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("AssignedUserId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("CompletedDate")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
 
                     b.Property<DateTime>("CreatedDate")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime(6)")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+                        .HasColumnType("datetime(6)");
 
-                    b.Property<string>("Description")
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
+                    b.Property<string>("CustomerAddress")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("CustomerName")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("CustomerPhone")
+                        .HasColumnType("longtext");
 
                     b.Property<bool>("IsDeleted")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValueSql("(0)");
+                        .HasColumnType("tinyint(1)");
 
                     b.Property<DateTime?>("LastModifiedDate")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<string>("Name")
+                    b.Property<string>("Note")
+                        .HasColumnType("longtext");
+
+                    b.Property<int>("OutboundOrderStatusId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SOCode")
                         .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<decimal>("TotalDispatchedValue")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<int>("WarehouseId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssignedUserId");
+
+                    b.HasIndex("OutboundOrderStatusId");
+
+                    b.HasIndex("SOCode")
+                        .IsUnique()
+                        .HasDatabaseName("UX_OutboundOrder_SOCode");
+
+                    b.HasIndex("WarehouseId");
+
+                    b.ToTable("OutboundOrder", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.OutboundOrderItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal?>("ActualWeightKg")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<decimal?>("ExpectedWeightKg")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("longtext");
+
+                    b.Property<int>("OutboundOrderId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ProductVariantId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("QRScanned")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<int>("QuantityOrdered")
+                        .HasColumnType("int");
+
+                    b.Property<int>("QuantityPicked")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("UnitCostPrice")
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<int?>("UpdatedBy")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
 
-                    b.ToTable("PaymentMethod", (string)null);
+                    b.HasIndex("OutboundOrderId");
+
+                    b.HasIndex("ProductVariantId");
+
+                    b.ToTable("OutboundOrderItem", (string)null);
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.PaymentStatus", b =>
+            modelBuilder.Entity("Backend.Domain.Entities.OutboundOrderStatus", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -1629,107 +1809,30 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Color")
                         .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
+                        .HasColumnType("longtext");
 
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
 
                     b.Property<DateTime>("CreatedDate")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime(6)")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
+                        .HasColumnType("datetime(6)");
 
                     b.Property<bool>("IsDeleted")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValueSql("(0)");
+                        .HasColumnType("tinyint(1)");
 
                     b.Property<DateTime?>("LastModifiedDate")
                         .HasColumnType("datetime(6)");
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<int?>("UpdatedBy")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("PaymentStatus", (string)null);
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.PaymentTransaction", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<decimal>("Amount")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<string>("BankTransactionId")
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
-
-                    b.Property<int?>("CreatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedDate")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime(6)")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
-
-                    b.Property<string>("InvoiceNumber")
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<bool>("IsDeleted")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValueSql("(0)");
-
-                    b.Property<DateTime?>("LastModifiedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Metadata")
                         .HasColumnType("longtext");
 
-                    b.Property<string>("Note")
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
-
-                    b.Property<DateTime>("PaidAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("PaymentCode")
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<int>("PaymentMethodId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("PaymentStatusId")
-                        .HasColumnType("int");
-
                     b.Property<int?>("UpdatedBy")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("PaymentMethodId");
-
-                    b.HasIndex("PaymentStatusId");
-
-                    b.ToTable("PaymentTransaction", (string)null);
+                    b.ToTable("OutboundOrderStatus", (string)null);
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.Permission", b =>
@@ -1887,9 +1990,6 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Property<int?>("ParentCategoryId")
                         .HasColumnType("int");
 
-                    b.Property<int?>("ParentId")
-                        .HasColumnType("int");
-
                     b.Property<int>("SortOrder")
                         .HasColumnType("int");
 
@@ -1902,7 +2002,8 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ParentCategoryId");
+                    b.HasIndex("ParentCategoryId")
+                        .HasDatabaseName("IX_ProductCategory_ParentCategoryId");
 
                     b.ToTable("ProductCategory", (string)null);
                 });
@@ -1939,6 +2040,11 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("tinyint(1)");
 
+                    b.Property<bool>("IsIoTRequired")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValue(false);
+
                     b.Property<DateTime?>("LastModifiedDate")
                         .HasColumnType("datetime(6)");
 
@@ -1954,11 +2060,13 @@ namespace Backend.Infrastructure.Persistence.Migrations
                         .HasColumnType("int");
 
                     b.Property<string>("QRCode")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
 
                     b.Property<string>("SKU")
                         .IsRequired()
-                        .HasColumnType("longtext");
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
 
                     b.Property<decimal>("SalePrice")
                         .HasColumnType("decimal(18,2)");
@@ -1981,12 +2089,20 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ProductId");
 
+                    b.HasIndex("QRCode")
+                        .IsUnique()
+                        .HasDatabaseName("UX_ProductVariant_QRCode");
+
+                    b.HasIndex("SKU")
+                        .IsUnique()
+                        .HasDatabaseName("UX_ProductVariant_SKU");
+
                     b.HasIndex("UnitOfMeasureId");
 
                     b.ToTable("ProductVariant", (string)null);
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.Province", b =>
+            modelBuilder.Entity("Backend.Domain.Entities.ReturnToSupplierOrder", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -1994,60 +2110,11 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<int?>("CreatedBy")
+                    b.Property<int?>("ApprovedBy")
                         .HasColumnType("int");
 
-                    b.Property<DateTime>("CreatedDate")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime(6)")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
-
-                    b.Property<bool>("IsCentral")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<bool>("IsDeleted")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValueSql("(0)");
-
-                    b.Property<DateTime?>("LastModifiedDate")
+                    b.Property<DateTime?>("ApprovedDate")
                         .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<string>("Slug")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<string>("Type")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<int?>("UpdatedBy")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("Province", (string)null);
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.PurchaseOrder", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime?>("CompletedDate")
                         .HasColumnType("datetime(6)");
@@ -2058,11 +2125,8 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("CreatedDate")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<int?>("DeliveryNoteId")
+                    b.Property<int?>("InboundOrderId")
                         .HasColumnType("int");
-
-                    b.Property<DateTime?>("ExpectedDate")
-                        .HasColumnType("datetime(6)");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("tinyint(1)");
@@ -2071,20 +2135,19 @@ namespace Backend.Infrastructure.Persistence.Migrations
                         .HasColumnType("datetime(6)");
 
                     b.Property<string>("Note")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
 
-                    b.Property<string>("POCode")
+                    b.Property<string>("ReturnCode")
                         .IsRequired()
-                        .HasColumnType("longtext");
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
 
-                    b.Property<int>("PurchaseOrderStatusId")
+                    b.Property<int>("ReturnToSupplierOrderStatusId")
                         .HasColumnType("int");
 
-                    b.Property<int?>("SupplierId")
+                    b.Property<int>("SupplierId")
                         .HasColumnType("int");
-
-                    b.Property<decimal>("TotalAmount")
-                        .HasColumnType("decimal(18,2)");
 
                     b.Property<int?>("UpdatedBy")
                         .HasColumnType("int");
@@ -2094,19 +2157,24 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("DeliveryNoteId")
-                        .IsUnique();
+                    b.HasIndex("ApprovedBy");
 
-                    b.HasIndex("PurchaseOrderStatusId");
+                    b.HasIndex("InboundOrderId");
+
+                    b.HasIndex("ReturnCode")
+                        .IsUnique()
+                        .HasDatabaseName("UX_ReturnToSupplierOrder_ReturnCode");
+
+                    b.HasIndex("ReturnToSupplierOrderStatusId");
 
                     b.HasIndex("SupplierId");
 
                     b.HasIndex("WarehouseId");
 
-                    b.ToTable("PurchaseOrder", (string)null);
+                    b.ToTable("ReturnToSupplierOrder", (string)null);
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.PurchaseOrderItem", b =>
+            modelBuilder.Entity("Backend.Domain.Entities.ReturnToSupplierOrderItem", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -2114,17 +2182,15 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<decimal?>("ActualWeightKg")
-                        .HasColumnType("decimal(18,4)");
-
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
 
                     b.Property<DateTime>("CreatedDate")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<decimal?>("ExpectedWeightKg")
-                        .HasColumnType("decimal(18,4)");
+                    b.Property<string>("DamageReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("tinyint(1)");
@@ -2133,25 +2199,26 @@ namespace Backend.Infrastructure.Persistence.Migrations
                         .HasColumnType("datetime(6)");
 
                     b.Property<string>("Note")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
 
                     b.Property<int?>("ProductVariantId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("PurchaseOrderId")
                         .HasColumnType("int");
 
                     b.Property<bool>("QRScanned")
                         .HasColumnType("tinyint(1)");
 
-                    b.Property<int>("QuantityOrdered")
+                    b.Property<int>("QuantityActualReturned")
                         .HasColumnType("int");
 
-                    b.Property<int>("QuantityReceived")
+                    b.Property<int>("QuantityToReturn")
                         .HasColumnType("int");
 
-                    b.Property<decimal>("UnitCostPrice")
-                        .HasColumnType("decimal(18,2)");
+                    b.Property<int?>("QuarantineLocationId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ReturnToSupplierOrderId")
+                        .HasColumnType("int");
 
                     b.Property<int?>("UpdatedBy")
                         .HasColumnType("int");
@@ -2160,12 +2227,14 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ProductVariantId");
 
-                    b.HasIndex("PurchaseOrderId");
+                    b.HasIndex("QuarantineLocationId");
 
-                    b.ToTable("PurchaseOrderItem", (string)null);
+                    b.HasIndex("ReturnToSupplierOrderId");
+
+                    b.ToTable("ReturnToSupplierOrderItem", (string)null);
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.PurchaseOrderStatus", b =>
+            modelBuilder.Entity("Backend.Domain.Entities.ReturnToSupplierOrderStatus", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -2175,7 +2244,8 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Color")
                         .IsRequired()
-                        .HasColumnType("longtext");
+                        .HasMaxLength(30)
+                        .HasColumnType("varchar(30)");
 
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
@@ -2191,14 +2261,15 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("longtext");
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
 
                     b.Property<int?>("UpdatedBy")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
 
-                    b.ToTable("PurchaseOrderStatus", (string)null);
+                    b.ToTable("ReturnToSupplierOrderStatus", (string)null);
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.Role", b =>
@@ -2258,166 +2329,6 @@ namespace Backend.Infrastructure.Persistence.Migrations
                         });
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.SalesOrder", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int?>("AssignedUserId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("CompletedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int?>("CreatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("CustomerAddress")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("CustomerName")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("CustomerPhone")
-                        .HasColumnType("longtext");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<DateTime?>("LastModifiedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Note")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("SOCode")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<int>("SalesOrderStatusId")
-                        .HasColumnType("int");
-
-                    b.Property<decimal>("TotalAmount")
-                        .HasColumnType("decimal(65,30)");
-
-                    b.Property<int?>("UpdatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<int>("WarehouseId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AssignedUserId");
-
-                    b.HasIndex("SalesOrderStatusId");
-
-                    b.HasIndex("WarehouseId");
-
-                    b.ToTable("SalesOrder", (string)null);
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.SalesOrderItem", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<decimal?>("ActualWeightKg")
-                        .HasColumnType("decimal(65,30)");
-
-                    b.Property<int?>("CreatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<decimal?>("ExpectedWeightKg")
-                        .HasColumnType("decimal(65,30)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<DateTime?>("LastModifiedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Note")
-                        .HasColumnType("longtext");
-
-                    b.Property<int>("ProductVariantId")
-                        .HasColumnType("int");
-
-                    b.Property<bool>("QRScanned")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<int>("QuantityOrdered")
-                        .HasColumnType("int");
-
-                    b.Property<int>("QuantityPicked")
-                        .HasColumnType("int");
-
-                    b.Property<int>("SalesOrderId")
-                        .HasColumnType("int");
-
-                    b.Property<decimal>("UnitCostPrice")
-                        .HasColumnType("decimal(65,30)");
-
-                    b.Property<int?>("UpdatedBy")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProductVariantId");
-
-                    b.HasIndex("SalesOrderId");
-
-                    b.ToTable("SalesOrderItem", (string)null);
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.SalesOrderStatus", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Color")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<int?>("CreatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<DateTime?>("LastModifiedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<int?>("UpdatedBy")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("SalesOrderStatus", (string)null);
-                });
-
             modelBuilder.Entity("Backend.Domain.Entities.StockAlertConfig", b =>
                 {
                     b.Property<int>("Id")
@@ -2470,9 +2381,6 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<int?>("ApprovedBy")
-                        .HasColumnType("int");
-
                     b.Property<int?>("ApprovedByUserId")
                         .HasColumnType("int");
 
@@ -2496,7 +2404,8 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("STCode")
                         .IsRequired()
-                        .HasColumnType("longtext");
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
 
                     b.Property<DateTime?>("StartedDate")
                         .HasColumnType("datetime(6)");
@@ -2512,7 +2421,12 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ApprovedByUserId");
+                    b.HasIndex("ApprovedByUserId")
+                        .HasDatabaseName("IX_StockTake_ApprovedByUserId");
+
+                    b.HasIndex("STCode")
+                        .IsUnique()
+                        .HasDatabaseName("UX_StockTake_STCode");
 
                     b.HasIndex("StockTakeStatusId");
 
@@ -2620,10 +2534,12 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Code")
                         .IsRequired()
-                        .HasColumnType("longtext");
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
 
                     b.Property<string>("ContactPerson")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
 
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
@@ -2632,7 +2548,8 @@ namespace Backend.Infrastructure.Persistence.Migrations
                         .HasColumnType("datetime(6)");
 
                     b.Property<string>("Email")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("tinyint(1)");
@@ -2645,18 +2562,25 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("longtext");
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
 
                     b.Property<string>("Phone")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
 
                     b.Property<string>("TaxCode")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
 
                     b.Property<int?>("UpdatedBy")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Supplier_Code");
 
                     b.ToTable("Supplier", (string)null);
                 });
@@ -2709,93 +2633,6 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("SystemConfig", (string)null);
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.Tag", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int?>("CreatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedDate")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime(6)")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
-
-                    b.Property<bool>("IsDeleted")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValueSql("(0)");
-
-                    b.Property<DateTime?>("LastModifiedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<int>("TagTypeId")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("UpdatedBy")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TagTypeId");
-
-                    b.ToTable("Tag", (string)null);
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.TagType", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int?>("CreatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedDate")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime(6)")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
-
-                    b.Property<bool>("IsDeleted")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValueSql("(0)");
-
-                    b.Property<DateTime?>("LastModifiedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<int?>("UpdatedBy")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("TagType", (string)null);
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.UnitOfMeasure", b =>
@@ -2925,9 +2762,6 @@ namespace Backend.Infrastructure.Persistence.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("varchar(500)");
 
-                    b.Property<int?>("ProvinceId")
-                        .HasColumnType("int");
-
                     b.Property<int?>("UpdatedBy")
                         .HasColumnType("int");
 
@@ -2939,18 +2773,11 @@ namespace Backend.Infrastructure.Persistence.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
 
-                    b.Property<int?>("WardId")
-                        .HasColumnType("int");
-
                     b.HasKey("Id");
 
                     b.HasIndex("AvatarId");
 
-                    b.HasIndex("ProvinceId");
-
                     b.HasIndex("UserStatusId");
-
-                    b.HasIndex("WardId");
 
                     b.ToTable("User", (string)null);
 
@@ -3330,68 +3157,6 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.ToTable("UserVerificationToken", (string)null);
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.Ward", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<int?>("CreatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedDate")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime(6)")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
-
-                    b.Property<bool>("IsDeleted")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValueSql("(0)");
-
-                    b.Property<DateTime?>("LastModifiedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<string>("ProvinceCode")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<int>("ProvinceId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Slug")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<string>("Type")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<int?>("UpdatedBy")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProvinceId");
-
-                    b.ToTable("Ward", (string)null);
-                });
-
             modelBuilder.Entity("Backend.Domain.Entities.Warehouse", b =>
                 {
                     b.Property<int>("Id")
@@ -3456,84 +3221,101 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Navigation("Menu");
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.BlogPost", b =>
+            modelBuilder.Entity("Backend.Domain.Entities.Alert", b =>
                 {
-                    b.HasOne("Backend.Domain.Entities.User", "Author")
-                        .WithMany("BlogPosts")
-                        .HasForeignKey("AuthorId")
-                        .IsRequired()
-                        .HasConstraintName("FK_User_BlogPost");
+                    b.HasOne("Backend.Domain.Entities.User", "AcknowledgedByUser")
+                        .WithMany()
+                        .HasForeignKey("AcknowledgedBy")
+                        .OnDelete(DeleteBehavior.SetNull);
 
-                    b.HasOne("Backend.Domain.Entities.BlogPostCategory", "BlogCategory")
-                        .WithMany("BlogPosts")
-                        .HasForeignKey("BlogPostCategoryId")
-                        .IsRequired()
-                        .HasConstraintName("FK_BlogCategory_BlogPost");
+                    b.HasOne("Backend.Domain.Entities.Location", "Location")
+                        .WithMany()
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
-                    b.HasOne("Backend.Domain.Entities.BlogPostLayout", "BlogPostLayout")
-                        .WithMany("BlogPosts")
-                        .HasForeignKey("BlogPostLayoutId")
-                        .IsRequired()
-                        .HasConstraintName("FK_BlogPostLayout_BlogPost");
+                    b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
+                        .WithMany()
+                        .HasForeignKey("ProductVariantId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
-                    b.HasOne("Backend.Domain.Entities.BlogPostStatus", "BlogPostStatus")
-                        .WithMany("BlogPosts")
-                        .HasForeignKey("BlogPostStatusId")
-                        .IsRequired()
-                        .HasConstraintName("FK_BlogPostStaus_BlogPost");
+                    b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
-                    b.HasOne("Backend.Domain.Entities.FileUpload", "CoverImage")
-                        .WithMany("BlogPosts")
-                        .HasForeignKey("CoverImageId")
-                        .HasConstraintName("FK_FileUpload_BlogPost");
+                    b.Navigation("AcknowledgedByUser");
 
-                    b.Navigation("Author");
+                    b.Navigation("Location");
 
-                    b.Navigation("BlogCategory");
+                    b.Navigation("ProductVariant");
 
-                    b.Navigation("BlogPostLayout");
-
-                    b.Navigation("BlogPostStatus");
-
-                    b.Navigation("CoverImage");
+                    b.Navigation("Warehouse");
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.BlogPostComment", b =>
+            modelBuilder.Entity("Backend.Domain.Entities.CustomerReturnOrder", b =>
                 {
-                    b.HasOne("Backend.Domain.Entities.BlogPost", "BlogPost")
-                        .WithMany("BlogComments")
-                        .HasForeignKey("BlogPostId")
-                        .IsRequired()
-                        .HasConstraintName("FK_BlogPost_BlogComment");
-
-                    b.HasOne("Backend.Domain.Entities.User", "User")
+                    b.HasOne("Backend.Domain.Entities.User", "ApprovedByUser")
                         .WithMany()
-                        .HasForeignKey("UserId")
+                        .HasForeignKey("ApprovedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Domain.Entities.CustomerReturnOrderStatus", "CustomerReturnOrderStatus")
+                        .WithMany()
+                        .HasForeignKey("CustomerReturnOrderStatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.OutboundOrder", "OutboundOrder")
+                        .WithMany()
+                        .HasForeignKey("OutboundOrderId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ApprovedByUser");
+
+                    b.Navigation("CustomerReturnOrderStatus");
+
+                    b.Navigation("OutboundOrder");
+
+                    b.Navigation("Warehouse");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.CustomerReturnOrderItem", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.CustomerReturnOrder", "CustomerReturnOrder")
+                        .WithMany("Items")
+                        .HasForeignKey("CustomerReturnOrderId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("BlogPost");
+                    b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
+                        .WithMany()
+                        .HasForeignKey("ProductVariantId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
-                    b.Navigation("User");
-                });
+                    b.HasOne("Backend.Domain.Entities.Location", "QuarantineLocation")
+                        .WithMany()
+                        .HasForeignKey("QuarantineLocationId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
-            modelBuilder.Entity("Backend.Domain.Entities.BlogPostTag", b =>
-                {
-                    b.HasOne("Backend.Domain.Entities.BlogPost", "BlogPost")
-                        .WithMany("BlogTags")
-                        .HasForeignKey("BlogPostId")
-                        .IsRequired()
-                        .HasConstraintName("FK_BlogPost_BlogTag");
+                    b.HasOne("Backend.Domain.Entities.Location", "RestockLocation")
+                        .WithMany()
+                        .HasForeignKey("RestockLocationId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
-                    b.HasOne("Backend.Domain.Entities.Tag", "Tag")
-                        .WithMany("BlogTags")
-                        .HasForeignKey("TagId")
-                        .IsRequired()
-                        .HasConstraintName("FK_Tag_BlogTag");
+                    b.Navigation("CustomerReturnOrder");
 
-                    b.Navigation("BlogPost");
+                    b.Navigation("ProductVariant");
 
-                    b.Navigation("Tag");
+                    b.Navigation("QuarantineLocation");
+
+                    b.Navigation("RestockLocation");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.DeliveryNote", b =>
@@ -3571,6 +3353,54 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Navigation("FolderUpload");
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.InboundOrder", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.DeliveryNote", "DeliveryNote")
+                        .WithOne("InboundOrder")
+                        .HasForeignKey("Backend.Domain.Entities.InboundOrder", "DeliveryNoteId");
+
+                    b.HasOne("Backend.Domain.Entities.InboundOrderStatus", "InboundOrderStatus")
+                        .WithMany("InboundOrders")
+                        .HasForeignKey("InboundOrderStatusId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Supplier", "Supplier")
+                        .WithMany()
+                        .HasForeignKey("SupplierId");
+
+                    b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
+                        .WithMany("InboundOrders")
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("DeliveryNote");
+
+                    b.Navigation("InboundOrderStatus");
+
+                    b.Navigation("Supplier");
+
+                    b.Navigation("Warehouse");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.InboundOrderItem", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.InboundOrder", "InboundOrder")
+                        .WithMany("InboundOrderItems")
+                        .HasForeignKey("InboundOrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
+                        .WithMany()
+                        .HasForeignKey("ProductVariantId");
+
+                    b.Navigation("InboundOrder");
+
+                    b.Navigation("ProductVariant");
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.Inventory", b =>
                 {
                     b.HasOne("Backend.Domain.Entities.Location", "Location")
@@ -3584,11 +3414,6 @@ namespace Backend.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Backend.Domain.Entities.PurchaseOrder", "PurchaseOrder")
-                        .WithMany()
-                        .HasForeignKey("PurchaseOrderId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
                         .WithMany("Inventories")
                         .HasForeignKey("WarehouseId")
@@ -3598,8 +3423,6 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Navigation("Location");
 
                     b.Navigation("ProductVariant");
-
-                    b.Navigation("PurchaseOrder");
 
                     b.Navigation("Warehouse");
                 });
@@ -3698,11 +3521,18 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Backend.Domain.Entities.Location", b =>
                 {
+                    b.HasOne("Backend.Domain.Entities.ProductCategory", "AllowedCategory")
+                        .WithMany()
+                        .HasForeignKey("AllowedCategoryId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
                         .WithMany("Locations")
                         .HasForeignKey("WarehouseId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("AllowedCategory");
 
                     b.Navigation("Warehouse");
                 });
@@ -3726,23 +3556,48 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Navigation("NotificationType");
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.PaymentTransaction", b =>
+            modelBuilder.Entity("Backend.Domain.Entities.OutboundOrder", b =>
                 {
-                    b.HasOne("Backend.Domain.Entities.PaymentMethod", "PaymentMethod")
-                        .WithMany("PaymentTransactions")
-                        .HasForeignKey("PaymentMethodId")
-                        .IsRequired()
-                        .HasConstraintName("FK_PaymentMethod_PaymentTransaction");
+                    b.HasOne("Backend.Domain.Entities.User", "AssignedUser")
+                        .WithMany()
+                        .HasForeignKey("AssignedUserId");
 
-                    b.HasOne("Backend.Domain.Entities.PaymentStatus", "PaymentStatus")
-                        .WithMany("PaymentTransactions")
-                        .HasForeignKey("PaymentStatusId")
-                        .IsRequired()
-                        .HasConstraintName("FK_PaymentStatus_PaymentTransaction");
+                    b.HasOne("Backend.Domain.Entities.OutboundOrderStatus", "OutboundOrderStatus")
+                        .WithMany("OutboundOrders")
+                        .HasForeignKey("OutboundOrderStatusId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
-                    b.Navigation("PaymentMethod");
+                    b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
+                        .WithMany("OutboundOrders")
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
-                    b.Navigation("PaymentStatus");
+                    b.Navigation("AssignedUser");
+
+                    b.Navigation("OutboundOrderStatus");
+
+                    b.Navigation("Warehouse");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.OutboundOrderItem", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.OutboundOrder", "OutboundOrder")
+                        .WithMany("OutboundOrderItems")
+                        .HasForeignKey("OutboundOrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
+                        .WithMany()
+                        .HasForeignKey("ProductVariantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("OutboundOrder");
+
+                    b.Navigation("ProductVariant");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.Permission", b =>
@@ -3787,7 +3642,8 @@ namespace Backend.Infrastructure.Persistence.Migrations
                 {
                     b.HasOne("Backend.Domain.Entities.ProductCategory", "ParentCategory")
                         .WithMany("SubCategories")
-                        .HasForeignKey("ParentCategoryId");
+                        .HasForeignKey("ParentCategoryId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("ParentCategory");
                 });
@@ -3817,96 +3673,70 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Navigation("UnitOfMeasure");
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.PurchaseOrder", b =>
+            modelBuilder.Entity("Backend.Domain.Entities.ReturnToSupplierOrder", b =>
                 {
-                    b.HasOne("Backend.Domain.Entities.DeliveryNote", "DeliveryNote")
-                        .WithOne("PurchaseOrder")
-                        .HasForeignKey("Backend.Domain.Entities.PurchaseOrder", "DeliveryNoteId");
+                    b.HasOne("Backend.Domain.Entities.User", "ApprovedByUser")
+                        .WithMany()
+                        .HasForeignKey("ApprovedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("Backend.Domain.Entities.PurchaseOrderStatus", "PurchaseOrderStatus")
-                        .WithMany("PurchaseOrders")
-                        .HasForeignKey("PurchaseOrderStatusId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                    b.HasOne("Backend.Domain.Entities.InboundOrder", "InboundOrder")
+                        .WithMany()
+                        .HasForeignKey("InboundOrderId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.ReturnToSupplierOrderStatus", "ReturnToSupplierOrderStatus")
+                        .WithMany()
+                        .HasForeignKey("ReturnToSupplierOrderStatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("Backend.Domain.Entities.Supplier", "Supplier")
                         .WithMany()
-                        .HasForeignKey("SupplierId");
-
-                    b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
-                        .WithMany("PurchaseOrders")
-                        .HasForeignKey("WarehouseId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.Navigation("DeliveryNote");
+                    b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
-                    b.Navigation("PurchaseOrderStatus");
+                    b.Navigation("ApprovedByUser");
+
+                    b.Navigation("InboundOrder");
+
+                    b.Navigation("ReturnToSupplierOrderStatus");
 
                     b.Navigation("Supplier");
 
                     b.Navigation("Warehouse");
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.PurchaseOrderItem", b =>
-                {
-                    b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
-                        .WithMany()
-                        .HasForeignKey("ProductVariantId");
-
-                    b.HasOne("Backend.Domain.Entities.PurchaseOrder", "PurchaseOrder")
-                        .WithMany("PurchaseOrderItems")
-                        .HasForeignKey("PurchaseOrderId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("ProductVariant");
-
-                    b.Navigation("PurchaseOrder");
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.SalesOrder", b =>
-                {
-                    b.HasOne("Backend.Domain.Entities.User", "AssignedUser")
-                        .WithMany()
-                        .HasForeignKey("AssignedUserId");
-
-                    b.HasOne("Backend.Domain.Entities.SalesOrderStatus", "SalesOrderStatus")
-                        .WithMany("SalesOrders")
-                        .HasForeignKey("SalesOrderStatusId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
-                        .WithMany("SalesOrders")
-                        .HasForeignKey("WarehouseId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("AssignedUser");
-
-                    b.Navigation("SalesOrderStatus");
-
-                    b.Navigation("Warehouse");
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.SalesOrderItem", b =>
+            modelBuilder.Entity("Backend.Domain.Entities.ReturnToSupplierOrderItem", b =>
                 {
                     b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
                         .WithMany()
                         .HasForeignKey("ProductVariantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.SetNull);
 
-                    b.HasOne("Backend.Domain.Entities.SalesOrder", "SalesOrder")
-                        .WithMany("SalesOrderItems")
-                        .HasForeignKey("SalesOrderId")
+                    b.HasOne("Backend.Domain.Entities.Location", "QuarantineLocation")
+                        .WithMany()
+                        .HasForeignKey("QuarantineLocationId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.ReturnToSupplierOrder", "ReturnToSupplierOrder")
+                        .WithMany("Items")
+                        .HasForeignKey("ReturnToSupplierOrderId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.Navigation("ProductVariant");
 
-                    b.Navigation("SalesOrder");
+                    b.Navigation("QuarantineLocation");
+
+                    b.Navigation("ReturnToSupplierOrder");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.StockAlertConfig", b =>
@@ -3968,17 +3798,6 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Navigation("StockTake");
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.Tag", b =>
-                {
-                    b.HasOne("Backend.Domain.Entities.TagType", "TagType")
-                        .WithMany("Tags")
-                        .HasForeignKey("TagTypeId")
-                        .IsRequired()
-                        .HasConstraintName("FK_TagType_Tag");
-
-                    b.Navigation("TagType");
-                });
-
             modelBuilder.Entity("Backend.Domain.Entities.User", b =>
                 {
                     b.HasOne("Backend.Domain.Entities.FileUpload", "Avatar")
@@ -3986,19 +3805,11 @@ namespace Backend.Infrastructure.Persistence.Migrations
                         .HasForeignKey("AvatarId")
                         .HasConstraintName("FK_FileUpload_User");
 
-                    b.HasOne("Backend.Domain.Entities.Province", null)
-                        .WithMany("Users")
-                        .HasForeignKey("ProvinceId");
-
                     b.HasOne("Backend.Domain.Entities.UserStatus", "UserStatus")
                         .WithMany("Users")
                         .HasForeignKey("UserStatusId")
                         .IsRequired()
                         .HasConstraintName("FK_UserStatus_User");
-
-                    b.HasOne("Backend.Domain.Entities.Ward", null)
-                        .WithMany("Users")
-                        .HasForeignKey("WardId");
 
                     b.Navigation("Avatar");
 
@@ -4083,17 +3894,6 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.Ward", b =>
-                {
-                    b.HasOne("Backend.Domain.Entities.Province", "Province")
-                        .WithMany("Wards")
-                        .HasForeignKey("ProvinceId")
-                        .IsRequired()
-                        .HasConstraintName("FK_Province_Ward");
-
-                    b.Navigation("Province");
-                });
-
             modelBuilder.Entity("Backend.Domain.Entities.Action", b =>
                 {
                     b.Navigation("ActionInMenus");
@@ -4101,43 +3901,34 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Navigation("Permissions");
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.BlogPost", b =>
+            modelBuilder.Entity("Backend.Domain.Entities.CustomerReturnOrder", b =>
                 {
-                    b.Navigation("BlogComments");
-
-                    b.Navigation("BlogTags");
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.BlogPostCategory", b =>
-                {
-                    b.Navigation("BlogPosts");
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.BlogPostLayout", b =>
-                {
-                    b.Navigation("BlogPosts");
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.BlogPostStatus", b =>
-                {
-                    b.Navigation("BlogPosts");
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.DeliveryNote", b =>
                 {
-                    b.Navigation("PurchaseOrder");
+                    b.Navigation("InboundOrder");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.FileUpload", b =>
                 {
-                    b.Navigation("BlogPosts");
-
                     b.Navigation("Users");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.FolderUpload", b =>
                 {
                     b.Navigation("FileUploads");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.InboundOrder", b =>
+                {
+                    b.Navigation("InboundOrderItems");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.InboundOrderStatus", b =>
+                {
+                    b.Navigation("InboundOrders");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.Inventory", b =>
@@ -4174,14 +3965,14 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Navigation("Notifications");
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.PaymentMethod", b =>
+            modelBuilder.Entity("Backend.Domain.Entities.OutboundOrder", b =>
                 {
-                    b.Navigation("PaymentTransactions");
+                    b.Navigation("OutboundOrderItems");
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.PaymentStatus", b =>
+            modelBuilder.Entity("Backend.Domain.Entities.OutboundOrderStatus", b =>
                 {
-                    b.Navigation("PaymentTransactions");
+                    b.Navigation("OutboundOrders");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.Product", b =>
@@ -4196,21 +3987,9 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Navigation("SubCategories");
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.Province", b =>
+            modelBuilder.Entity("Backend.Domain.Entities.ReturnToSupplierOrder", b =>
                 {
-                    b.Navigation("Users");
-
-                    b.Navigation("Wards");
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.PurchaseOrder", b =>
-                {
-                    b.Navigation("PurchaseOrderItems");
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.PurchaseOrderStatus", b =>
-                {
-                    b.Navigation("PurchaseOrders");
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.Role", b =>
@@ -4218,16 +3997,6 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Navigation("Permissions");
 
                     b.Navigation("UserRoles");
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.SalesOrder", b =>
-                {
-                    b.Navigation("SalesOrderItems");
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.SalesOrderStatus", b =>
-                {
-                    b.Navigation("SalesOrders");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.StockTake", b =>
@@ -4240,20 +4009,8 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Navigation("StockTakes");
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.Tag", b =>
-                {
-                    b.Navigation("BlogTags");
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.TagType", b =>
-                {
-                    b.Navigation("Tags");
-                });
-
             modelBuilder.Entity("Backend.Domain.Entities.User", b =>
                 {
-                    b.Navigation("BlogPosts");
-
                     b.Navigation("UserDevices");
 
                     b.Navigation("UserNotifications");
@@ -4275,13 +4032,10 @@ namespace Backend.Infrastructure.Persistence.Migrations
                     b.Navigation("Users");
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.Ward", b =>
-                {
-                    b.Navigation("Users");
-                });
-
             modelBuilder.Entity("Backend.Domain.Entities.Warehouse", b =>
                 {
+                    b.Navigation("InboundOrders");
+
                     b.Navigation("Inventories");
 
                     b.Navigation("InventoryTransactions");
@@ -4290,9 +4044,7 @@ namespace Backend.Infrastructure.Persistence.Migrations
 
                     b.Navigation("Locations");
 
-                    b.Navigation("PurchaseOrders");
-
-                    b.Navigation("SalesOrders");
+                    b.Navigation("OutboundOrders");
 
                     b.Navigation("StockAlertConfigs");
 
