@@ -7,9 +7,11 @@ ENV ASPNETCORE_HTTP_PORTS=8080
 # Bật globalization đầy đủ (ICU) để định dạng tiếng Việt / ngày giờ đúng trên Alpine
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 
-# Cài font DejaVu (xuất PDF tiếng Việt) + thư viện native cho Magick.NET + ICU + tzdata.
+# Nâng toàn bộ package OS lên bản vá mới nhất (vá openssl/libssl3/libcrypto3...).
+# Sau đó cài font DejaVu (xuất PDF tiếng Việt) + thư viện native cho Magick.NET + ICU + tzdata.
 # Alpine dùng apk thay cho apt; gói font tên là 'font-dejavu'.
-RUN apk add --no-cache \
+RUN apk upgrade --no-cache \
+    && apk add --no-cache \
         fontconfig \
         font-dejavu \
         icu-libs \
