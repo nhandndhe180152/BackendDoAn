@@ -128,6 +128,8 @@ public static class ServiceExtensions
         services.AddHttpClient();
         services.AddHttpContextAccessor();
         services.AddRateLimitPolicies();
+        services.AddSignalR();
+        services.AddScoped<Backend.Application.Interfaces.IInboundHubContext, InboundHubContext>();
 
         var servicePath = configuration["FireBase:ServicePath"];
 
