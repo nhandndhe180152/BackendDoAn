@@ -62,6 +62,20 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Tính version tag kế tiếp (vN) từ Docker Hub
+        id: version
+        run: |
+          REPO="${{ secrets.DOCKERHUB_USERNAME }}/backend-do-an-api"
+          # Lấy danh sách tag, lọc các tag dạng vN, tìm số lớn nhất rồi +1
+          LATEST=$(curl -fsSL "https://hub.docker.com/v2/repositories/${REPO}/tags?page_size=100" \
+            | grep -oE '"name":"v[0-9]+"' \
+            | grep -oE '[0-9]+' \
+            | sort -n | tail -1)
+          LATEST=${LATEST:-0}
+          NEXT=$((LATEST + 1))
+          echo "tag=v${NEXT}" >> "$GITHUB_OUTPUT"
+          echo "Version kế tiếp: v${NEXT} (cao nhất hiện tại: v${LATEST})"
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
@@ -69,10 +83,10 @@ jobs:
           file: ./Dockerfile
           push: true
           # latest = tag mà Render theo dõi (luôn bị ghi đè mỗi lần deploy)
-          # v<run_number> = tag bất biến để rollback / truy vết
+          # vN     = tag bất biến, tự nối tiếp số trên Docker Hub, để rollback / truy vết
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/backend-do-an-api:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/backend-do-an-api:v${{ github.run_number }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/backend-do-an-api:${{ steps.version.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
