@@ -80,6 +80,7 @@ public static class ApplicationExtensions
             Predicate = r => r.Name != "self",
             ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
         });
+        app.MapHub<Backend.API.Hubs.InboundHub>("/hubs/inbound");
         app.Run();
     }
 }
