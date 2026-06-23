@@ -41,3 +41,40 @@ jobs:
         with:
           name: backend-unit-test-results
           path: TestResults
+
+  deploy:
+    name: Build image, push Docker Hub & deploy to Render
+    needs: build-and-test
+    # Chỉ deploy khi PUSH vào develop (bỏ qua pull_request) và sau khi test pass
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          # latest = tag mà Render theo dõi (luôn bị ghi đè mỗi lần deploy)
+          # v<run_number> = tag bất biến để rollback / truy vết
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/backend-do-an-api:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/backend-do-an-api:v${{ github.run_number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trigger Render deploy
+        run: curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"

@@ -32,11 +32,11 @@ public class JobRegistrar : IJobRegistrar
             _config.CleanupVerificationTokens.Cron
         );
 
-        RegisterJob<PingDatabaseJob>(
-        nameof(PingDatabaseJob),
-        _config.PingDatabase.Enabled,
-        _config.PingDatabase.Cron
-        );
+        // RegisterJob<PingDatabaseJob>(
+        // nameof(PingDatabaseJob),
+        // _config.PingDatabase.Enabled,
+        // _config.PingDatabase.Cron
+        // );
     }
 
     private void RegisterJob<TJob>(string name, bool enabled, string cron)
