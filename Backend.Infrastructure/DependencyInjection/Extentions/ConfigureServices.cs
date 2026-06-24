@@ -94,6 +94,8 @@ public static class ConfigureServices
         services.AddScoped<IJobRegistrar, JobRegistrar>();
         services.AddScoped<UserSessionCleanupJob>();
         services.AddScoped<VerificationTokenCleanupJob>();
+        services.AddScoped<IotDeviceHeartbeatJob>();
+        services.AddScoped<IotCommandExpiryJob>();
         services.AddScoped<IEmailService<GoogleMailRequest>, GoogleEmailService>();
         services.AddScoped<IImageProcessor, MagickImageProcessor>();
         services.AddScoped<IFireBaseService, FireBaseService>();

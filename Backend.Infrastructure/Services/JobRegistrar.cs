@@ -32,6 +32,20 @@ public class JobRegistrar : IJobRegistrar
             _config.CleanupVerificationTokens.Cron
         );
 
+        // JOB-03: heartbeat thiết bị IoT -> Online/Offline (BR-47)
+        RegisterJob<IotDeviceHeartbeatJob>(
+            nameof(IotDeviceHeartbeatJob),
+            _config.IotDeviceHeartbeat.Enabled,
+            _config.IotDeviceHeartbeat.Cron
+        );
+
+        // JOB-04: hết hạn lệnh IoT đang Pending (BR-48)
+        RegisterJob<IotCommandExpiryJob>(
+            nameof(IotCommandExpiryJob),
+            _config.IotCommandExpiry.Enabled,
+            _config.IotCommandExpiry.Cron
+        );
+
         // RegisterJob<PingDatabaseJob>(
         // nameof(PingDatabaseJob),
         // _config.PingDatabase.Enabled,
