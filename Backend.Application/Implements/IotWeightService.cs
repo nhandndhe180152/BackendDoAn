@@ -79,11 +79,37 @@ public class IotWeightService : IIotWeightService
                 return ApiResponse.BadRequest("Khối lượng không được âm.", ApiCodeConstants.Common.BadRequest);
             }
 
+            var now = DateTime.Now;
+
+            // Idempotency: tránh tạo trùng bằng chứng khi ESP32 gửi lại cùng một lần đo (FT-09).
+            if (dto.MeasuredAt.HasValue)
+            {
+                var roundedWeight = Math.Round(weightKg.Value, 3);
+                var measuredAt = dto.MeasuredAt.Value;
+                var existing = await _iotWeightLogRepository.FirstOrDefaultAsync(
+                    x => x.IoTDeviceId == device.Id
+                         && x.MeasuredAt == measuredAt
+                         && x.WeightKg == roundedWeight
+                         && !x.IsDeleted,
+                    false);
+
+                if (existing != null)
+                {
+                    // Vẫn cập nhật heartbeat để biết thiết bị còn sống.
+                    device.LastHeartbeat = now;
+                    device.IsOnline = true;
+                    device.LastModifiedDate = now;
+                    await _iotDeviceRepository.UpdateAsync(device);
+                    await _iotDeviceRepository.SaveChangesAsync();
+
+                    return ApiResponse.Success(existing.ToReceivedDto(device), "Dữ liệu cân đã được ghi nhận trước đó.");
+                }
+            }
+
             var log = dto.ToEntity(device, weightKg.Value, requestIpAddress);
 
             await _iotWeightLogRepository.CreateAsync(log);
 
-            var now = DateTime.Now;
             device.LastHeartbeat = now;
             device.IsOnline = true;
             device.LastModifiedDate = now;

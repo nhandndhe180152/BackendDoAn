@@ -40,8 +40,20 @@ public class IotDeviceCommandService : IIotDeviceCommandService
             return ApiResponse.NotFound();
         }
 
+        // BR-47: thiết bị offline không được nhận lệnh TARE/RESET/CALIBRATE.
+        if (!device.IsOnline)
+        {
+            return ApiResponse.UnprocessableEntity("Thiết bị đang offline, không thể gửi lệnh. Vui lòng chờ thiết bị online trở lại.");
+        }
+
         var commandType = obj.CommandType.Trim().ToUpperInvariant();
         if (!IotDeviceCommandConstants.AllowedCommandTypes.Contains(commandType))
+        {
+            return ApiResponse.BadRequest();
+        }
+
+        // CALIBRATE bắt buộc có hệ số hiệu chuẩn trong payload.
+        if (commandType == IotDeviceCommandConstants.CommandType.Calibrate && string.IsNullOrWhiteSpace(obj.Payload))
         {
             return ApiResponse.BadRequest();
         }

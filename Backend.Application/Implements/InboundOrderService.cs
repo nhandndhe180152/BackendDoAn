@@ -597,8 +597,10 @@ public class InboundOrderService : IInboundOrderService
         if (!log.IsStable)
             return ApiResponse.UnprocessableEntity("Khối lượng chưa ổn định.", ApiCodeConstants.Common.UnprocessableEntity);
 
-        if (!log.IsConfirmed)
-            return ApiResponse.UnprocessableEntity("Log cân chưa được xác nhận trên thiết bị.", ApiCodeConstants.Common.UnprocessableEntity);
+        // Cho phép gắn trực tiếp từ log cân ổn định (không bắt buộc gọi attach-context trước).
+        // Chỉ chặn khi log đã gắn cho một dòng hàng KHÁC để tránh tái sử dụng bằng chứng cân.
+        if (log.IsConfirmed && log.ReferenceItemId.HasValue && log.ReferenceItemId.Value != item.Id)
+            return ApiResponse.UnprocessableEntity("Log cân này đã được gắn cho một dòng hàng khác.", ApiCodeConstants.Common.UnprocessableEntity);
 
         if (log.WeightKg <= 0)
             return ApiResponse.UnprocessableEntity("Log cân phải có khối lượng lớn hơn 0.", ApiCodeConstants.Common.UnprocessableEntity);
@@ -612,22 +614,29 @@ public class InboundOrderService : IInboundOrderService
         if (log.ProductVariantId != item.ProductVariantId)
             return ApiResponse.UnprocessableEntity("Sản phẩm cân không khớp với sản phẩm trong phiếu nhập.", ApiCodeConstants.Common.UnprocessableEntity);
 
-        // Load tolerance values from SystemConfig
-        decimal tolerancePercent = 5;
-        decimal minToleranceKg = 0.05m;
+        // Resolve dung sai theo thứ tự ưu tiên: ProductCategory -> Warehouse -> global -> mặc định (BR-19/BR-20).
+        // Khóa chuẩn theo tài liệu là IOT_WEIGHT_TOLERANCE_PERCENT; vẫn fallback khóa cũ WeightTolerancePercent.
+        int? productCategoryId = null;
+        var variantWithProduct = await _productVariantRepository.FirstOrDefaultAsync(
+            x => x.Id == item.ProductVariantId, false, x => x.Product);
+        if (variantWithProduct?.Product != null)
+            productCategoryId = variantWithProduct.Product.ProductCategoryId;
 
-        var whToleranceStr = await _systemConfigRepository.GetValueByKey($"WeightTolerancePercent:{order.WarehouseId}");
-        var whMinToleranceStr = await _systemConfigRepository.GetValueByKey($"WeightMinimumToleranceKg:{order.WarehouseId}");
+        var tolerancePercent = await ResolveConfigDecimalAsync(
+            5m,
+            $"IOT_WEIGHT_TOLERANCE_PERCENT:CATEGORY:{productCategoryId}",
+            $"IOT_WEIGHT_TOLERANCE_PERCENT:WAREHOUSE:{order.WarehouseId}",
+            "IOT_WEIGHT_TOLERANCE_PERCENT",
+            $"WeightTolerancePercent:{order.WarehouseId}",
+            "WeightTolerancePercent");
 
-        if (string.IsNullOrEmpty(whToleranceStr))
-            whToleranceStr = await _systemConfigRepository.GetValueByKey("WeightTolerancePercent");
-        if (string.IsNullOrEmpty(whMinToleranceStr))
-            whMinToleranceStr = await _systemConfigRepository.GetValueByKey("WeightMinimumToleranceKg");
-
-        if (decimal.TryParse(whToleranceStr, out var tp))
-            tolerancePercent = tp;
-        if (decimal.TryParse(whMinToleranceStr, out var mt))
-            minToleranceKg = mt;
+        var minToleranceKg = await ResolveConfigDecimalAsync(
+            0.05m,
+            $"IOT_WEIGHT_MIN_TOLERANCE_KG:CATEGORY:{productCategoryId}",
+            $"IOT_WEIGHT_MIN_TOLERANCE_KG:WAREHOUSE:{order.WarehouseId}",
+            "IOT_WEIGHT_MIN_TOLERANCE_KG",
+            $"WeightMinimumToleranceKg:{order.WarehouseId}",
+            "WeightMinimumToleranceKg");
 
         var qty = state.QuantityEntered.Value;
         var expectedWeight = item.ProductVariant.Weight * qty;
@@ -638,6 +647,20 @@ public class InboundOrderService : IInboundOrderService
         state.IotWeightLogId = dto.IotWeightLogId;
         item.ExpectedWeightKg = expectedWeight;
         item.ActualWeightKg = actualWeight;
+
+        // Gắn & xác nhận bằng chứng cân vào dòng hàng (gộp luồng, thay cho việc gọi attach-context riêng).
+        // Bằng chứng được liên kết qua ReferenceType/ReferenceId/ReferenceItemId dù sai lệch hay không (BR-18).
+        var weightConfirmedBy = GetCurrentUserId();
+        var weightConfirmedAt = DateTime.Now;
+        log.ProductVariantId = item.ProductVariantId;
+        log.ReferenceType = "INBOUND_ORDER";
+        log.ReferenceId = order.Id;
+        log.ReferenceItemId = item.Id;
+        log.IsConfirmed = true;
+        log.ConfirmedBy = weightConfirmedBy;
+        log.ConfirmedAt = weightConfirmedAt;
+        log.LastModifiedDate = weightConfirmedAt;
+        await _iotWeightLogRepository.UpdateAsync(log);
 
         if (diff > allowedDiff)
         {
@@ -659,6 +682,24 @@ public class InboundOrderService : IInboundOrderService
 
             return ApiResponse.Success(item.ToDto(), "Xác thực cân nặng thành công.");
         }
+    }
+
+    /// <summary>
+    /// Lấy giá trị decimal từ SystemConfig theo danh sách khóa ưu tiên; trả về defaultValue nếu không khóa nào hợp lệ.
+    /// </summary>
+    private async Task<decimal> ResolveConfigDecimalAsync(decimal defaultValue, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+                continue;
+
+            var raw = await _systemConfigRepository.GetValueByKey(key);
+            if (!string.IsNullOrWhiteSpace(raw) && decimal.TryParse(raw, out var value))
+                return value;
+        }
+
+        return defaultValue;
     }
 
     public async Task<ApiResponse> ReviewExceptionAsync(int orderId, int receiptId, ReviewExceptionDto dto)
