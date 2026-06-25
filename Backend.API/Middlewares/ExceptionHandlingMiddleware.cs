@@ -8,6 +8,7 @@ using Backend.Infrastructure.Persistence;
 using Backend.Share.Constants;
 using Backend.Share.Entities;
 using Backend.Application.DependencyInjection.Extentions;
+using Backend.Share.Helpers;
 
 namespace Backend.API.Middlewares;
 
@@ -85,7 +86,7 @@ public class ExceptionHandlingMiddleware
                         Description = statusCode < 300 ? $"{statusCode} OK" : $"{statusCode} ERR {errorMessage}",
                         IpAddress = ipAddress,
                         UserAgent = userAgent,
-                        CreatedDate = DateTime.Now,
+                        CreatedDate = DateTimeHelper.VietnamNow(),
                         CreatedBy = userId == 0 ? null : userId,
                         ActivityLogType = CommonConstants.ActivityLogType.REQUEST,
                         TargetType = targetType ?? string.Empty

@@ -4,6 +4,7 @@ using Backend.Domain.Entities;
 using Backend.Infrastructure.Constants;
 using Backend.Infrastructure.DependencyInjection.Extentions;
 using Backend.Share.Extensions;
+using Backend.Share.Helpers;
 using Backend.Share.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -52,7 +53,7 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
                 Action = entry.State.ToString(),
                 TargetType = entry.Entity.GetType().Name,
                 TargetId = targetId,
-                CreatedDate = DateTime.Now,
+                CreatedDate = DateTimeHelper.VietnamNow(),
                 CreatedBy = _httpContextAccessor.HttpContext?.GetCurrentUserId(),
                 IpAddress = _httpContextAccessor.HttpContext?.GetRemoteHostIpAddress(),
                 UserAgent = _httpContextAccessor.HttpContext?.Request?.Headers["User-Agent"].ToString(),
