@@ -131,6 +131,15 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        [Authorize]
+        [HttpGet("me/menus")]
+        public async Task<IActionResult> GetCurrentUserMenus()
+        {
+            var userId = this.GetLoggedInUserId();
+            var result = await _authService.GetCurrentUserMenusAsync(userId);
+            return BaseResult(result);
+        }
+
         [HttpPost("resend-activation-mail")]
         public async Task<IActionResult> ResendActivationMail([FromBody] ResendActivationMailDto dto)
         {

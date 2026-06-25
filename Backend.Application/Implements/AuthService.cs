@@ -879,6 +879,26 @@ public class AuthService : IAuthService
             return Task.FromResult(ApiResponse.InternalServerError());
         }
     }
+    /// <summary>
+    /// Lấy danh sách menu theo phân quyền của người dùng hiện tại.
+    /// Dùng đúng logic dựng menu như khi đăng nhập (GetMenuAsync) nên xử lý
+    /// chính xác cả role isCheckAll. Cho phép FE làm mới sidebar theo quyền
+    /// mà không cần đăng nhập lại hay tải lại trang.
+    /// </summary>
+    public async Task<ApiResponse> GetCurrentUserMenusAsync(int userId)
+    {
+        try
+        {
+            var menus = await _userRepository.GetMenuAsync(userId);
+            return ApiResponse.Success(menus);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Fail to get current user menus: {Message}", ex.Message);
+            return ApiResponse.InternalServerError();
+        }
+    }
+
     public async Task<ApiResponse> ResendActivationMailAsync(ResendActivationMailDto dto)
     {
         try
