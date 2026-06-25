@@ -35,7 +35,6 @@ public class InboundOrderService : IInboundOrderService
     private readonly ISystemConfigRepository _systemConfigRepository;
     private readonly IRepositoryBase<AuditLog, int> _auditLogRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
-    private readonly IInboundHubContext _hubContext;
     private readonly ILogger<InboundOrderService> _logger;
 
     public InboundOrderService(
@@ -53,7 +52,6 @@ public class InboundOrderService : IInboundOrderService
         ISystemConfigRepository systemConfigRepository,
         IRepositoryBase<AuditLog, int> auditLogRepository,
         IHttpContextAccessor httpContextAccessor,
-        IInboundHubContext hubContext,
         ILogger<InboundOrderService> logger)
     {
         _inboundOrderRepository = inboundOrderRepository;
@@ -70,7 +68,6 @@ public class InboundOrderService : IInboundOrderService
         _systemConfigRepository = systemConfigRepository;
         _auditLogRepository = auditLogRepository;
         _httpContextAccessor = httpContextAccessor;
-        _hubContext = hubContext;
         _logger = logger;
     }
 
@@ -1123,15 +1120,8 @@ public class InboundOrderService : IInboundOrderService
 
             await transaction.CommitAsync();
 
-            // Publish SignalR update after successful commit
-            try
-            {
-                await _hubContext.PublishReceiptConfirmedAsync(item.Id, order.Id);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to publish SignalR message.");
-            }
+            // Realtime giờ do AuditSaveChangesInterceptor tự phát khi dữ liệu đổi
+            // (InboundOrder nằm trong RealtimeEntityNames), không cần publish thủ công.
 
             return ApiResponse.Success(item.ToDto(), "Xác nhận nhập kho hoàn tất thành công.");
         }

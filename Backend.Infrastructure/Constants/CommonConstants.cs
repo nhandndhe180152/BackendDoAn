@@ -31,5 +31,35 @@ public static class CommonConstants
             nameof(StockTakeItem),
             nameof(UnitOfMeasure)
     };
+
+    /// <summary>
+    /// Danh sách entity sẽ phát tín hiệu realtime khi dữ liệu thay đổi (qua SignalR).
+    /// Chỉ là "tín hiệu đổi" để FE tự gọi lại API - KHÔNG đẩy dữ liệu.
+    /// Muốn bật/tắt realtime cho bảng nào thì thêm/bớt tên ở đây (so khớp với
+    /// tên class entity = GetType().Name). Độc lập với AuditedEntityNames.
+    /// </summary>
+    public static readonly string[] RealtimeEntityNames = new[]
+    {
+            "User",
+            "Role",
+            "Menu",
+            "UserStatus",
+            "Action",
+            "Product",
+            "ProductCategory",
+            "ProductVariant",
+            "Supplier",
+            "UnitOfMeasure",
+            "IotDevice",
+            "IotDeviceCommand",
+            "Warehouse",
+            "Location",
+            "InboundOrder",
+            "Inventory",
+            "InventoryTransaction",
+            "SystemConfig",
+            "AuditLog",
+            "ActivityLog"
+    };
 }
 
