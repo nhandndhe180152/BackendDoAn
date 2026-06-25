@@ -20,5 +20,6 @@ public interface IAuthService
     Task<ApiResponse> GetProfileAsync(int userId);
     Task<ApiResponse> AdminCreateEndUser(CreateEndUserDto obj);
     Task<ApiResponse> GetCurrentUserDecentralization();
+    Task<ApiResponse> GetCurrentUserMenusAsync(int userId);
     Task<ApiResponse> ResendActivationMailAsync(ResendActivationMailDto dto);
 }
