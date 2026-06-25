@@ -92,8 +92,8 @@ public class ExceptionHandlingMiddleware
                     };
 
 
-                    //dbContext.ActivityLogs.AddAsync(log);
-                    //dbContext.SaveChangesAsync();
+                    await dbContext.ActivityLogs.AddAsync(log);
+                    await dbContext.SaveChangesAsync();
                 }
                 catch (Exception ex)
                 {
