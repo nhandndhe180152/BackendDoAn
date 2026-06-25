@@ -82,7 +82,9 @@ public static class ConfigureServices
             .AddScoped<IOutboundOrderItemRepository, OutboundOrderItemRepository>()
             .AddScoped<IStockTakeItemRepository, StockTakeItemRepository>()
             .AddScoped<IInventoryRepository, InventoryRepository>()
-            .AddScoped<IInventoryTransactionRepository, InventoryTransactionRepository>();
+            .AddScoped<IInventoryTransactionRepository, InventoryTransactionRepository>()
+            .AddScoped<ISupplierRepository, SupplierRepository>()
+            .AddScoped<IUnitOfMeasureRepository, UnitOfMeasureRepository>();
 
 
 

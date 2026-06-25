@@ -47,7 +47,9 @@ public static class ConfigureServices
             .AddScoped<ILocationService, LocationService>()
             .AddScoped<IInventoryService, InventoryService>()
             .AddScoped<IInventoryTransactionService, InventoryTransactionService>()
-            .AddScoped<IInboundOrderService, InboundOrderService>();
+            .AddScoped<IInboundOrderService, InboundOrderService>()
+            .AddScoped<ISupplierService, SupplierService>()
+            .AddScoped<IUnitOfMeasureService, UnitOfMeasureService>();
 
 
         services.AddFluentValidationAutoValidation(options => options.DisableDataAnnotationsValidation = true);
