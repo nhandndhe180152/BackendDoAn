@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Backend.Domain.Abstractions;
@@ -52,6 +53,41 @@ public class UnitOfMeasureRepository : RepositoryBase<UnitOfMeasure, int>, IUnit
             query = query.Where(x =>
                 x.Name.Contains(keyword) ||
                 x.Symbol.Contains(keyword));
+        }
+
+        if (parameters.Columns != null)
+        {
+            foreach (var column in parameters.Columns)
+            {
+                var search = column.Search?.Value?.Trim();
+                if (string.IsNullOrWhiteSpace(search)) continue;
+
+                switch (column.Data)
+                {
+                    case "name":
+                    case "Name":
+                        query = query.Where(x => x.Name.Contains(search));
+                        break;
+                    case "symbol":
+                    case "Symbol":
+                        query = query.Where(x => x.Symbol.Contains(search));
+                        break;
+                    case "createdDate":
+                    case "CreatedDate":
+                        if (search.Contains(" - "))
+                        {
+                            var dates = search.Split(" - ");
+                            var startDate = DateTime.ParseExact(dates[0], "dd/MM/yyyy", CultureInfo.InvariantCulture);
+                            var endDate = DateTime.ParseExact(dates[1], "dd/MM/yyyy", CultureInfo.InvariantCulture).AddDays(1).AddSeconds(-1);
+                            query = query.Where(x => x.CreatedDate >= startDate && x.CreatedDate <= endDate);
+                        }
+                        else if (DateTime.TryParseExact(search, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+                        {
+                            query = query.Where(x => x.CreatedDate.Date == date.Date);
+                        }
+                        break;
+                }
+            }
         }
 
         var filteredRecord = await query.CountAsync();
