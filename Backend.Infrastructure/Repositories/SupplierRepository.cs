@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Backend.Domain.Abstractions;
@@ -74,10 +75,48 @@ public class SupplierRepository : RepositoryBase<Supplier, int>, ISupplierReposi
 
                 switch (column.Data)
                 {
+                    case "name":
+                    case "Name":
+                        query = query.Where(x => x.Name.Contains(search));
+                        break;
+                    case "code":
+                    case "Code":
+                        query = query.Where(x => x.Code.Contains(search));
+                        break;
+                    case "contactPerson":
+                    case "ContactPerson":
+                        query = query.Where(x => x.ContactPerson != null && x.ContactPerson.Contains(search));
+                        break;
+                    case "phone":
+                    case "Phone":
+                        query = query.Where(x => x.Phone != null && x.Phone.Contains(search));
+                        break;
+                    case "email":
+                    case "Email":
+                        query = query.Where(x => x.Email != null && x.Email.Contains(search));
+                        break;
+                    case "taxCode":
+                    case "TaxCode":
+                        query = query.Where(x => x.TaxCode != null && x.TaxCode.Contains(search));
+                        break;
                     case "isActive":
                     case "IsActive":
                         if (bool.TryParse(search, out var isActive))
                             query = query.Where(x => x.IsActive == isActive);
+                        break;
+                    case "createdDate":
+                    case "CreatedDate":
+                        if (search.Contains(" - "))
+                        {
+                            var dates = search.Split(" - ");
+                            var startDate = DateTime.ParseExact(dates[0], "dd/MM/yyyy", CultureInfo.InvariantCulture);
+                            var endDate = DateTime.ParseExact(dates[1], "dd/MM/yyyy", CultureInfo.InvariantCulture).AddDays(1).AddSeconds(-1);
+                            query = query.Where(x => x.CreatedDate >= startDate && x.CreatedDate <= endDate);
+                        }
+                        else if (DateTime.TryParseExact(search, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+                        {
+                            query = query.Where(x => x.CreatedDate.Date == date.Date);
+                        }
                         break;
                 }
             }
