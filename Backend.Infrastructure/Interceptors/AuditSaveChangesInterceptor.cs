@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using Backend.Application.DependencyInjection.Extentions;
+using Backend.Application.Interfaces;
 using Backend.Domain.Entities;
 using Backend.Infrastructure.Constants;
 using Backend.Infrastructure.DependencyInjection.Extentions;
@@ -17,10 +19,19 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
 {
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ISerializeService _serializeService;
-    public AuditSaveChangesInterceptor(IHttpContextAccessor httpContextAccessor, ISerializeService serializeService)
+    private readonly IDataChangeNotifier _dataChangeNotifier;
+
+    // Tên entity cần phát realtime, gom ở SavingChanges để bắn sau khi commit.
+    private HashSet<string>? _pendingRealtimeNames;
+
+    public AuditSaveChangesInterceptor(
+        IHttpContextAccessor httpContextAccessor,
+        ISerializeService serializeService,
+        IDataChangeNotifier dataChangeNotifier)
     {
         _httpContextAccessor = httpContextAccessor;
         _serializeService = serializeService;
+        _dataChangeNotifier = dataChangeNotifier;
     }
     public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
     {
@@ -30,6 +41,25 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
         var entries = context.ChangeTracker.Entries()
            .Where(e => e.State == EntityState.Modified || e.State == EntityState.Added || e.State == EntityState.Deleted)
            .ToList();
+
+        // Gom tên entity sẽ phát realtime (lọc theo whitelist RealtimeEntityNames).
+        var realtimeNames = new HashSet<string>();
+        var wroteAudit = false;
+
+        foreach (var entry in entries)
+        {
+            var typeName = entry.Entity.GetType().Name;
+            if (CommonConstants.RealtimeEntityNames.Contains(typeName))
+                realtimeNames.Add(typeName);
+            if (CommonConstants.AuditedEntityNames.Contains(typeName))
+                wroteAudit = true;
+        }
+
+        // Có ghi audit log -> báo cho màn "Lịch sử thay đổi dữ liệu" làm mới.
+        if (wroteAudit && CommonConstants.RealtimeEntityNames.Contains("AuditLog"))
+            realtimeNames.Add("AuditLog");
+
+        _pendingRealtimeNames = realtimeNames.Count > 0 ? realtimeNames : null;
 
         foreach (var entry in entries)
         {
@@ -64,6 +94,30 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
         }
 
         return await base.SavingChangesAsync(eventData, result, cancellationToken);
+    }
+
+    /// <summary>
+    /// Sau khi lưu thành công (đã commit) mới phát tín hiệu realtime để tránh
+    /// báo nhầm khi transaction bị rollback. Lỗi realtime không làm hỏng nghiệp vụ.
+    /// </summary>
+    public override async ValueTask<int> SavedChangesAsync(SaveChangesCompletedEventData eventData, int result, CancellationToken cancellationToken = default)
+    {
+        var names = _pendingRealtimeNames;
+        _pendingRealtimeNames = null;
+
+        if (names != null && names.Count > 0)
+        {
+            try
+            {
+                await _dataChangeNotifier.NotifyEntitiesChangedAsync(names);
+            }
+            catch
+            {
+                // Không để lỗi gửi realtime ảnh hưởng tới luồng lưu dữ liệu.
+            }
+        }
+
+        return await base.SavedChangesAsync(eventData, result, cancellationToken);
     }
 
     private string SerializeValues(PropertyValues values)

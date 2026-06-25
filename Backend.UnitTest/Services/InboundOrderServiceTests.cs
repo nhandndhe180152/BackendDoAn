@@ -37,7 +37,6 @@ public class InboundOrderServiceTests
     private readonly Mock<ISystemConfigRepository> _systemConfigRepository = new();
     private readonly Mock<IRepositoryBase<AuditLog, int>> _auditLogRepository = new();
     private readonly Mock<IHttpContextAccessor> _httpContextAccessor = new();
-    private readonly Mock<IInboundHubContext> _hubContext = new();
     private readonly Mock<ILogger<InboundOrderService>> _logger = new();
 
     private readonly List<InboundOrderStatus> _statuses;
@@ -83,10 +82,6 @@ public class InboundOrderServiceTests
             )
         );
         _httpContextAccessor.Setup(a => a.HttpContext).Returns(httpContext);
-
-        // SignalR Mock setup
-        _hubContext.Setup(h => h.PublishReceiptConfirmedAsync(It.IsAny<int>(), It.IsAny<int>()))
-            .Returns(Task.CompletedTask);
     }
 
     private InboundOrderService Sut()
@@ -106,7 +101,6 @@ public class InboundOrderServiceTests
             _systemConfigRepository.Object,
             _auditLogRepository.Object,
             _httpContextAccessor.Object,
-            _hubContext.Object,
             _logger.Object
         );
     }
@@ -356,7 +350,6 @@ public class InboundOrderServiceTests
             _systemConfigRepository.Object,
             _auditLogRepository.Object,
             _httpContextAccessor.Object,
-            _hubContext.Object,
             _logger.Object
         );
 

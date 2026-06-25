@@ -129,7 +129,7 @@ public static class ServiceExtensions
         services.AddHttpContextAccessor();
         services.AddRateLimitPolicies();
         services.AddSignalR();
-        services.AddScoped<Backend.Application.Interfaces.IInboundHubContext, InboundHubContext>();
+        services.AddScoped<Backend.Application.Interfaces.IDataChangeNotifier, DataChangeNotifier>();
 
         var servicePath = configuration["FireBase:ServicePath"];
 
