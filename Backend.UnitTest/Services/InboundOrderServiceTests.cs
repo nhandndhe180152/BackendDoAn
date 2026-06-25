@@ -27,7 +27,7 @@ public class InboundOrderServiceTests
     private readonly Mock<IInboundOrderItemRepository> _inboundOrderItemRepository = new();
     private readonly Mock<IRepositoryBase<InboundOrderStatus, int>> _inboundOrderStatusRepository = new();
     private readonly Mock<IWarehouseRepository> _warehouseRepository = new();
-    private readonly Mock<IRepositoryBase<Supplier, int>> _supplierRepository = new();
+    private readonly Mock<IRepositoryBase<Domain.Entities.Supplier, int>> _supplierRepository = new();
     private readonly Mock<IProductVariantRepository> _productVariantRepository = new();
     private readonly Mock<ILocationRepository> _locationRepository = new();
     private readonly Mock<IInventoryRepository> _inventoryRepository = new();
@@ -119,8 +119,8 @@ public class InboundOrderServiceTests
         _warehouseRepository.Setup(r => r.FirstOrDefaultAsync(It.IsAny<Expression<Func<Warehouse, bool>>>(), It.IsAny<bool>(), It.IsAny<Expression<Func<Warehouse, object>>[]>()))
             .ReturnsAsync(new Warehouse { Id = 1, IsActive = true, IsDeleted = false });
 
-        _supplierRepository.Setup(r => r.FirstOrDefaultAsync(It.IsAny<Expression<Func<Supplier, bool>>>(), It.IsAny<bool>(), It.IsAny<Expression<Func<Supplier, object>>[]>()))
-            .ReturnsAsync(new Supplier { Id = 1, IsActive = true, IsDeleted = false });
+        _supplierRepository.Setup(r => r.FirstOrDefaultAsync(It.IsAny<Expression<Func<Domain.Entities.Supplier, bool>>>(), It.IsAny<bool>(), It.IsAny<Expression<Func<Domain.Entities.Supplier, object>>[]>()))
+            .ReturnsAsync(new Domain.Entities.Supplier { Id = 1, IsActive = true, IsDeleted = false });
 
         _productVariantRepository.Setup(r => r.FirstOrDefaultAsync(It.IsAny<Expression<Func<ProductVariant, bool>>>(), It.IsAny<bool>(), It.IsAny<Expression<Func<ProductVariant, object>>[]>()))
             .ReturnsAsync(new ProductVariant { Id = 1, IsActive = true, IsDeleted = false });
