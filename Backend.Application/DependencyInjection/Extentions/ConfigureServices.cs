@@ -49,6 +49,7 @@ public static class ConfigureServices
             .AddScoped<IInventoryTransactionService, InventoryTransactionService>()
             .AddScoped<IInboundOrderService, InboundOrderService>()
             .AddScoped<ISupplierService, SupplierService>()
+            .AddScoped<IStockTakeService, StockTakeService>()
             .AddScoped<IUnitOfMeasureService, UnitOfMeasureService>();
 
 
