@@ -21,7 +21,7 @@ public class StockTakeDto
 public class CreateStockTakeDto
 {
     public int WarehouseId { get; set; }
-    public int StockTakeStatusId { get; set; }
+    public int StockTakeStatusId { get; set; } = (int)Backend.Domain.Enums.Enums.StockTakeStatusEnum.Draft;
     public string? STCode { get; set; } // Auto-generated if null
     public string? Note { get; set; }
     public int? CreatedBy { get; set; }

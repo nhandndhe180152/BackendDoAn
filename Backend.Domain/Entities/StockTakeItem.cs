@@ -8,6 +8,7 @@ public class StockTakeItem : EntityAuditBase<int>
     public int StockTakeId { get; set; }
     public int? ProductVariantId { get; set; }
     public int SystemQuantity { get; set; }
+    public int? LocationId { get; set; }
     public int? ActualQuantity { get; set; }
     public int Difference => (ActualQuantity ?? 0) - SystemQuantity;
     public string? Note { get; set; }
@@ -15,4 +16,5 @@ public class StockTakeItem : EntityAuditBase<int>
 
     public virtual StockTake StockTake { get; set; } = null!;
     public virtual ProductVariant? ProductVariant { get; set; }
+    public virtual Location? Location { get; set; }
 }

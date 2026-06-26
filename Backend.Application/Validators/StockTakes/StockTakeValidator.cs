@@ -60,6 +60,12 @@ public class CreateStockTakeItemDtoValidator : AbstractValidator<CreateStockTake
             .WithName("Số lượng hệ thống")
             .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.InvalidData));
 
+        RuleFor(x => x.ActualQuantity)
+            .GreaterThanOrEqualTo(0)
+            .When(x => x.ActualQuantity.HasValue)
+            .WithName("Số lượng thực tế")
+            .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.InvalidData));
+
         RuleFor(x => x.Note)
             .MaximumLength(500)
             .WithName("Ghi chú")
@@ -74,6 +80,12 @@ public class UpdateStockTakeItemDtoValidator : AbstractValidator<UpdateStockTake
         RuleFor(x => x.SystemQuantity)
             .GreaterThanOrEqualTo(0)
             .WithName("Số lượng hệ thống")
+            .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.InvalidData));
+
+        RuleFor(x => x.ActualQuantity)
+            .GreaterThanOrEqualTo(0)
+            .When(x => x.ActualQuantity.HasValue)
+            .WithName("Số lượng thực tế")
             .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.InvalidData));
 
         RuleFor(x => x.Note)

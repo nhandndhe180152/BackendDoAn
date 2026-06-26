@@ -14,7 +14,7 @@ public static class StockTakeMapping
         var entity = new StockTake
         {
             WarehouseId = dto.WarehouseId,
-            StockTakeStatusId = dto.StockTakeStatusId,
+            StockTakeStatusId = (int)Backend.Domain.Enums.Enums.StockTakeStatusEnum.Draft,
             STCode = string.IsNullOrEmpty(dto.STCode) ? $"ST{now:yyyyMMddHHmmss}" : dto.STCode,
             Note = dto.Note,
             CreatedDate = now,
@@ -22,10 +22,11 @@ public static class StockTakeMapping
             StockTakeItems = dto.StockTakeItems.Select(item => new StockTakeItem
             {
                 ProductVariantId = item.ProductVariantId,
-                SystemQuantity = item.SystemQuantity,
+                LocationId = item.LocationId,
+                SystemQuantity = 0, // Will be fetched from Inventory
                 ActualQuantity = item.ActualQuantity,
                 Note = item.Note,
-                QRScanned = false,
+                QRScanned = item.QRScanned,
                 CreatedDate = now
             }).ToList()
         };
@@ -65,6 +66,7 @@ public static class StockTakeMapping
                 Id = item.Id,
                 StockTakeId = item.StockTakeId,
                 ProductVariantId = item.ProductVariantId,
+                LocationId = item.LocationId,
                 SystemQuantity = item.SystemQuantity,
                 ActualQuantity = item.ActualQuantity,
                 Difference = item.Difference,
