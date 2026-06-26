@@ -25,4 +25,8 @@ public interface IInboundOrderService
     Task<ApiResponse> SelectPutawayAsync(int orderId, int receiptId, SelectPutawayDto dto);
     Task<ApiResponse> ConfirmReceiptAsync(int orderId, int receiptId, ConfirmReceiptDto dto);
     Task<ApiResponse> GetReceiptsAsync(int orderId);
+
+    // Chứng từ giao hàng (Delivery Note: ảnh + OCR)
+    Task<ApiResponse> SaveDeliveryNoteAsync(int orderId, SaveDeliveryNoteDto dto);
+    Task<ApiResponse> GetDeliveryNoteAsync(int orderId);
 }

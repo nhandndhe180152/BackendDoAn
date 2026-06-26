@@ -130,6 +130,31 @@ public static class InboundOrderMapping
         return dto;
     }
 
+    /// <summary>Map DeliveryNote sang DTO. imageUrl được service phân giải từ IStorageService.</summary>
+    public static DeliveryNoteDto ToDto(this DeliveryNote entity, int inboundOrderId, string? imageUrl)
+    {
+        return new DeliveryNoteDto
+        {
+            Id = entity.Id,
+            InboundOrderId = inboundOrderId,
+            TrackingCode = entity.TrackingCode,
+            CarrierName = entity.CarrierName,
+            SenderName = entity.SenderName,
+            SenderPhone = entity.SenderPhone,
+            SenderAddress = entity.SenderAddress,
+            ReceiverName = entity.ReceiverName,
+            ReceiverPhone = entity.ReceiverPhone,
+            ReceiverAddress = entity.ReceiverAddress,
+            DeclaredWeight = entity.DeclaredWeight,
+            CODAmount = entity.CODAmount,
+            RawOcrText = entity.RawOcrText,
+            OriginalImageFileId = entity.OriginalImageFileId,
+            ImageUrl = imageUrl,
+            IsConfirmed = entity.IsConfirmed,
+            CreatedDate = entity.CreatedDate
+        };
+    }
+
     public static string SerializeReceiptState(InboundReceiptState state)
     {
         return JsonConvert.SerializeObject(state);
