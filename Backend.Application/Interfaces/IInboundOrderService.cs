@@ -7,6 +7,7 @@ namespace Backend.Application.Interfaces;
 public interface IInboundOrderService
 {
     Task<ApiResponse> GetPagedAsync(SearchQuery query);
+    Task<ApiResponse> GetPagedAdvancedAsync(Backend.Domain.DTParameters.InboundOrderDTParameters parameters);
     Task<ApiResponse> GetByIdAsync(int id);
     Task<ApiResponse> CreateAsync(CreateInboundOrderDto dto);
     Task<ApiResponse> UpdateAsync(UpdateInboundOrderDto dto);

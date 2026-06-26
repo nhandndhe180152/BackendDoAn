@@ -3,6 +3,7 @@ using Backend.API.Utilities;
 using Backend.Application.Constants;
 using Backend.Application.DTOs.InboundOrders;
 using Backend.Application.Interfaces;
+using Backend.Domain.DTParameters;
 using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -33,6 +34,14 @@ public class InboundOrderController : BaseController
     public async Task<IActionResult> GetPagedAsync([FromQuery] SearchQuery query)
     {
         var result = await _inboundOrderService.GetPagedAsync(query);
+        return BaseResult(result);
+    }
+
+    /// API phân trang nâng cao (DataTables) cho màn quản lý phiếu nhập: lọc theo cột + sắp xếp
+    [HttpPost("paged-advanced")]
+    public async Task<IActionResult> GetPagedAdvancedAsync([FromBody] InboundOrderDTParameters parameters)
+    {
+        var result = await _inboundOrderService.GetPagedAdvancedAsync(parameters);
         return BaseResult(result);
     }
 

@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
+using Backend.Domain.DTParameters;
 using Backend.Application.Constants;
 using Backend.Application.DependencyInjection.Extentions;
 using Backend.Application.DTOs.InboundOrders;
@@ -151,6 +153,150 @@ public class InboundOrderService : IInboundOrderService
         };
 
         return ApiResponse.Success(pagedData);
+    }
+
+    /// <summary>
+    /// Phân trang nâng cao (DataTables) cho màn web quản lý phiếu nhập:
+    /// tìm kiếm chung (POCode/NCC/ghi chú), lọc theo cột (trạng thái, khoảng ngày dự kiến/ngày tạo) và sắp xếp theo cột.
+    /// </summary>
+    public async Task<ApiResponse> GetPagedAdvancedAsync(InboundOrderDTParameters parameters)
+    {
+        var keyword = parameters.Search?.Value?.Trim();
+        var orderCriteria = "CreatedDate";
+        var orderAscendingDirection = false;
+
+        if (parameters.Order != null && parameters.Order.Any() && parameters.Columns != null && parameters.Columns.Any())
+        {
+            var rawColumn = parameters.Columns[parameters.Order[0].Column].Data;
+            orderCriteria = NormalizeInboundOrderColumn(rawColumn);
+            orderAscendingDirection = parameters.Order[0].Dir.ToString().ToLower() == "asc";
+        }
+
+        var query = _inboundOrderRepository
+            .FindByCondition(x => !x.IsDeleted, false)
+            .Select(x => new InboundOrderListDto
+            {
+                Id = x.Id,
+                POCode = x.POCode,
+                WarehouseId = x.WarehouseId,
+                WarehouseName = x.Warehouse.Name,
+                SupplierId = x.SupplierId,
+                SupplierName = x.Supplier != null ? x.Supplier.Name : null,
+                InboundOrderStatusId = x.InboundOrderStatusId,
+                InboundOrderStatusName = x.InboundOrderStatus.Name,
+                TotalAssetValue = x.TotalAssetValue,
+                ExpectedDate = x.ExpectedDate,
+                CompletedDate = x.CompletedDate,
+                Note = x.Note,
+                CreatedDate = x.CreatedDate
+            });
+
+        var totalRecord = await query.CountAsync();
+
+        // Tìm kiếm chung
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            query = query.Where(x =>
+                x.POCode.Contains(keyword) ||
+                (x.SupplierName != null && x.SupplierName.Contains(keyword)) ||
+                (x.Note != null && x.Note.Contains(keyword)));
+        }
+
+        // Lọc theo từng cột
+        if (parameters.Columns != null)
+        {
+            foreach (var column in parameters.Columns)
+            {
+                var search = column.Search?.Value?.Trim();
+                if (string.IsNullOrWhiteSpace(search)) continue;
+
+                switch (column.Data)
+                {
+                    case "poCode":
+                    case "POCode":
+                        query = query.Where(x => x.POCode.Contains(search));
+                        break;
+                    case "supplierName":
+                    case "SupplierName":
+                        query = query.Where(x => x.SupplierName != null && x.SupplierName.Contains(search));
+                        break;
+                    case "warehouseName":
+                    case "WarehouseName":
+                        query = query.Where(x => x.WarehouseName.Contains(search));
+                        break;
+                    case "inboundOrderStatusName":
+                    case "InboundOrderStatusName":
+                        // Frontend gửi Id trạng thái -> lọc theo Id; nếu là chuỗi thì lọc theo tên
+                        if (int.TryParse(search, out var statusId))
+                            query = query.Where(x => x.InboundOrderStatusId == statusId);
+                        else
+                            query = query.Where(x => x.InboundOrderStatusName.Contains(search));
+                        break;
+                    case "expectedDate":
+                    case "ExpectedDate":
+                        if (search.Contains(" - "))
+                        {
+                            var dates = search.Split(" - ");
+                            var startDate = DateTime.ParseExact(dates[0], "dd/MM/yyyy", CultureInfo.InvariantCulture);
+                            var endDate = DateTime.ParseExact(dates[1], "dd/MM/yyyy", CultureInfo.InvariantCulture).AddDays(1).AddSeconds(-1);
+                            query = query.Where(x => x.ExpectedDate >= startDate && x.ExpectedDate <= endDate);
+                        }
+                        else if (DateTime.TryParseExact(search, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var expDate))
+                        {
+                            query = query.Where(x => x.ExpectedDate.HasValue && x.ExpectedDate.Value.Date == expDate.Date);
+                        }
+                        break;
+                    case "createdDate":
+                    case "CreatedDate":
+                        if (search.Contains(" - "))
+                        {
+                            var dates = search.Split(" - ");
+                            var startDate = DateTime.ParseExact(dates[0], "dd/MM/yyyy", CultureInfo.InvariantCulture);
+                            var endDate = DateTime.ParseExact(dates[1], "dd/MM/yyyy", CultureInfo.InvariantCulture).AddDays(1).AddSeconds(-1);
+                            query = query.Where(x => x.CreatedDate >= startDate && x.CreatedDate <= endDate);
+                        }
+                        else if (DateTime.TryParseExact(search, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var createdDate))
+                        {
+                            query = query.Where(x => x.CreatedDate.Date == createdDate.Date);
+                        }
+                        break;
+                }
+            }
+        }
+
+        var filteredRecord = await query.CountAsync();
+
+        query = orderAscendingDirection
+            ? query.OrderByDynamic(orderCriteria, LinqExtensions.Order.Asc)
+            : query.OrderByDynamic(orderCriteria, LinqExtensions.Order.Desc);
+
+        var data = await query
+            .Skip(parameters.Start)
+            .Take(parameters.Length)
+            .ToListAsync();
+
+        return ApiResponse.Success(new DTResult<InboundOrderListDto>
+        {
+            draw = parameters.Draw,
+            data = data,
+            recordsFiltered = filteredRecord,
+            recordsTotal = totalRecord
+        });
+    }
+
+    private static string NormalizeInboundOrderColumn(string? columnName)
+    {
+        return columnName switch
+        {
+            "poCode" => "POCode",
+            "supplierName" => "SupplierName",
+            "warehouseName" => "WarehouseName",
+            "inboundOrderStatusName" => "InboundOrderStatusName",
+            "totalAssetValue" => "TotalAssetValue",
+            "expectedDate" => "ExpectedDate",
+            "createdDate" => "CreatedDate",
+            _ => "CreatedDate"
+        };
     }
 
     public async Task<ApiResponse> GetByIdAsync(int id)
