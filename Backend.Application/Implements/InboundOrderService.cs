@@ -36,6 +36,7 @@ public class InboundOrderService : IInboundOrderService
     private readonly IRepositoryBase<AuditLog, int> _auditLogRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<InboundOrderService> _logger;
+    private readonly INotificationDispatcher _notificationDispatcher;
 
     public InboundOrderService(
         IRepositoryBase<InboundOrder, int> inboundOrderRepository,
@@ -52,7 +53,8 @@ public class InboundOrderService : IInboundOrderService
         ISystemConfigRepository systemConfigRepository,
         IRepositoryBase<AuditLog, int> auditLogRepository,
         IHttpContextAccessor httpContextAccessor,
-        ILogger<InboundOrderService> logger)
+        ILogger<InboundOrderService> logger,
+        INotificationDispatcher notificationDispatcher)
     {
         _inboundOrderRepository = inboundOrderRepository;
         _inboundOrderItemRepository = inboundOrderItemRepository;
@@ -69,6 +71,7 @@ public class InboundOrderService : IInboundOrderService
         _auditLogRepository = auditLogRepository;
         _httpContextAccessor = httpContextAccessor;
         _logger = logger;
+        _notificationDispatcher = notificationDispatcher;
     }
 
     private async Task<int> GetStatusIdAsync(string name)
@@ -339,6 +342,14 @@ public class InboundOrderService : IInboundOrderService
 
         await LogAuditAsync("APPROVE", nameof(InboundOrder), order.Id.ToString(), $"Phê duyệt phiếu nhập {order.POCode}.");
 
+        // Thông báo + push FCM cho người tạo phiếu và các vai trò quản lý.
+        await _notificationDispatcher.DispatchAsync(
+            NotificationConstants.Code.InboundApproved,
+            BuildInboundNotifyTarget(order.CreatedBy),
+            new object[] { order.POCode },
+            $"/admin/inbound-orders/{order.Id}",
+            GetCurrentUserId());
+
         return ApiResponse.Success();
     }
 
@@ -365,7 +376,30 @@ public class InboundOrderService : IInboundOrderService
 
         await LogAuditAsync("REJECT", nameof(InboundOrder), order.Id.ToString(), $"Từ chối phiếu nhập {order.POCode}. Lý do: {reason}");
 
+        // Thông báo + push FCM cho người tạo phiếu và các vai trò quản lý.
+        await _notificationDispatcher.DispatchAsync(
+            NotificationConstants.Code.InboundRejected,
+            BuildInboundNotifyTarget(order.CreatedBy),
+            new object[] { order.POCode, reason },
+            $"/admin/inbound-orders/{order.Id}",
+            GetCurrentUserId());
+
         return ApiResponse.Success();
+    }
+
+    /// <summary>Người nhận thông báo phiếu nhập: người tạo + vai trò quản lý.</summary>
+    private static NotificationTarget BuildInboundNotifyTarget(int? createdBy)
+    {
+        return new NotificationTarget
+        {
+            UserIds = createdBy.HasValue ? new List<int> { createdBy.Value } : new List<int>(),
+            RoleIds = new List<int>
+            {
+                CommonConstants.Role.ADMIN,
+                CommonConstants.Role.EXECUTIVE,
+                CommonConstants.Role.DISPATCHER,
+            },
+        };
     }
 
     public async Task<ApiResponse> CancelAsync(int id)

@@ -58,6 +58,9 @@ public static class CommonConstants
             "Inventory",
             "InventoryTransaction",
             "SystemConfig",
+            "Notification",
+            "NotificationCategory",
+            "NotificationType",
             "AuditLog",
             "ActivityLog"
     };

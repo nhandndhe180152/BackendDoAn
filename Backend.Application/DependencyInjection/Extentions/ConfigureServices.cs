@@ -19,6 +19,7 @@ public static class ConfigureServices
             .AddScoped<IFolderUploadService, FolderUploadService>()
             .AddScoped<IMenuService, MenuService>()
             .AddScoped<INotificationCategoryService, NotificationCategoryService>()
+            .AddScoped<INotificationDispatcher, NotificationDispatcher>()
             .AddScoped<INotificationService, NotificationService>()
             .AddScoped<IPermissionService, PermissionService>()
             .AddScoped<IRoleService, RoleService>()
