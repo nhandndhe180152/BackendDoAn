@@ -38,6 +38,7 @@ public class InboundOrderServiceTests
     private readonly Mock<IRepositoryBase<AuditLog, int>> _auditLogRepository = new();
     private readonly Mock<IHttpContextAccessor> _httpContextAccessor = new();
     private readonly Mock<ILogger<InboundOrderService>> _logger = new();
+    private readonly Mock<INotificationDispatcher> _notificationDispatcher = new();
 
     private readonly List<InboundOrderStatus> _statuses;
 
@@ -101,7 +102,8 @@ public class InboundOrderServiceTests
             _systemConfigRepository.Object,
             _auditLogRepository.Object,
             _httpContextAccessor.Object,
-            _logger.Object
+            _logger.Object,
+            _notificationDispatcher.Object
         );
     }
 
@@ -350,7 +352,8 @@ public class InboundOrderServiceTests
             _systemConfigRepository.Object,
             _auditLogRepository.Object,
             _httpContextAccessor.Object,
-            _logger.Object
+            _logger.Object,
+            _notificationDispatcher.Object
         );
 
         // Mock start receipt
