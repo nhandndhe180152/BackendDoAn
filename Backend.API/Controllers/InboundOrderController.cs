@@ -181,4 +181,19 @@ public class InboundOrderController : BaseController
         var result = await _inboundOrderService.GetReceiptsAsync(id);
         return BaseResult(result);
     }
+
+    // Chứng từ giao hàng (Delivery Note): ảnh upload sẵn qua /file-manager/upload-by-category, ở đây gắn OriginalImageFileId
+    [HttpPost("{id}/delivery-note")]
+    public async Task<IActionResult> SaveDeliveryNoteAsync(int id, [FromBody] SaveDeliveryNoteDto dto)
+    {
+        var result = await _inboundOrderService.SaveDeliveryNoteAsync(id, dto);
+        return BaseResult(result);
+    }
+
+    [HttpGet("{id}/delivery-note")]
+    public async Task<IActionResult> GetDeliveryNoteAsync(int id)
+    {
+        var result = await _inboundOrderService.GetDeliveryNoteAsync(id);
+        return BaseResult(result);
+    }
 }

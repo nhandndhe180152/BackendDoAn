@@ -36,9 +36,11 @@ public class InboundOrderServiceTests
     private readonly Mock<IIotDeviceRepository> _iotDeviceRepository = new();
     private readonly Mock<ISystemConfigRepository> _systemConfigRepository = new();
     private readonly Mock<IRepositoryBase<AuditLog, int>> _auditLogRepository = new();
+    private readonly Mock<IRepositoryBase<DeliveryNote, int>> _deliveryNoteRepository = new();
+    private readonly Mock<IRepositoryBase<FileUpload, int>> _fileUploadRepository = new();
+    private readonly Mock<IStorageService> _storageService = new();
     private readonly Mock<IHttpContextAccessor> _httpContextAccessor = new();
     private readonly Mock<ILogger<InboundOrderService>> _logger = new();
-    private readonly Mock<INotificationDispatcher> _notificationDispatcher = new();
 
     private readonly List<InboundOrderStatus> _statuses;
 
@@ -101,9 +103,11 @@ public class InboundOrderServiceTests
             _iotDeviceRepository.Object,
             _systemConfigRepository.Object,
             _auditLogRepository.Object,
+            _deliveryNoteRepository.Object,
+            _fileUploadRepository.Object,
+            _storageService.Object,
             _httpContextAccessor.Object,
-            _logger.Object,
-            _notificationDispatcher.Object
+            _logger.Object
         );
     }
 
@@ -351,9 +355,11 @@ public class InboundOrderServiceTests
             _iotDeviceRepository.Object,
             _systemConfigRepository.Object,
             _auditLogRepository.Object,
+            _deliveryNoteRepository.Object,
+            _fileUploadRepository.Object,
+            _storageService.Object,
             _httpContextAccessor.Object,
-            _logger.Object,
-            _notificationDispatcher.Object
+            _logger.Object
         );
 
         // Mock start receipt
@@ -510,3 +516,4 @@ public class InboundOrderServiceTests
         order.InboundOrderStatusId.Should().Be(8); // Confirmed is status ID 8
     }
 }
+

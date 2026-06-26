@@ -34,9 +34,11 @@ public class InboundOrderService : IInboundOrderService
     private readonly IIotDeviceRepository _iotDeviceRepository;
     private readonly ISystemConfigRepository _systemConfigRepository;
     private readonly IRepositoryBase<AuditLog, int> _auditLogRepository;
+    private readonly IRepositoryBase<DeliveryNote, int> _deliveryNoteRepository;
+    private readonly IRepositoryBase<FileUpload, int> _fileUploadRepository;
+    private readonly IStorageService _storageService;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<InboundOrderService> _logger;
-    private readonly INotificationDispatcher _notificationDispatcher;
 
     public InboundOrderService(
         IRepositoryBase<InboundOrder, int> inboundOrderRepository,
@@ -52,9 +54,11 @@ public class InboundOrderService : IInboundOrderService
         IIotDeviceRepository iotDeviceRepository,
         ISystemConfigRepository systemConfigRepository,
         IRepositoryBase<AuditLog, int> auditLogRepository,
+        IRepositoryBase<DeliveryNote, int> deliveryNoteRepository,
+        IRepositoryBase<FileUpload, int> fileUploadRepository,
+        IStorageService storageService,
         IHttpContextAccessor httpContextAccessor,
-        ILogger<InboundOrderService> logger,
-        INotificationDispatcher notificationDispatcher)
+        ILogger<InboundOrderService> logger)
     {
         _inboundOrderRepository = inboundOrderRepository;
         _inboundOrderItemRepository = inboundOrderItemRepository;
@@ -69,9 +73,11 @@ public class InboundOrderService : IInboundOrderService
         _iotDeviceRepository = iotDeviceRepository;
         _systemConfigRepository = systemConfigRepository;
         _auditLogRepository = auditLogRepository;
+        _deliveryNoteRepository = deliveryNoteRepository;
+        _fileUploadRepository = fileUploadRepository;
+        _storageService = storageService;
         _httpContextAccessor = httpContextAccessor;
         _logger = logger;
-        _notificationDispatcher = notificationDispatcher;
     }
 
     private async Task<int> GetStatusIdAsync(string name)
@@ -167,7 +173,23 @@ public class InboundOrderService : IInboundOrderService
             }
         }
 
-        return ApiResponse.Success(order.ToDetailDto());
+        var detail = order.ToDetailDto();
+
+        // Gắn chứng từ giao hàng (nếu phiếu đã có) kèm URL ảnh để hiển thị/xem lại
+        if (order.DeliveryNoteId.HasValue)
+        {
+            var deliveryNote = await _deliveryNoteRepository.FirstOrDefaultAsync(
+                x => x.Id == order.DeliveryNoteId.Value && !x.IsDeleted, false, x => x.OriginalImageFile);
+            if (deliveryNote != null)
+            {
+                var imageUrl = deliveryNote.OriginalImageFile != null
+                    ? _storageService.GetOriginalUrl(deliveryNote.OriginalImageFile.FileKey)
+                    : null;
+                detail.DeliveryNote = deliveryNote.ToDto(order.Id, imageUrl);
+            }
+        }
+
+        return ApiResponse.Success(detail);
     }
 
     public async Task<ApiResponse> CreateAsync(CreateInboundOrderDto dto)
@@ -342,14 +364,6 @@ public class InboundOrderService : IInboundOrderService
 
         await LogAuditAsync("APPROVE", nameof(InboundOrder), order.Id.ToString(), $"Phê duyệt phiếu nhập {order.POCode}.");
 
-        // Thông báo + push FCM cho người tạo phiếu và các vai trò quản lý.
-        await _notificationDispatcher.DispatchAsync(
-            NotificationConstants.Code.InboundApproved,
-            BuildInboundNotifyTarget(order.CreatedBy),
-            new object[] { order.POCode },
-            $"/admin/inbound-orders/{order.Id}",
-            GetCurrentUserId());
-
         return ApiResponse.Success();
     }
 
@@ -376,30 +390,7 @@ public class InboundOrderService : IInboundOrderService
 
         await LogAuditAsync("REJECT", nameof(InboundOrder), order.Id.ToString(), $"Từ chối phiếu nhập {order.POCode}. Lý do: {reason}");
 
-        // Thông báo + push FCM cho người tạo phiếu và các vai trò quản lý.
-        await _notificationDispatcher.DispatchAsync(
-            NotificationConstants.Code.InboundRejected,
-            BuildInboundNotifyTarget(order.CreatedBy),
-            new object[] { order.POCode, reason },
-            $"/admin/inbound-orders/{order.Id}",
-            GetCurrentUserId());
-
         return ApiResponse.Success();
-    }
-
-    /// <summary>Người nhận thông báo phiếu nhập: người tạo + vai trò quản lý.</summary>
-    private static NotificationTarget BuildInboundNotifyTarget(int? createdBy)
-    {
-        return new NotificationTarget
-        {
-            UserIds = createdBy.HasValue ? new List<int> { createdBy.Value } : new List<int>(),
-            RoleIds = new List<int>
-            {
-                CommonConstants.Role.ADMIN,
-                CommonConstants.Role.EXECUTIVE,
-                CommonConstants.Role.DISPATCHER,
-            },
-        };
     }
 
     public async Task<ApiResponse> CancelAsync(int id)
@@ -1182,4 +1173,105 @@ public class InboundOrderService : IInboundOrderService
         var list = items.Select(x => x.ToDto()).ToList();
         return ApiResponse.Success(list);
     }
+
+    /// <summary>
+    /// Lưu/gắn chứng từ giao hàng (ảnh + thông tin OCR) vào phiếu nhập.
+    /// Ảnh phải được upload trước qua /file-manager/upload-by-category để lấy OriginalImageFileId.
+    /// Quan hệ 1-1 do InboundOrder.DeliveryNoteId sở hữu: gọi lại sẽ cập nhật chứng từ hiện có.
+    /// </summary>
+    public async Task<ApiResponse> SaveDeliveryNoteAsync(int orderId, SaveDeliveryNoteDto dto)
+    {
+        var order = await _inboundOrderRepository.FirstOrDefaultAsync(x => x.Id == orderId && !x.IsDeleted, true);
+        if (order == null)
+            return ApiResponse.NotFound("Không tìm thấy phiếu nhập.", ApiCodeConstants.Common.NotFound);
+
+        // Xác thực ảnh chứng từ tồn tại trong kho tệp
+        var file = await _fileUploadRepository.FirstOrDefaultAsync(x => x.Id == dto.OriginalImageFileId && !x.IsDeleted);
+        if (file == null)
+            return ApiResponse.UnprocessableEntity("Ảnh chứng từ không tồn tại hoặc đã bị xóa.", ApiCodeConstants.Common.UnprocessableEntity);
+
+        var userId = GetCurrentUserId();
+        var now = DateTime.Now;
+        var isNew = !order.DeliveryNoteId.HasValue;
+
+        DeliveryNote deliveryNote;
+        if (!isNew)
+        {
+            deliveryNote = await _deliveryNoteRepository.FirstOrDefaultAsync(x => x.Id == order.DeliveryNoteId!.Value && !x.IsDeleted, true);
+            if (deliveryNote == null)
+            {
+                isNew = true;
+                deliveryNote = new DeliveryNote { CreatedBy = userId, CreatedDate = now };
+            }
+        }
+        else
+        {
+            deliveryNote = new DeliveryNote { CreatedBy = userId, CreatedDate = now };
+        }
+
+        deliveryNote.TrackingCode = dto.TrackingCode;
+        deliveryNote.CarrierName = dto.CarrierName;
+        deliveryNote.SenderName = dto.SenderName;
+        deliveryNote.SenderPhone = dto.SenderPhone;
+        deliveryNote.SenderAddress = dto.SenderAddress;
+        deliveryNote.ReceiverName = dto.ReceiverName;
+        deliveryNote.ReceiverPhone = dto.ReceiverPhone;
+        deliveryNote.ReceiverAddress = dto.ReceiverAddress;
+        deliveryNote.DeclaredWeight = dto.DeclaredWeight;
+        deliveryNote.CODAmount = dto.CODAmount;
+        deliveryNote.RawOcrText = dto.RawOcrText;
+        deliveryNote.OriginalImageFileId = dto.OriginalImageFileId;
+        deliveryNote.IsConfirmed = dto.IsConfirmed;
+
+        if (isNew)
+        {
+            await _deliveryNoteRepository.CreateAsync(deliveryNote);
+            await _deliveryNoteRepository.SaveChangesAsync();
+
+            order.DeliveryNoteId = deliveryNote.Id;
+            order.UpdatedBy = userId;
+            order.LastModifiedDate = now;
+            await _inboundOrderRepository.UpdateAsync(order);
+            await _inboundOrderRepository.SaveChangesAsync();
+        }
+        else
+        {
+            deliveryNote.UpdatedBy = userId;
+            deliveryNote.LastModifiedDate = now;
+            await _deliveryNoteRepository.UpdateAsync(deliveryNote);
+            await _deliveryNoteRepository.SaveChangesAsync();
+        }
+
+        await LogAuditAsync(
+            isNew ? "ATTACH_DELIVERY_NOTE" : "UPDATE_DELIVERY_NOTE",
+            nameof(DeliveryNote),
+            deliveryNote.Id.ToString(),
+            $"{(isNew ? "Gắn" : "Cập nhật")} chứng từ giao hàng cho phiếu nhập {order.POCode} (file #{dto.OriginalImageFileId}).");
+
+        var imageUrl = _storageService.GetOriginalUrl(file.FileKey);
+        return ApiResponse.Success(deliveryNote.ToDto(order.Id, imageUrl), "Lưu chứng từ giao hàng thành công.");
+    }
+
+    /// <summary>Lấy chứng từ giao hàng của phiếu nhập kèm URL ảnh.</summary>
+    public async Task<ApiResponse> GetDeliveryNoteAsync(int orderId)
+    {
+        var order = await _inboundOrderRepository.FirstOrDefaultAsync(x => x.Id == orderId && !x.IsDeleted, false);
+        if (order == null)
+            return ApiResponse.NotFound("Không tìm thấy phiếu nhập.", ApiCodeConstants.Common.NotFound);
+
+        if (!order.DeliveryNoteId.HasValue)
+            return ApiResponse.Success((DeliveryNoteDto?)null, "Phiếu nhập chưa có chứng từ giao hàng.");
+
+        var deliveryNote = await _deliveryNoteRepository.FirstOrDefaultAsync(
+            x => x.Id == order.DeliveryNoteId.Value && !x.IsDeleted, false, x => x.OriginalImageFile);
+        if (deliveryNote == null)
+            return ApiResponse.Success((DeliveryNoteDto?)null, "Phiếu nhập chưa có chứng từ giao hàng.");
+
+        var imageUrl = deliveryNote.OriginalImageFile != null
+            ? _storageService.GetOriginalUrl(deliveryNote.OriginalImageFile.FileKey)
+            : null;
+
+        return ApiResponse.Success(deliveryNote.ToDto(order.Id, imageUrl));
+    }
 }
+
