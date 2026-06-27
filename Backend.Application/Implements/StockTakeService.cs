@@ -251,7 +251,7 @@ public class StockTakeService : IStockTakeService
                         Note = $"Điều chỉnh kiểm kho {existData.STCode}"
                     };
 
-                    var result = await _inventoryTransactionService.AdjustStockAsync(request, item.ActualQuantity.Value);
+                    var result = await _inventoryTransactionService.AdjustStockAsync(request, item.ActualQuantity.Value, true);
                     if (!result.IsSucceeded)
                     {
                         await transaction.RollbackAsync();

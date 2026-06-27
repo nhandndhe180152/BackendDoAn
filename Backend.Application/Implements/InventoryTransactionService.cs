@@ -159,12 +159,13 @@ public class InventoryTransactionService : IInventoryTransactionService
     /// <param name="request">Tham số đầu vào dùng trong logic xử lý của hàm.</param>
     /// <param name="newQuantityOnHand">Tham số đầu vào dùng trong logic xử lý của hàm.</param>
     /// <returns>Kết quả xử lý của hàm, thường là dữ liệu, ApiResponse, IActionResult hoặc trạng thái thao tác.</returns>
-    public async Task<ApiResponse> AdjustStockAsync(StockMovementRequestDto request, int newQuantityOnHand)
+    public async Task<ApiResponse> AdjustStockAsync(StockMovementRequestDto request, int newQuantityOnHand, bool isManagedTransaction = false)
     {
         return await ApplyMovementAsync(
             request,
             InventoryTransactionTypeConstants.StockTakeAdjust,
-            newQuantityOnHand);
+            newQuantityOnHand,
+            isManagedTransaction);
     }
 
     /// <summary>
@@ -173,182 +174,207 @@ public class InventoryTransactionService : IInventoryTransactionService
     /// <param name="request">Tham số đầu vào dùng trong logic xử lý của hàm.</param>
     /// <param name="transactionType">Tham số đầu vào dùng trong logic xử lý của hàm.</param>
     /// <param name="newQuantityOnHand">Tham số đầu vào dùng trong logic xử lý của hàm.</param>
+    /// <param name="isManagedTransaction">Cờ chỉ định transaction đã được quản lý bởi hàm gọi.</param>
     /// <returns>Kết quả xử lý của hàm, thường là dữ liệu, ApiResponse, IActionResult hoặc trạng thái thao tác.</returns>
     private async Task<ApiResponse> ApplyMovementAsync(
         StockMovementRequestDto request,
         string transactionType,
-        int? newQuantityOnHand)
+        int? newQuantityOnHand,
+        bool isManagedTransaction = false)
     {
+        if (isManagedTransaction)
+        {
+            try
+            {
+                return await ApplyMovementCoreAsync(request, transactionType, newQuantityOnHand);
+            }
+            catch (Exception)
+            {
+                return ApiResponse.InternalServerError();
+            }
+        }
+
         // Mở database transaction để việc cập nhật Inventory và ghi InventoryTransaction luôn đồng bộ.
         // Nếu một bước lỗi thì rollback để tránh tồn kho đã đổi nhưng lịch sử chưa ghi, hoặc ngược lại.
         await using var dbTransaction = await _inventoryRepository.BeginTransactionAsync();
-
         try
         {
-            if (request.ProductVariantId <= 0)
+            var result = await ApplyMovementCoreAsync(request, transactionType, newQuantityOnHand);
+            if (result.IsSucceeded)
             {
-                return ApiResponse.BadRequest();
+                await _inventoryRepository.EndTransactionAsync();
+            }
+            else
+            {
+                await _inventoryRepository.RollbackTransactionAsync();
             }
 
-            if (request.WarehouseId <= 0)
-            {
-                return ApiResponse.BadRequest();
-            }
-
-            if (request.Quantity <= 0 && !newQuantityOnHand.HasValue)
-            {
-                return ApiResponse.BadRequest();
-            }
-
-            var productVariant = await _productVariantRepository.GetActiveByIdAsync(request.ProductVariantId);
-            if (productVariant == null)
-            {
-                return ApiResponse.NotFound();
-            }
-
-            // Chuẩn hóa loại giao dịch để tránh lỗi do client/service truyền chữ hoa, chữ thường hoặc alias khác nhau.
-            transactionType = InventoryTransactionTypeConstants.Normalize(transactionType);
-            var referenceType = InventoryReferenceTypeConstants.Normalize(request.ReferenceType);
-
-            var now = DateTime.Now;
-            var currentUserId = _httpContextAccessor.HttpContext?.GetCurrentUserId();
-
-            // Tìm dòng tồn kho hiện tại theo SKU + warehouse + location.
-            // Đây là tổ hợp quyết định một vị trí tồn kho cụ thể trong StockLite.
-            var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
-                request.ProductVariantId,
-                request.WarehouseId,
-                request.LocationId);
-
-            // Nếu chưa có dòng Inventory thì chỉ cho phép tạo mới khi nhập kho/điều chỉnh hợp lệ.
-            // Xuất kho từ một dòng tồn kho chưa tồn tại là nghiệp vụ sai nên phải rollback.
-            if (inventory == null)
-            {
-                if (transactionType == InventoryTransactionTypeConstants.Export)
-                {
-                    await _inventoryRepository.RollbackTransactionAsync();
-                    return ApiResponse.BadRequest();
-                }
-
-                inventory = new Inventory
-                {
-                    WarehouseId = request.WarehouseId,
-                    LocationId = request.LocationId,
-                    ProductVariantId = request.ProductVariantId,
-                    CostPrice = request.CostPrice ?? productVariant.CostPrice,
-                    QuantityOnHand = 0,
-                    QuantityReserved = 0,
-                    CreatedDate = now
-                };
-
-                await _inventoryRepository.CreateAsync(inventory);
-                await _inventoryRepository.SaveChangesAsync();
-            }
-
-            var beforeQuantity = inventory.QuantityOnHand;
-            int afterQuantity;
-            int transactionQuantity;
-
-            // Tính số lượng trước/sau theo từng loại giao dịch:
-            // - Import: cộng tồn
-            // - Export: trừ tồn và kiểm tra available quantity
-            // - Adjustment: đặt lại số lượng thực tế sau kiểm kê/điều chỉnh thủ công
-            switch (transactionType)
-            {
-                case InventoryTransactionTypeConstants.Import:
-                    transactionQuantity = request.Quantity;
-                    afterQuantity = beforeQuantity + request.Quantity;
-                    break;
-
-                case InventoryTransactionTypeConstants.Export:
-                    var availableQuantity = inventory.QuantityOnHand - inventory.QuantityReserved;
-
-                    if (availableQuantity < request.Quantity)
-                    {
-                        await _inventoryRepository.RollbackTransactionAsync();
-                        return ApiResponse.BadRequest();
-                    }
-
-                    transactionQuantity = -request.Quantity;
-                    afterQuantity = beforeQuantity - request.Quantity;
-                    break;
-
-                case InventoryTransactionTypeConstants.StockTakeAdjust:
-                case InventoryTransactionTypeConstants.ManualAdjust:
-                    if (!newQuantityOnHand.HasValue)
-                    {
-                        await _inventoryRepository.RollbackTransactionAsync();
-                        return ApiResponse.BadRequest();
-                    }
-
-                    if (newQuantityOnHand.Value < 0)
-                    {
-                        await _inventoryRepository.RollbackTransactionAsync();
-                        return ApiResponse.BadRequest();
-                    }
-
-                    afterQuantity = newQuantityOnHand.Value;
-                    transactionQuantity = afterQuantity - beforeQuantity;
-                    break;
-
-                default:
-                    await _inventoryRepository.RollbackTransactionAsync();
-                    return ApiResponse.BadRequest();
-            }
-
-            inventory.QuantityOnHand = afterQuantity;
-            inventory.CostPrice = request.CostPrice ?? inventory.CostPrice;
-            inventory.LastModifiedDate = now;
-
-            if (transactionType == InventoryTransactionTypeConstants.StockTakeAdjust)
-            {
-                inventory.LastStockTakeDate = now;
-            }
-
-            await _inventoryRepository.UpdateAsync(inventory);
-
-            // Ghi một dòng lịch sử giao dịch tồn kho sau khi đã tính before/after quantity.
-            // Dữ liệu này phục vụ audit trail, báo cáo stock movement và truy vết sai lệch.
-            var inventoryTransaction = new InventoryTransaction
-            {
-                InventoryId = inventory.Id,
-                WarehouseId = request.WarehouseId,
-                LocationId = request.LocationId,
-                ProductVariantId = request.ProductVariantId,
-                TransactionType = transactionType,
-                ReferenceType = referenceType,
-                ReferenceId = request.ReferenceId,
-                ReferenceItemId = request.ReferenceItemId,
-                Quantity = transactionQuantity,
-                BeforeQuantity = beforeQuantity,
-                AfterQuantity = afterQuantity,
-                WeightKg = request.WeightKg,
-                IotWeightLogId = request.IotWeightLogId,
-                Note = request.Note,
-                CreatedDate = now,
-                CreatedBy = currentUserId
-            };
-
-            await _inventoryTransactionRepository.CreateAsync(inventoryTransaction);
-            await _inventoryTransactionRepository.SaveChangesAsync();
-            await _inventoryRepository.EndTransactionAsync();
-
-            var savedInventory = await _inventoryRepository.GetByIdDetailAsync(inventory.Id) ?? inventory;
-            var savedTransaction = await _inventoryTransactionRepository.GetByIdDetailAsync(inventoryTransaction.Id)
-                                   ?? inventoryTransaction;
-
-            return ApiResponse.Success(
-                new StockMovementResultDto
-                {
-                    Inventory = savedInventory.ToDto(),
-                    Transaction = savedTransaction.ToDto()
-                },
-                "Cập nhật tồn kho và ghi InventoryTransaction thành công.");
+            return result;
         }
         catch (Exception)
         {
             await _inventoryRepository.RollbackTransactionAsync();
             return ApiResponse.InternalServerError();
         }
+    }
+
+    private async Task<ApiResponse> ApplyMovementCoreAsync(
+        StockMovementRequestDto request,
+        string transactionType,
+        int? newQuantityOnHand)
+    {
+        if (request.ProductVariantId <= 0)
+        {
+            return ApiResponse.BadRequest();
+        }
+
+        if (request.WarehouseId <= 0)
+        {
+            return ApiResponse.BadRequest();
+        }
+
+        if (request.Quantity <= 0 && !newQuantityOnHand.HasValue)
+        {
+            return ApiResponse.BadRequest();
+        }
+
+        var productVariant = await _productVariantRepository.GetActiveByIdAsync(request.ProductVariantId);
+        if (productVariant == null)
+        {
+            return ApiResponse.NotFound();
+        }
+
+        // Chuẩn hóa loại giao dịch để tránh lỗi do client/service truyền chữ hoa, chữ thường hoặc alias khác nhau.
+        transactionType = InventoryTransactionTypeConstants.Normalize(transactionType);
+        var referenceType = InventoryReferenceTypeConstants.Normalize(request.ReferenceType);
+
+        var now = DateTime.Now;
+        var currentUserId = _httpContextAccessor.HttpContext?.GetCurrentUserId();
+
+        // Tìm dòng tồn kho hiện tại theo SKU + warehouse + location.
+        // Đây là tổ hợp quyết định một vị trí tồn kho cụ thể trong StockLite.
+        var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
+            request.ProductVariantId,
+            request.WarehouseId,
+            request.LocationId);
+
+        // Nếu chưa có dòng Inventory thì chỉ cho phép tạo mới khi nhập kho/điều chỉnh hợp lệ.
+        // Xuất kho từ một dòng tồn kho chưa tồn tại là nghiệp vụ sai.
+        if (inventory == null)
+        {
+            if (transactionType == InventoryTransactionTypeConstants.Export)
+            {
+                return ApiResponse.BadRequest();
+            }
+
+            inventory = new Inventory
+            {
+                WarehouseId = request.WarehouseId,
+                LocationId = request.LocationId,
+                ProductVariantId = request.ProductVariantId,
+                CostPrice = request.CostPrice ?? productVariant.CostPrice,
+                QuantityOnHand = 0,
+                QuantityReserved = 0,
+                CreatedDate = now
+            };
+
+            await _inventoryRepository.CreateAsync(inventory);
+            await _inventoryRepository.SaveChangesAsync();
+        }
+
+        var beforeQuantity = inventory.QuantityOnHand;
+        int afterQuantity;
+        int transactionQuantity;
+
+        // Tính số lượng trước/sau theo từng loại giao dịch:
+        // - Import: cộng tồn
+        // - Export: trừ tồn và kiểm tra available quantity
+        // - Adjustment: đặt lại số lượng thực tế sau kiểm kê/điều chỉnh thủ công
+        switch (transactionType)
+        {
+            case InventoryTransactionTypeConstants.Import:
+                transactionQuantity = request.Quantity;
+                afterQuantity = beforeQuantity + request.Quantity;
+                break;
+
+            case InventoryTransactionTypeConstants.Export:
+                var availableQuantity = inventory.QuantityOnHand - inventory.QuantityReserved;
+
+                if (availableQuantity < request.Quantity)
+                {
+                    return ApiResponse.BadRequest();
+                }
+
+                transactionQuantity = -request.Quantity;
+                afterQuantity = beforeQuantity - request.Quantity;
+                break;
+
+            case InventoryTransactionTypeConstants.StockTakeAdjust:
+            case InventoryTransactionTypeConstants.ManualAdjust:
+                if (!newQuantityOnHand.HasValue)
+                {
+                    return ApiResponse.BadRequest();
+                }
+
+                if (newQuantityOnHand.Value < 0)
+                {
+                    return ApiResponse.BadRequest();
+                }
+
+                afterQuantity = newQuantityOnHand.Value;
+                transactionQuantity = afterQuantity - beforeQuantity;
+                break;
+
+            default:
+                return ApiResponse.BadRequest();
+        }
+
+        inventory.QuantityOnHand = afterQuantity;
+        inventory.CostPrice = request.CostPrice ?? inventory.CostPrice;
+        inventory.LastModifiedDate = now;
+
+        if (transactionType == InventoryTransactionTypeConstants.StockTakeAdjust)
+        {
+            inventory.LastStockTakeDate = now;
+        }
+
+        await _inventoryRepository.UpdateAsync(inventory);
+
+        // Ghi một dòng lịch sử giao dịch tồn kho sau khi đã tính before/after quantity.
+        // Dữ liệu này phục vụ audit trail, báo cáo stock movement và truy vết sai lệch.
+        var inventoryTransaction = new InventoryTransaction
+        {
+            InventoryId = inventory.Id,
+            WarehouseId = request.WarehouseId,
+            LocationId = request.LocationId,
+            ProductVariantId = request.ProductVariantId,
+            TransactionType = transactionType,
+            ReferenceType = referenceType,
+            ReferenceId = request.ReferenceId,
+            ReferenceItemId = request.ReferenceItemId,
+            Quantity = transactionQuantity,
+            BeforeQuantity = beforeQuantity,
+            AfterQuantity = afterQuantity,
+            WeightKg = request.WeightKg,
+            IotWeightLogId = request.IotWeightLogId,
+            Note = request.Note,
+            CreatedDate = now,
+            CreatedBy = currentUserId
+        };
+
+        await _inventoryTransactionRepository.CreateAsync(inventoryTransaction);
+        await _inventoryTransactionRepository.SaveChangesAsync();
+
+        var savedInventory = await _inventoryRepository.GetByIdDetailAsync(inventory.Id) ?? inventory;
+        var savedTransaction = await _inventoryTransactionRepository.GetByIdDetailAsync(inventoryTransaction.Id)
+                               ?? inventoryTransaction;
+
+        return ApiResponse.Success(
+            new StockMovementResultDto
+            {
+                Inventory = savedInventory.ToDto(),
+                Transaction = savedTransaction.ToDto()
+            },
+            "Cập nhật tồn kho và ghi InventoryTransaction thành công.");
     }
 }
