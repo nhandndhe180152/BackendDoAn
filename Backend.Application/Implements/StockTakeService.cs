@@ -41,6 +41,7 @@ public class StockTakeService : IStockTakeService
     public async Task<ApiResponse> CreateAsync(CreateStockTakeDto obj)
     {
         var model = obj.ToEntity();
+        model.StartedDate = DateTimeHelper.VietnamNow();
 
         foreach (var item in model.StockTakeItems)
         {
