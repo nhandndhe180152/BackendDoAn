@@ -60,6 +60,7 @@ public static class StockTakeMapping
             StartedDate = entity.StartedDate,
             CompletedDate = entity.CompletedDate,
             ApprovedByUserId = entity.ApprovedByUserId,
+            ApproveNote = entity.ApproveNote,
             CreatedDate = entity.CreatedDate,
             StockTakeItems = entity.StockTakeItems.Select(item => new StockTakeItemDto
             {

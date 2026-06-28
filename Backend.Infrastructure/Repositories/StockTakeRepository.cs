@@ -50,6 +50,7 @@ public class StockTakeRepository : RepositoryBase<StockTake, int>, IStockTakeRep
                 StartedDate = x.StartedDate,
                 CompletedDate = x.CompletedDate,
                 ApprovedByUserId = x.ApprovedByUserId,
+                ApproveNote = x.ApproveNote,
                 CreatedDate = x.CreatedDate
             });
 

@@ -13,5 +13,6 @@ public class StockTakeAggregate
     public DateTime? StartedDate { get; set; }
     public DateTime? CompletedDate { get; set; }
     public int? ApprovedByUserId { get; set; }
+    public string? ApproveNote { get; set; }
     public DateTime CreatedDate { get; set; }
 }

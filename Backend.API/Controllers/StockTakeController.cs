@@ -67,9 +67,9 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("{id}/approve")]
-        public async Task<IActionResult> ApproveAsync(int id)
+        public async Task<IActionResult> ApproveAsync(int id, [FromBody] ApproveStockTakeDto dto)
         {
-            var result = await _stockTakeService.ApproveAsync(id, this.GetLoggedInUserId());
+            var result = await _stockTakeService.ApproveAsync(id, dto.ApproveNote, this.GetLoggedInUserId());
             return BaseResult(result);
         }
 

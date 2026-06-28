@@ -141,6 +141,18 @@ public class StockTakeService : IStockTakeService
             return ApiResponse.UnprocessableEntity("Không thể cập nhật phiếu đã duyệt hoặc bị từ chối.", ApiCodeConstants.Common.UnprocessableEntity);
         }
 
+        if (obj.StockTakeStatusId == (int)Enums.StockTakeStatusEnum.Approved || 
+            obj.StockTakeStatusId == (int)Enums.StockTakeStatusEnum.Rejected)
+        {
+            return ApiResponse.UnprocessableEntity("Không thể cập nhật trạng thái Duyệt/Từ chối qua chức năng này.", ApiCodeConstants.Common.UnprocessableEntity);
+        }
+
+        if (obj.StockTakeStatusId == (int)Enums.StockTakeStatusEnum.Submitted && 
+            existData.StockTakeStatusId != (int)Enums.StockTakeStatusEnum.Draft)
+        {
+            return ApiResponse.UnprocessableEntity("Chỉ có thể Gửi duyệt phiếu đang ở trạng thái Nháp.", ApiCodeConstants.Common.UnprocessableEntity);
+        }
+
         obj.ToEntity(existData);
 
         // Handle StockTakeItems
@@ -207,7 +219,7 @@ public class StockTakeService : IStockTakeService
         throw new NotImplementedException();
     }
 
-    public async Task<ApiResponse> ApproveAsync(int id, int userId)
+    public async Task<ApiResponse> ApproveAsync(int id, string? approveNote, int userId)
     {
         var currentRoleIds = _httpContextAccessor.HttpContext?.GetCurrentRoleIds() ?? new List<int>();
         if (!currentRoleIds.Contains(CommonConstants.Role.ADMIN))
@@ -231,6 +243,7 @@ public class StockTakeService : IStockTakeService
         {
             existData.StockTakeStatusId = (int)Enums.StockTakeStatusEnum.Approved;
             existData.ApprovedByUserId = userId;
+            existData.ApproveNote = approveNote;
             existData.CompletedDate = DateTimeHelper.VietnamNow();
             existData.LastModifiedDate = DateTimeHelper.VietnamNow();
             existData.UpdatedBy = userId;
