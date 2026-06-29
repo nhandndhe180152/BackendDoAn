@@ -83,7 +83,7 @@ namespace Backend.API.Controllers
         }
 
         /// API Cập nhật thông tin sản phẩm
-        [HttpPut]
+        [HttpPut("{id}")]
         //[CustomAuthorize(Enums.Menu.PRODUCT, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateProductDto obj)
         {
@@ -98,6 +98,32 @@ namespace Backend.API.Controllers
         public async Task<IActionResult> Search([FromQuery] ProductSearchQuery query)
         {
             var data = await _productService.GetPagedAsync(query);
+            return BaseResult(data);
+        }
+
+        /// API Kích hoạt sản phẩm (IsActive = true)
+        [HttpPost("{id}/activate")]
+        //[CustomAuthorize(Enums.Menu.PRODUCT, Enums.Action.UPDATE)]
+        public async Task<IActionResult> ActivateAsync(int id)
+        {
+            var data = await _productService.ActivateAsync(id, this.GetLoggedInUserId());
+            return BaseResult(data);
+        }
+
+        /// API Vô hiệu hóa sản phẩm (IsActive = false)
+        [HttpPost("{id}/deactivate")]
+        //[CustomAuthorize(Enums.Menu.PRODUCT, Enums.Action.UPDATE)]
+        public async Task<IActionResult> DeactivateAsync(int id)
+        {
+            var data = await _productService.DeactivateAsync(id, this.GetLoggedInUserId());
+            return BaseResult(data);
+        }
+
+        /// API Lấy danh sách biến thể của một sản phẩm
+        [HttpGet("{id}/variants")]
+        public async Task<IActionResult> GetVariantsByProductIdAsync(int id)
+        {
+            var data = await _productService.GetVariantsByProductIdAsync(id);
             return BaseResult(data);
         }
     }

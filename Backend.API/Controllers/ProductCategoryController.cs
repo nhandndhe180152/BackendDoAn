@@ -82,7 +82,7 @@ namespace Backend.API.Controllers
         }
 
         /// API cập nhật thông tin danh mục sản phẩm
-        [HttpPut]
+        [HttpPut("{id}")]
         //[CustomAuthorize(Enums.Menu.PRODUCT_CATEGORY, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateProductCategoryDto obj)
         {
@@ -96,6 +96,14 @@ namespace Backend.API.Controllers
         public async Task<IActionResult> Search([FromQuery] ProductCategorySearchQuery query)
         {
             var data = await _productCategoryService.GetPagedAsync(query);
+            return BaseResult(data);
+        }
+
+        /// API lấy cây danh mục sản phẩm dạng phân cấp
+        [HttpGet("tree")]
+        public async Task<IActionResult> GetTreeAsync()
+        {
+            var data = await _productCategoryService.GetTreeAsync();
             return BaseResult(data);
         }
     }

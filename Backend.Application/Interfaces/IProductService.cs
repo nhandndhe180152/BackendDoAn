@@ -9,4 +9,8 @@ namespace Backend.Application.Interfaces;
 public interface IProductService : IServiceBase<int, CreateProductDto, UpdateProductDto, ProductDTParameters>
 {
     Task<ApiResponse> GetPagedAsync(ProductSearchQuery query);
+    Task<ApiResponse> ActivateAsync(int id, int updatedBy);
+    Task<ApiResponse> DeactivateAsync(int id, int updatedBy);
+    Task<ApiResponse> GetVariantsByProductIdAsync(int id);
 }
+

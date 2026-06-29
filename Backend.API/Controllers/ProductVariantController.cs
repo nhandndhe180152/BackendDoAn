@@ -84,7 +84,7 @@ namespace Backend.API.Controllers
         }
 
         /// API cập nhật thông tin biến thể sản phẩm
-        [HttpPut]
+        [HttpPut("{id}")]
         //[CustomAuthorize(Enums.Menu.PRODUCT_VARIANT, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateProductVariantDto obj)
         {
@@ -194,6 +194,48 @@ namespace Backend.API.Controllers
         {
             var result = await _productVariantService.ConfirmScanAsync(request);
             return BaseResult(result);
+        }
+
+        /// API kích hoạt biến thể sản phẩm (IsActive = true)
+        [HttpPost("{id}/activate")]
+        //[CustomAuthorize(Enums.Menu.PRODUCT_VARIANT, Enums.Action.UPDATE)]
+        public async Task<IActionResult> ActivateAsync(int id)
+        {
+            var data = await _productVariantService.ActivateAsync(id, this.GetLoggedInUserId());
+            return BaseResult(data);
+        }
+
+        /// API vô hiệu hóa biến thể sản phẩm (IsActive = false)
+        [HttpPost("{id}/deactivate")]
+        //[CustomAuthorize(Enums.Menu.PRODUCT_VARIANT, Enums.Action.UPDATE)]
+        public async Task<IActionResult> DeactivateAsync(int id)
+        {
+            var data = await _productVariantService.DeactivateAsync(id, this.GetLoggedInUserId());
+            return BaseResult(data);
+        }
+
+        /// API tạo và lưu URL QR code cho biến thể sản phẩm (thông qua service)
+        [HttpPost("{id}/generate-qr")]
+        public async Task<IActionResult> GenerateQrAsync(int id)
+        {
+            var data = await _productVariantService.GenerateQrAsync(id, this.GetLoggedInUserId());
+            return BaseResult(data);
+        }
+
+        /// API tra cứu biến thể sản phẩm theo mã SKU (không liên kết tài liệu)
+        [HttpGet("by-sku/{sku}")]
+        public async Task<IActionResult> GetBySkuAsync(string sku)
+        {
+            var data = await _productVariantService.CheckSkuAsync(sku);
+            return BaseResult(data);
+        }
+
+        /// API tra cứu biến thể sản phẩm theo mã QR Code
+        [HttpGet("by-qr/{qrCode}")]
+        public async Task<IActionResult> GetByQrCodeAsync(string qrCode)
+        {
+            var data = await _productVariantService.GetByQrCodeAsync(qrCode);
+            return BaseResult(data);
         }
     }
 }
