@@ -15,5 +15,6 @@ public interface IProductVariantService : IServiceBase<int, CreateProductVariant
     Task<ApiResponse> DeactivateAsync(int id, int updatedBy);
     Task<ApiResponse> GetByQrCodeAsync(string qrCode);
     Task<ApiResponse> GenerateQrAsync(int id, int updatedBy);
+    Task<ApiResponse> GetQrCodeUrlAsync(int id);
 }
 

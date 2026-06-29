@@ -82,7 +82,7 @@ namespace Backend.API.Controllers
         }
 
         /// API cập nhật thông tin thuộc tính sản phẩm
-        [HttpPut("{id}")]
+        [HttpPut]
         //[CustomAuthorize(Enums.Menu.PRODUCT_ATTRIBUTE, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateProductAttributeDto obj)
         {

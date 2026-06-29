@@ -186,66 +186,69 @@ public class ProductService : IProductService
     /// Tìm kiếm và lọc sản phẩm chi tiết theo các tiêu chí cụ thể
     public async Task<ApiResponse> GetPagedAsync(ProductSearchQuery query)
     {
-        // Base query
-        IQueryable<Product> baseQuery;
-
-        if (query.IncludeDescendantCategories && query.ProductCategoryId.HasValue)
-        {
-            // Load the selected category to get its TreeIds prefix
-            var cat = await _productCategoryRepository.GetByIdAsync(query.ProductCategoryId.Value);
-            if (cat != null)
-            {
-                var treePrefix = cat.TreeIds + ",";
-                // Include all categories whose TreeIds equals the target or starts with target TreeIds + ","
-                var matchingCategoryIds = await _productCategoryRepository
-                    .FindByCondition(x => !x.IsDeleted &&
-                        (x.TreeIds == cat.TreeIds || x.TreeIds.StartsWith(treePrefix)))
-                    .Select(x => x.Id)
-                    .ToListAsync();
-
-                baseQuery = _productRepository
-                    .FindByCondition(x => matchingCategoryIds.Contains(x.ProductCategoryId));
-            }
-            else
-            {
-                baseQuery = _productRepository.FindByCondition(x => x.ProductCategoryId == query.ProductCategoryId.Value);
-            }
-        }
-        else if (query.ProductCategoryId.HasValue)
-        {
-            baseQuery = _productRepository.FindByCondition(x => x.ProductCategoryId == query.ProductCategoryId.Value);
-        }
-        else
-        {
-            baseQuery = _productRepository.FindByCondition(x => true);
-        }
+        IQueryable<Product> baseQuery = _productRepository.FindByCondition(x => true);
 
         if (!query.IncludeDeleted)
             baseQuery = baseQuery.Where(x => !x.IsDeleted);
+
+        if (query.ProductCategoryId.HasValue)
+        {
+            if (query.IncludeDescendantCategories)
+            {
+                // Dùng subquery thay vì 2 round-trips:
+                // Lấy target TreeIds bằng correlated subquery rồi lọc tất cả descendants trong 1 query
+                var targetId = query.ProductCategoryId.Value;
+                var targetTreeIds = await _productCategoryRepository
+                    .FindByCondition(x => x.Id == targetId && !x.IsDeleted)
+                    .Select(x => x.TreeIds)
+                    .FirstOrDefaultAsync();
+
+                if (targetTreeIds != null)
+                {
+                    var treePrefix = targetTreeIds + ",";
+                    // Subquery: danh sách category khớp (chính nó + descendants)
+                    var descendantCategoryIds = _productCategoryRepository
+                        .FindByCondition(x => !x.IsDeleted &&
+                            (x.TreeIds == targetTreeIds || x.TreeIds.StartsWith(treePrefix)))
+                        .Select(x => x.Id);
+
+                    baseQuery = baseQuery.Where(x => descendantCategoryIds.Contains(x.ProductCategoryId));
+                }
+                else
+                {
+                    // Category không tồn tại → trả rỗng
+                    baseQuery = baseQuery.Where(x => x.ProductCategoryId == targetId);
+                }
+            }
+            else
+            {
+                baseQuery = baseQuery.Where(x => x.ProductCategoryId == query.ProductCategoryId.Value);
+            }
+        }
 
         var data = baseQuery
             .Include(x => x.ProductCategory)
             .Include(x => x.ProductVariants)
             .Select(x => x.ToDto());
 
-        var totalRecord = await data.CountAsync();
-
+        // Apply filters trước khi đếm → totalRecord phản ánh đúng số sau filter
         if (!string.IsNullOrEmpty(query.Keyword))
         {
-            data = data.Where(x => x.Name.ToLower().Contains(query.Keyword.ToLower()) ||
-                                   x.Description != null && x.Description.ToLower().Contains(query.Keyword.ToLower()) ||
-                                   x.ProductCategoryName != null && x.ProductCategoryName.ToLower().Contains(query.Keyword.ToLower()));
+            var kw = query.Keyword.ToLower();
+            data = data.Where(x =>
+                x.Name.ToLower().Contains(kw) ||
+                (x.Description != null && x.Description.ToLower().Contains(kw)) ||
+                (x.ProductCategoryName != null && x.ProductCategoryName.ToLower().Contains(kw)));
         }
 
         if (query.IsActive.HasValue)
-        {
             data = data.Where(x => x.IsActive == query.IsActive.Value);
-        }
+
+        var totalRecord = await data.CountAsync();
 
         if (!string.IsNullOrEmpty(query.OrderBy))
-        {
-            data = data.OrderByDynamic(query.OrderBy, query.SortType == "asc" ? LinqExtensions.Order.Asc : LinqExtensions.Order.Desc);
-        }
+            data = data.OrderByDynamic(query.OrderBy,
+                query.SortType == "asc" ? LinqExtensions.Order.Asc : LinqExtensions.Order.Desc);
 
         var pagedData = new PagingData<ProductDetailDto>
         {
@@ -253,7 +256,7 @@ public class ProductService : IProductService
             PageSize = query.PageSize,
             DataSource = await data.Skip((query.PageIndex - 1) * query.PageSize).Take(query.PageSize).ToListAsync(),
             Total = totalRecord,
-            TotalFiltered = await data.CountAsync()
+            TotalFiltered = totalRecord
         };
 
         return ApiResponse.Success(pagedData);

@@ -84,7 +84,7 @@ namespace Backend.API.Controllers
         }
 
         /// API cập nhật thông tin biến thể sản phẩm
-        [HttpPut("{id}")]
+        [HttpPut]
         //[CustomAuthorize(Enums.Menu.PRODUCT_VARIANT, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateProductVariantDto obj)
         {
@@ -101,19 +101,12 @@ namespace Backend.API.Controllers
             return BaseResult(data);
         }
 
-        /// API tạo hình ảnh QR code cho biến thể sản phẩm theo ID
+        /// API lấy URL QR code đã lưu của biến thể sản phẩm theo ID
         [HttpGet("{id}/qr-code")]
         public async Task<IActionResult> GetQRCodeAsync(int id)
         {
-            try
-            {
-                var bytes = await _qrCodeService.GenerateQRCodeImageAsync(id);
-                return File(bytes, "image/png", $"qrcode-{id}.png");
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(ex.Message);
-            }
+            var data = await _productVariantService.GetQrCodeUrlAsync(id);
+            return BaseResult(data);
         }
 
         /// API tạo nhãn QR dạng PDF cho biến thể sản phẩm theo ID (hỗ trợ tùy chỉnh kích thước nhãn)
@@ -231,8 +224,8 @@ namespace Backend.API.Controllers
         }
 
         /// API tra cứu biến thể sản phẩm theo mã QR Code
-        [HttpGet("by-qr/{qrCode}")]
-        public async Task<IActionResult> GetByQrCodeAsync(string qrCode)
+        [HttpGet("by-qr")]
+        public async Task<IActionResult> GetByQrCodeAsync([FromQuery] string qrCode)
         {
             var data = await _productVariantService.GetByQrCodeAsync(qrCode);
             return BaseResult(data);

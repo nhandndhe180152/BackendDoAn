@@ -98,7 +98,7 @@ public class ProductVariantService : IProductVariantService
     private async Task<string?> ValidateAttributeValuesAsync(string? attributeValuesJson)
     {
         if (string.IsNullOrWhiteSpace(attributeValuesJson))
-            return null; // optional
+            return null;
 
         List<RawAttributeEntry>? entries;
         try
@@ -114,25 +114,25 @@ public class ProductVariantService : IProductVariantService
         if (entries == null || entries.Count == 0)
             return null;
 
-        // No duplicate attributeId
         var ids = entries.Select(e => e.AttributeId).ToList();
         if (ids.Count != ids.Distinct().Count())
             return "AttributeValues chứa attributeId bị trùng lặp.";
 
-        // Each value must be non-empty
         foreach (var e in entries)
         {
             if (string.IsNullOrWhiteSpace(e.Value))
                 return $"Giá trị của attributeId={e.AttributeId} không được để trống.";
         }
 
-        // Each attributeId must exist and not be deleted
-        foreach (var attrId in ids)
-        {
-            var attr = await _productAttributeRepository.GetByIdAsync(attrId);
-            if (attr == null || attr.IsDeleted)
-                return $"Thuộc tính với ID={attrId} không tồn tại hoặc đã bị xóa.";
-        }
+        // Single IN(...) query — tránh N lần GetByIdAsync
+        var existingIds = await _productAttributeRepository
+            .FindByCondition(x => ids.Contains(x.Id) && !x.IsDeleted)
+            .Select(x => x.Id)
+            .ToListAsync();
+
+        var missingIds = ids.Where(id => !existingIds.Contains(id)).ToList();
+        if (missingIds.Count > 0)
+            return $"Một hoặc nhiều thuộc tính không tồn tại hoặc đã bị xóa (IDs: {string.Join(", ", missingIds)}).";
 
         return null;
     }
@@ -143,25 +143,60 @@ public class ProductVariantService : IProductVariantService
         public string? Value { get; set; }
     }
 
-    /// Load attribute lookup map for the given JSON string
-    private async Task<Dictionary<int, string>> BuildAttributeLookupAsync(string? attributeValuesJson)
+    /// Parse attribute IDs from JSON (pure CPU, no DB)
+    private static List<int> ParseAttributeIds(string? json)
     {
-        var lookup = new Dictionary<int, string>();
-        if (string.IsNullOrWhiteSpace(attributeValuesJson)) return lookup;
+        if (string.IsNullOrWhiteSpace(json)) return new List<int>();
         try
         {
-            var entries = JsonSerializer.Deserialize<List<RawAttributeEntry>>(attributeValuesJson,
+            var entries = JsonSerializer.Deserialize<List<RawAttributeEntry>>(json,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            return entries?.Select(e => e.AttributeId).ToList() ?? new List<int>();
+        }
+        catch { return new List<int>(); }
+    }
+
+    /// Load tên attribute cho cả page bằng 1 query WHERE Id IN (...)
+    private async Task<Dictionary<int, string>> LoadAttrNamesAsync(IEnumerable<ProductVariant> variants)
+    {
+        var ids = variants
+            .SelectMany(v => ParseAttributeIds(v.AttributeValues))
+            .Distinct().ToList();
+
+        if (ids.Count == 0) return new Dictionary<int, string>();
+
+        return await _productAttributeRepository
+            .FindByCondition(x => ids.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.Name);
+    }
+
+    /// Dựng lookup cho 1 variant dùng shared dict đã load sẵn
+    private static Dictionary<int, string> BuildAttributeLookup(
+        string? json, Dictionary<int, string> sharedAttrNames)
+    {
+        var lookup = new Dictionary<int, string>();
+        if (string.IsNullOrWhiteSpace(json)) return lookup;
+        try
+        {
+            var entries = JsonSerializer.Deserialize<List<RawAttributeEntry>>(json,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
             if (entries == null) return lookup;
             foreach (var e in entries)
-            {
-                var attr = await _productAttributeRepository.GetByIdAsync(e.AttributeId);
-                if (attr != null)
-                    lookup[e.AttributeId] = attr.Name;
-            }
+                if (sharedAttrNames.TryGetValue(e.AttributeId, out var name))
+                    lookup[e.AttributeId] = name;
         }
         catch { }
         return lookup;
+    }
+
+    /// Map entity + shared attrNames -> DTO (sync)
+    private ProductVariantDetailDto MapWithLookup(
+        ProductVariant entity, Dictionary<int, string> sharedAttrNames)
+    {
+        var imageUrl = entity.Image != null ? _storageService.GetOriginalUrl(entity.Image.FileKey) : null;
+        var attrLookup = BuildAttributeLookup(entity.AttributeValues, sharedAttrNames);
+        bool categoryDeleted = entity.Product?.ProductCategory?.IsDeleted ?? false;
+        return entity.ToDto(imageUrl, categoryDeleted, attrLookup);
     }
 
     // ──────────────────────────────────────────────────────────
@@ -225,8 +260,9 @@ public class ProductVariantService : IProductVariantService
         // Validate numeric rules
         if (obj.CostPrice < 0)
             return ApiResponse.UnprocessableEntity("CostPrice phải lớn hơn hoặc bằng 0.", ApiCodeConstants.Common.InvalidData);
-        if (obj.Weight <= 0)
-            return ApiResponse.UnprocessableEntity("Khối lượng (Weight) phải lớn hơn 0.", ApiCodeConstants.Common.InvalidData);
+        if (obj.Weight < 0)
+            return ApiResponse.UnprocessableEntity("Khối lượng (Weight) phải lớn hơn hoặc bằng 0.", ApiCodeConstants.Common.InvalidData);
+        
         if (obj.MinStockLevel.HasValue && obj.MinStockLevel.Value < 0)
             return ApiResponse.UnprocessableEntity("MinStockLevel phải lớn hơn hoặc bằng 0.", ApiCodeConstants.Common.InvalidData);
         if (obj.IsIoTRequired && obj.Weight <= 0)
@@ -264,10 +300,8 @@ public class ProductVariantService : IProductVariantService
     // ──────────────────────────────────────────────────────────
     private async Task<ProductVariantDetailDto> MapToDto(ProductVariant entity)
     {
-        var imageUrl = entity.Image != null ? _storageService.GetOriginalUrl(entity.Image.FileKey) : null;
-        var attrLookup = await BuildAttributeLookupAsync(entity.AttributeValues);
-        bool categoryDeleted = entity.Product?.ProductCategory?.IsDeleted ?? false;
-        return entity.ToDto(imageUrl, categoryDeleted, attrLookup);
+        var sharedAttrNames = await LoadAttrNamesAsync(new[] { entity });
+        return MapWithLookup(entity, sharedAttrNames);
     }
 
     /// Lấy toàn bộ danh sách biến thể sản phẩm
@@ -280,10 +314,8 @@ public class ProductVariantService : IProductVariantService
             .Include(x => x.Image)
             .ToListAsync();
 
-        var dtos = new List<ProductVariantDetailDto>();
-        foreach (var v in data)
-            dtos.Add(await MapToDto(v));
-
+        var sharedAttrNames = await LoadAttrNamesAsync(data);
+        var dtos = data.Select(v => MapWithLookup(v, sharedAttrNames)).ToList();
         return ApiResponse.Success(dtos);
     }
 
@@ -319,40 +351,59 @@ public class ProductVariantService : IProductVariantService
         return ApiResponse.Success(await MapToDto(data));
     }
 
+    /// Lấy URL QR code đã lưu của biến thể theo ID (chỉ trả về field QRCode)
+    public async Task<ApiResponse> GetQrCodeUrlAsync(int id)
+    {
+        var exists = await _productVariantRepository.AnyAsync(x => x.Id == id && !x.IsDeleted);
+        if (!exists)
+            return ApiResponse.NotFound();
+
+        var qrCode = await _productVariantRepository
+            .FindByCondition(x => x.Id == id && !x.IsDeleted)
+            .Select(x => x.QRCode)
+            .FirstOrDefaultAsync();
+
+        return ApiResponse.Success(new { QRCode = qrCode });
+    }
+
     /// Tìm kiếm phân trang cơ bản
     public async Task<ApiResponse> GetPagedAsync(SearchQuery query)
     {
-        var data = await _productVariantRepository
-            .FindByCondition(x => !x.IsDeleted)
-            .Include(x => x.Product).ThenInclude(p => p.ProductCategory)
-            .Include(x => x.UnitOfMeasure)
-            .Include(x => x.Image)
-            .ToListAsync();
-
-        var dtos = new List<ProductVariantDetailDto>();
-        foreach (var v in data) dtos.Add(await MapToDto(v));
-
-        var queryable = dtos.AsQueryable();
+        var baseQuery = _productVariantRepository
+            .FindByCondition(x => !x.IsDeleted);
 
         if (!string.IsNullOrEmpty(query.Keyword))
         {
-            queryable = queryable.Where(x => x.Name.ToLower().Contains(query.Keyword.ToLower()) ||
-                                             x.Description != null && x.Description.ToLower().Contains(query.Keyword.ToLower()) ||
-                                             x.SKU.ToLower().Contains(query.Keyword.ToLower()) ||
-                                             x.ProductName != null && x.ProductName.ToLower().Contains(query.Keyword.ToLower()));
+            var kw = query.Keyword.ToLower();
+            baseQuery = baseQuery.Where(x =>
+                x.Name.ToLower().Contains(kw) ||
+                (x.Description != null && x.Description.ToLower().Contains(kw)) ||
+                x.SKU.ToLower().Contains(kw) ||
+                x.Product.Name.ToLower().Contains(kw));
         }
 
-        if (!string.IsNullOrEmpty(query.OrderBy))
-            queryable = queryable.OrderByDynamic(query.OrderBy, query.SortType == "asc" ? LinqExtensions.Order.Asc : LinqExtensions.Order.Desc);
+        var totalRecord = await baseQuery.CountAsync();
 
-        var totalRecord = queryable.Count();
-        var pagedList = queryable.Skip((query.PageIndex - 1) * query.PageSize).Take(query.PageSize).ToList();
+        if (!string.IsNullOrEmpty(query.OrderBy))
+            baseQuery = baseQuery.OrderByDynamic(query.OrderBy,
+                query.SortType == "asc" ? LinqExtensions.Order.Asc : LinqExtensions.Order.Desc);
+
+        var pageData = await baseQuery
+            .Include(x => x.Product).ThenInclude(p => p.ProductCategory)
+            .Include(x => x.UnitOfMeasure)
+            .Include(x => x.Image)
+            .Skip((query.PageIndex - 1) * query.PageSize)
+            .Take(query.PageSize)
+            .ToListAsync();
+
+        var sharedAttrNames = await LoadAttrNamesAsync(pageData);
+        var dtos = pageData.Select(v => MapWithLookup(v, sharedAttrNames)).ToList();
 
         return ApiResponse.Success(new PagingData<ProductVariantDetailDto>
         {
             CurrentPage = query.PageIndex,
             PageSize = query.PageSize,
-            DataSource = pagedList,
+            DataSource = dtos,
             Total = totalRecord,
             TotalFiltered = totalRecord
         });
@@ -403,45 +454,43 @@ public class ProductVariantService : IProductVariantService
                 baseQuery = baseQuery.Where(x => x.MinStockLevel == null);
         }
 
-        // Filter by ProductCategory (includes Product navigation)
         if (query.ProductCategoryId.HasValue)
-        {
             baseQuery = baseQuery.Where(x => x.Product.ProductCategoryId == query.ProductCategoryId.Value);
+
+        // Keyword filter at DB level
+        if (!string.IsNullOrEmpty(query.Keyword))
+        {
+            var kw = query.Keyword.ToLower();
+            baseQuery = baseQuery.Where(x =>
+                x.Name.ToLower().Contains(kw) ||
+                (x.Description != null && x.Description.ToLower().Contains(kw)) ||
+                x.SKU.ToLower().Contains(kw) ||
+                x.Product.Name.ToLower().Contains(kw));
         }
 
-        var totalRecord = await baseQuery.CountAsync();
+        var totalFiltered = await baseQuery.CountAsync();
 
-        var data = await baseQuery
+        if (!string.IsNullOrEmpty(query.OrderBy))
+            baseQuery = baseQuery.OrderByDynamic(query.OrderBy,
+                query.SortType == "asc" ? LinqExtensions.Order.Asc : LinqExtensions.Order.Desc);
+
+        var pageData = await baseQuery
             .Include(x => x.Product).ThenInclude(p => p.ProductCategory)
             .Include(x => x.UnitOfMeasure)
             .Include(x => x.Image)
+            .Skip((query.PageIndex - 1) * query.PageSize)
+            .Take(query.PageSize)
             .ToListAsync();
 
-        var dtos = new List<ProductVariantDetailDto>();
-        foreach (var v in data) dtos.Add(await MapToDto(v));
-
-        var queryable = dtos.AsQueryable();
-
-        if (!string.IsNullOrEmpty(query.Keyword))
-        {
-            queryable = queryable.Where(x => x.Name.ToLower().Contains(query.Keyword.ToLower()) ||
-                                             x.Description != null && x.Description.ToLower().Contains(query.Keyword.ToLower()) ||
-                                             x.SKU.ToLower().Contains(query.Keyword.ToLower()) ||
-                                             x.ProductName != null && x.ProductName.ToLower().Contains(query.Keyword.ToLower()));
-        }
-
-        if (!string.IsNullOrEmpty(query.OrderBy))
-            queryable = queryable.OrderByDynamic(query.OrderBy, query.SortType == "asc" ? LinqExtensions.Order.Asc : LinqExtensions.Order.Desc);
-
-        var totalFiltered = queryable.Count();
-        var pagedList = queryable.Skip((query.PageIndex - 1) * query.PageSize).Take(query.PageSize).ToList();
+        var sharedAttrNames = await LoadAttrNamesAsync(pageData);
+        var dtos = pageData.Select(v => MapWithLookup(v, sharedAttrNames)).ToList();
 
         return ApiResponse.Success(new PagingData<ProductVariantDetailDto>
         {
             CurrentPage = query.PageIndex,
             PageSize = query.PageSize,
-            DataSource = pagedList,
-            Total = totalRecord,
+            DataSource = dtos,
+            Total = totalFiltered,
             TotalFiltered = totalFiltered
         });
     }
@@ -476,8 +525,8 @@ public class ProductVariantService : IProductVariantService
         // Numeric validations
         if (obj.CostPrice < 0)
             return ApiResponse.UnprocessableEntity("CostPrice phải lớn hơn hoặc bằng 0.", ApiCodeConstants.Common.InvalidData);
-        if (obj.Weight <= 0)
-            return ApiResponse.UnprocessableEntity("Khối lượng (Weight) phải lớn hơn 0.", ApiCodeConstants.Common.InvalidData);
+        if (obj.Weight < 0)
+            return ApiResponse.UnprocessableEntity("Khối lượng (Weight) phải lớn hơn hoặc bằng 0.", ApiCodeConstants.Common.InvalidData);
         if (obj.MinStockLevel.HasValue && obj.MinStockLevel.Value < 0)
             return ApiResponse.UnprocessableEntity("MinStockLevel phải lớn hơn hoặc bằng 0.", ApiCodeConstants.Common.InvalidData);
         if (obj.IsIoTRequired && obj.Weight <= 0)

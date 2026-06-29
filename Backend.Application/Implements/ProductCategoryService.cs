@@ -90,34 +90,45 @@ public class ProductCategoryService : IProductCategoryService
                 $"Đã tồn tại danh mục '{name}' trong cùng cấp cha.",
                 ApiCodeConstants.Common.DuplicatedData);
 
-        // Insert first without TreeIds
+        // Insert first without TreeIds, then compute & update inside a transaction
         var model = new ProductCategory
         {
             Name = name,
             Description = obj.Description,
             ParentCategoryId = obj.ParentCategoryId,
-            TreeIds = string.Empty, // temporary
+            TreeIds = string.Empty, // temporary until ID is known
             SortOrder = obj.SortOrder,
             CreatedBy = obj.CreatedBy,
             CreatedDate = DateTime.Now
         };
 
-        await _productCategoryRepository.CreateAsync(model);
-        await _productCategoryRepository.SaveChangesAsync();
-
-        // Now compute TreeIds
-        if (obj.ParentCategoryId.HasValue)
+        await using var tx = await _productCategoryRepository.BeginTransactionAsync();
+        try
         {
-            var parent = await _productCategoryRepository.GetByIdAsync(obj.ParentCategoryId.Value);
-            model.TreeIds = $"{parent!.TreeIds},{model.Id}";
-        }
-        else
-        {
-            model.TreeIds = model.Id.ToString();
-        }
+            await _productCategoryRepository.CreateAsync(model);
+            await _productCategoryRepository.SaveChangesAsync(); // flush to get model.Id
 
-        await _productCategoryRepository.UpdateAsync(model);
-        await _productCategoryRepository.SaveChangesAsync();
+            // Compute TreeIds now that we have the Id
+            if (obj.ParentCategoryId.HasValue)
+            {
+                var parent = await _productCategoryRepository.GetByIdAsync(obj.ParentCategoryId.Value);
+                model.TreeIds = $"{parent!.TreeIds},{model.Id}";
+            }
+            else
+            {
+                model.TreeIds = model.Id.ToString();
+            }
+
+            await _productCategoryRepository.UpdateAsync(model);
+            await _productCategoryRepository.SaveChangesAsync();
+
+            await _productCategoryRepository.EndTransactionAsync();
+        }
+        catch
+        {
+            await _productCategoryRepository.RollbackTransactionAsync();
+            throw;
+        }
 
         await LogAuditAsync("CREATE", model.Id.ToString(), $"Tạo danh mục '{model.Name}'", dataAfter: $"TreeIds={model.TreeIds}");
 
@@ -336,12 +347,6 @@ public class ProductCategoryService : IProductCategoryService
                 $"Đã tồn tại danh mục '{obj.Name}' trong cùng cấp cha.",
                 ApiCodeConstants.Common.DuplicatedData);
 
-        // ── Rule 4: Duplicate name with other categories ──
-        var isDuplicatedName = await _productCategoryRepository.AnyAsync(
-            x => x.Name.ToLower() == obj.Name.ToLower() && x.Id != obj.Id && !x.IsDeleted);
-
-        // (spec says sibling unique only — no global unique — so above is now the only check)
-
         // ── Compute new TreeIds ──
         var oldTreeIds = existData.TreeIds;
         string newTreeIds;
@@ -361,25 +366,36 @@ public class ProductCategoryService : IProductCategoryService
         obj.ToEntity(existData);
         existData.TreeIds = newTreeIds;
 
-        await _productCategoryRepository.UpdateAsync(existData);
-        await _productCategoryRepository.SaveChangesAsync();
-
-        // ── Cascade update descendants' TreeIds ──
-        if (oldTreeIds != newTreeIds)
+        await using var tx = await _productCategoryRepository.BeginTransactionAsync();
+        try
         {
-            var descendantPrefix = oldTreeIds + ",";
-            var descendants = await _productCategoryRepository
-                .FindByCondition(x => !x.IsDeleted && x.TreeIds.StartsWith(descendantPrefix))
-                .ToListAsync();
+            await _productCategoryRepository.UpdateAsync(existData);
+            await _productCategoryRepository.SaveChangesAsync();
 
-            foreach (var desc in descendants)
+            // Cascade update descendants' TreeIds
+            if (oldTreeIds != newTreeIds)
             {
-                desc.TreeIds = newTreeIds + desc.TreeIds.Substring(oldTreeIds.Length);
-                await _productCategoryRepository.UpdateAsync(desc);
+                var descendantPrefix = oldTreeIds + ",";
+                var descendants = await _productCategoryRepository
+                    .FindByCondition(x => !x.IsDeleted && x.TreeIds.StartsWith(descendantPrefix))
+                    .ToListAsync();
+
+                foreach (var desc in descendants)
+                {
+                    desc.TreeIds = newTreeIds + desc.TreeIds.Substring(oldTreeIds.Length);
+                    await _productCategoryRepository.UpdateAsync(desc);
+                }
+
+                if (descendants.Any())
+                    await _productCategoryRepository.SaveChangesAsync();
             }
 
-            if (descendants.Any())
-                await _productCategoryRepository.SaveChangesAsync();
+            await _productCategoryRepository.EndTransactionAsync();
+        }
+        catch
+        {
+            await _productCategoryRepository.RollbackTransactionAsync();
+            throw;
         }
 
         var dataAfter = $"Name={existData.Name},ParentId={existData.ParentCategoryId},TreeIds={newTreeIds}";
