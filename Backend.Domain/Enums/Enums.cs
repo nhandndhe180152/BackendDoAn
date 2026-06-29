@@ -102,4 +102,12 @@ public static class Enums
         ADJUST = 3,    // Điều chỉnh
         STOCKTAKE = 4  // Kiểm kho định kỳ
     }
+
+    public enum StockTakeStatusEnum
+    {
+        Draft = 1,
+        Submitted = 2,
+        Approved = 3,
+        Rejected = 4
+    }
 }

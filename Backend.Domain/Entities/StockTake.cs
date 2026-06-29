@@ -13,6 +13,7 @@ public class StockTake : EntityAuditBase<int>
     public DateTime? StartedDate { get; set; }
     public DateTime? CompletedDate { get; set; }
     public int? ApprovedByUserId { get; set; }
+    public string? ApproveNote { get; set; }
 
     public virtual Warehouse Warehouse { get; set; } = null!;
     public virtual StockTakeStatus StockTakeStatus { get; set; } = null!;
