@@ -11,4 +11,10 @@ public interface IProductVariantService : IServiceBase<int, CreateProductVariant
     Task<ApiResponse> GetPagedAsync(ProductVariantSearchQuery query);
     Task<ApiResponse> CheckSkuAsync(string sku, string? documentType = null, int? documentId = null);
     Task<ApiResponse> ConfirmScanAsync(ConfirmScanRequestDto request);
+    Task<ApiResponse> ActivateAsync(int id, int updatedBy);
+    Task<ApiResponse> DeactivateAsync(int id, int updatedBy);
+    Task<ApiResponse> GetByQrCodeAsync(string qrCode);
+    Task<ApiResponse> GenerateQrAsync(int id, int updatedBy);
+    Task<ApiResponse> GetQrCodeUrlAsync(int id);
 }
+

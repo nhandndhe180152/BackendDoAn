@@ -98,5 +98,13 @@ namespace Backend.API.Controllers
             var data = await _productCategoryService.GetPagedAsync(query);
             return BaseResult(data);
         }
+
+        /// API lấy cây danh mục sản phẩm dạng phân cấp
+        [HttpGet("tree")]
+        public async Task<IActionResult> GetTreeAsync()
+        {
+            var data = await _productCategoryService.GetTreeAsync();
+            return BaseResult(data);
+        }
     }
 }

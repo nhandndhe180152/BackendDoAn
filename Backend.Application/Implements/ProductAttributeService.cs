@@ -3,13 +3,16 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Backend.Application.Constants;
+using Backend.Application.DependencyInjection.Extentions;
 using Backend.Application.DTOs.ProductAttributes;
 using Backend.Application.Interfaces;
 using Backend.Application.Mappings;
 using Backend.Domain.DTParameters;
+using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
 using Backend.Share.Extensions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Application.Implements;
@@ -18,11 +21,39 @@ namespace Backend.Application.Implements;
 public class ProductAttributeService : IProductAttributeService
 {
     private readonly IProductAttributeRepository _productAttributeRepository;
+    private readonly IAuditLogRepository _auditLogRepository;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
     /// Khởi tạo ProductAttributeService
-    public ProductAttributeService(IProductAttributeRepository productAttributeRepository)
+    public ProductAttributeService(
+        IProductAttributeRepository productAttributeRepository,
+        IAuditLogRepository auditLogRepository,
+        IHttpContextAccessor httpContextAccessor)
     {
         _productAttributeRepository = productAttributeRepository;
+        _auditLogRepository = auditLogRepository;
+        _httpContextAccessor = httpContextAccessor;
+    }
+
+    private async Task LogAuditAsync(string action, string targetId, string description,
+        string? dataBefore = null, string? dataAfter = null)
+    {
+        var ctx = _httpContextAccessor.HttpContext;
+        var audit = new AuditLog
+        {
+            Action = action,
+            TargetType = "ProductAttribute",
+            TargetId = targetId,
+            DataBefore = dataBefore,
+            DataAfter = dataAfter,
+            Description = description,
+            IpAddress = ctx?.GetRemoteHostIpAddress(),
+            UserAgent = ctx?.Request?.Headers["User-Agent"].ToString(),
+            CreatedBy = ctx?.GetCurrentUserId(),
+            CreatedDate = DateTime.Now
+        };
+        await _auditLogRepository.CreateAsync(audit);
+        await _auditLogRepository.SaveChangesAsync();
     }
 
     /// Tạo mới một thuộc tính sản phẩm
@@ -42,6 +73,8 @@ public class ProductAttributeService : IProductAttributeService
 
         await _productAttributeRepository.CreateAsync(model);
         await _productAttributeRepository.SaveChangesAsync();
+
+        await LogAuditAsync("CREATE", model.Id.ToString(), $"Tạo thuộc tính sản phẩm '{model.Name}'");
 
         return ApiResponse.Created(model.Id);
     }
@@ -122,11 +155,18 @@ public class ProductAttributeService : IProductAttributeService
     /// Xóa mềm thuộc tính sản phẩm (IsDeleted = true)
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {
+        var existData = await _productAttributeRepository.GetByIdAsync(id);
+        if (existData == null)
+            return ApiResponse.NotFound();
+
         var isDeleted = await _productAttributeRepository.SoftDeleteAsync(id);
         if (!isDeleted)
             return ApiResponse.BadRequest();
 
         await _productAttributeRepository.SaveChangesAsync();
+
+        await LogAuditAsync("DELETE", id.ToString(), $"Xóa mềm thuộc tính sản phẩm '{existData.Name}'");
+
         return ApiResponse.Success(isDeleted);
     }
 
@@ -152,9 +192,14 @@ public class ProductAttributeService : IProductAttributeService
                 ApiCodeConstants.Common.DuplicatedData
             );
 
+        var dataBefore = $"Name={existData.Name},Description={existData.Description}";
+
         obj.ToEntity(existData);
         await _productAttributeRepository.UpdateAsync(existData);
         await _productAttributeRepository.SaveChangesAsync();
+
+        await LogAuditAsync("UPDATE", existData.Id.ToString(),
+            $"Cập nhật thuộc tính sản phẩm '{existData.Name}'", dataBefore);
 
         return ApiResponse.Success();
     }

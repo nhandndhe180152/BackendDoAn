@@ -140,7 +140,13 @@ public class ApiResponse
         return Error(message, (int)HttpStatusCode.BadRequest, code ?? "CMN_400");
     }
 
+    public static ApiResponse Conflict(string message = "Conflict", string? code = null)
+    {
+        return Error(message, (int)HttpStatusCode.Conflict, code ?? "CMN_409");
+    }
+
 }
+
 
 public class FormErrorMessage
 {
