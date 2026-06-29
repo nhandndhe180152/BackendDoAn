@@ -144,6 +144,7 @@ public class BackendContext : DbContext
         modelBuilder.Entity<UserRole>().HasData(UserRoleSeed.GetUserRoles());
         modelBuilder.Entity<UserStatus>().HasData(UserStatusSeed.GetUserStatuses());
         modelBuilder.Entity<User>().HasData(UserSeed.GetUsers());
+        modelBuilder.Entity<StockTakeStatus>().HasData(StockTakeStatusSeed.GetStockTakeStatuses());
         base.OnModelCreating(modelBuilder);
     }
 }

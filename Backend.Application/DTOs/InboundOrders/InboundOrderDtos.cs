@@ -101,6 +101,9 @@ public class InboundOrderDetailDto
     public string? Note { get; set; }
     public DateTime CreatedDate { get; set; }
     public List<InboundOrderItemDto> Items { get; set; } = new();
+
+    /// <summary>Chứng từ giao hàng (ảnh + thông tin OCR) gắn với phiếu nhập, null nếu chưa có.</summary>
+    public DeliveryNoteDto? DeliveryNote { get; set; }
 }
 
 public class InboundOrderItemDto
@@ -178,6 +181,58 @@ public class ConfirmReceiptDto
 {
     [Required]
     public string OperationKey { get; set; } = null!;
+}
+
+/// <summary>
+/// Dữ liệu lưu/gắn chứng từ giao hàng (Delivery Note) vào phiếu nhập.
+/// Ảnh đã được upload trước qua /file-manager/upload-by-category, ở đây chỉ truyền OriginalImageFileId.
+/// </summary>
+public class SaveDeliveryNoteDto
+{
+    /// <summary>Id của FileUpload (ảnh chứng từ đã upload lên Cloudinary).</summary>
+    [Required]
+    public int OriginalImageFileId { get; set; }
+
+    public string? TrackingCode { get; set; }
+    public string? CarrierName { get; set; }
+    public string? SenderName { get; set; }
+    public string? SenderPhone { get; set; }
+    public string? SenderAddress { get; set; }
+    public string? ReceiverName { get; set; }
+    public string? ReceiverPhone { get; set; }
+    public string? ReceiverAddress { get; set; }
+    public decimal? DeclaredWeight { get; set; }
+    public decimal? CODAmount { get; set; }
+
+    /// <summary>Văn bản OCR trích xuất từ ảnh chứng từ (nếu có).</summary>
+    public string? RawOcrText { get; set; }
+
+    /// <summary>Đánh dấu đã xác nhận chứng từ.</summary>
+    public bool IsConfirmed { get; set; }
+}
+
+/// <summary>Chứng từ giao hàng trả về cho client, kèm URL ảnh.</summary>
+public class DeliveryNoteDto
+{
+    public int Id { get; set; }
+    public int InboundOrderId { get; set; }
+    public string? TrackingCode { get; set; }
+    public string? CarrierName { get; set; }
+    public string? SenderName { get; set; }
+    public string? SenderPhone { get; set; }
+    public string? SenderAddress { get; set; }
+    public string? ReceiverName { get; set; }
+    public string? ReceiverPhone { get; set; }
+    public string? ReceiverAddress { get; set; }
+    public decimal? DeclaredWeight { get; set; }
+    public decimal? CODAmount { get; set; }
+    public string? RawOcrText { get; set; }
+    public int? OriginalImageFileId { get; set; }
+
+    /// <summary>URL ảnh chứng từ để hiển thị/xem lại.</summary>
+    public string? ImageUrl { get; set; }
+    public bool IsConfirmed { get; set; }
+    public DateTime CreatedDate { get; set; }
 }
 
 public class PutawaySuggestionDto
