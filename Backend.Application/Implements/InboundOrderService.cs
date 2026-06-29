@@ -33,7 +33,6 @@ public class InboundOrderService : IInboundOrderService
     private readonly IIotWeightLogRepository _iotWeightLogRepository;
     private readonly IIotDeviceRepository _iotDeviceRepository;
     private readonly ISystemConfigRepository _systemConfigRepository;
-    private readonly IRepositoryBase<AuditLog, int> _auditLogRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<InboundOrderService> _logger;
     private readonly INotificationDispatcher _notificationDispatcher;
@@ -51,7 +50,6 @@ public class InboundOrderService : IInboundOrderService
         IIotWeightLogRepository iotWeightLogRepository,
         IIotDeviceRepository iotDeviceRepository,
         ISystemConfigRepository systemConfigRepository,
-        IRepositoryBase<AuditLog, int> auditLogRepository,
         IHttpContextAccessor httpContextAccessor,
         ILogger<InboundOrderService> logger,
         INotificationDispatcher notificationDispatcher)
@@ -68,7 +66,6 @@ public class InboundOrderService : IInboundOrderService
         _iotWeightLogRepository = iotWeightLogRepository;
         _iotDeviceRepository = iotDeviceRepository;
         _systemConfigRepository = systemConfigRepository;
-        _auditLogRepository = auditLogRepository;
         _httpContextAccessor = httpContextAccessor;
         _logger = logger;
         _notificationDispatcher = notificationDispatcher;
@@ -89,26 +86,6 @@ public class InboundOrderService : IInboundOrderService
         var httpContext = _httpContextAccessor.HttpContext;
         if (httpContext == null) return 0;
         return httpContext.GetCurrentUserId();
-    }
-
-    private async Task LogAuditAsync(string action, string targetType, string? targetId, string description, string? dataBefore = null, string? dataAfter = null)
-    {
-        var httpContext = _httpContextAccessor.HttpContext;
-        var audit = new AuditLog
-        {
-            Action = action,
-            TargetType = targetType,
-            TargetId = targetId,
-            DataBefore = dataBefore,
-            DataAfter = dataAfter,
-            Description = description,
-            IpAddress = httpContext?.GetRemoteHostIpAddress(),
-            UserAgent = httpContext?.Request?.Headers["User-Agent"].ToString(),
-            CreatedBy = GetCurrentUserId(),
-            CreatedDate = DateTime.Now
-        };
-        await _auditLogRepository.CreateAsync(audit);
-        await _auditLogRepository.SaveChangesAsync();
     }
 
     public async Task<ApiResponse> GetPagedAsync(SearchQuery query)
@@ -219,8 +196,6 @@ public class InboundOrderService : IInboundOrderService
         await _inboundOrderRepository.CreateAsync(order);
         await _inboundOrderRepository.SaveChangesAsync();
 
-        await LogAuditAsync("CREATE", nameof(InboundOrder), order.Id.ToString(), $"Tạo mới phiếu nhập kho {poCode} ở trạng thái Draft.");
-
         return ApiResponse.Created(order.Id);
     }
 
@@ -296,8 +271,6 @@ public class InboundOrderService : IInboundOrderService
         await _inboundOrderRepository.UpdateAsync(order);
         await _inboundOrderRepository.SaveChangesAsync();
 
-        await LogAuditAsync("UPDATE", nameof(InboundOrder), order.Id.ToString(), $"Cập nhật thông tin phiếu nhập kho {order.POCode}.");
-
         return ApiResponse.Success();
     }
 
@@ -318,8 +291,6 @@ public class InboundOrderService : IInboundOrderService
         await _inboundOrderRepository.UpdateAsync(order);
         await _inboundOrderRepository.SaveChangesAsync();
 
-        await LogAuditAsync("SUBMIT", nameof(InboundOrder), order.Id.ToString(), $"Gửi duyệt phiếu nhập {order.POCode}.");
-
         return ApiResponse.Success();
     }
 
@@ -339,8 +310,6 @@ public class InboundOrderService : IInboundOrderService
 
         await _inboundOrderRepository.UpdateAsync(order);
         await _inboundOrderRepository.SaveChangesAsync();
-
-        await LogAuditAsync("APPROVE", nameof(InboundOrder), order.Id.ToString(), $"Phê duyệt phiếu nhập {order.POCode}.");
 
         // Thông báo + push FCM cho người tạo phiếu và các vai trò quản lý.
         await _notificationDispatcher.DispatchAsync(
@@ -373,8 +342,6 @@ public class InboundOrderService : IInboundOrderService
 
         await _inboundOrderRepository.UpdateAsync(order);
         await _inboundOrderRepository.SaveChangesAsync();
-
-        await LogAuditAsync("REJECT", nameof(InboundOrder), order.Id.ToString(), $"Từ chối phiếu nhập {order.POCode}. Lý do: {reason}");
 
         // Thông báo + push FCM cho người tạo phiếu và các vai trò quản lý.
         await _notificationDispatcher.DispatchAsync(
@@ -447,8 +414,6 @@ public class InboundOrderService : IInboundOrderService
 
         await _inboundOrderRepository.UpdateAsync(order);
         await _inboundOrderRepository.SaveChangesAsync();
-
-        await LogAuditAsync("CANCEL", nameof(InboundOrder), order.Id.ToString(), $"Hủy phiếu nhập kho {order.POCode}.");
 
         return ApiResponse.Success();
     }
@@ -776,8 +741,6 @@ public class InboundOrderService : IInboundOrderService
         item.SaveReceiptState(state);
         await _inboundOrderItemRepository.UpdateAsync(item);
         await _inboundOrderItemRepository.SaveChangesAsync();
-
-        await LogAuditAsync("APPROVE_REJECT_EXCEPTION", nameof(InboundOrderItem), item.Id.ToString(), $"Quản lý quyết định {dto.Decision} cho ngoại lệ của receipt {item.Id}. Lý do: {dto.Reason}");
 
         return ApiResponse.Success(item.ToDto(), $"Quyết định phê duyệt ngoại lệ: {dto.Decision}.");
     }
@@ -1113,20 +1076,6 @@ public class InboundOrderService : IInboundOrderService
             };
 
             await _inventoryTransactionRepository.CreateAsync(invTrans);
-
-            // Create AuditLog entry
-            var auditLog = new AuditLog
-            {
-                Action = "CONFIRM_RECEIVE",
-                TargetType = nameof(InboundOrderItem),
-                TargetId = item.Id.ToString(),
-                Description = $"Xác nhận nhập kho hoàn tất dòng hàng {item.Id} của phiếu {order.POCode}. Nhập {qty} sản phẩm vào vị trí {state.ConfirmedLocationCode}.",
-                CreatedBy = GetCurrentUserId(),
-                CreatedDate = DateTime.Now,
-                IpAddress = _httpContextAccessor.HttpContext?.GetRemoteHostIpAddress(),
-                UserAgent = _httpContextAccessor.HttpContext?.Request?.Headers["User-Agent"].ToString()
-            };
-            await _auditLogRepository.CreateAsync(auditLog);
 
             await _inboundOrderRepository.SaveChangesAsync();
 

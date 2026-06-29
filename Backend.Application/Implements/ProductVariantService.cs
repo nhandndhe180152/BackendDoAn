@@ -10,11 +10,9 @@ using Backend.Application.Interfaces;
 using Backend.Application.Mappings;
 using Backend.Domain.DTParameters;
 using Backend.Domain.Entities;
-using Backend.Domain.Abstractions.Repositories;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
 using Backend.Share.Extensions;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Application.Implements;
@@ -33,9 +31,7 @@ public class ProductVariantService : IProductVariantService
     private readonly IRepositoryBase<InboundOrderItem, int> _inboundOrderItemRepository;
     private readonly IRepositoryBase<OutboundOrderItem, int> _outboundOrderItemRepository;
     private readonly IRepositoryBase<StockTakeItem, int> _stockTakeItemRepository;
-    private readonly IAuditLogRepository _auditLogRepository;
     private readonly IQRCodeService _qrCodeService;
-    private readonly IHttpContextAccessor _httpContextAccessor;
 
     /// Khởi tạo ProductVariantService
     public ProductVariantService(
@@ -50,9 +46,7 @@ public class ProductVariantService : IProductVariantService
         IRepositoryBase<InboundOrderItem, int> inboundOrderItemRepository,
         IRepositoryBase<OutboundOrderItem, int> outboundOrderItemRepository,
         IRepositoryBase<StockTakeItem, int> stockTakeItemRepository,
-        IAuditLogRepository auditLogRepository,
-        IQRCodeService qrCodeService,
-        IHttpContextAccessor httpContextAccessor)
+        IQRCodeService qrCodeService)
     {
         _productVariantRepository = productVariantRepository;
         _productRepository = productRepository;
@@ -65,35 +59,12 @@ public class ProductVariantService : IProductVariantService
         _inboundOrderItemRepository = inboundOrderItemRepository;
         _outboundOrderItemRepository = outboundOrderItemRepository;
         _stockTakeItemRepository = stockTakeItemRepository;
-        _auditLogRepository = auditLogRepository;
         _qrCodeService = qrCodeService;
-        _httpContextAccessor = httpContextAccessor;
     }
 
     // ──────────────────────────────────────────────────────────
     // Helpers
     // ──────────────────────────────────────────────────────────
-    private async Task LogAuditAsync(string action, string targetId, string description,
-        string? dataBefore = null, string? dataAfter = null)
-    {
-        var ctx = _httpContextAccessor.HttpContext;
-        var audit = new AuditLog
-        {
-            Action = action,
-            TargetType = "ProductVariant",
-            TargetId = targetId,
-            DataBefore = dataBefore,
-            DataAfter = dataAfter,
-            Description = description,
-            IpAddress = ctx?.GetRemoteHostIpAddress(),
-            UserAgent = ctx?.Request?.Headers["User-Agent"].ToString(),
-            CreatedBy = ctx?.GetCurrentUserId(),
-            CreatedDate = DateTime.Now
-        };
-        await _auditLogRepository.CreateAsync(audit);
-        await _auditLogRepository.SaveChangesAsync();
-    }
-
     /// Validate AttributeValues JSON, returns error message or null if valid.
     private async Task<string?> ValidateAttributeValuesAsync(string? attributeValuesJson)
     {
@@ -279,9 +250,6 @@ public class ProductVariantService : IProductVariantService
 
         await _productVariantRepository.CreateAsync(model);
         await _productVariantRepository.SaveChangesAsync();
-
-        await LogAuditAsync("CREATE", model.Id.ToString(),
-            $"Tạo biến thể '{model.Name}' (SKU: {model.SKU})");
 
         return ApiResponse.Created(model.Id);
     }
@@ -540,15 +508,9 @@ public class ProductVariantService : IProductVariantService
                 return ApiResponse.UnprocessableEntity(attrError, ApiCodeConstants.Common.InvalidData);
         }
 
-        var dataBefore = $"SKU={existData.SKU},IsActive={existData.IsActive}";
-
         obj.ToEntity(existData);
         await _productVariantRepository.UpdateAsync(existData);
         await _productVariantRepository.SaveChangesAsync();
-
-        await LogAuditAsync("UPDATE", existData.Id.ToString(),
-            $"Cập nhật biến thể '{existData.Name}' (SKU: {existData.SKU})",
-            dataBefore);
 
         return ApiResponse.Success();
     }
@@ -567,9 +529,6 @@ public class ProductVariantService : IProductVariantService
         await _productVariantRepository.UpdateAsync(existData);
         await _productVariantRepository.SaveChangesAsync();
 
-        await LogAuditAsync("UPDATE", id.ToString(),
-            $"Kích hoạt biến thể '{existData.Name}'", "IsActive=false", "IsActive=true");
-
         return ApiResponse.Success();
     }
 
@@ -586,9 +545,6 @@ public class ProductVariantService : IProductVariantService
 
         await _productVariantRepository.UpdateAsync(existData);
         await _productVariantRepository.SaveChangesAsync();
-
-        await LogAuditAsync("UPDATE", id.ToString(),
-            $"Vô hiệu hóa biến thể '{existData.Name}'", "IsActive=true", "IsActive=false");
 
         return ApiResponse.Success();
     }
@@ -650,9 +606,6 @@ public class ProductVariantService : IProductVariantService
 
         await _productVariantRepository.SaveChangesAsync();
 
-        await LogAuditAsync("DELETE", id.ToString(),
-            $"Xóa mềm biến thể '{existData.Name}' (SKU: {existData.SKU})");
-
         return ApiResponse.Success(isDeleted);
     }
 
@@ -674,12 +627,6 @@ public class ProductVariantService : IProductVariantService
         try
         {
             var qrUrl = await _qrCodeService.GenerateAndSaveQRUrlAsync(id);
-
-            await LogAuditAsync("UPDATE", id.ToString(),
-                $"Tạo QR code cho biến thể '{existData.Name}' (SKU: {existData.SKU})",
-                dataBefore: $"QRCode={existData.QRCode}",
-                dataAfter: $"QRCode={qrUrl}");
-
             return ApiResponse.Success(new { QrUrl = qrUrl });
         }
         catch (InvalidOperationException ex)
