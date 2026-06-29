@@ -10,6 +10,7 @@ using Backend.Application.Interfaces;
 using Backend.Application.Mappings;
 using Backend.Domain.DTParameters;
 using Backend.Domain.Entities;
+using Backend.Domain.Abstractions.Repositories;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
 using Backend.Share.Extensions;
