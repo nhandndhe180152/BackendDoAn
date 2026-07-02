@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Backend.Application.Constants;
-using Backend.Application.DependencyInjection.Extentions;
 using Backend.Application.DTOs.ProductCategories;
 using Backend.Application.Interfaces;
 using Backend.Application.Mappings;
@@ -12,7 +11,6 @@ using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
 using Backend.Share.Extensions;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Application.Implements;
@@ -21,42 +19,12 @@ namespace Backend.Application.Implements;
 public class ProductCategoryService : IProductCategoryService
 {
     private readonly IProductCategoryRepository _productCategoryRepository;
-    private readonly IAuditLogRepository _auditLogRepository;
-    private readonly IHttpContextAccessor _httpContextAccessor;
 
     /// Khởi tạo ProductCategoryService
     public ProductCategoryService(
-        IProductCategoryRepository productCategoryRepository,
-        IAuditLogRepository auditLogRepository,
-        IHttpContextAccessor httpContextAccessor)
+        IProductCategoryRepository productCategoryRepository)
     {
         _productCategoryRepository = productCategoryRepository;
-        _auditLogRepository = auditLogRepository;
-        _httpContextAccessor = httpContextAccessor;
-    }
-
-    // ──────────────────────────────────────────────────────────
-    // Helper: Audit log
-    // ──────────────────────────────────────────────────────────
-    private async Task LogAuditAsync(string action, string targetId, string description,
-        string? dataBefore = null, string? dataAfter = null)
-    {
-        var ctx = _httpContextAccessor.HttpContext;
-        var audit = new AuditLog
-        {
-            Action = action,
-            TargetType = "ProductCategory",
-            TargetId = targetId,
-            DataBefore = dataBefore,
-            DataAfter = dataAfter,
-            Description = description,
-            IpAddress = ctx?.GetRemoteHostIpAddress(),
-            UserAgent = ctx?.Request?.Headers["User-Agent"].ToString(),
-            CreatedBy = ctx?.GetCurrentUserId(),
-            CreatedDate = DateTime.Now
-        };
-        await _auditLogRepository.CreateAsync(audit);
-        await _auditLogRepository.SaveChangesAsync();
     }
 
     // ──────────────────────────────────────────────────────────
@@ -129,8 +97,6 @@ public class ProductCategoryService : IProductCategoryService
             await _productCategoryRepository.RollbackTransactionAsync();
             throw;
         }
-
-        await LogAuditAsync("CREATE", model.Id.ToString(), $"Tạo danh mục '{model.Name}'", dataAfter: $"TreeIds={model.TreeIds}");
 
         return ApiResponse.Created(model.Id);
     }
@@ -361,8 +327,6 @@ public class ProductCategoryService : IProductCategoryService
             newTreeIds = existData.Id.ToString();
         }
 
-        var dataBefore = $"Name={existData.Name},ParentId={existData.ParentCategoryId},TreeIds={oldTreeIds}";
-
         obj.ToEntity(existData);
         existData.TreeIds = newTreeIds;
 
@@ -397,10 +361,6 @@ public class ProductCategoryService : IProductCategoryService
             await _productCategoryRepository.RollbackTransactionAsync();
             throw;
         }
-
-        var dataAfter = $"Name={existData.Name},ParentId={existData.ParentCategoryId},TreeIds={newTreeIds}";
-        await LogAuditAsync("UPDATE", existData.Id.ToString(),
-            $"Cập nhật danh mục '{existData.Name}'", dataBefore, dataAfter);
 
         return ApiResponse.Success();
     }
@@ -443,8 +403,6 @@ public class ProductCategoryService : IProductCategoryService
             return ApiResponse.BadRequest();
 
         await _productCategoryRepository.SaveChangesAsync();
-
-        await LogAuditAsync("DELETE", id.ToString(), $"Xóa mềm danh mục '{existData.Name}'");
 
         return ApiResponse.Success(isDeleted);
     }
