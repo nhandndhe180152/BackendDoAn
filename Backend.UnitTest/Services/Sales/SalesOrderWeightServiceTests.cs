@@ -16,8 +16,8 @@ public class SalesOrderWeightServiceTests
     private readonly Mock<IIotDeviceRepository> _iotDeviceRepository = new();
     private readonly Mock<IIotWeightLogRepository> _iotWeightLogRepository = new();
     private readonly Mock<IProductVariantRepository> _productVariantRepository = new();
-    private readonly Mock<IPurchaseOrderItemRepository> _purchaseOrderItemRepository = new();
-    private readonly Mock<ISalesOrderItemRepository> _salesOrderItemRepository = new();
+    private readonly Mock<IInboundOrderItemRepository> _inboundOrderItemRepository = new();
+    private readonly Mock<IOutboundOrderItemRepository> _outboundOrderItemRepository = new();
     private readonly Mock<IStockTakeItemRepository> _stockTakeItemRepository = new();
     private readonly Mock<IHttpContextAccessor> _httpContextAccessor = new();
     private readonly Mock<IDbContextTransaction> _transaction = new();
@@ -38,8 +38,8 @@ public class SalesOrderWeightServiceTests
             _iotDeviceRepository.Object,
             _iotWeightLogRepository.Object,
             _productVariantRepository.Object,
-            _purchaseOrderItemRepository.Object,
-            _salesOrderItemRepository.Object,
+            _inboundOrderItemRepository.Object,
+            _outboundOrderItemRepository.Object,
             _stockTakeItemRepository.Object,
             _httpContextAccessor.Object);
     }
@@ -51,13 +51,13 @@ public class SalesOrderWeightServiceTests
     {
         // Arrange
         var log = CreateStableWeightLog(id: 10, weightKg: 2.35m);
-        var item = CreateSalesOrderItem(id: 20, salesOrderId: 30, productVariantId: 40);
+        var item = CreateOutboundOrderItem(id: 20, outboundOrderId: 30, productVariantId: 40);
 
         SetupAttachSaleData(log, item, productVariantId: 40);
 
         var request = new AttachIotWeightContextDto
         {
-            ReferenceType = IotWeightReferenceTypeConstants.SalesOrder,
+            ReferenceType = IotWeightReferenceTypeConstants.OutboundOrder,
             ReferenceId = 30,
             ReferenceItemId = 20,
             ProductVariantId = 40,
@@ -71,17 +71,17 @@ public class SalesOrderWeightServiceTests
         response.IsSucceeded.Should().BeTrue();
 
         var result = response.Resources.Should().BeOfType<AttachedIotWeightContextDto>().Subject;
-        result.ReferenceType.Should().Be(IotWeightReferenceTypeConstants.SalesOrder);
+        result.ReferenceType.Should().Be(IotWeightReferenceTypeConstants.OutboundOrder);
         result.ReferenceId.Should().Be(30);
         result.ReferenceItemId.Should().Be(20);
         result.ProductVariantId.Should().Be(40);
         result.ReferenceItemActualWeightKg.Should().Be(2.35m);
 
         log.IsConfirmed.Should().BeTrue();
-        log.ReferenceType.Should().Be(IotWeightReferenceTypeConstants.SalesOrder);
+        log.ReferenceType.Should().Be(IotWeightReferenceTypeConstants.OutboundOrder);
         item.ActualWeightKg.Should().Be(2.35m);
 
-        _salesOrderItemRepository.Verify(repo => repo.UpdateAsync(item), Times.Once);
+        _outboundOrderItemRepository.Verify(repo => repo.UpdateAsync(item), Times.Once);
         _iotWeightLogRepository.Verify(repo => repo.UpdateAsync(log), Times.Once);
         _iotWeightLogRepository.Verify(repo => repo.SaveChangesAsync(), Times.Once);
         _iotWeightLogRepository.Verify(repo => repo.EndTransactionAsync(), Times.Once);
@@ -94,7 +94,7 @@ public class SalesOrderWeightServiceTests
     {
         // Arrange
         var log = CreateStableWeightLog(id: 11, weightKg: 1.25m);
-        var item = CreateSalesOrderItem(id: 21, salesOrderId: 31, productVariantId: 41, actualWeightKg: 0.9m);
+        var item = CreateOutboundOrderItem(id: 21, outboundOrderId: 31, productVariantId: 41, actualWeightKg: 0.9m);
 
         SetupAttachSaleData(log, item, productVariantId: 41);
 
@@ -114,11 +114,11 @@ public class SalesOrderWeightServiceTests
         response.IsSucceeded.Should().BeTrue();
 
         var result = response.Resources.Should().BeOfType<AttachedIotWeightContextDto>().Subject;
-        result.ReferenceType.Should().Be(IotWeightReferenceTypeConstants.SalesOrder);
+        result.ReferenceType.Should().Be(IotWeightReferenceTypeConstants.OutboundOrder);
         result.ReferenceItemActualWeightKg.Should().Be(0.9m);
         item.ActualWeightKg.Should().Be(0.9m);
 
-        _salesOrderItemRepository.Verify(repo => repo.UpdateAsync(It.IsAny<SalesOrderItem>()), Times.Never);
+        _outboundOrderItemRepository.Verify(repo => repo.UpdateAsync(It.IsAny<OutboundOrderItem>()), Times.Never);
         _iotWeightLogRepository.Verify(repo => repo.UpdateAsync(log), Times.Once);
         _iotWeightLogRepository.Verify(repo => repo.SaveChangesAsync(), Times.Once);
     }
@@ -126,18 +126,18 @@ public class SalesOrderWeightServiceTests
     [Fact]
     [Trait("Service", "Sales")]
     [Trait("Method", "AttachSalesOrderWeight")]
-    public async Task AttachContextAsync_SalesOrder_MissingSalesOrderItem_ReturnsNotFound()
+    public async Task AttachContextAsync_SalesOrder_MissingOutboundOrderItem_ReturnsNotFound()
     {
         // Arrange
         var log = CreateStableWeightLog(id: 12, weightKg: 3m);
 
         _iotWeightLogRepository.Setup(repo => repo.GetByIdForAttachAsync(12)).ReturnsAsync(log);
         _productVariantRepository.Setup(repo => repo.GetActiveByIdAsync(42)).ReturnsAsync(CreateProductVariant(42));
-        _salesOrderItemRepository.Setup(repo => repo.GetByIdForWeightAttachAsync(22)).ReturnsAsync((SalesOrderItem?)null);
+        _outboundOrderItemRepository.Setup(repo => repo.GetByIdForWeightAttachAsync(22)).ReturnsAsync((OutboundOrderItem?)null);
 
         var request = new AttachIotWeightContextDto
         {
-            ReferenceType = IotWeightReferenceTypeConstants.SalesOrder,
+            ReferenceType = IotWeightReferenceTypeConstants.OutboundOrder,
             ReferenceId = 32,
             ReferenceItemId = 22,
             ProductVariantId = 42
@@ -160,13 +160,13 @@ public class SalesOrderWeightServiceTests
     {
         // Arrange
         var log = CreateStableWeightLog(id: 13, weightKg: 4m);
-        var item = CreateSalesOrderItem(id: 23, salesOrderId: 999, productVariantId: 43);
+        var item = CreateOutboundOrderItem(id: 23, outboundOrderId: 999, productVariantId: 43);
 
         SetupAttachSaleData(log, item, productVariantId: 43);
 
         var request = new AttachIotWeightContextDto
         {
-            ReferenceType = IotWeightReferenceTypeConstants.SalesOrder,
+            ReferenceType = IotWeightReferenceTypeConstants.OutboundOrder,
             ReferenceId = 33,
             ReferenceItemId = 23,
             ProductVariantId = 43
@@ -179,7 +179,7 @@ public class SalesOrderWeightServiceTests
         response.IsSucceeded.Should().BeFalse();
         response.Status.Should().Be(400);
         _iotWeightLogRepository.Verify(repo => repo.RollbackTransactionAsync(), Times.Once);
-        _salesOrderItemRepository.Verify(repo => repo.UpdateAsync(It.IsAny<SalesOrderItem>()), Times.Never);
+        _outboundOrderItemRepository.Verify(repo => repo.UpdateAsync(It.IsAny<OutboundOrderItem>()), Times.Never);
     }
 
     [Fact]
@@ -189,13 +189,13 @@ public class SalesOrderWeightServiceTests
     {
         // Arrange
         var log = CreateStableWeightLog(id: 14, weightKg: 5m);
-        var item = CreateSalesOrderItem(id: 24, salesOrderId: 34, productVariantId: 999);
+        var item = CreateOutboundOrderItem(id: 24, outboundOrderId: 34, productVariantId: 999);
 
         SetupAttachSaleData(log, item, productVariantId: 44);
 
         var request = new AttachIotWeightContextDto
         {
-            ReferenceType = IotWeightReferenceTypeConstants.SalesOrder,
+            ReferenceType = IotWeightReferenceTypeConstants.OutboundOrder,
             ReferenceId = 34,
             ReferenceItemId = 24,
             ProductVariantId = 44
@@ -208,7 +208,7 @@ public class SalesOrderWeightServiceTests
         response.IsSucceeded.Should().BeFalse();
         response.Status.Should().Be(400);
         _iotWeightLogRepository.Verify(repo => repo.RollbackTransactionAsync(), Times.Once);
-        _salesOrderItemRepository.Verify(repo => repo.UpdateAsync(It.IsAny<SalesOrderItem>()), Times.Never);
+        _outboundOrderItemRepository.Verify(repo => repo.UpdateAsync(It.IsAny<OutboundOrderItem>()), Times.Never);
     }
 
     [Fact]
@@ -224,7 +224,7 @@ public class SalesOrderWeightServiceTests
 
         var request = new AttachIotWeightContextDto
         {
-            ReferenceType = IotWeightReferenceTypeConstants.SalesOrder,
+            ReferenceType = IotWeightReferenceTypeConstants.OutboundOrder,
             ReferenceId = 35,
             ReferenceItemId = 25,
             ProductVariantId = 45
@@ -236,7 +236,7 @@ public class SalesOrderWeightServiceTests
         // Assert
         response.IsSucceeded.Should().BeFalse();
         response.Status.Should().Be(404);
-        _salesOrderItemRepository.Verify(repo => repo.GetByIdForWeightAttachAsync(It.IsAny<int>()), Times.Never);
+        _outboundOrderItemRepository.Verify(repo => repo.GetByIdForWeightAttachAsync(It.IsAny<int>()), Times.Never);
         _iotWeightLogRepository.Verify(repo => repo.UpdateAsync(It.IsAny<IotWeightLog>()), Times.Never);
     }
 
@@ -253,7 +253,7 @@ public class SalesOrderWeightServiceTests
 
         var request = new AttachIotWeightContextDto
         {
-            ReferenceType = IotWeightReferenceTypeConstants.SalesOrder,
+            ReferenceType = IotWeightReferenceTypeConstants.OutboundOrder,
             ReferenceId = 36,
             ReferenceItemId = 26,
             ProductVariantId = 46
@@ -269,12 +269,12 @@ public class SalesOrderWeightServiceTests
         _iotWeightLogRepository.Verify(repo => repo.UpdateAsync(It.IsAny<IotWeightLog>()), Times.Never);
     }
 
-    private void SetupAttachSaleData(IotWeightLog log, SalesOrderItem item, int productVariantId)
+    private void SetupAttachSaleData(IotWeightLog log, OutboundOrderItem item, int productVariantId)
     {
         _iotWeightLogRepository.Setup(repo => repo.GetByIdForAttachAsync(log.Id)).ReturnsAsync(log);
         _productVariantRepository.Setup(repo => repo.GetActiveByIdAsync(productVariantId)).ReturnsAsync(CreateProductVariant(productVariantId));
-        _salesOrderItemRepository.Setup(repo => repo.GetByIdForWeightAttachAsync(item.Id)).ReturnsAsync(item);
-        _salesOrderItemRepository.Setup(repo => repo.UpdateAsync(It.IsAny<SalesOrderItem>())).Returns(Task.CompletedTask);
+        _outboundOrderItemRepository.Setup(repo => repo.GetByIdForWeightAttachAsync(item.Id)).ReturnsAsync(item);
+        _outboundOrderItemRepository.Setup(repo => repo.UpdateAsync(It.IsAny<OutboundOrderItem>())).Returns(Task.CompletedTask);
         _iotWeightLogRepository.Setup(repo => repo.UpdateAsync(It.IsAny<IotWeightLog>())).Returns(Task.CompletedTask);
         _iotWeightLogRepository.Setup(repo => repo.SaveChangesAsync()).ReturnsAsync(1);
         _iotWeightLogRepository.Setup(repo => repo.EndTransactionAsync()).Returns(Task.CompletedTask);
@@ -305,16 +305,16 @@ public class SalesOrderWeightServiceTests
         };
     }
 
-    private static SalesOrderItem CreateSalesOrderItem(
+    private static OutboundOrderItem CreateOutboundOrderItem(
         int id,
-        int salesOrderId,
+        int outboundOrderId,
         int productVariantId,
         decimal? actualWeightKg = null)
     {
-        return new SalesOrderItem
+        return new OutboundOrderItem
         {
             Id = id,
-            SalesOrderId = salesOrderId,
+            OutboundOrderId = outboundOrderId,
             ProductVariantId = productVariantId,
             QuantityOrdered = 5,
             QuantityPicked = 0,

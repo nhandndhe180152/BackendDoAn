@@ -15,10 +15,15 @@ namespace Backend.UnitTest.Services.Product;
 public class ProductVariantServiceTests
 {
     private readonly Mock<IProductVariantRepository> _productVariantRepository = new();
+    private readonly Mock<IProductRepository> _productRepository = new();
+    private readonly Mock<IProductCategoryRepository> _productCategoryRepository = new();
+    private readonly Mock<IProductAttributeRepository> _productAttributeRepository = new();
+    private readonly Mock<IRepositoryBase<FileUpload, int>> _fileUploadRepository = new();
+    private readonly Mock<IRepositoryBase<Backend.Domain.Entities.UnitOfMeasure, int>> _uomRepository = new();
     private readonly Mock<IStorageService> _storageService = new();
     private readonly Mock<IRepositoryBase<Backend.Domain.Entities.Inventory, int>> _inventoryRepository = new();
-    private readonly Mock<IRepositoryBase<PurchaseOrderItem, int>> _purchaseOrderItemRepository = new();
-    private readonly Mock<IRepositoryBase<SalesOrderItem, int>> _salesOrderItemRepository = new();
+    private readonly Mock<IRepositoryBase<InboundOrderItem, int>> _inboundOrderItemRepository = new();
+    private readonly Mock<IRepositoryBase<OutboundOrderItem, int>> _outboundOrderItemRepository = new();
     private readonly Mock<IRepositoryBase<StockTakeItem, int>> _stockTakeItemRepository = new();
     private readonly Mock<IQRCodeService> _qrCodeService = new();
 
@@ -28,10 +33,15 @@ public class ProductVariantServiceTests
     {
         _sut = new ProductVariantService(
             _productVariantRepository.Object,
+            _productRepository.Object,
+            _productCategoryRepository.Object,
+            _productAttributeRepository.Object,
+            _fileUploadRepository.Object,
+            _uomRepository.Object,
             _storageService.Object,
             _inventoryRepository.Object,
-            _purchaseOrderItemRepository.Object,
-            _salesOrderItemRepository.Object,
+            _inboundOrderItemRepository.Object,
+            _outboundOrderItemRepository.Object,
             _stockTakeItemRepository.Object,
             _qrCodeService.Object);
     }
@@ -185,11 +195,11 @@ public class ProductVariantServiceTests
     {
         // Arrange
         var variant = CreateVariant(id: 9, sku: "SKU-PO");
-        var purchaseOrderItems = new List<PurchaseOrderItem>
+        var purchaseOrderItems = new List<InboundOrderItem>
         {
             new()
             {
-                PurchaseOrderId = 15,
+                InboundOrderId = 15,
                 ProductVariantId = 9,
                 QuantityOrdered = 40,
                 QuantityReceived = 12,
@@ -199,7 +209,7 @@ public class ProductVariantServiceTests
 
         SetupProductVariants([variant]);
         SetupInventories([]);
-        SetupPurchaseOrderItems(purchaseOrderItems);
+        SetupInboundOrderItems(purchaseOrderItems);
 
         // Act
         var response = await _sut.CheckSkuAsync("SKU-PO", "PurchaseOrder", 15);
@@ -221,11 +231,11 @@ public class ProductVariantServiceTests
     {
         // Arrange
         var variant = CreateVariant(id: 10, sku: "SKU-SO");
-        var salesOrderItems = new List<SalesOrderItem>
+        var salesOrderItems = new List<OutboundOrderItem>
         {
             new()
             {
-                SalesOrderId = 20,
+                OutboundOrderId = 20,
                 ProductVariantId = 10,
                 QuantityOrdered = 6,
                 QuantityPicked = 4,
@@ -235,7 +245,7 @@ public class ProductVariantServiceTests
 
         SetupProductVariants([variant]);
         SetupInventories([]);
-        SetupSalesOrderItems(salesOrderItems);
+        SetupOutboundOrderItems(salesOrderItems);
 
         // Act
         var response = await _sut.CheckSkuAsync("SKU-SO", "SalesOrder", 20);
@@ -260,7 +270,7 @@ public class ProductVariantServiceTests
 
         SetupProductVariants([variant]);
         SetupInventories([]);
-        SetupPurchaseOrderItems([]);
+        SetupInboundOrderItems([]);
 
         // Act
         var response = await _sut.CheckSkuAsync("SKU-OUTSIDE-DOC", "PurchaseOrder", 99);
@@ -281,9 +291,9 @@ public class ProductVariantServiceTests
     {
         // Arrange
         var variant = CreateVariant(id: 12, sku: "SKU-CONFIRM-PO");
-        var poItem = new PurchaseOrderItem
+        var poItem = new InboundOrderItem
         {
-            PurchaseOrderId = 30,
+            InboundOrderId = 30,
             ProductVariantId = 12,
             QuantityOrdered = 20,
             QuantityReceived = 5,
@@ -291,7 +301,7 @@ public class ProductVariantServiceTests
         };
 
         SetupProductVariants([variant]);
-        SetupPurchaseOrderItems([poItem]);
+        SetupInboundOrderItems([poItem]);
 
         var request = new ConfirmScanRequestDto
         {
@@ -308,8 +318,8 @@ public class ProductVariantServiceTests
         response.IsSucceeded.Should().BeTrue();
         poItem.QRScanned.Should().BeTrue();
         poItem.QuantityReceived.Should().Be(8);
-        _purchaseOrderItemRepository.Verify(repo => repo.UpdateAsync(poItem), Times.Once);
-        _purchaseOrderItemRepository.Verify(repo => repo.SaveChangesAsync(), Times.Once);
+        _inboundOrderItemRepository.Verify(repo => repo.UpdateAsync(poItem), Times.Once);
+        _inboundOrderItemRepository.Verify(repo => repo.SaveChangesAsync(), Times.Once);
     }
 
     [Fact]
@@ -319,9 +329,9 @@ public class ProductVariantServiceTests
     {
         // Arrange
         var variant = CreateVariant(id: 13, sku: "SKU-CONFIRM-SO");
-        var soItem = new SalesOrderItem
+        var soItem = new OutboundOrderItem
         {
-            SalesOrderId = 31,
+            OutboundOrderId = 31,
             ProductVariantId = 13,
             QuantityOrdered = 10,
             QuantityPicked = 2,
@@ -329,7 +339,7 @@ public class ProductVariantServiceTests
         };
 
         SetupProductVariants([variant]);
-        SetupSalesOrderItems([soItem]);
+        SetupOutboundOrderItems([soItem]);
 
         var request = new ConfirmScanRequestDto
         {
@@ -346,8 +356,8 @@ public class ProductVariantServiceTests
         response.IsSucceeded.Should().BeTrue();
         soItem.QRScanned.Should().BeTrue();
         soItem.QuantityPicked.Should().Be(6);
-        _salesOrderItemRepository.Verify(repo => repo.UpdateAsync(soItem), Times.Once);
-        _salesOrderItemRepository.Verify(repo => repo.SaveChangesAsync(), Times.Once);
+        _outboundOrderItemRepository.Verify(repo => repo.UpdateAsync(soItem), Times.Once);
+        _outboundOrderItemRepository.Verify(repo => repo.SaveChangesAsync(), Times.Once);
     }
 
     [Fact]
@@ -441,20 +451,20 @@ public class ProductVariantServiceTests
             .Returns(items.AsQueryable().BuildMock());
     }
 
-    private void SetupPurchaseOrderItems(List<PurchaseOrderItem> items)
+    private void SetupInboundOrderItems(List<InboundOrderItem> items)
     {
-        _purchaseOrderItemRepository
+        _inboundOrderItemRepository
             .Setup(repo => repo.FindByCondition(
-                It.IsAny<Expression<Func<PurchaseOrderItem, bool>>>(),
+                It.IsAny<Expression<Func<InboundOrderItem, bool>>>(),
                 It.IsAny<bool>()))
             .Returns(items.AsQueryable().BuildMock());
     }
 
-    private void SetupSalesOrderItems(List<SalesOrderItem> items)
+    private void SetupOutboundOrderItems(List<OutboundOrderItem> items)
     {
-        _salesOrderItemRepository
+        _outboundOrderItemRepository
             .Setup(repo => repo.FindByCondition(
-                It.IsAny<Expression<Func<SalesOrderItem, bool>>>(),
+                It.IsAny<Expression<Func<OutboundOrderItem, bool>>>(),
                 It.IsAny<bool>()))
             .Returns(items.AsQueryable().BuildMock());
     }
@@ -469,7 +479,7 @@ public class ProductVariantServiceTests
             ProductId = 2,
             Product = new Backend.Domain.Entities.Product { Id = 2, Name = "Ao polo" },
             UnitOfMeasureId = 1,
-            UnitOfMeasure = new UnitOfMeasure { Id = 1, Name = "Cai" },
+            UnitOfMeasure = new Backend.Domain.Entities.UnitOfMeasure { Id = 1, Name = "Cai" },
             IsActive = true,
             IsDeleted = false,
             CreatedDate = DateTime.Now

@@ -23,8 +23,8 @@ public class IotWeightServiceTests
     private readonly Mock<IIotDeviceRepository> _iotDeviceRepository = new();
     private readonly Mock<IIotWeightLogRepository> _iotWeightLogRepository = new();
     private readonly Mock<IProductVariantRepository> _productVariantRepository = new();
-    private readonly Mock<IPurchaseOrderItemRepository> _purchaseOrderItemRepository = new();
-    private readonly Mock<ISalesOrderItemRepository> _salesOrderItemRepository = new();
+    private readonly Mock<IInboundOrderItemRepository> _inboundOrderItemRepository = new();
+    private readonly Mock<IOutboundOrderItemRepository> _outboundOrderItemRepository = new();
     private readonly Mock<IStockTakeItemRepository> _stockTakeItemRepository = new();
     private readonly Mock<IHttpContextAccessor> _httpContextAccessor = new();
     private readonly IotWeightService _sut;
@@ -35,8 +35,8 @@ public class IotWeightServiceTests
             _iotDeviceRepository.Object,
             _iotWeightLogRepository.Object,
             _productVariantRepository.Object,
-            _purchaseOrderItemRepository.Object,
-            _salesOrderItemRepository.Object,
+            _inboundOrderItemRepository.Object,
+            _outboundOrderItemRepository.Object,
             _stockTakeItemRepository.Object,
             _httpContextAccessor.Object
         );
@@ -385,7 +385,7 @@ public class IotWeightServiceTests
     [Fact]
     [Trait("Service", "IotWeight")]
     [Trait("Method", "AttachContext")]
-    public async Task AttachContextAsync_WhenPurchaseOrderItemNotFound_ReturnsNotFound()
+    public async Task AttachContextAsync_WhenInboundOrderItemNotFound_ReturnsNotFound()
     {
         // Arrange
         var log = new IotWeightLog { Id = 1, IsConfirmed = false, IsStable = true, WeightKg = 5 };
@@ -393,7 +393,7 @@ public class IotWeightServiceTests
         var mockTx = new Mock<IDbContextTransaction>();
         _iotWeightLogRepository.Setup(repo => repo.BeginTransactionAsync()).ReturnsAsync(mockTx.Object);
         _productVariantRepository.Setup(repo => repo.GetActiveByIdAsync(99)).ReturnsAsync(new ProductVariant { Id = 99 });
-        _purchaseOrderItemRepository.Setup(repo => repo.GetByIdForWeightAttachAsync(200)).ReturnsAsync((PurchaseOrderItem?)null);
+        _inboundOrderItemRepository.Setup(repo => repo.GetByIdForWeightAttachAsync(200)).ReturnsAsync((InboundOrderItem?)null);
 
         // Act
         var response = await _sut.AttachContextAsync(1, new AttachIotWeightContextDto 
@@ -412,7 +412,7 @@ public class IotWeightServiceTests
     [Fact]
     [Trait("Service", "IotWeight")]
     [Trait("Method", "AttachContext")]
-    public async Task AttachContextAsync_WhenPurchaseOrderItemOrderIdMismatch_ReturnsBadRequest()
+    public async Task AttachContextAsync_WhenInboundOrderItemOrderIdMismatch_ReturnsBadRequest()
     {
         // Arrange
         var log = new IotWeightLog { Id = 1, IsConfirmed = false, IsStable = true, WeightKg = 5 };
@@ -421,8 +421,8 @@ public class IotWeightServiceTests
         _iotWeightLogRepository.Setup(repo => repo.BeginTransactionAsync()).ReturnsAsync(mockTx.Object);
         _productVariantRepository.Setup(repo => repo.GetActiveByIdAsync(99)).ReturnsAsync(new ProductVariant { Id = 99 });
         
-        var poItem = new PurchaseOrderItem { Id = 200, PurchaseOrderId = 999 }; // 999 != 10
-        _purchaseOrderItemRepository.Setup(repo => repo.GetByIdForWeightAttachAsync(200)).ReturnsAsync(poItem);
+        var poItem = new InboundOrderItem { Id = 200, InboundOrderId = 999 }; // 999 != 10
+        _inboundOrderItemRepository.Setup(repo => repo.GetByIdForWeightAttachAsync(200)).ReturnsAsync(poItem);
 
         // Act
         var response = await _sut.AttachContextAsync(1, new AttachIotWeightContextDto 
@@ -441,7 +441,7 @@ public class IotWeightServiceTests
     [Fact]
     [Trait("Service", "IotWeight")]
     [Trait("Method", "AttachContext")]
-    public async Task AttachContextAsync_WhenPurchaseOrderItemVariantIdMismatch_ReturnsBadRequest()
+    public async Task AttachContextAsync_WhenInboundOrderItemVariantIdMismatch_ReturnsBadRequest()
     {
         // Arrange
         var log = new IotWeightLog { Id = 1, IsConfirmed = false, IsStable = true, WeightKg = 5 };
@@ -450,8 +450,8 @@ public class IotWeightServiceTests
         _iotWeightLogRepository.Setup(repo => repo.BeginTransactionAsync()).ReturnsAsync(mockTx.Object);
         _productVariantRepository.Setup(repo => repo.GetActiveByIdAsync(99)).ReturnsAsync(new ProductVariant { Id = 99 });
         
-        var poItem = new PurchaseOrderItem { Id = 200, PurchaseOrderId = 10, ProductVariantId = 111 }; // 111 != 99
-        _purchaseOrderItemRepository.Setup(repo => repo.GetByIdForWeightAttachAsync(200)).ReturnsAsync(poItem);
+        var poItem = new InboundOrderItem { Id = 200, InboundOrderId = 10, ProductVariantId = 111 }; // 111 != 99
+        _inboundOrderItemRepository.Setup(repo => repo.GetByIdForWeightAttachAsync(200)).ReturnsAsync(poItem);
 
         // Act
         var response = await _sut.AttachContextAsync(1, new AttachIotWeightContextDto 
@@ -479,9 +479,9 @@ public class IotWeightServiceTests
         _iotWeightLogRepository.Setup(repo => repo.BeginTransactionAsync()).ReturnsAsync(mockTx.Object);
         _productVariantRepository.Setup(repo => repo.GetActiveByIdAsync(99)).ReturnsAsync(new ProductVariant { Id = 99 });
         
-        var poItem = new PurchaseOrderItem { Id = 200, PurchaseOrderId = 10, ProductVariantId = 99 };
-        _purchaseOrderItemRepository.Setup(repo => repo.GetByIdForWeightAttachAsync(200)).ReturnsAsync(poItem);
-        _purchaseOrderItemRepository.Setup(repo => repo.UpdateAsync(poItem)).Returns(Task.CompletedTask);
+        var poItem = new InboundOrderItem { Id = 200, InboundOrderId = 10, ProductVariantId = 99 };
+        _inboundOrderItemRepository.Setup(repo => repo.GetByIdForWeightAttachAsync(200)).ReturnsAsync(poItem);
+        _inboundOrderItemRepository.Setup(repo => repo.UpdateAsync(poItem)).Returns(Task.CompletedTask);
 
         _iotWeightLogRepository.Setup(repo => repo.UpdateAsync(log)).Returns(Task.CompletedTask);
         _iotWeightLogRepository.Setup(repo => repo.SaveChangesAsync()).ReturnsAsync(1);
@@ -501,7 +501,7 @@ public class IotWeightServiceTests
         response.IsSucceeded.Should().BeTrue();
         response.Status.Should().Be(200);
         poItem.ActualWeightKg.Should().Be(5);
-        _purchaseOrderItemRepository.Verify(repo => repo.UpdateAsync(poItem), Times.Once);
+        _inboundOrderItemRepository.Verify(repo => repo.UpdateAsync(poItem), Times.Once);
     }
 
     [Fact]
@@ -516,9 +516,9 @@ public class IotWeightServiceTests
         _iotWeightLogRepository.Setup(repo => repo.BeginTransactionAsync()).ReturnsAsync(mockTx.Object);
         _productVariantRepository.Setup(repo => repo.GetActiveByIdAsync(99)).ReturnsAsync(new ProductVariant { Id = 99 });
         
-        var soItem = new SalesOrderItem { Id = 300, SalesOrderId = 11, ProductVariantId = 99 };
-        _salesOrderItemRepository.Setup(repo => repo.GetByIdForWeightAttachAsync(300)).ReturnsAsync(soItem);
-        _salesOrderItemRepository.Setup(repo => repo.UpdateAsync(soItem)).Returns(Task.CompletedTask);
+        var soItem = new OutboundOrderItem { Id = 300, OutboundOrderId = 11, ProductVariantId = 99 };
+        _outboundOrderItemRepository.Setup(repo => repo.GetByIdForWeightAttachAsync(300)).ReturnsAsync(soItem);
+        _outboundOrderItemRepository.Setup(repo => repo.UpdateAsync(soItem)).Returns(Task.CompletedTask);
 
         _iotWeightLogRepository.Setup(repo => repo.UpdateAsync(log)).Returns(Task.CompletedTask);
         _iotWeightLogRepository.Setup(repo => repo.SaveChangesAsync()).ReturnsAsync(1);
@@ -538,7 +538,7 @@ public class IotWeightServiceTests
         response.IsSucceeded.Should().BeTrue();
         response.Status.Should().Be(200);
         soItem.ActualWeightKg.Should().Be(5);
-        _salesOrderItemRepository.Verify(repo => repo.UpdateAsync(soItem), Times.Once);
+        _outboundOrderItemRepository.Verify(repo => repo.UpdateAsync(soItem), Times.Once);
     }
 
     [Fact]

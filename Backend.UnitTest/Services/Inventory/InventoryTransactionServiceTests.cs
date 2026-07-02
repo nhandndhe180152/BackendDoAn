@@ -313,7 +313,8 @@ public class InventoryTransactionServiceTests
         // Assert
         response.IsSucceeded.Should().BeTrue();
         response.Status.Should().Be(200);
-        _inventoryRepository.Verify(repo => repo.CreateAsync(It.Is<Backend.Domain.Entities.Inventory>(i => i.PurchaseOrderId == 10)), Times.Once);
+        // Inventory không còn field PurchaseOrderId; xác minh inventory mới đúng variant + warehouse
+        _inventoryRepository.Verify(repo => repo.CreateAsync(It.Is<Backend.Domain.Entities.Inventory>(i => i.ProductVariantId == 1 && i.WarehouseId == 1)), Times.Once);
         _inventoryRepository.Verify(repo => repo.UpdateAsync(It.Is<Backend.Domain.Entities.Inventory>(i => i.QuantityOnHand == 10)), Times.Once);
         _inventoryTransactionRepository.Verify(repo => repo.CreateAsync(It.Is<InventoryTransaction>(t => t.Quantity == 10 && t.BeforeQuantity == 0 && t.AfterQuantity == 10)), Times.Once);
     }

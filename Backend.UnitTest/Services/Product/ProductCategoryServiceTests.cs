@@ -45,7 +45,7 @@ public class ProductCategoryServiceTests
         {
             Name = "Phu kien",
             Description = "Nhom phu kien",
-            ParentId = null,
+            ParentCategoryId = null,
             TreeIds = "2",
             SortOrder = 1,
             CreatedBy = 1001
@@ -216,7 +216,7 @@ public class ProductCategoryServiceTests
             Id = 2,
             Name = "Moi",
             Description = "Da cap nhat",
-            ParentId = 1,
+            ParentCategoryId = 1,
             TreeIds = "1,2",
             SortOrder = 5,
             UpdatedBy = 1001
@@ -228,7 +228,7 @@ public class ProductCategoryServiceTests
         // Assert
         response.IsSucceeded.Should().BeTrue();
         category.Name.Should().Be("Moi");
-        category.ParentId.Should().Be(1);
+        category.ParentCategoryId.Should().Be(1);
         category.SortOrder.Should().Be(5);
         _categoryRepository.Verify(repo => repo.UpdateAsync(category), Times.Once);
         _categoryRepository.Verify(repo => repo.SaveChangesAsync(), Times.Once);
@@ -321,7 +321,7 @@ public class ProductCategoryServiceTests
             Id = id,
             Name = name,
             Description = description ?? $"{name} description",
-            ParentId = parentId,
+            ParentCategoryId = parentId,
             ParentCategory = parentCategory,
             TreeIds = parentId.HasValue ? $"{parentId},{id}" : id.ToString(),
             SortOrder = id,

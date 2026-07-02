@@ -2,6 +2,7 @@ using System;
 using System.Linq.Expressions;
 using Backend.Application.DTOs.Products;
 using Backend.Application.Implements;
+using Backend.Application.Interfaces;
 using Backend.Application.Constants;
 using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
@@ -16,11 +17,18 @@ namespace Backend.UnitTest.Services.Product;
 public class ProductServiceTests
 {
     private readonly Mock<IProductRepository> _productRepository = new();
+    private readonly Mock<IProductCategoryRepository> _productCategoryRepository = new();
+    private readonly Mock<IProductVariantRepository> _productVariantRepository = new();
+    private readonly Mock<IStorageService> _storageService = new();
     private readonly ProductService _sut;
 
     public ProductServiceTests()
     {
-        _sut = new ProductService(_productRepository.Object);
+        _sut = new ProductService(
+            _productRepository.Object,
+            _productCategoryRepository.Object,
+            _productVariantRepository.Object,
+            _storageService.Object);
     }
 
     [Fact]
@@ -31,9 +39,10 @@ public class ProductServiceTests
         // Arrange
         DomainProduct? createdProduct = null;
 
-        _productRepository
-            .Setup(repo => repo.AnyAsync(It.IsAny<Expression<Func<DomainProduct, bool>>>()))
-            .ReturnsAsync(false);
+        // CreateAsync hiện tại validate danh mục tồn tại (không còn check trùng tên)
+        _productCategoryRepository
+            .Setup(repo => repo.GetByIdAsync(2))
+            .ReturnsAsync(new ProductCategory { Id = 2, Name = "Danh muc", IsDeleted = false });
 
         _productRepository
             .Setup(repo => repo.CreateAsync(It.IsAny<DomainProduct>()))
@@ -70,12 +79,12 @@ public class ProductServiceTests
     [Fact]
     [Trait("Service", "Product")]
     [Trait("Method", "Create")]
-    public async Task CreateAsync_DuplicatedName_ReturnsUnprocessableEntity()
+    public async Task CreateAsync_CategoryNotFound_ReturnsUnprocessableEntity()
     {
-        // Arrange
-        _productRepository
-            .Setup(repo => repo.AnyAsync(It.IsAny<Expression<Func<DomainProduct, bool>>>()))
-            .ReturnsAsync(true);
+        // Arrange - danh mục không tồn tại
+        _productCategoryRepository
+            .Setup(repo => repo.GetByIdAsync(It.IsAny<int>()))
+            .ReturnsAsync((ProductCategory?)null);
 
         var request = new CreateProductDto
         {
@@ -90,7 +99,7 @@ public class ProductServiceTests
         // Assert
         response.IsSucceeded.Should().BeFalse();
         response.Status.Should().Be(422);
-        response.Code.Should().Be(ApiCodeConstants.Common.DuplicatedData);
+        response.Code.Should().Be(ApiCodeConstants.Common.InvalidData);
         _productRepository.Verify(repo => repo.CreateAsync(It.IsAny<DomainProduct>()), Times.Never);
         _productRepository.Verify(repo => repo.SaveChangesAsync(), Times.Never);
     }
@@ -201,7 +210,8 @@ public class ProductServiceTests
         response.IsSucceeded.Should().BeTrue();
 
         var result = response.Resources.Should().BeOfType<PagingData<ProductDetailDto>>().Subject;
-        result.Total.Should().Be(3);
+        // GetPagedAsync(ProductSearchQuery) hiện tính Total sau khi áp filter category + active
+        result.Total.Should().Be(1);
         result.TotalFiltered.Should().Be(1);
         result.DataSource.Should().ContainSingle();
         result.DataSource.Single().Name.Should().Be("Cap sac Type-C");
@@ -220,9 +230,9 @@ public class ProductServiceTests
             .Setup(repo => repo.GetByIdAsync(1))
             .ReturnsAsync(product);
 
-        _productRepository
-            .Setup(repo => repo.AnyAsync(It.IsAny<Expression<Func<DomainProduct, bool>>>()))
-            .ReturnsAsync(false);
+        _productCategoryRepository
+            .Setup(repo => repo.GetByIdAsync(It.IsAny<int>()))
+            .ReturnsAsync(new ProductCategory { Id = 2, Name = "Danh muc", IsDeleted = false });
 
         _productRepository
             .Setup(repo => repo.UpdateAsync(It.IsAny<DomainProduct>()))
@@ -286,24 +296,24 @@ public class ProductServiceTests
     [Fact]
     [Trait("Service", "Product")]
     [Trait("Method", "Update")]
-    public async Task UpdateAsync_DuplicatedName_ReturnsUnprocessableEntity()
+    public async Task UpdateAsync_CategoryNotFound_ReturnsUnprocessableEntity()
     {
-        // Arrange
+        // Arrange - sản phẩm tồn tại nhưng danh mục mới không hợp lệ
         var product = CreateProduct(id: 1, name: "Ao cu", categoryId: 1, categoryName: "Thoi trang");
 
         _productRepository
             .Setup(repo => repo.GetByIdAsync(1))
             .ReturnsAsync(product);
 
-        _productRepository
-            .Setup(repo => repo.AnyAsync(It.IsAny<Expression<Func<DomainProduct, bool>>>()))
-            .ReturnsAsync(true);
+        _productCategoryRepository
+            .Setup(repo => repo.GetByIdAsync(It.IsAny<int>()))
+            .ReturnsAsync((ProductCategory?)null);
 
         var request = new UpdateProductDto
         {
             Id = 1,
-            Name = "Ten bi trung",
-            ProductCategoryId = 1,
+            Name = "Ten moi",
+            ProductCategoryId = 999,
             IsActive = true
         };
 
@@ -313,7 +323,7 @@ public class ProductServiceTests
         // Assert
         response.IsSucceeded.Should().BeFalse();
         response.Status.Should().Be(422);
-        response.Code.Should().Be(ApiCodeConstants.Common.DuplicatedData);
+        response.Code.Should().Be(ApiCodeConstants.Common.InvalidData);
         _productRepository.Verify(repo => repo.UpdateAsync(It.IsAny<DomainProduct>()), Times.Never);
         _productRepository.Verify(repo => repo.SaveChangesAsync(), Times.Never);
     }
@@ -323,7 +333,9 @@ public class ProductServiceTests
     [Trait("Method", "SoftDelete")]
     public async Task SoftDeleteAsync_WhenRepositoryDeletes_ReturnsSuccess()
     {
-        // Arrange
+        // Arrange - SoftDeleteAsync hiện tải sản phẩm qua FindByCondition + kiểm tra biến thể
+        SetupProducts([CreateProduct(id: 1, name: "Ao", categoryId: 1, categoryName: "Cat")]);
+
         _productRepository
             .Setup(repo => repo.SoftDeleteAsync(1))
             .ReturnsAsync(true);
@@ -347,6 +359,8 @@ public class ProductServiceTests
     public async Task SoftDeleteAsync_WhenRepositoryCannotDelete_ReturnsBadRequest()
     {
         // Arrange
+        SetupProducts([CreateProduct(id: 999, name: "Ao", categoryId: 1, categoryName: "Cat")]);
+
         _productRepository
             .Setup(repo => repo.SoftDeleteAsync(999))
             .ReturnsAsync(false);
@@ -393,7 +407,8 @@ public class ProductServiceTests
             },
             IsActive = isActive,
             IsDeleted = isDeleted,
-            CreatedDate = DateTime.Now
+            CreatedDate = DateTime.Now,
+            ProductVariants = new List<ProductVariant>()
         };
     }
 }
