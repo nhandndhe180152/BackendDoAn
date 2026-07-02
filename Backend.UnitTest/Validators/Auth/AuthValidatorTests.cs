@@ -55,4 +55,16 @@ public class AuthValidatorTests
     [InlineData("access", "")]
     public void Refresh_MissingFields_Fails(string? access, string? refresh)
         => _refreshValidator.Validate(new RefreshTokenRequestDto { AccessToken = access!, RefreshToken = refresh! }).IsValid.Should().BeFalse();
+    [Fact]
+    public void Login_MissingUsername_Fails()
+    {
+        var dto = new LoginRequestDto
+        {
+            Username = null,
+            Password = "password123"
+        };
+        var result = _loginValidator.Validate(dto);
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(LoginRequestDto.Username));
+    }
 }

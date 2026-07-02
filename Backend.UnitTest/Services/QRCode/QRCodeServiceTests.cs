@@ -76,7 +76,6 @@ public class QRCodeServiceTests
             Id = 1,
             SKU = "SKU-TEST-123",
             Name = "Test Variant",
-            SalePrice = 100000,
             AttributeValues = "Color: Black, Size: L",
             IsDeleted = false
         };
@@ -86,7 +85,7 @@ public class QRCodeServiceTests
             .Returns(list.AsQueryable().BuildMock());
 
         _inventoryRepoMock.Setup(r => r.GetByProductVariantAsync(1))
-            .ReturnsAsync(new List<Inventory>());
+            .ReturnsAsync(new List<Backend.Domain.Entities.Inventory>());
 
         // Act
         var result = await _sut.GenerateQRLabelPdfAsync(1, 50f, 30f);
@@ -102,15 +101,15 @@ public class QRCodeServiceTests
     public async Task GenerateBulkQRLabelsPdfAsync_ValidRequest_ReturnsCombinedPdfBytes()
     {
         // Arrange
-        var variant1 = new ProductVariant { Id = 1, SKU = "SKU-1", Name = "V1", SalePrice = 50000 };
-        var variant2 = new ProductVariant { Id = 2, SKU = "SKU-2", Name = "V2", SalePrice = 75000 };
+        var variant1 = new ProductVariant { Id = 1, SKU = "SKU-1", Name = "V1" };
+        var variant2 = new ProductVariant { Id = 2, SKU = "SKU-2", Name = "V2" };
 
         var list = new List<ProductVariant> { variant1, variant2 };
         _productVariantRepoMock.Setup(r => r.FindByCondition(It.IsAny<Expression<Func<ProductVariant, bool>>>(), It.IsAny<bool>()))
             .Returns(list.AsQueryable().BuildMock());
 
-        var inventories = new List<Inventory>();
-        _inventoryRepoMock.Setup(r => r.FindByCondition(It.IsAny<Expression<Func<Inventory, bool>>>(), It.IsAny<bool>()))
+        var inventories = new List<Backend.Domain.Entities.Inventory>();
+        _inventoryRepoMock.Setup(r => r.FindByCondition(It.IsAny<Expression<Func<Backend.Domain.Entities.Inventory, bool>>>(), It.IsAny<bool>()))
             .Returns(inventories.AsQueryable().BuildMock());
 
         var request = new BatchQRLabelRequestDto

@@ -30,7 +30,7 @@ public class SimpleServiceCoverageTests
         var result = await new ActionService(repo.Object).GetAllAsync();
         result.Should().NotBeNull();
     }
- 
+
     [Fact][Trait("Service","Action")]
     public async Task ActionService_GetByIdAsync_NotFound_Returns404()
     {
@@ -40,7 +40,7 @@ public class SimpleServiceCoverageTests
         var result = await new ActionService(repo.Object).GetByIdAsync(999);
         result.Status.Should().Be(404);
     }
- 
+
     [Fact][Trait("Service","Action")]
     public async Task ActionService_SoftDeleteAsync_NotFound_Returns400()
     {
@@ -50,7 +50,7 @@ public class SimpleServiceCoverageTests
         var result = await new ActionService(repo.Object).SoftDeleteAsync(999);
         result.Status.Should().Be(400);
     }
- 
+
     [Fact][Trait("Service","Action")]
     public async Task ActionService_Create_DuplicateName_ReturnsUnprocessableEntity()
     {
@@ -60,7 +60,7 @@ public class SimpleServiceCoverageTests
         var result = await new ActionService(repo.Object).CreateAsync(new CreateActionDto { Name = "CREATE" });
         result.Status.Should().Be(422);
     }
- 
+
     // ════════════════════════════════════════════════════════════════════════
     // NotificationCategoryService — ctor: (INotificationCategoryRepository)
     // ════════════════════════════════════════════════════════════════════════
@@ -73,7 +73,7 @@ public class SimpleServiceCoverageTests
         var result = await new NotificationCategoryService(repo.Object).GetAllAsync();
         result.Should().NotBeNull();
     }
- 
+
     [Fact][Trait("Service","NotificationCategory")]
     public async Task NotificationCategoryService_GetByIdAsync_NotFound_Returns404()
     {
@@ -83,7 +83,7 @@ public class SimpleServiceCoverageTests
         var result = await new NotificationCategoryService(repo.Object).GetByIdAsync(999);
         result.Status.Should().Be(404);
     }
- 
+
     // ════════════════════════════════════════════════════════════════════════
     // NotificationTypeService — ctor: (INotificationTypeRepository)
     // ════════════════════════════════════════════════════════════════════════
@@ -96,7 +96,7 @@ public class SimpleServiceCoverageTests
         var result = await new NotificationTypeService(repo.Object).GetAllAsync();
         result.Should().NotBeNull();
     }
- 
+
     [Fact][Trait("Service","NotificationType")]
     public async Task NotificationTypeService_Create_DuplicateName_Returns422()
     {
@@ -107,7 +107,7 @@ public class SimpleServiceCoverageTests
             new CreateNotificationTypeDto { Name = "Alert" });
         result.Status.Should().Be(422);
     }
- 
+
     // ════════════════════════════════════════════════════════════════════════
     // UserStatusService — ctor: (IUserStatusRepository)
     // ════════════════════════════════════════════════════════════════════════
@@ -120,7 +120,7 @@ public class SimpleServiceCoverageTests
         var result = await new UserStatusService(repo.Object).GetAllAsync();
         result.Should().NotBeNull();
     }
- 
+
     [Fact][Trait("Service","UserStatus")]
     public async Task UserStatusService_Create_DuplicateName_Returns422()
     {
@@ -131,7 +131,7 @@ public class SimpleServiceCoverageTests
             new CreateUserStatusDto { Name = "Active", Color = "#00FF00" });
         result.Status.Should().Be(422);
     }
- 
+
     // ════════════════════════════════════════════════════════════════════════
     // DashboardService — ctor: (ILogger<DashboardService>, IHttpContextAccessor)
     // Lưu ý: GetReportStatisticsAsync() throw NotImplementedException nên không test
