@@ -17,6 +17,8 @@ public class StockTakeConfiguration : IEntityTypeConfiguration<StockTake>
 
         builder.Property(x => x.STCode).HasMaxLength(50);
 
+        //builder.Property(x => x.ApprovalNote).HasMaxLength(500);
+
         builder.HasIndex(x => x.STCode)
             .IsUnique()
             .HasDatabaseName("UX_StockTake_STCode");

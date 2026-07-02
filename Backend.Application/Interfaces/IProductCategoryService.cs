@@ -9,4 +9,6 @@ namespace Backend.Application.Interfaces;
 public interface IProductCategoryService : IServiceBase<int, CreateProductCategoryDto, UpdateProductCategoryDto, ProductCategoryDTParameters>
 {
     Task<ApiResponse> GetPagedAsync(ProductCategorySearchQuery query);
+    Task<ApiResponse> GetTreeAsync();
 }
+

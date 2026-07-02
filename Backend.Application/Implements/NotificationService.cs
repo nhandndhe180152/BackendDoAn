@@ -67,6 +67,35 @@ public class NotificationService : INotificationService
 
             return ApiResponse.InternalServerError();
         }
+
+        // Push FCM tới thiết bị của người nhận (lỗi push không làm hỏng việc tạo).
+        try
+        {
+            if (obj.UserIds.Any())
+            {
+                var tokens = await _userDeviceRepository
+                    .FindByCondition(x =>
+                        obj.UserIds.Contains(x.UserId) &&
+                        !x.IsDeleted &&
+                        x.DeviceToken != null &&
+                        x.DeviceToken != "")
+                    .Select(x => x.DeviceToken!)
+                    .Distinct()
+                    .ToListAsync();
+
+                if (tokens.Count > 0)
+                {
+                    await _fireBaseService.SendNotificationAsync(
+                        tokens, model.Title, model.Content,
+                        model.NotificationCategoryId.ToString(), model.DirectionId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Push FCM failed for notification {Id}", model.Id);
+        }
+
         return ApiResponse.Created(model.Id);
     }
 

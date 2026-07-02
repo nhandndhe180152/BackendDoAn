@@ -2381,6 +2381,9 @@ namespace Backend.Infrastructure.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("ApproveNote")
+                        .HasColumnType("longtext");
+
                     b.Property<int?>("ApprovedByUserId")
                         .HasColumnType("int");
 
@@ -2458,6 +2461,9 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<DateTime?>("LastModifiedDate")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<int?>("LocationId")
+                        .HasColumnType("int");
+
                     b.Property<string>("Note")
                         .HasColumnType("longtext");
 
@@ -2477,6 +2483,8 @@ namespace Backend.Infrastructure.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("LocationId");
 
                     b.HasIndex("ProductVariantId");
 
@@ -2519,6 +2527,40 @@ namespace Backend.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("StockTakeStatus", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Color = "#ff9500",
+                            CreatedDate = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Mới tạo"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Color = "#007bff",
+                            CreatedDate = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Đã gửi yêu cầu"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Color = "#00b315",
+                            CreatedDate = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Đã duyệt"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Color = "#ff0000",
+                            CreatedDate = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Từ chối"
+                        });
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.Supplier", b =>
@@ -3783,6 +3825,10 @@ namespace Backend.Infrastructure.Migrations
 
             modelBuilder.Entity("Backend.Domain.Entities.StockTakeItem", b =>
                 {
+                    b.HasOne("Backend.Domain.Entities.Location", "Location")
+                        .WithMany()
+                        .HasForeignKey("LocationId");
+
                     b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
                         .WithMany()
                         .HasForeignKey("ProductVariantId");
@@ -3792,6 +3838,8 @@ namespace Backend.Infrastructure.Migrations
                         .HasForeignKey("StockTakeId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Location");
 
                     b.Navigation("ProductVariant");
 

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Backend.Application.DTOs.Products;
 using Backend.Domain.Entities;
 
@@ -40,7 +41,12 @@ public static class ProductMapping
             ProductCategoryId = entity.ProductCategoryId,
             ProductCategoryName = entity.ProductCategory?.Name,
             IsActive = entity.IsActive,
-            CreatedDate = entity.CreatedDate
+            IsDeleted = entity.IsDeleted,
+            VariantCount = entity.ProductVariants != null ? entity.ProductVariants.Count(v => !v.IsDeleted) : 0,
+            ActiveVariantCount = entity.ProductVariants != null ? entity.ProductVariants.Count(v => !v.IsDeleted && v.IsActive) : 0,
+            CreatedDate = entity.CreatedDate,
+            LastModifiedDate = entity.LastModifiedDate
         };
     }
 }
+

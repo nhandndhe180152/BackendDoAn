@@ -158,14 +158,9 @@ public static class CommonConstants
         public const string YEAR = "YEAR";
     }
 
-    public static class NotificationCategory
-    {
-        public const int TRIP_REQUEST = 1001;
-        public const int TRIP = 1002;
-        public const int FUEL_LOG = 1003;
-        public const int TRIP_EXPENSE = 1004;
-        public const int MAINTENANCE_RECORD = 1005;
-    }
+    // Đã gỡ các danh mục thông báo cũ (trip/fuel/maintenance) không phù hợp WMS.
+    // Danh mục + mã sự kiện của hệ thống kho được định nghĩa trong
+    // NotificationConstants (theo TÊN danh mục + Catalog code -> mẫu nội dung).
     public static class NotificationType
     {
         public const int SYSTEM = 1001;
@@ -204,9 +199,33 @@ public static class CommonConstants
             "Tháng 09", "Tháng 10", "Tháng 11", "Tháng 12"
         };
 
+    // Phải khớp với AuditedEntityNames (Backend.Infrastructure) để dropdown lọc
+    // "Đối tượng" của audit log hiển thị đủ tất cả loại đối tượng được ghi log.
     public static readonly Dictionary<string, string> EntityDisplayMap = new()
         {
             { "User", "Người dùng" },
+            { "Warehouse", "Kho" },
+            { "Location", "Vị trí lưu trữ" },
+            { "Product", "Sản phẩm" },
+            { "ProductCategory", "Danh mục sản phẩm" },
+            { "ProductVariant", "Biến thể sản phẩm" },
+            { "InboundOrder", "Đơn nhập kho" },
+            { "InboundOrderItem", "Chi tiết đơn nhập" },
+            { "OutboundOrder", "Đơn xuất kho" },
+            { "OutboundOrderItem", "Chi tiết đơn xuất" },
+            { "Inventory", "Tồn kho" },
+            { "InventoryTransaction", "Giao dịch kho" },
+            { "IotDevice", "Thiết bị IoT" },
+            { "IotDeviceCommand", "Lệnh thiết bị IoT" },
+            { "Supplier", "Nhà cung cấp" },
+            { "CustomerReturnOrder", "Đơn trả hàng của khách" },
+            { "CustomerReturnOrderItem", "Chi tiết đơn trả hàng của khách" },
+            { "ReturnToSupplierOrder", "Đơn trả nhà cung cấp" },
+            { "ReturnToSupplierOrderItem", "Chi tiết đơn trả nhà cung cấp" },
+            { "StockAlertConfig", "Cấu hình cảnh báo tồn kho" },
+            { "StockTake", "Kiểm kê kho" },
+            { "StockTakeItem", "Chi tiết kiểm kê kho" },
+            { "UnitOfMeasure", "Đơn vị tính" },
         };
 
     public static readonly HashSet<DetailStatusDto<int>> DriverSalaryStatuses = new()

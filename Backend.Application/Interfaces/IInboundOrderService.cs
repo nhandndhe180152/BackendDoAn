@@ -7,6 +7,7 @@ namespace Backend.Application.Interfaces;
 public interface IInboundOrderService
 {
     Task<ApiResponse> GetPagedAsync(SearchQuery query);
+    Task<ApiResponse> GetPagedAdvancedAsync(Backend.Domain.DTParameters.InboundOrderDTParameters parameters);
     Task<ApiResponse> GetByIdAsync(int id);
     Task<ApiResponse> CreateAsync(CreateInboundOrderDto dto);
     Task<ApiResponse> UpdateAsync(UpdateInboundOrderDto dto);
@@ -25,4 +26,8 @@ public interface IInboundOrderService
     Task<ApiResponse> SelectPutawayAsync(int orderId, int receiptId, SelectPutawayDto dto);
     Task<ApiResponse> ConfirmReceiptAsync(int orderId, int receiptId, ConfirmReceiptDto dto);
     Task<ApiResponse> GetReceiptsAsync(int orderId);
+
+    // Chứng từ giao hàng (Delivery Note: ảnh + OCR)
+    Task<ApiResponse> SaveDeliveryNoteAsync(int orderId, SaveDeliveryNoteDto dto);
+    Task<ApiResponse> GetDeliveryNoteAsync(int orderId);
 }

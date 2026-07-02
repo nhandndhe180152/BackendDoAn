@@ -19,6 +19,7 @@ public static class ConfigureServices
             .AddScoped<IFolderUploadService, FolderUploadService>()
             .AddScoped<IMenuService, MenuService>()
             .AddScoped<INotificationCategoryService, NotificationCategoryService>()
+            .AddScoped<INotificationDispatcher, NotificationDispatcher>()
             .AddScoped<INotificationService, NotificationService>()
             .AddScoped<IPermissionService, PermissionService>()
             .AddScoped<IRoleService, RoleService>()
@@ -47,7 +48,10 @@ public static class ConfigureServices
             .AddScoped<ILocationService, LocationService>()
             .AddScoped<IInventoryService, InventoryService>()
             .AddScoped<IInventoryTransactionService, InventoryTransactionService>()
-            .AddScoped<IInboundOrderService, InboundOrderService>();
+            .AddScoped<IInboundOrderService, InboundOrderService>()
+            .AddScoped<ISupplierService, SupplierService>()
+            .AddScoped<IStockTakeService, StockTakeService>()
+            .AddScoped<IUnitOfMeasureService, UnitOfMeasureService>();
 
 
         services.AddFluentValidationAutoValidation(options => options.DisableDataAnnotationsValidation = true);

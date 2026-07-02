@@ -7,6 +7,7 @@ using Backend.Application.DTOs.Products;
 using Backend.Application.Interfaces;
 using Backend.Application.Mappings;
 using Backend.Domain.DTParameters;
+using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
 using Backend.Share.Extensions;
@@ -18,29 +19,43 @@ namespace Backend.Application.Implements;
 public class ProductService : IProductService
 {
     private readonly IProductRepository _productRepository;
+    private readonly IProductCategoryRepository _productCategoryRepository;
+    private readonly IProductVariantRepository _productVariantRepository;
+    private readonly IStorageService _storageService;
 
     /// Khởi tạo ProductService với Repository được inject qua DI container
-    public ProductService(IProductRepository productRepository)
+    public ProductService(
+        IProductRepository productRepository,
+        IProductCategoryRepository productCategoryRepository,
+        IProductVariantRepository productVariantRepository,
+        IStorageService storageService)
     {
         _productRepository = productRepository;
+        _productCategoryRepository = productCategoryRepository;
+        _productVariantRepository = productVariantRepository;
+        _storageService = storageService;
     }
 
+    // ──────────────────────────────────────────────────────────
+    // CREATE
+    // ──────────────────────────────────────────────────────────
     /// Tạo mới một sản phẩm
     public async Task<ApiResponse> CreateAsync(CreateProductDto obj)
     {
-        var model = obj.ToEntity();
-        
-        // Kiểm tra xem đã tồn tại sản phẩm trùng tên hay chưa (bỏ qua những sản phẩm đã bị xóa mềm)
-        var isExistingProduct = await _productRepository.AnyAsync(
-            x => x.Name.ToLower() == model.Name.ToLower() && !x.IsDeleted);
+        var name = obj.Name?.Trim();
+        if (string.IsNullOrEmpty(name))
+            return ApiResponse.BadRequest(message: "Tên sản phẩm không được để trống.");
 
-        if (isExistingProduct)
+        // Validate ProductCategory
+        var category = await _productCategoryRepository.GetByIdAsync(obj.ProductCategoryId);
+        if (category == null || category.IsDeleted)
             return ApiResponse.UnprocessableEntity(
-                ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Name),
-                ApiCodeConstants.Common.DuplicatedData
-            );
+                "Danh mục sản phẩm không tồn tại hoặc đã bị xóa.",
+                ApiCodeConstants.Common.InvalidData);
 
-        // Lưu thông tin thực thể vào cơ sở dữ liệu
+        var model = obj.ToEntity();
+        model.IsDeleted = false;
+
         await _productRepository.CreateAsync(model);
         await _productRepository.SaveChangesAsync();
 
@@ -56,12 +71,16 @@ public class ProductService : IProductService
         return ApiResponse.Created(models.Select(x => x.Id));
     }
 
+    // ──────────────────────────────────────────────────────────
+    // READ
+    // ──────────────────────────────────────────────────────────
     /// Lấy danh sách toàn bộ sản phẩm đang hoạt động kèm tên danh mục
     public async Task<ApiResponse> GetAllAsync()
     {
         var data = await _productRepository
             .FindByCondition(x => !x.IsDeleted)
             .Include(x => x.ProductCategory)
+            .Include(x => x.ProductVariants)
             .Select(x => x.ToDto())
             .ToListAsync();
 
@@ -74,6 +93,7 @@ public class ProductService : IProductService
         var data = await _productRepository
             .FindByCondition(x => x.Id == id && !x.IsDeleted)
             .Include(x => x.ProductCategory)
+            .Include(x => x.ProductVariants)
             .FirstOrDefaultAsync();
 
         if (data == null)
@@ -88,11 +108,11 @@ public class ProductService : IProductService
         var data = _productRepository
             .FindByCondition(x => !x.IsDeleted)
             .Include(x => x.ProductCategory)
+            .Include(x => x.ProductVariants)
             .Select(x => x.ToDto());
 
         var totalRecord = await data.CountAsync();
-        
-        // Lọc theo từ khóa tìm kiếm (Tên sản phẩm, Mô tả, hoặc Tên danh mục)
+
         if (!string.IsNullOrEmpty(query.Keyword))
         {
             data = data.Where(x => x.Name.ToLower().Contains(query.Keyword.ToLower()) ||
@@ -100,7 +120,6 @@ public class ProductService : IProductService
                                    x.ProductCategoryName != null && x.ProductCategoryName.ToLower().Contains(query.Keyword.ToLower()));
         }
 
-        // Sắp xếp động theo yêu cầu của client
         if (!string.IsNullOrEmpty(query.OrderBy))
         {
             data = data.OrderByDynamic(query.OrderBy, query.SortType == "asc" ? LinqExtensions.Order.Asc : LinqExtensions.Order.Desc);
@@ -118,7 +137,6 @@ public class ProductService : IProductService
         return ApiResponse.Success(pagedData);
     }
 
-    /// Phân trang nâng cao (chưa áp dụng mẫu tìm kiếm chung)
     public Task<ApiResponse> GetPagedAsync<T>(AdvancedSearchQuery<T> query)
     {
         throw new NotImplementedException();
@@ -131,89 +149,72 @@ public class ProductService : IProductService
         return ApiResponse.Success(data);
     }
 
-    /// Xóa mềm một sản phẩm bằng cách chuyển trạng thái IsDeleted = true
-    public async Task<ApiResponse> SoftDeleteAsync(int id)
-    {
-        var isDeleted = await _productRepository.SoftDeleteAsync(id);
-        if (!isDeleted)
-            return ApiResponse.BadRequest();
-
-        await _productRepository.SaveChangesAsync();
-        return ApiResponse.Success(isDeleted);
-    }
-
-    /// Xóa mềm danh sách nhiều sản phẩm cùng lúc
-    public Task<ApiResponse> SoftDeleteListAsync(IEnumerable<int> objs)
-    {
-        throw new NotImplementedException();
-    }
-
-    /// Cập nhật thông tin sản phẩm
-    public async Task<ApiResponse> UpdateAsync(UpdateProductDto obj)
-    {
-        var existData = await _productRepository.GetByIdAsync(obj.Id);
-        if (existData == null)
-            return ApiResponse.NotFound();
-
-        // Kiểm tra trùng lặp tên sản phẩm với các sản phẩm khác ngoại trừ chính sản phẩm đang sửa
-        var isDuplicatedName = await _productRepository.AnyAsync(
-            x => x.Name.ToLower() == obj.Name.ToLower() && x.Id != obj.Id && !x.IsDeleted);
-
-        if (isDuplicatedName)
-            return ApiResponse.UnprocessableEntity(
-                ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Name),
-                ApiCodeConstants.Common.DuplicatedData
-            );
-
-        // Chuyển đổi dữ liệu từ DTO cập nhật vào thực thể đang theo dõi
-        obj.ToEntity(existData);
-        await _productRepository.UpdateAsync(existData);
-        await _productRepository.SaveChangesAsync();
-
-        return ApiResponse.Success();
-    }
-
-    /// Cập nhật danh sách nhiều sản phẩm
-    public Task<ApiResponse> UpdateListAsync(IEnumerable<UpdateProductDto> obj)
-    {
-        throw new NotImplementedException();
-    }
-
     /// Tìm kiếm và lọc sản phẩm chi tiết theo các tiêu chí cụ thể
     public async Task<ApiResponse> GetPagedAsync(ProductSearchQuery query)
     {
-        var data = _productRepository
-            .FindByCondition(x => !x.IsDeleted)
-            .Include(x => x.ProductCategory)
-            .Select(x => x.ToDto());
+        IQueryable<Product> baseQuery = _productRepository.FindByCondition(x => true);
 
-        var totalRecord = await data.CountAsync();
-        
-        // Lọc theo từ khóa
-        if (!string.IsNullOrEmpty(query.Keyword))
-        {
-            data = data.Where(x => x.Name.ToLower().Contains(query.Keyword.ToLower()) ||
-                                   x.Description != null && x.Description.ToLower().Contains(query.Keyword.ToLower()) ||
-                                   x.ProductCategoryName != null && x.ProductCategoryName.ToLower().Contains(query.Keyword.ToLower()));
-        }
+        if (!query.IncludeDeleted)
+            baseQuery = baseQuery.Where(x => !x.IsDeleted);
 
-        // Lọc theo Danh mục sản phẩm cụ thể
         if (query.ProductCategoryId.HasValue)
         {
-            data = data.Where(x => x.ProductCategoryId == query.ProductCategoryId.Value);
+            if (query.IncludeDescendantCategories)
+            {
+                // Dùng subquery thay vì 2 round-trips:
+                // Lấy target TreeIds bằng correlated subquery rồi lọc tất cả descendants trong 1 query
+                var targetId = query.ProductCategoryId.Value;
+                var targetTreeIds = await _productCategoryRepository
+                    .FindByCondition(x => x.Id == targetId && !x.IsDeleted)
+                    .Select(x => x.TreeIds)
+                    .FirstOrDefaultAsync();
+
+                if (targetTreeIds != null)
+                {
+                    var treePrefix = targetTreeIds + ",";
+                    // Subquery: danh sách category khớp (chính nó + descendants)
+                    var descendantCategoryIds = _productCategoryRepository
+                        .FindByCondition(x => !x.IsDeleted &&
+                            (x.TreeIds == targetTreeIds || x.TreeIds.StartsWith(treePrefix)))
+                        .Select(x => x.Id);
+
+                    baseQuery = baseQuery.Where(x => descendantCategoryIds.Contains(x.ProductCategoryId));
+                }
+                else
+                {
+                    // Category không tồn tại → trả rỗng
+                    baseQuery = baseQuery.Where(x => x.ProductCategoryId == targetId);
+                }
+            }
+            else
+            {
+                baseQuery = baseQuery.Where(x => x.ProductCategoryId == query.ProductCategoryId.Value);
+            }
         }
 
-        // Lọc theo trạng thái hoạt động
+        var data = baseQuery
+            .Include(x => x.ProductCategory)
+            .Include(x => x.ProductVariants)
+            .Select(x => x.ToDto());
+
+        // Apply filters trước khi đếm → totalRecord phản ánh đúng số sau filter
+        if (!string.IsNullOrEmpty(query.Keyword))
+        {
+            var kw = query.Keyword.ToLower();
+            data = data.Where(x =>
+                x.Name.ToLower().Contains(kw) ||
+                (x.Description != null && x.Description.ToLower().Contains(kw)) ||
+                (x.ProductCategoryName != null && x.ProductCategoryName.ToLower().Contains(kw)));
+        }
+
         if (query.IsActive.HasValue)
-        {
             data = data.Where(x => x.IsActive == query.IsActive.Value);
-        }
 
-        // Sắp xếp động
+        var totalRecord = await data.CountAsync();
+
         if (!string.IsNullOrEmpty(query.OrderBy))
-        {
-            data = data.OrderByDynamic(query.OrderBy, query.SortType == "asc" ? LinqExtensions.Order.Asc : LinqExtensions.Order.Desc);
-        }
+            data = data.OrderByDynamic(query.OrderBy,
+                query.SortType == "asc" ? LinqExtensions.Order.Asc : LinqExtensions.Order.Desc);
 
         var pagedData = new PagingData<ProductDetailDto>
         {
@@ -221,9 +222,126 @@ public class ProductService : IProductService
             PageSize = query.PageSize,
             DataSource = await data.Skip((query.PageIndex - 1) * query.PageSize).Take(query.PageSize).ToListAsync(),
             Total = totalRecord,
-            TotalFiltered = await data.CountAsync()
+            TotalFiltered = totalRecord
         };
 
         return ApiResponse.Success(pagedData);
+    }
+
+    /// Lấy danh sách biến thể của sản phẩm theo ID
+    public async Task<ApiResponse> GetVariantsByProductIdAsync(int id)
+    {
+        var product = await _productRepository.GetByIdAsync(id);
+        if (product == null || product.IsDeleted)
+            return ApiResponse.NotFound();
+
+        var variants = await _productVariantRepository
+            .FindByCondition(x => x.ProductId == id && !x.IsDeleted)
+            .Include(x => x.UnitOfMeasure)
+            .Include(x => x.Image)
+            .ToListAsync();
+
+        var dtos = variants.Select(x => x.ToDto(
+            x.Image != null ? _storageService.GetOriginalUrl(x.Image.FileKey) : null)).ToList();
+
+        return ApiResponse.Success(dtos);
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // UPDATE
+    // ──────────────────────────────────────────────────────────
+    /// Cập nhật thông tin sản phẩm
+    public async Task<ApiResponse> UpdateAsync(UpdateProductDto obj)
+    {
+        var existData = await _productRepository.GetByIdAsync(obj.Id);
+        if (existData == null)
+            return ApiResponse.NotFound();
+
+        // Validate ProductCategory
+        var category = await _productCategoryRepository.GetByIdAsync(obj.ProductCategoryId);
+        if (category == null || category.IsDeleted)
+            return ApiResponse.UnprocessableEntity(
+                "Danh mục sản phẩm không tồn tại hoặc đã bị xóa.",
+                ApiCodeConstants.Common.InvalidData);
+
+        obj.ToEntity(existData);
+        await _productRepository.UpdateAsync(existData);
+        await _productRepository.SaveChangesAsync();
+
+        return ApiResponse.Success();
+    }
+
+    /// Kích hoạt sản phẩm (IsActive = true)
+    public async Task<ApiResponse> ActivateAsync(int id, int updatedBy)
+    {
+        var existData = await _productRepository.GetByIdAsync(id);
+        if (existData == null || existData.IsDeleted)
+            return ApiResponse.NotFound();
+
+        existData.IsActive = true;
+        existData.UpdatedBy = updatedBy;
+        existData.LastModifiedDate = DateTime.Now;
+
+        await _productRepository.UpdateAsync(existData);
+        await _productRepository.SaveChangesAsync();
+
+        return ApiResponse.Success();
+    }
+
+    /// Vô hiệu hóa sản phẩm (IsActive = false)
+    public async Task<ApiResponse> DeactivateAsync(int id, int updatedBy)
+    {
+        var existData = await _productRepository.GetByIdAsync(id);
+        if (existData == null || existData.IsDeleted)
+            return ApiResponse.NotFound();
+
+        existData.IsActive = false;
+        existData.UpdatedBy = updatedBy;
+        existData.LastModifiedDate = DateTime.Now;
+
+        await _productRepository.UpdateAsync(existData);
+        await _productRepository.SaveChangesAsync();
+
+        return ApiResponse.Success();
+    }
+
+    public Task<ApiResponse> UpdateListAsync(IEnumerable<UpdateProductDto> obj)
+    {
+        throw new NotImplementedException();
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // DELETE
+    // ──────────────────────────────────────────────────────────
+    /// Xóa mềm một sản phẩm bằng cách chuyển trạng thái IsDeleted = true
+    public async Task<ApiResponse> SoftDeleteAsync(int id)
+    {
+        var existData = await _productRepository
+            .FindByCondition(x => x.Id == id && !x.IsDeleted)
+            .Include(x => x.ProductVariants)
+            .FirstOrDefaultAsync();
+
+        if (existData == null)
+            return ApiResponse.NotFound();
+
+        // Block nếu còn variants chưa xóa
+        var hasVariants = existData.ProductVariants.Any(v => !v.IsDeleted);
+        if (hasVariants)
+            return ApiResponse.Conflict(
+                "Không thể xóa sản phẩm đang có biến thể sản phẩm chưa xóa.",
+                ApiCodeConstants.Common.InvalidData);
+
+        var isDeleted = await _productRepository.SoftDeleteAsync(id);
+        if (!isDeleted)
+            return ApiResponse.BadRequest();
+
+        await _productRepository.SaveChangesAsync();
+
+        return ApiResponse.Success(isDeleted);
+    }
+
+    public Task<ApiResponse> SoftDeleteListAsync(IEnumerable<int> objs)
+    {
+        throw new NotImplementedException();
     }
 }

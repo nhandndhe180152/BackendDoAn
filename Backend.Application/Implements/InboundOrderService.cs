@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
+using Backend.Domain.DTParameters;
 using Backend.Application.Constants;
 using Backend.Application.DependencyInjection.Extentions;
 using Backend.Application.DTOs.InboundOrders;
@@ -33,10 +35,12 @@ public class InboundOrderService : IInboundOrderService
     private readonly IIotWeightLogRepository _iotWeightLogRepository;
     private readonly IIotDeviceRepository _iotDeviceRepository;
     private readonly ISystemConfigRepository _systemConfigRepository;
-    private readonly IRepositoryBase<AuditLog, int> _auditLogRepository;
+    private readonly IRepositoryBase<DeliveryNote, int> _deliveryNoteRepository;
+    private readonly IRepositoryBase<FileUpload, int> _fileUploadRepository;
+    private readonly IStorageService _storageService;
     private readonly IHttpContextAccessor _httpContextAccessor;
-    private readonly IInboundHubContext _hubContext;
     private readonly ILogger<InboundOrderService> _logger;
+    private readonly INotificationDispatcher _notificationDispatcher;
 
     public InboundOrderService(
         IRepositoryBase<InboundOrder, int> inboundOrderRepository,
@@ -51,10 +55,12 @@ public class InboundOrderService : IInboundOrderService
         IIotWeightLogRepository iotWeightLogRepository,
         IIotDeviceRepository iotDeviceRepository,
         ISystemConfigRepository systemConfigRepository,
-        IRepositoryBase<AuditLog, int> auditLogRepository,
+        IRepositoryBase<DeliveryNote, int> deliveryNoteRepository,
+        IRepositoryBase<FileUpload, int> fileUploadRepository,
+        IStorageService storageService,
         IHttpContextAccessor httpContextAccessor,
-        IInboundHubContext hubContext,
-        ILogger<InboundOrderService> logger)
+        ILogger<InboundOrderService> logger,
+        INotificationDispatcher notificationDispatcher)
     {
         _inboundOrderRepository = inboundOrderRepository;
         _inboundOrderItemRepository = inboundOrderItemRepository;
@@ -68,10 +74,12 @@ public class InboundOrderService : IInboundOrderService
         _iotWeightLogRepository = iotWeightLogRepository;
         _iotDeviceRepository = iotDeviceRepository;
         _systemConfigRepository = systemConfigRepository;
-        _auditLogRepository = auditLogRepository;
+        _deliveryNoteRepository = deliveryNoteRepository;
+        _fileUploadRepository = fileUploadRepository;
+        _storageService = storageService;
         _httpContextAccessor = httpContextAccessor;
-        _hubContext = hubContext;
         _logger = logger;
+        _notificationDispatcher = notificationDispatcher;
     }
 
     private async Task<int> GetStatusIdAsync(string name)
@@ -89,26 +97,6 @@ public class InboundOrderService : IInboundOrderService
         var httpContext = _httpContextAccessor.HttpContext;
         if (httpContext == null) return 0;
         return httpContext.GetCurrentUserId();
-    }
-
-    private async Task LogAuditAsync(string action, string targetType, string? targetId, string description, string? dataBefore = null, string? dataAfter = null)
-    {
-        var httpContext = _httpContextAccessor.HttpContext;
-        var audit = new AuditLog
-        {
-            Action = action,
-            TargetType = targetType,
-            TargetId = targetId,
-            DataBefore = dataBefore,
-            DataAfter = dataAfter,
-            Description = description,
-            IpAddress = httpContext?.GetRemoteHostIpAddress(),
-            UserAgent = httpContext?.Request?.Headers["User-Agent"].ToString(),
-            CreatedBy = GetCurrentUserId(),
-            CreatedDate = DateTime.Now
-        };
-        await _auditLogRepository.CreateAsync(audit);
-        await _auditLogRepository.SaveChangesAsync();
     }
 
     public async Task<ApiResponse> GetPagedAsync(SearchQuery query)
@@ -144,6 +132,150 @@ public class InboundOrderService : IInboundOrderService
         return ApiResponse.Success(pagedData);
     }
 
+    /// <summary>
+    /// Phân trang nâng cao (DataTables) cho màn web quản lý phiếu nhập:
+    /// tìm kiếm chung (POCode/NCC/ghi chú), lọc theo cột (trạng thái, khoảng ngày dự kiến/ngày tạo) và sắp xếp theo cột.
+    /// </summary>
+    public async Task<ApiResponse> GetPagedAdvancedAsync(InboundOrderDTParameters parameters)
+    {
+        var keyword = parameters.Search?.Value?.Trim();
+        var orderCriteria = "CreatedDate";
+        var orderAscendingDirection = false;
+
+        if (parameters.Order != null && parameters.Order.Any() && parameters.Columns != null && parameters.Columns.Any())
+        {
+            var rawColumn = parameters.Columns[parameters.Order[0].Column].Data;
+            orderCriteria = NormalizeInboundOrderColumn(rawColumn);
+            orderAscendingDirection = parameters.Order[0].Dir.ToString().ToLower() == "asc";
+        }
+
+        var query = _inboundOrderRepository
+            .FindByCondition(x => !x.IsDeleted, false)
+            .Select(x => new InboundOrderListDto
+            {
+                Id = x.Id,
+                POCode = x.POCode,
+                WarehouseId = x.WarehouseId,
+                WarehouseName = x.Warehouse.Name,
+                SupplierId = x.SupplierId,
+                SupplierName = x.Supplier != null ? x.Supplier.Name : null,
+                InboundOrderStatusId = x.InboundOrderStatusId,
+                InboundOrderStatusName = x.InboundOrderStatus.Name,
+                TotalAssetValue = x.TotalAssetValue,
+                ExpectedDate = x.ExpectedDate,
+                CompletedDate = x.CompletedDate,
+                Note = x.Note,
+                CreatedDate = x.CreatedDate
+            });
+
+        var totalRecord = await query.CountAsync();
+
+        // Tìm kiếm chung
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            query = query.Where(x =>
+                x.POCode.Contains(keyword) ||
+                (x.SupplierName != null && x.SupplierName.Contains(keyword)) ||
+                (x.Note != null && x.Note.Contains(keyword)));
+        }
+
+        // Lọc theo từng cột
+        if (parameters.Columns != null)
+        {
+            foreach (var column in parameters.Columns)
+            {
+                var search = column.Search?.Value?.Trim();
+                if (string.IsNullOrWhiteSpace(search)) continue;
+
+                switch (column.Data)
+                {
+                    case "poCode":
+                    case "POCode":
+                        query = query.Where(x => x.POCode.Contains(search));
+                        break;
+                    case "supplierName":
+                    case "SupplierName":
+                        query = query.Where(x => x.SupplierName != null && x.SupplierName.Contains(search));
+                        break;
+                    case "warehouseName":
+                    case "WarehouseName":
+                        query = query.Where(x => x.WarehouseName.Contains(search));
+                        break;
+                    case "inboundOrderStatusName":
+                    case "InboundOrderStatusName":
+                        // Frontend gửi Id trạng thái -> lọc theo Id; nếu là chuỗi thì lọc theo tên
+                        if (int.TryParse(search, out var statusId))
+                            query = query.Where(x => x.InboundOrderStatusId == statusId);
+                        else
+                            query = query.Where(x => x.InboundOrderStatusName.Contains(search));
+                        break;
+                    case "expectedDate":
+                    case "ExpectedDate":
+                        if (search.Contains(" - "))
+                        {
+                            var dates = search.Split(" - ");
+                            var startDate = DateTime.ParseExact(dates[0], "dd/MM/yyyy", CultureInfo.InvariantCulture);
+                            var endDate = DateTime.ParseExact(dates[1], "dd/MM/yyyy", CultureInfo.InvariantCulture).AddDays(1).AddSeconds(-1);
+                            query = query.Where(x => x.ExpectedDate >= startDate && x.ExpectedDate <= endDate);
+                        }
+                        else if (DateTime.TryParseExact(search, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var expDate))
+                        {
+                            query = query.Where(x => x.ExpectedDate.HasValue && x.ExpectedDate.Value.Date == expDate.Date);
+                        }
+                        break;
+                    case "createdDate":
+                    case "CreatedDate":
+                        if (search.Contains(" - "))
+                        {
+                            var dates = search.Split(" - ");
+                            var startDate = DateTime.ParseExact(dates[0], "dd/MM/yyyy", CultureInfo.InvariantCulture);
+                            var endDate = DateTime.ParseExact(dates[1], "dd/MM/yyyy", CultureInfo.InvariantCulture).AddDays(1).AddSeconds(-1);
+                            query = query.Where(x => x.CreatedDate >= startDate && x.CreatedDate <= endDate);
+                        }
+                        else if (DateTime.TryParseExact(search, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var createdDate))
+                        {
+                            query = query.Where(x => x.CreatedDate.Date == createdDate.Date);
+                        }
+                        break;
+                }
+            }
+        }
+
+        var filteredRecord = await query.CountAsync();
+
+        query = orderAscendingDirection
+            ? query.OrderByDynamic(orderCriteria, LinqExtensions.Order.Asc)
+            : query.OrderByDynamic(orderCriteria, LinqExtensions.Order.Desc);
+
+        var data = await query
+            .Skip(parameters.Start)
+            .Take(parameters.Length)
+            .ToListAsync();
+
+        return ApiResponse.Success(new DTResult<InboundOrderListDto>
+        {
+            draw = parameters.Draw,
+            data = data,
+            recordsFiltered = filteredRecord,
+            recordsTotal = totalRecord
+        });
+    }
+
+    private static string NormalizeInboundOrderColumn(string? columnName)
+    {
+        return columnName switch
+        {
+            "poCode" => "POCode",
+            "supplierName" => "SupplierName",
+            "warehouseName" => "WarehouseName",
+            "inboundOrderStatusName" => "InboundOrderStatusName",
+            "totalAssetValue" => "TotalAssetValue",
+            "expectedDate" => "ExpectedDate",
+            "createdDate" => "CreatedDate",
+            _ => "CreatedDate"
+        };
+    }
+
     public async Task<ApiResponse> GetByIdAsync(int id)
     {
         var order = await _inboundOrderRepository.FirstOrDefaultAsync(
@@ -167,7 +299,23 @@ public class InboundOrderService : IInboundOrderService
             }
         }
 
-        return ApiResponse.Success(order.ToDetailDto());
+        var detail = order.ToDetailDto();
+
+        // Gắn chứng từ giao hàng (nếu phiếu đã có) kèm URL ảnh để hiển thị/xem lại
+        if (order.DeliveryNoteId.HasValue)
+        {
+            var deliveryNote = await _deliveryNoteRepository.FirstOrDefaultAsync(
+                x => x.Id == order.DeliveryNoteId.Value && !x.IsDeleted, false, x => x.OriginalImageFile);
+            if (deliveryNote != null)
+            {
+                var imageUrl = deliveryNote.OriginalImageFile != null
+                    ? _storageService.GetOriginalUrl(deliveryNote.OriginalImageFile.FileKey)
+                    : null;
+                detail.DeliveryNote = deliveryNote.ToDto(order.Id, imageUrl);
+            }
+        }
+
+        return ApiResponse.Success(detail);
     }
 
     public async Task<ApiResponse> CreateAsync(CreateInboundOrderDto dto)
@@ -218,8 +366,6 @@ public class InboundOrderService : IInboundOrderService
 
         await _inboundOrderRepository.CreateAsync(order);
         await _inboundOrderRepository.SaveChangesAsync();
-
-        await LogAuditAsync("CREATE", nameof(InboundOrder), order.Id.ToString(), $"Tạo mới phiếu nhập kho {poCode} ở trạng thái Draft.");
 
         return ApiResponse.Created(order.Id);
     }
@@ -296,8 +442,6 @@ public class InboundOrderService : IInboundOrderService
         await _inboundOrderRepository.UpdateAsync(order);
         await _inboundOrderRepository.SaveChangesAsync();
 
-        await LogAuditAsync("UPDATE", nameof(InboundOrder), order.Id.ToString(), $"Cập nhật thông tin phiếu nhập kho {order.POCode}.");
-
         return ApiResponse.Success();
     }
 
@@ -317,8 +461,6 @@ public class InboundOrderService : IInboundOrderService
 
         await _inboundOrderRepository.UpdateAsync(order);
         await _inboundOrderRepository.SaveChangesAsync();
-
-        await LogAuditAsync("SUBMIT", nameof(InboundOrder), order.Id.ToString(), $"Gửi duyệt phiếu nhập {order.POCode}.");
 
         return ApiResponse.Success();
     }
@@ -340,7 +482,13 @@ public class InboundOrderService : IInboundOrderService
         await _inboundOrderRepository.UpdateAsync(order);
         await _inboundOrderRepository.SaveChangesAsync();
 
-        await LogAuditAsync("APPROVE", nameof(InboundOrder), order.Id.ToString(), $"Phê duyệt phiếu nhập {order.POCode}.");
+        // Thông báo + push FCM cho người tạo phiếu và các vai trò quản lý.
+        await _notificationDispatcher.DispatchAsync(
+            NotificationConstants.Code.InboundApproved,
+            BuildInboundNotifyTarget(order.CreatedBy),
+            new object[] { order.POCode },
+            $"/admin/inbound-orders/{order.Id}",
+            GetCurrentUserId());
 
         return ApiResponse.Success();
     }
@@ -366,9 +514,30 @@ public class InboundOrderService : IInboundOrderService
         await _inboundOrderRepository.UpdateAsync(order);
         await _inboundOrderRepository.SaveChangesAsync();
 
-        await LogAuditAsync("REJECT", nameof(InboundOrder), order.Id.ToString(), $"Từ chối phiếu nhập {order.POCode}. Lý do: {reason}");
+        // Thông báo + push FCM cho người tạo phiếu và các vai trò quản lý.
+        await _notificationDispatcher.DispatchAsync(
+            NotificationConstants.Code.InboundRejected,
+            BuildInboundNotifyTarget(order.CreatedBy),
+            new object[] { order.POCode, reason },
+            $"/admin/inbound-orders/{order.Id}",
+            GetCurrentUserId());
 
         return ApiResponse.Success();
+    }
+
+    /// <summary>Người nhận thông báo phiếu nhập: người tạo + vai trò quản lý.</summary>
+    private static NotificationTarget BuildInboundNotifyTarget(int? createdBy)
+    {
+        return new NotificationTarget
+        {
+            UserIds = createdBy.HasValue ? new List<int> { createdBy.Value } : new List<int>(),
+            RoleIds = new List<int>
+            {
+                CommonConstants.Role.ADMIN,
+                CommonConstants.Role.EXECUTIVE,
+                CommonConstants.Role.DISPATCHER,
+            },
+        };
     }
 
     public async Task<ApiResponse> CancelAsync(int id)
@@ -416,8 +585,6 @@ public class InboundOrderService : IInboundOrderService
 
         await _inboundOrderRepository.UpdateAsync(order);
         await _inboundOrderRepository.SaveChangesAsync();
-
-        await LogAuditAsync("CANCEL", nameof(InboundOrder), order.Id.ToString(), $"Hủy phiếu nhập kho {order.POCode}.");
 
         return ApiResponse.Success();
     }
@@ -745,8 +912,6 @@ public class InboundOrderService : IInboundOrderService
         item.SaveReceiptState(state);
         await _inboundOrderItemRepository.UpdateAsync(item);
         await _inboundOrderItemRepository.SaveChangesAsync();
-
-        await LogAuditAsync("APPROVE_REJECT_EXCEPTION", nameof(InboundOrderItem), item.Id.ToString(), $"Quản lý quyết định {dto.Decision} cho ngoại lệ của receipt {item.Id}. Lý do: {dto.Reason}");
 
         return ApiResponse.Success(item.ToDto(), $"Quyết định phê duyệt ngoại lệ: {dto.Decision}.");
     }
@@ -1083,20 +1248,6 @@ public class InboundOrderService : IInboundOrderService
 
             await _inventoryTransactionRepository.CreateAsync(invTrans);
 
-            // Create AuditLog entry
-            var auditLog = new AuditLog
-            {
-                Action = "CONFIRM_RECEIVE",
-                TargetType = nameof(InboundOrderItem),
-                TargetId = item.Id.ToString(),
-                Description = $"Xác nhận nhập kho hoàn tất dòng hàng {item.Id} của phiếu {order.POCode}. Nhập {qty} sản phẩm vào vị trí {state.ConfirmedLocationCode}.",
-                CreatedBy = GetCurrentUserId(),
-                CreatedDate = DateTime.Now,
-                IpAddress = _httpContextAccessor.HttpContext?.GetRemoteHostIpAddress(),
-                UserAgent = _httpContextAccessor.HttpContext?.Request?.Headers["User-Agent"].ToString()
-            };
-            await _auditLogRepository.CreateAsync(auditLog);
-
             await _inboundOrderRepository.SaveChangesAsync();
 
             // Recalculate document status
@@ -1123,15 +1274,8 @@ public class InboundOrderService : IInboundOrderService
 
             await transaction.CommitAsync();
 
-            // Publish SignalR update after successful commit
-            try
-            {
-                await _hubContext.PublishReceiptConfirmedAsync(item.Id, order.Id);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to publish SignalR message.");
-            }
+            // Realtime giờ do AuditSaveChangesInterceptor tự phát khi dữ liệu đổi
+            // (InboundOrder nằm trong RealtimeEntityNames), không cần publish thủ công.
 
             return ApiResponse.Success(item.ToDto(), "Xác nhận nhập kho hoàn tất thành công.");
         }
@@ -1157,5 +1301,99 @@ public class InboundOrderService : IInboundOrderService
 
         var list = items.Select(x => x.ToDto()).ToList();
         return ApiResponse.Success(list);
+    }
+
+    /// <summary>
+    /// Lưu/gắn chứng từ giao hàng (ảnh + thông tin OCR) vào phiếu nhập.
+    /// Ảnh phải được upload trước qua /file-manager/upload-by-category để lấy OriginalImageFileId.
+    /// Quan hệ 1-1 do InboundOrder.DeliveryNoteId sở hữu: gọi lại sẽ cập nhật chứng từ hiện có.
+    /// </summary>
+    public async Task<ApiResponse> SaveDeliveryNoteAsync(int orderId, SaveDeliveryNoteDto dto)
+    {
+        var order = await _inboundOrderRepository.FirstOrDefaultAsync(x => x.Id == orderId && !x.IsDeleted, true);
+        if (order == null)
+            return ApiResponse.NotFound("Không tìm thấy phiếu nhập.", ApiCodeConstants.Common.NotFound);
+
+        // Xác thực ảnh chứng từ tồn tại trong kho tệp
+        var file = await _fileUploadRepository.FirstOrDefaultAsync(x => x.Id == dto.OriginalImageFileId && !x.IsDeleted);
+        if (file == null)
+            return ApiResponse.UnprocessableEntity("Ảnh chứng từ không tồn tại hoặc đã bị xóa.", ApiCodeConstants.Common.UnprocessableEntity);
+
+        var userId = GetCurrentUserId();
+        var now = DateTime.Now;
+        var isNew = !order.DeliveryNoteId.HasValue;
+
+        DeliveryNote deliveryNote;
+        if (!isNew)
+        {
+            deliveryNote = await _deliveryNoteRepository.FirstOrDefaultAsync(x => x.Id == order.DeliveryNoteId!.Value && !x.IsDeleted, true);
+            if (deliveryNote == null)
+            {
+                isNew = true;
+                deliveryNote = new DeliveryNote { CreatedBy = userId, CreatedDate = now };
+            }
+        }
+        else
+        {
+            deliveryNote = new DeliveryNote { CreatedBy = userId, CreatedDate = now };
+        }
+
+        deliveryNote.TrackingCode = dto.TrackingCode;
+        deliveryNote.CarrierName = dto.CarrierName;
+        deliveryNote.SenderName = dto.SenderName;
+        deliveryNote.SenderPhone = dto.SenderPhone;
+        deliveryNote.SenderAddress = dto.SenderAddress;
+        deliveryNote.ReceiverName = dto.ReceiverName;
+        deliveryNote.ReceiverPhone = dto.ReceiverPhone;
+        deliveryNote.ReceiverAddress = dto.ReceiverAddress;
+        deliveryNote.DeclaredWeight = dto.DeclaredWeight;
+        deliveryNote.CODAmount = dto.CODAmount;
+        deliveryNote.RawOcrText = dto.RawOcrText;
+        deliveryNote.OriginalImageFileId = dto.OriginalImageFileId;
+        deliveryNote.IsConfirmed = dto.IsConfirmed;
+
+        if (isNew)
+        {
+            await _deliveryNoteRepository.CreateAsync(deliveryNote);
+            await _deliveryNoteRepository.SaveChangesAsync();
+
+            order.DeliveryNoteId = deliveryNote.Id;
+            order.UpdatedBy = userId;
+            order.LastModifiedDate = now;
+            await _inboundOrderRepository.UpdateAsync(order);
+            await _inboundOrderRepository.SaveChangesAsync();
+        }
+        else
+        {
+            deliveryNote.UpdatedBy = userId;
+            deliveryNote.LastModifiedDate = now;
+            await _deliveryNoteRepository.UpdateAsync(deliveryNote);
+            await _deliveryNoteRepository.SaveChangesAsync();
+        }
+
+        var imageUrl = _storageService.GetOriginalUrl(file.FileKey);
+        return ApiResponse.Success(deliveryNote.ToDto(order.Id, imageUrl), "Lưu chứng từ giao hàng thành công.");
+    }
+
+    /// <summary>Lấy chứng từ giao hàng của phiếu nhập kèm URL ảnh.</summary>
+    public async Task<ApiResponse> GetDeliveryNoteAsync(int orderId)
+    {
+        var order = await _inboundOrderRepository.FirstOrDefaultAsync(x => x.Id == orderId && !x.IsDeleted, false);
+        if (order == null)
+            return ApiResponse.NotFound("Không tìm thấy phiếu nhập.", ApiCodeConstants.Common.NotFound);
+
+        if (!order.DeliveryNoteId.HasValue)
+            return ApiResponse.Success((DeliveryNoteDto?)null, "Phiếu nhập chưa có chứng từ giao hàng.");
+
+        var deliveryNote = await _deliveryNoteRepository.FirstOrDefaultAsync(
+            x => x.Id == order.DeliveryNoteId.Value && !x.IsDeleted, false, x => x.OriginalImageFile);
+        if (deliveryNote == null)
+            return ApiResponse.Success((DeliveryNoteDto?)null, "Phiếu nhập chưa có chứng từ giao hàng.");
+
+        var imageUrl = deliveryNote.OriginalImageFile != null
+            ? _storageService.GetOriginalUrl(deliveryNote.OriginalImageFile.FileKey)
+            : null;
+
+        return ApiResponse.Success(deliveryNote.ToDto(order.Id, imageUrl));
     }
 }

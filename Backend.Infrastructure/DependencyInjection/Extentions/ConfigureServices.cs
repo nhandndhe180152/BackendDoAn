@@ -24,13 +24,14 @@ public static class ConfigureServices
 {
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services, IConfiguration configuration)
     {
+        var connectionString = configuration.GetConnectionString("DefaultConnectionString");
+        var serverVersion = ServerVersion.AutoDetect(connectionString);
+
         services.AddDbContext<BackendContext>((provider, options) =>
         {
-            var configuration = provider.GetRequiredService<IConfiguration>();
-
             options.UseMySql(
-                configuration.GetConnectionString("DefaultConnectionString"),
-                ServerVersion.AutoDetect(configuration.GetConnectionString("DefaultConnectionString")),
+                connectionString,
+                serverVersion,
                 builder => builder.MigrationsAssembly(typeof(BackendContext).Assembly.FullName)
             );
 
@@ -81,8 +82,11 @@ public static class ConfigureServices
             .AddScoped<IInboundOrderItemRepository, InboundOrderItemRepository>()
             .AddScoped<IOutboundOrderItemRepository, OutboundOrderItemRepository>()
             .AddScoped<IStockTakeItemRepository, StockTakeItemRepository>()
+            .AddScoped<IStockTakeRepository, StockTakeRepository>()
             .AddScoped<IInventoryRepository, InventoryRepository>()
-            .AddScoped<IInventoryTransactionRepository, InventoryTransactionRepository>();
+            .AddScoped<IInventoryTransactionRepository, InventoryTransactionRepository>()
+            .AddScoped<ISupplierRepository, SupplierRepository>()
+            .AddScoped<IUnitOfMeasureRepository, UnitOfMeasureRepository>();
 
 
 
