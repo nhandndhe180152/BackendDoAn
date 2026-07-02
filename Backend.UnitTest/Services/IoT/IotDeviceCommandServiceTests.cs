@@ -61,7 +61,7 @@ public class IotDeviceCommandServiceTests
     {
         // Arrange
         var dto = new CreateIotDeviceCommandDto { IotDeviceId = 1, CommandType = "INVALID" };
-        var device = new IotDevice { Id = 1, IsActive = true };
+        var device = new IotDevice { Id = 1, IsActive = true, IsOnline = true };
         _deviceBaseRepository
             .Setup(repo => repo.FirstOrDefaultAsync(It.IsAny<Expression<Func<IotDevice, bool>>>(), It.IsAny<bool>(), It.IsAny<Expression<Func<IotDevice, object>>[]>()))
             .ReturnsAsync(device);
@@ -81,7 +81,7 @@ public class IotDeviceCommandServiceTests
     {
         // Arrange
         var dto = new CreateIotDeviceCommandDto { IotDeviceId = 1, CommandType = "TARE" };
-        var device = new IotDevice { Id = 1, IsActive = true };
+        var device = new IotDevice { Id = 1, IsActive = true, IsOnline = true };
         _deviceBaseRepository
             .Setup(repo => repo.FirstOrDefaultAsync(It.IsAny<Expression<Func<IotDevice, bool>>>(), It.IsAny<bool>(), It.IsAny<Expression<Func<IotDevice, object>>[]>()))
             .ReturnsAsync(device);
@@ -105,7 +105,7 @@ public class IotDeviceCommandServiceTests
     {
         // Arrange
         var dto = new CreateIotDeviceCommandDto { IotDeviceId = 1, CommandType = "TARE" };
-        var device = new IotDevice { Id = 1, IsActive = true };
+        var device = new IotDevice { Id = 1, IsActive = true, IsOnline = true };
         _deviceBaseRepository
             .Setup(repo => repo.FirstOrDefaultAsync(It.IsAny<Expression<Func<IotDevice, bool>>>(), It.IsAny<bool>(), It.IsAny<Expression<Func<IotDevice, object>>[]>()))
             .ReturnsAsync(device);

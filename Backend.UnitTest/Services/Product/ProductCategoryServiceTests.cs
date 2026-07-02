@@ -35,7 +35,12 @@ public class ProductCategoryServiceTests
             .ReturnsAsync(false);
         _categoryRepository
             .Setup(repo => repo.CreateAsync(It.IsAny<ProductCategory>()))
-            .Callback<ProductCategory>(category => createdCategory = category)
+            .Callback<ProductCategory>(category =>
+            {
+                // Mô phỏng EF gán Id sau khi lưu; service dùng Id để tính TreeIds cho danh mục gốc
+                category.Id = 2;
+                createdCategory = category;
+            })
             .Returns(Task.CompletedTask);
         _categoryRepository
             .Setup(repo => repo.SaveChangesAsync())
@@ -61,13 +66,14 @@ public class ProductCategoryServiceTests
         createdCategory!.Name.Should().Be("Phu kien");
         createdCategory.TreeIds.Should().Be("2");
         _categoryRepository.Verify(repo => repo.CreateAsync(It.IsAny<ProductCategory>()), Times.Once);
-        _categoryRepository.Verify(repo => repo.SaveChangesAsync(), Times.Once);
+        // Service lưu 2 lần: (1) insert để lấy Id do DB sinh, (2) update TreeIds tính từ Id đó
+        _categoryRepository.Verify(repo => repo.SaveChangesAsync(), Times.Exactly(2));
     }
 
     [Fact]
     [Trait("Service", "ProductCategory")]
     [Trait("Method", "Create")]
-    public async Task CreateAsync_DuplicatedName_ReturnsUnprocessableEntity()
+    public async Task CreateAsync_DuplicatedName_ReturnsConflict()
     {
         // Arrange
         _categoryRepository
@@ -83,9 +89,9 @@ public class ProductCategoryServiceTests
         // Act
         var response = await _sut.CreateAsync(request);
 
-        // Assert
+        // Assert - trùng tên trong cùng cấp cha => Conflict (409)
         response.IsSucceeded.Should().BeFalse();
-        response.Status.Should().Be(422);
+        response.Status.Should().Be(409);
         response.Code.Should().Be(ApiCodeConstants.Common.DuplicatedData);
         _categoryRepository.Verify(repo => repo.CreateAsync(It.IsAny<ProductCategory>()), Times.Never);
     }
@@ -205,9 +211,13 @@ public class ProductCategoryServiceTests
         var category = CreateCategory(id: 2, name: "Cu");
 
         _categoryRepository.Setup(repo => repo.GetByIdAsync(2)).ReturnsAsync(category);
+        // Danh mục cha mới (ParentCategoryId = 1) phải tồn tại
+        _categoryRepository.Setup(repo => repo.GetByIdAsync(1)).ReturnsAsync(CreateCategory(id: 1, name: "Cha"));
         _categoryRepository
             .Setup(repo => repo.AnyAsync(It.IsAny<Expression<Func<ProductCategory, bool>>>()))
             .ReturnsAsync(false);
+        // Cascade cập nhật TreeIds con dùng FindByCondition -> mock trả rỗng
+        SetupCategories(new List<ProductCategory>());
         _categoryRepository.Setup(repo => repo.UpdateAsync(category)).Returns(Task.CompletedTask);
         _categoryRepository.Setup(repo => repo.SaveChangesAsync()).ReturnsAsync(1);
 
@@ -237,7 +247,7 @@ public class ProductCategoryServiceTests
     [Fact]
     [Trait("Service", "ProductCategory")]
     [Trait("Method", "Update")]
-    public async Task UpdateAsync_DuplicatedName_ReturnsUnprocessableEntity()
+    public async Task UpdateAsync_DuplicatedName_ReturnsConflict()
     {
         // Arrange
         var category = CreateCategory(id: 2, name: "Cu");
@@ -257,9 +267,9 @@ public class ProductCategoryServiceTests
         // Act
         var response = await _sut.UpdateAsync(request);
 
-        // Assert
+        // Assert - trùng tên trong cùng cấp cha => Conflict (409)
         response.IsSucceeded.Should().BeFalse();
-        response.Status.Should().Be(422);
+        response.Status.Should().Be(409);
         response.Code.Should().Be(ApiCodeConstants.Common.DuplicatedData);
         _categoryRepository.Verify(repo => repo.UpdateAsync(It.IsAny<ProductCategory>()), Times.Never);
     }
@@ -269,7 +279,10 @@ public class ProductCategoryServiceTests
     [Trait("Method", "SoftDelete")]
     public async Task SoftDeleteAsync_WhenRepositoryDeletes_ReturnsSuccess()
     {
-        // Arrange
+        // Arrange - service tải danh mục qua GetByIdAsync và kiểm tra danh mục con/sản phẩm
+        var category = CreateCategory(id: 2, name: "Cat");
+        _categoryRepository.Setup(repo => repo.GetByIdAsync(2)).ReturnsAsync(category);
+        SetupCategories(new List<ProductCategory> { category });
         _categoryRepository.Setup(repo => repo.SoftDeleteAsync(2)).ReturnsAsync(true);
         _categoryRepository.Setup(repo => repo.SaveChangesAsync()).ReturnsAsync(1);
 
@@ -287,7 +300,10 @@ public class ProductCategoryServiceTests
     [Trait("Method", "SoftDelete")]
     public async Task SoftDeleteAsync_WhenRepositoryCannotDelete_ReturnsBadRequest()
     {
-        // Arrange
+        // Arrange - danh mục tồn tại, không vướng con/sản phẩm, nhưng repo trả về false
+        var category = CreateCategory(id: 404, name: "Cat");
+        _categoryRepository.Setup(repo => repo.GetByIdAsync(404)).ReturnsAsync(category);
+        SetupCategories(new List<ProductCategory> { category });
         _categoryRepository.Setup(repo => repo.SoftDeleteAsync(404)).ReturnsAsync(false);
 
         // Act
@@ -326,7 +342,8 @@ public class ProductCategoryServiceTests
             TreeIds = parentId.HasValue ? $"{parentId},{id}" : id.ToString(),
             SortOrder = id,
             IsDeleted = false,
-            CreatedDate = DateTime.Now
+            CreatedDate = DateTime.Now,
+            Products = new List<Backend.Domain.Entities.Product>()
         };
     }
 }

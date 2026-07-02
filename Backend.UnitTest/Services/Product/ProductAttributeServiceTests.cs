@@ -263,7 +263,8 @@ public class ProductAttributeServiceTests
     [Trait("Method", "SoftDelete")]
     public async Task SoftDeleteAsync_WhenRepositoryDeletes_ReturnsSuccess()
     {
-        // Arrange
+        // Arrange - service kiểm tra tồn tại qua GetByIdAsync trước khi xóa
+        _attributeRepository.Setup(repo => repo.GetByIdAsync(1)).ReturnsAsync(new ProductAttribute { Id = 1, Name = "Mau sac" });
         _attributeRepository.Setup(repo => repo.SoftDeleteAsync(1)).ReturnsAsync(true);
         _attributeRepository.Setup(repo => repo.SaveChangesAsync()).ReturnsAsync(1);
 
@@ -281,7 +282,8 @@ public class ProductAttributeServiceTests
     [Trait("Method", "SoftDelete")]
     public async Task SoftDeleteAsync_WhenRepositoryCannotDelete_ReturnsBadRequest()
     {
-        // Arrange
+        // Arrange - thuộc tính tồn tại nhưng repo trả về false
+        _attributeRepository.Setup(repo => repo.GetByIdAsync(404)).ReturnsAsync(new ProductAttribute { Id = 404, Name = "X" });
         _attributeRepository.Setup(repo => repo.SoftDeleteAsync(404)).ReturnsAsync(false);
 
         // Act
