@@ -13,6 +13,7 @@ public static class CommonConstants
             nameof(Product),
             nameof(ProductCategory),
             nameof(ProductVariant),
+            nameof(ProductAttribute),
             nameof(InboundOrder),
             nameof(InboundOrderItem),
             nameof(OutboundOrder),

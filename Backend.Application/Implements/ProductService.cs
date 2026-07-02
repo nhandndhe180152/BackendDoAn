@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Backend.Application.Constants;
-using Backend.Application.DependencyInjection.Extentions;
 using Backend.Application.DTOs.Products;
 using Backend.Application.Interfaces;
 using Backend.Application.Mappings;
@@ -12,7 +11,6 @@ using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
 using Backend.Share.Extensions;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Application.Implements;
@@ -24,48 +22,18 @@ public class ProductService : IProductService
     private readonly IProductCategoryRepository _productCategoryRepository;
     private readonly IProductVariantRepository _productVariantRepository;
     private readonly IStorageService _storageService;
-    private readonly IAuditLogRepository _auditLogRepository;
-    private readonly IHttpContextAccessor _httpContextAccessor;
 
     /// Khởi tạo ProductService với Repository được inject qua DI container
     public ProductService(
         IProductRepository productRepository,
         IProductCategoryRepository productCategoryRepository,
         IProductVariantRepository productVariantRepository,
-        IStorageService storageService,
-        IAuditLogRepository auditLogRepository,
-        IHttpContextAccessor httpContextAccessor)
+        IStorageService storageService)
     {
         _productRepository = productRepository;
         _productCategoryRepository = productCategoryRepository;
         _productVariantRepository = productVariantRepository;
         _storageService = storageService;
-        _auditLogRepository = auditLogRepository;
-        _httpContextAccessor = httpContextAccessor;
-    }
-
-    // ──────────────────────────────────────────────────────────
-    // Helper: Audit
-    // ──────────────────────────────────────────────────────────
-    private async Task LogAuditAsync(string action, string targetId, string description,
-        string? dataBefore = null, string? dataAfter = null)
-    {
-        var ctx = _httpContextAccessor.HttpContext;
-        var audit = new AuditLog
-        {
-            Action = action,
-            TargetType = "Product",
-            TargetId = targetId,
-            DataBefore = dataBefore,
-            DataAfter = dataAfter,
-            Description = description,
-            IpAddress = ctx?.GetRemoteHostIpAddress(),
-            UserAgent = ctx?.Request?.Headers["User-Agent"].ToString(),
-            CreatedBy = ctx?.GetCurrentUserId(),
-            CreatedDate = DateTime.Now
-        };
-        await _auditLogRepository.CreateAsync(audit);
-        await _auditLogRepository.SaveChangesAsync();
     }
 
     // ──────────────────────────────────────────────────────────
@@ -90,8 +58,6 @@ public class ProductService : IProductService
 
         await _productRepository.CreateAsync(model);
         await _productRepository.SaveChangesAsync();
-
-        await LogAuditAsync("CREATE", model.Id.ToString(), $"Tạo sản phẩm '{model.Name}'");
 
         return ApiResponse.Created(model.Id);
     }
@@ -298,15 +264,9 @@ public class ProductService : IProductService
                 "Danh mục sản phẩm không tồn tại hoặc đã bị xóa.",
                 ApiCodeConstants.Common.InvalidData);
 
-        var dataBefore = $"Name={existData.Name},CategoryId={existData.ProductCategoryId},IsActive={existData.IsActive}";
-
         obj.ToEntity(existData);
         await _productRepository.UpdateAsync(existData);
         await _productRepository.SaveChangesAsync();
-
-        await LogAuditAsync("UPDATE", existData.Id.ToString(),
-            $"Cập nhật sản phẩm '{existData.Name}'", dataBefore,
-            $"Name={existData.Name},CategoryId={existData.ProductCategoryId},IsActive={existData.IsActive}");
 
         return ApiResponse.Success();
     }
@@ -325,9 +285,6 @@ public class ProductService : IProductService
         await _productRepository.UpdateAsync(existData);
         await _productRepository.SaveChangesAsync();
 
-        await LogAuditAsync("UPDATE", id.ToString(), $"Kích hoạt sản phẩm '{existData.Name}'",
-            "IsActive=false", "IsActive=true");
-
         return ApiResponse.Success();
     }
 
@@ -344,9 +301,6 @@ public class ProductService : IProductService
 
         await _productRepository.UpdateAsync(existData);
         await _productRepository.SaveChangesAsync();
-
-        await LogAuditAsync("UPDATE", id.ToString(), $"Vô hiệu hóa sản phẩm '{existData.Name}'",
-            "IsActive=true", "IsActive=false");
 
         return ApiResponse.Success();
     }
@@ -382,8 +336,6 @@ public class ProductService : IProductService
             return ApiResponse.BadRequest();
 
         await _productRepository.SaveChangesAsync();
-
-        await LogAuditAsync("DELETE", id.ToString(), $"Xóa mềm sản phẩm '{existData.Name}'");
 
         return ApiResponse.Success(isDeleted);
     }
