@@ -13,6 +13,11 @@ on:
       - main
       - develop
 
+# Giới hạn quyền mặc định của GITHUB_TOKEN theo nguyên tắc least-privilege.
+# Áp dụng cho tất cả job bên dưới; job nào cần ghi có thể tự khai báo thêm.
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
