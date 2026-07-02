@@ -1,8 +1,8 @@
 # Giai đoạn 1: Runtime siêu nhẹ trên Alpine (ít lỗ hổng OS hơn Debian rất nhiều)
 FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS base
 WORKDIR /app
-EXPOSE 10000
-ENV ASPNETCORE_HTTP_PORTS=10000
+EXPOSE 8080
+ENV ASPNETCORE_HTTP_PORTS=8080
 
 # Bật globalization đầy đủ (ICU) để định dạng tiếng Việt / ngày giờ đúng trên Alpine
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
