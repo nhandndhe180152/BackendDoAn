@@ -19,17 +19,31 @@ public class BasicAuthDashboardAuthorizationFilter : IDashboardAuthorizationFilt
     public bool Authorize(DashboardContext context)
     {
         var httpContext = context.GetHttpContext();
-        var header = httpContext.Request.Headers["Authorization"].ToString();
 
+        // Toàn bộ phần đọc/parse header (do người dùng kiểm soát) nằm gọn trong ParseBasicHeader
+        // và KHÔNG chứa thao tác nhạy cảm nào. Nếu header sai định dạng, hàm trả về chuỗi rỗng.
+        var (username, password) = ParseBasicHeader(httpContext.Request.Headers["Authorization"].ToString());
+
+        // So sánh credential chạy vô điều kiện (không có nhánh if do người dùng kiểm soát đứng trước).
+        // Dùng & (không short-circuit) để cả hai vế luôn được đánh giá -> ổn định về thời gian.
+        var isAuthenticated =
+            FixedTimeEquals(username, _username) & FixedTimeEquals(password, _password);
+
+        return isAuthenticated || Unauthorized(httpContext);
+    }
+
+    // Chỉ làm nhiệm vụ tách username/password từ header Basic Auth.
+    // Mọi trường hợp không hợp lệ đều trả về ("", "") thay vì ném exception hay điều khiển luồng nhạy cảm.
+    private static (string Username, string Password) ParseBasicHeader(string header)
+    {
         if (string.IsNullOrWhiteSpace(header) ||
             !header.StartsWith("Basic ", StringComparison.Ordinal))
         {
-            return Unauthorized(httpContext);
+            return (string.Empty, string.Empty);
         }
 
         var encoded = header["Basic ".Length..].Trim();
 
-        // Base64 do client gửi lên có thể không hợp lệ -> tránh ném exception ra ngoài.
         byte[] rawBytes;
         try
         {
@@ -37,37 +51,23 @@ public class BasicAuthDashboardAuthorizationFilter : IDashboardAuthorizationFilt
         }
         catch (FormatException)
         {
-            return Unauthorized(httpContext);
+            return (string.Empty, string.Empty);
         }
 
         var decoded = Encoding.UTF8.GetString(rawBytes);
 
-        // Chỉ tách ở dấu ':' đầu tiên để password được phép chứa ':'.
+        // Tách ở dấu ':' đầu tiên để password được phép chứa ':'.
         var separatorIndex = decoded.IndexOf(':');
         if (separatorIndex < 0)
         {
-            return Unauthorized(httpContext);
+            return (string.Empty, string.Empty);
         }
 
-        var username = decoded[..separatorIndex];
-        var password = decoded[(separatorIndex + 1)..];
-
-        // So sánh credential ở dạng đã băm và theo thời gian cố định (constant-time).
-        // Việc này cho dữ liệu do người dùng kiểm soát đi qua một rào cản mã hóa,
-        // xử lý cả CWE-807 (user-controlled bypass) lẫn nguy cơ timing attack của toán tử ==.
-        var usernameMatches = FixedTimeEquals(username, _username);
-        var passwordMatches = FixedTimeEquals(password, _password);
-
-        if (usernameMatches && passwordMatches)
-        {
-            return true;
-        }
-
-        return Unauthorized(httpContext);
+        return (decoded[..separatorIndex], decoded[(separatorIndex + 1)..]);
     }
 
-    // Băm SHA-256 để hai vế luôn cùng độ dài (không lộ độ dài qua thời gian so sánh),
-    // rồi so sánh bằng FixedTimeEquals để không rò rỉ thông tin qua thời gian.
+    // Băm SHA-256 để hai vế luôn cùng độ dài, rồi so sánh theo thời gian cố định (constant-time)
+    // nhằm chống timing attack.
     private static bool FixedTimeEquals(string left, string right)
     {
         var leftHash = SHA256.HashData(Encoding.UTF8.GetBytes(left));
