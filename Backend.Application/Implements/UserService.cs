@@ -461,6 +461,44 @@ public class UserService : IUserService
         return ApiResponse.Success(data);
     }
 
+    /// <summary>
+    /// Số liệu tổng hợp trên TOÀN BỘ user (không theo trang): tổng số, đang hoạt động,
+    /// và số user theo từng vai trò. Frontend tự khớp tên vai trò cho các ô thống kê.
+    /// </summary>
+    public async Task<ApiResponse> GetStatisticsAsync()
+    {
+        var users = _userRepository.GetAll().Where(x => !x.IsDeleted);
+        var totalUsers = await users.CountAsync();
+        var activeUsers = await users.CountAsync(x => x.UserStatusId == (int)Enums.UserStatus.Actived);
+
+        // Lấy các bản ghi user-role (kèm tên vai trò) rồi gom nhóm trong bộ nhớ
+        // để tránh các vướng mắc dịch GROUP BY/COUNT(DISTINCT) sang SQL.
+        var roleRows = await (from ur in _userRoleRepository.GetAll()
+                              where !ur.IsDeleted && !ur.User.IsDeleted && !ur.Role.IsDeleted
+                              select new { ur.RoleId, RoleName = ur.Role.Name, ur.UserId })
+                              .ToListAsync();
+
+        var roleCounts = roleRows
+            .GroupBy(x => new { x.RoleId, x.RoleName })
+            .Select(g => new RoleCountDto
+            {
+                RoleId = g.Key.RoleId,
+                RoleName = g.Key.RoleName,
+                Count = g.Select(x => x.UserId).Distinct().Count()
+            })
+            .OrderByDescending(x => x.Count)
+            .ToList();
+
+        var result = new UserStatisticsDto
+        {
+            TotalUsers = totalUsers,
+            ActiveUsers = activeUsers,
+            RoleCounts = roleCounts
+        };
+
+        return ApiResponse.Success(result);
+    }
+
     public async Task<ApiResponse> GetPagedEndUserAsync(SearchQuery query)
     {
         var data = (from u in _userRepository.GetAll()

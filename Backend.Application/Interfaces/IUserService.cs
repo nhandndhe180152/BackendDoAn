@@ -12,6 +12,7 @@ public interface IUserService : IServiceBase<int, CreateUserDto, UpdateUserDto, 
     Task<ApiResponse> ChangePasswordAsync(int userId, ChangePasswordDto changePasswordDto);
     Task<ApiResponse> UpdateProfileAsync(int userId, UpdateUserProfileDto updateUserProfileDto);
     Task<ApiResponse> GetPermissionsAsync(int userId);
+    Task<ApiResponse> GetStatisticsAsync();
     Task<ApiResponse> GetPagedEndUserAsync(SearchQuery query);
     Task<ApiResponse> Deactivate(int userId);
     Task<ApiResponse> GetAllAsync(UserSearchQuery query);

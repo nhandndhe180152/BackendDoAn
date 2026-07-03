@@ -110,6 +110,14 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        [HttpGet("statistics")]
+        public async Task<IActionResult> GetStatisticsAsync()
+        {
+            var result = await _userService.GetStatisticsAsync();
+
+            return BaseResult(result);
+        }
+
         [HttpGet("me")]
         public async Task<IActionResult> Profile()
         {
