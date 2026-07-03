@@ -169,11 +169,13 @@ public class FileUploadService : IFileUploadService
     {
         var currentUserId = _httpContextAccessor.HttpContext?.GetCurrentUserId();
 
-        // Không đưa GetOriginalUrl vào trong projection IQueryable vì EF không dịch
-        // được hàm C# này sang SQL (gây lỗi 500). Chỉ lấy các cột thật, rồi gán URL
-        // sau khi đã materialize danh sách (giống luồng paged theo category).
-        var data = _fileUploadRepository
+        // Chỉ truy vấn SQL những điều kiện EF dịch được (theo thư mục + chủ sở hữu).
+        // KHÔNG dịch sang SQL: GetOriginalUrl (hàm C#) và bộ lọc FileTypes dạng
+        // list.Any(StartsWith) -> cả hai gây lỗi 500. Vì đây là ảnh của 1 user trong
+        // 1 thư mục (tập nhỏ) nên lấy về rồi lọc/phân trang/gán URL trong bộ nhớ.
+        var allItems = await _fileUploadRepository
             .FindByCondition(x => !x.IsDeleted && x.FolderUploadId == folderId && x.CreatedBy == currentUserId)
+            .OrderByDescending(x => x.Id)
             .Select(x => new FileUploadDetailDto
             {
                 Id = x.Id,
@@ -181,27 +183,31 @@ public class FileUploadService : IFileUploadService
                 FileName = x.FileName,
                 FileSize = x.FileSize,
                 FileType = x.FileType,
-            });
+            })
+            .ToListAsync();
 
-        var totalRecord = await data.CountAsync();
+        var totalRecord = allItems.Count;
+
+        IEnumerable<FileUploadDetailDto> filtered = allItems;
         if (!string.IsNullOrEmpty(query.Keyword))
         {
-            data = data
-                .Where(x => x.FileName.ToLower().Contains(query.Keyword.ToLower()));
+            var keyword = query.Keyword.ToLower();
+            filtered = filtered.Where(x => (x.FileName ?? string.Empty).ToLower().Contains(keyword));
         }
 
-        if (query.FileTypes.Any())
+        if (query.FileTypes != null && query.FileTypes.Any())
         {
-            data = data
-                .Where(x => query.FileTypes.Any(type => x.FileType.StartsWith(type)));
+            filtered = filtered.Where(x =>
+                query.FileTypes.Any(type => (x.FileType ?? string.Empty).StartsWith(type, StringComparison.OrdinalIgnoreCase)));
         }
 
-        var totalFiltered = await data.CountAsync();
+        var filteredList = filtered.ToList();
+        var totalFiltered = filteredList.Count;
 
-        var dataSource = await data.OrderByDescending(x => x.Id)
+        var dataSource = filteredList
             .Skip((query.PageIndex - 1) * query.PageSize)
             .Take(query.PageSize)
-            .ToListAsync();
+            .ToList();
 
         dataSource.ForEach(x => x.Url = _storageService.GetOriginalUrl(x.FileKey));
 
