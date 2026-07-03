@@ -12,6 +12,7 @@ public class LocationAggregate
     public string? ShelfLevel { get; set; }
     public string? SlotCode { get; set; }
     public int? MaxCapacity { get; set; }
+    public int CurrentOccupancy { get; set; }
     public string? Description { get; set; }
     public bool IsActive { get; set; }
     public DateTime CreatedDate { get; set; }

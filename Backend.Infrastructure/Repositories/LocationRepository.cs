@@ -50,6 +50,7 @@ public class LocationRepository : RepositoryBase<Location, int>, ILocationReposi
                 ShelfLevel = x.ShelfLevel,
                 SlotCode = x.SlotCode,
                 MaxCapacity = x.MaxCapacity,
+                CurrentOccupancy = x.CurrentOccupancy,
                 Description = x.Description,
                 IsActive = x.IsActive,
                 CreatedDate = x.CreatedDate

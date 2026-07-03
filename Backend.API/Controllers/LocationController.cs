@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Asp.Versioning;
 using Backend.API.Utilities;
 using Backend.Application.DTOs.Locations;
@@ -47,6 +48,20 @@ namespace Backend.API.Controllers
         public async Task<IActionResult> CreateAsync([FromBody] CreateLocationDto dto)
         {
             var result = await _locationService.CreateAsync(dto);
+            return BaseResult(result);
+        }
+
+        [HttpPost("list")]
+        public async Task<IActionResult> CreateListAsync([FromBody] IEnumerable<CreateLocationDto> dtos)
+        {
+            var result = await _locationService.CreateListAsync(dtos);
+            return BaseResult(result);
+        }
+
+        [HttpPut("list")]
+        public async Task<IActionResult> UpdateListAsync([FromBody] IEnumerable<UpdateLocationDto> dtos)
+        {
+            var result = await _locationService.UpdateListAsync(dtos);
             return BaseResult(result);
         }
 
