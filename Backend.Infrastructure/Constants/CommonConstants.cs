@@ -49,6 +49,7 @@ public static class CommonConstants
             "Product",
             "ProductCategory",
             "ProductVariant",
+            "ProductAttribute",
             "Supplier",
             "UnitOfMeasure",
             "IotDevice",
