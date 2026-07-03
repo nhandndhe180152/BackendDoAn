@@ -169,6 +169,9 @@ public class FileUploadService : IFileUploadService
     {
         var currentUserId = _httpContextAccessor.HttpContext?.GetCurrentUserId();
 
+        // Không đưa GetOriginalUrl vào trong projection IQueryable vì EF không dịch
+        // được hàm C# này sang SQL (gây lỗi 500). Chỉ lấy các cột thật, rồi gán URL
+        // sau khi đã materialize danh sách (giống luồng paged theo category).
         var data = _fileUploadRepository
             .FindByCondition(x => !x.IsDeleted && x.FolderUploadId == folderId && x.CreatedBy == currentUserId)
             .Select(x => new FileUploadDetailDto
@@ -178,7 +181,6 @@ public class FileUploadService : IFileUploadService
                 FileName = x.FileName,
                 FileSize = x.FileSize,
                 FileType = x.FileType,
-                Url = _storageService.GetOriginalUrl(x.FileKey)
             });
 
         var totalRecord = await data.CountAsync();
@@ -194,13 +196,22 @@ public class FileUploadService : IFileUploadService
                 .Where(x => query.FileTypes.Any(type => x.FileType.StartsWith(type)));
         }
 
+        var totalFiltered = await data.CountAsync();
+
+        var dataSource = await data.OrderByDescending(x => x.Id)
+            .Skip((query.PageIndex - 1) * query.PageSize)
+            .Take(query.PageSize)
+            .ToListAsync();
+
+        dataSource.ForEach(x => x.Url = _storageService.GetOriginalUrl(x.FileKey));
+
         var pagedData = new PagingData<FileUploadDetailDto>
         {
             CurrentPage = query.PageIndex,
             PageSize = query.PageSize,
-            DataSource = await data.OrderByDescending(x => x.Id).Skip((query.PageIndex - 1) * query.PageSize).Take(query.PageSize).ToListAsync(),
+            DataSource = dataSource,
             Total = totalRecord,
-            TotalFiltered = await data.CountAsync()
+            TotalFiltered = totalFiltered
         };
 
         return ApiResponse.Success(pagedData);
