@@ -658,9 +658,9 @@ public class ProductVariantService : IProductVariantService
             .FindByCondition(x => x.ProductVariantId == variant.Id)
             .ToListAsync();
 
-        int qtyOnHand = inventories.Sum(x => x.QuantityOnHand);
-        int qtyReserved = inventories.Sum(x => x.QuantityReserved);
-        int qtyAvailable = qtyOnHand - qtyReserved;
+        decimal qtyOnHand = inventories.Sum(x => x.QuantityOnHand);
+        decimal qtyReserved = inventories.Sum(x => x.QuantityReserved);
+        decimal qtyAvailable = qtyOnHand - qtyReserved;
 
         var result = new SkuCheckResultDto
         {

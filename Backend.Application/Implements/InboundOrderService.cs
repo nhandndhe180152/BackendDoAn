@@ -1172,7 +1172,7 @@ public class InboundOrderService : IInboundOrderService
                 true
             );
 
-            var oldQty = 0;
+            var oldQty = 0m;
             decimal oldCost = 0;
 
             if (inventory == null)

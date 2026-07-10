@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Backend.Infrastructure.Constants;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -21,6 +21,15 @@ public class InventoryTransactionConfiguration : IEntityTypeConfiguration<Invent
 
         builder.Property(x => x.ReferenceType)
             .HasMaxLength(50);
+
+        builder.Property(x => x.Quantity)
+            .HasColumnType("decimal(18,3)");
+
+        builder.Property(x => x.BeforeQuantity)
+            .HasColumnType("decimal(18,3)");
+
+        builder.Property(x => x.AfterQuantity)
+            .HasColumnType("decimal(18,3)");
 
         builder.Property(x => x.WeightKg)
             .HasColumnType("decimal(18,3)");
@@ -51,6 +60,11 @@ public class InventoryTransactionConfiguration : IEntityTypeConfiguration<Invent
         builder.HasOne(x => x.IotWeightLog)
             .WithMany()
             .HasForeignKey(x => x.IotWeightLogId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasOne(x => x.PaddyLot)
+            .WithMany()
+            .HasForeignKey(x => x.PaddyLotId)
             .OnDelete(DeleteBehavior.SetNull);
 
         builder.HasIndex(x => x.InventoryId)

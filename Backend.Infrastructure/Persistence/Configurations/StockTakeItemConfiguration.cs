@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Backend.Infrastructure.Constants;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -12,7 +12,11 @@ public class StockTakeItemConfiguration : IEntityTypeConfiguration<StockTakeItem
     {
         builder.ToTable(TableNames.StockTakeItem);
         builder.HasKey(x => x.Id);
-        builder.Property(x => x.Id)
-            .ValueGeneratedOnAdd();
+        builder.Property(x => x.Id).ValueGeneratedOnAdd();
+
+        builder.Property(x => x.SystemQuantity).HasColumnType("decimal(18,3)");
+        builder.Property(x => x.ActualQuantity).HasColumnType("decimal(18,3)");
+
+        builder.Ignore(x => x.Difference);
     }
 }

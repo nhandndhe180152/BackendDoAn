@@ -70,4 +70,34 @@ public static class TableNames
     public const string ReturnToSupplierOrder = nameof(ReturnToSupplierOrder);
     public const string ReturnToSupplierOrderItem = nameof(ReturnToSupplierOrderItem);
     public const string ReturnToSupplierOrderStatus = nameof(ReturnToSupplierOrderStatus);
+
+    // ── Nhóm A: Đặc thù lúa/gạo ──────────────────────────────────────────────
+    public const string Farmer = nameof(Farmer);
+    public const string RiceVariety = nameof(RiceVariety);
+    public const string PaddyPurchaseScheduleStatus = nameof(PaddyPurchaseScheduleStatus);
+    public const string PaddyPurchaseSchedule = nameof(PaddyPurchaseSchedule);
+    public const string PaddyPurchaseReceipt = nameof(PaddyPurchaseReceipt);
+    public const string LotStatus = nameof(LotStatus);
+    public const string PaddyLot = nameof(PaddyLot);
+    public const string QualityInspection = nameof(QualityInspection);
+    public const string MillingOrderStatus = nameof(MillingOrderStatus);
+    public const string MillingYieldConfig = nameof(MillingYieldConfig);
+    public const string MillingOrder = nameof(MillingOrder);
+    public const string MillingOrderInput = nameof(MillingOrderInput);
+    public const string MillingOrderOutput = nameof(MillingOrderOutput);
+    public const string PartyDebt = nameof(PartyDebt);
+    public const string DebtTransaction = nameof(DebtTransaction);
+    public const string StockTransferStatus = nameof(StockTransferStatus);
+    public const string StockTransfer = nameof(StockTransfer);
+    public const string StockTransferItem = nameof(StockTransferItem);
+
+    // ── Nhóm B: Chứng từ nguồn & Multi-tenant ─────────────────────────────────
+    public const string Customer = nameof(Customer);
+    public const string SalesOrderStatus = nameof(SalesOrderStatus);
+    public const string SalesOrder = nameof(SalesOrder);
+    public const string SalesOrderItem = nameof(SalesOrderItem);
+    public const string PurchaseOrderStatus = nameof(PurchaseOrderStatus);
+    public const string PurchaseOrder = nameof(PurchaseOrder);
+    public const string PurchaseOrderItem = nameof(PurchaseOrderItem);
+    public const string Organization = nameof(Organization);
 }

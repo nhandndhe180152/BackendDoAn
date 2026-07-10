@@ -69,6 +69,36 @@ public class BackendContext : DbContext
     public virtual DbSet<ReturnToSupplierOrderItem> ReturnToSupplierOrderItems { get; set; }
     public virtual DbSet<ReturnToSupplierOrderStatus> ReturnToSupplierOrderStatuses { get; set; }
 
+    // ── Nhóm A: Đặc thù lúa/gạo ──────────────────────────────────────────────
+    public virtual DbSet<Organization> Organizations { get; set; }
+    public virtual DbSet<Farmer> Farmers { get; set; }
+    public virtual DbSet<RiceVariety> RiceVarieties { get; set; }
+    public virtual DbSet<PaddyPurchaseScheduleStatus> PaddyPurchaseScheduleStatuses { get; set; }
+    public virtual DbSet<PaddyPurchaseSchedule> PaddyPurchaseSchedules { get; set; }
+    public virtual DbSet<PaddyPurchaseReceipt> PaddyPurchaseReceipts { get; set; }
+    public virtual DbSet<LotStatus> LotStatuses { get; set; }
+    public virtual DbSet<PaddyLot> PaddyLots { get; set; }
+    public virtual DbSet<QualityInspection> QualityInspections { get; set; }
+    public virtual DbSet<MillingOrderStatus> MillingOrderStatuses { get; set; }
+    public virtual DbSet<MillingYieldConfig> MillingYieldConfigs { get; set; }
+    public virtual DbSet<MillingOrder> MillingOrders { get; set; }
+    public virtual DbSet<MillingOrderInput> MillingOrderInputs { get; set; }
+    public virtual DbSet<MillingOrderOutput> MillingOrderOutputs { get; set; }
+    public virtual DbSet<PartyDebt> PartyDebts { get; set; }
+    public virtual DbSet<DebtTransaction> DebtTransactions { get; set; }
+    public virtual DbSet<StockTransferStatus> StockTransferStatuses { get; set; }
+    public virtual DbSet<StockTransfer> StockTransfers { get; set; }
+    public virtual DbSet<StockTransferItem> StockTransferItems { get; set; }
+
+    // ── Nhóm B: Chứng từ nguồn & Multi-tenant ─────────────────────────────────
+    public virtual DbSet<Customer> Customers { get; set; }
+    public virtual DbSet<SalesOrderStatus> SalesOrderStatuses { get; set; }
+    public virtual DbSet<SalesOrder> SalesOrders { get; set; }
+    public virtual DbSet<SalesOrderItem> SalesOrderItems { get; set; }
+    public virtual DbSet<PurchaseOrderStatus> PurchaseOrderStatuses { get; set; }
+    public virtual DbSet<PurchaseOrder> PurchaseOrders { get; set; }
+    public virtual DbSet<PurchaseOrderItem> PurchaseOrderItems { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
@@ -145,6 +175,14 @@ public class BackendContext : DbContext
         modelBuilder.Entity<UserStatus>().HasData(UserStatusSeed.GetUserStatuses());
         modelBuilder.Entity<User>().HasData(UserSeed.GetUsers());
         modelBuilder.Entity<StockTakeStatus>().HasData(StockTakeStatusSeed.GetStockTakeStatuses());
+        // ── Seed data lúa/gạo ────────────────────────────────────────────────
+        modelBuilder.Entity<Organization>().HasData(OrganizationSeed.GetOrganizations());
+        modelBuilder.Entity<PaddyPurchaseScheduleStatus>().HasData(PaddyPurchaseScheduleStatusSeed.GetStatuses());
+        modelBuilder.Entity<LotStatus>().HasData(LotStatusSeed.GetStatuses());
+        modelBuilder.Entity<MillingOrderStatus>().HasData(MillingOrderStatusSeed.GetStatuses());
+        modelBuilder.Entity<SalesOrderStatus>().HasData(SalesOrderStatusSeed.GetStatuses());
+        modelBuilder.Entity<PurchaseOrderStatus>().HasData(PurchaseOrderStatusSeed.GetStatuses());
+        modelBuilder.Entity<StockTransferStatus>().HasData(StockTransferStatusSeed.GetStatuses());
         base.OnModelCreating(modelBuilder);
     }
 }

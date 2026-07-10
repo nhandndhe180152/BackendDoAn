@@ -183,7 +183,7 @@ public class StockTakeService : IStockTakeService
         var newItems = new List<StockTakeItem>();
         foreach (var itemDto in obj.StockTakeItems.Where(i => i.Id == 0))
         {
-            int sysQty = 0;
+            decimal sysQty = 0;
             if (itemDto.ProductVariantId.HasValue)
             {
                 var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(itemDto.ProductVariantId.Value, existData.WarehouseId, itemDto.LocationId);

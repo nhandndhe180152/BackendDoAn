@@ -354,6 +354,80 @@ namespace Backend.Infrastructure.Migrations
                     b.ToTable("AuditLog", (string)null);
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.Customer", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("ContactPerson")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("CustomerType")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<string>("TaxCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Customer_OrgId_Code");
+
+                    b.ToTable("Customer", (string)null);
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.CustomerReturnOrder", b =>
                 {
                     b.Property<int>("Id")
@@ -376,6 +450,9 @@ namespace Backend.Infrastructure.Migrations
 
                     b.Property<DateTime>("CreatedDate")
                         .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("CustomerId")
+                        .HasColumnType("int");
 
                     b.Property<int>("CustomerReturnOrderStatusId")
                         .HasColumnType("int");
@@ -411,6 +488,8 @@ namespace Backend.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ApprovedBy");
+
+                    b.HasIndex("CustomerId");
 
                     b.HasIndex("CustomerReturnOrderStatusId");
 
@@ -536,6 +615,74 @@ namespace Backend.Infrastructure.Migrations
                     b.ToTable("CustomerReturnOrderStatus", (string)null);
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.DebtTransaction", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("BalanceAfter")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("DueDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<int>("PartyDebtId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("RefId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RefType")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<DateTime>("TransactionDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("TransactionType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PartyDebtId")
+                        .HasDatabaseName("IX_DebtTransaction_PartyDebtId");
+
+                    b.HasIndex("TransactionDate")
+                        .HasDatabaseName("IX_DebtTransaction_TransactionDate");
+
+                    b.HasIndex("RefType", "RefId")
+                        .HasDatabaseName("IX_DebtTransaction_RefType_RefId");
+
+                    b.ToTable("DebtTransaction", (string)null);
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.DeliveryNote", b =>
                 {
                     b.Property<int>("Id")
@@ -611,6 +758,72 @@ namespace Backend.Infrastructure.Migrations
                     b.HasIndex("OriginalImageFileId");
 
                     b.ToTable("DeliveryNote", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.Farmer", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<string>("Region")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("ReputationNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Farmer_OrgId_Code");
+
+                    b.ToTable("Farmer", (string)null);
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.FcmNotificationLog", b =>
@@ -820,10 +1033,18 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<string>("Note")
                         .HasColumnType("longtext");
 
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("int");
+
                     b.Property<string>("POCode")
-                        .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("PaddyPurchaseReceiptId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("PurchaseOrderId")
+                        .HasColumnType("int");
 
                     b.Property<int?>("SupplierId")
                         .HasColumnType("int");
@@ -844,9 +1065,17 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasIndex("InboundOrderStatusId");
 
+                    b.HasIndex("OrganizationId")
+                        .HasDatabaseName("IX_InboundOrder_OrganizationId");
+
                     b.HasIndex("POCode")
-                        .IsUnique()
-                        .HasDatabaseName("UX_InboundOrder_POCode");
+                        .HasDatabaseName("IX_InboundOrder_POCode");
+
+                    b.HasIndex("PaddyPurchaseReceiptId")
+                        .HasDatabaseName("IX_InboundOrder_PaddyPurchaseReceiptId");
+
+                    b.HasIndex("PurchaseOrderId")
+                        .HasDatabaseName("IX_InboundOrder_PurchaseOrderId");
 
                     b.HasIndex("SupplierId");
 
@@ -887,17 +1116,23 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<string>("Note")
                         .HasColumnType("longtext");
 
+                    b.Property<int?>("PaddyLotId")
+                        .HasColumnType("int");
+
                     b.Property<int?>("ProductVariantId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("PurchaseOrderItemId")
                         .HasColumnType("int");
 
                     b.Property<bool>("QRScanned")
                         .HasColumnType("tinyint(1)");
 
-                    b.Property<int>("QuantityOrdered")
-                        .HasColumnType("int");
+                    b.Property<decimal>("QuantityOrdered")
+                        .HasColumnType("decimal(18,3)");
 
-                    b.Property<int>("QuantityReceived")
-                        .HasColumnType("int");
+                    b.Property<decimal>("QuantityReceived")
+                        .HasColumnType("decimal(18,3)");
 
                     b.Property<decimal>("UnitCostPrice")
                         .HasColumnType("decimal(18,2)");
@@ -907,9 +1142,15 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("InboundOrderId");
+                    b.HasIndex("InboundOrderId")
+                        .HasDatabaseName("IX_InboundOrderItem_InboundOrderId");
+
+                    b.HasIndex("PaddyLotId")
+                        .HasDatabaseName("IX_InboundOrderItem_PaddyLotId");
 
                     b.HasIndex("ProductVariantId");
+
+                    b.HasIndex("PurchaseOrderItemId");
 
                     b.ToTable("InboundOrderItem", (string)null);
                 });
@@ -979,16 +1220,19 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<int?>("LocationId")
                         .HasColumnType("int");
 
+                    b.Property<int?>("PaddyLotId")
+                        .HasColumnType("int");
+
                     b.Property<int>("ProductVariantId")
                         .HasColumnType("int");
 
-                    b.Property<int>("QuantityOnHand")
-                        .HasColumnType("int");
+                    b.Property<decimal>("QuantityOnHand")
+                        .HasColumnType("decimal(18,3)");
 
-                    b.Property<int>("QuantityReserved")
+                    b.Property<decimal>("QuantityReserved")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
-                        .HasDefaultValue(0);
+                        .HasColumnType("decimal(18,3)")
+                        .HasDefaultValue(0m);
 
                     b.Property<DateTime?>("RowVersion")
                         .IsConcurrencyToken()
@@ -1007,15 +1251,17 @@ namespace Backend.Infrastructure.Migrations
                     b.HasIndex("LocationId")
                         .HasDatabaseName("IX_Inventory_LocationId");
 
+                    b.HasIndex("PaddyLotId");
+
                     b.HasIndex("ProductVariantId")
                         .HasDatabaseName("IX_Inventory_ProductVariantId");
 
                     b.HasIndex("WarehouseId")
                         .HasDatabaseName("IX_Inventory_WarehouseId");
 
-                    b.HasIndex("ProductVariantId", "WarehouseId", "LocationId")
+                    b.HasIndex("ProductVariantId", "WarehouseId", "LocationId", "PaddyLotId")
                         .IsUnique()
-                        .HasDatabaseName("UX_Inventory_ProductVariant_Warehouse_Location");
+                        .HasDatabaseName("UX_Inventory_ProductVariant_Warehouse_Location_Lot");
 
                     b.ToTable("Inventory", (string)null);
                 });
@@ -1028,11 +1274,11 @@ namespace Backend.Infrastructure.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<int>("AfterQuantity")
-                        .HasColumnType("int");
+                    b.Property<decimal>("AfterQuantity")
+                        .HasColumnType("decimal(18,3)");
 
-                    b.Property<int>("BeforeQuantity")
-                        .HasColumnType("int");
+                    b.Property<decimal>("BeforeQuantity")
+                        .HasColumnType("decimal(18,3)");
 
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
@@ -1059,11 +1305,14 @@ namespace Backend.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("varchar(500)");
 
+                    b.Property<int?>("PaddyLotId")
+                        .HasColumnType("int");
+
                     b.Property<int?>("ProductVariantId")
                         .HasColumnType("int");
 
-                    b.Property<int>("Quantity")
-                        .HasColumnType("int");
+                    b.Property<decimal>("Quantity")
+                        .HasColumnType("decimal(18,3)");
 
                     b.Property<int?>("ReferenceId")
                         .HasColumnType("int");
@@ -1098,6 +1347,8 @@ namespace Backend.Infrastructure.Migrations
                         .HasDatabaseName("IX_InventoryTransaction_IotWeightLogId");
 
                     b.HasIndex("LocationId");
+
+                    b.HasIndex("PaddyLotId");
 
                     b.HasIndex("WarehouseId");
 
@@ -1459,6 +1710,105 @@ namespace Backend.Infrastructure.Migrations
                     b.ToTable("Location", (string)null);
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.LotStatus", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<bool>("IsSellable")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValue(true);
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("LotStatus", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Color = "#6B7280",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            IsSellable = false,
+                            Name = "Chờ nhập"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Color = "#10B981",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            IsSellable = true,
+                            Name = "Đang lưu kho"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Color = "#F59E0B",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            IsSellable = false,
+                            Name = "Chờ xử lý"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Color = "#EF4444",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            IsSellable = false,
+                            Name = "Cách ly"
+                        },
+                        new
+                        {
+                            Id = 5,
+                            Color = "#8B5CF6",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            IsSellable = false,
+                            Name = "Đang xay"
+                        },
+                        new
+                        {
+                            Id = 6,
+                            Color = "#9CA3AF",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            IsSellable = false,
+                            Name = "Đã dùng hết"
+                        });
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.Menu", b =>
                 {
                     b.Property<int>("Id")
@@ -1525,6 +1875,373 @@ namespace Backend.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Menu", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.MillingOrder", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal?>("ByproductKg")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<decimal>("ComputedPaddyKg")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<decimal?>("LossKg")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<string>("MachineRef")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("MillingCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("OperatorId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<int?>("SalesOrderId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("StatusId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("TotalCost")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("TotalRiceOutputKg")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<int>("WarehouseId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("YieldRateUsed")
+                        .HasColumnType("decimal(6,4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OperatorId");
+
+                    b.HasIndex("SalesOrderId");
+
+                    b.HasIndex("StartedAt")
+                        .HasDatabaseName("IX_MillingOrder_StartedAt");
+
+                    b.HasIndex("StatusId")
+                        .HasDatabaseName("IX_MillingOrder_StatusId");
+
+                    b.HasIndex("WarehouseId");
+
+                    b.HasIndex("OrganizationId", "MillingCode")
+                        .IsUnique()
+                        .HasDatabaseName("UX_MillingOrder_OrgId_Code");
+
+                    b.ToTable("MillingOrder", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.MillingOrderInput", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("ConsumedWeightKg")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("LocationId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MillingOrderId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<int>("PaddyLotId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("ReservedWeightKg")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LocationId");
+
+                    b.HasIndex("MillingOrderId")
+                        .HasDatabaseName("IX_MillingOrderInput_MillingOrderId");
+
+                    b.HasIndex("PaddyLotId")
+                        .HasDatabaseName("IX_MillingOrderInput_PaddyLotId");
+
+                    b.ToTable("MillingOrderInput", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.MillingOrderOutput", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("BagCount")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsByproduct")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValue(false);
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("MillingOrderId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("OutputLotId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("OutputType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<decimal>("OutputWeightKg")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<int>("ProductVariantId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("UnitCost")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MillingOrderId")
+                        .HasDatabaseName("IX_MillingOrderOutput_MillingOrderId");
+
+                    b.HasIndex("OutputLotId");
+
+                    b.HasIndex("ProductVariantId");
+
+                    b.ToTable("MillingOrderOutput", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.MillingOrderStatus", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("MillingOrderStatus", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Color = "#6B7280",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Nháp"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Color = "#3B82F6",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Đã giữ lúa"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Color = "#F59E0B",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Đang xay"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Color = "#8B5CF6",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Chờ nhập thành phẩm"
+                        },
+                        new
+                        {
+                            Id = 5,
+                            Color = "#10B981",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Hoàn tất"
+                        },
+                        new
+                        {
+                            Id = 6,
+                            Color = "#EF4444",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Hủy"
+                        });
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.MillingYieldConfig", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal?>("BranRate")
+                        .HasColumnType("decimal(6,4)");
+
+                    b.Property<decimal?>("BrokenRiceRate")
+                        .HasColumnType("decimal(6,4)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("EffectiveFrom")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<decimal?>("HuskRate")
+                        .HasColumnType("decimal(6,4)");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<decimal?>("MoistureFrom")
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<decimal?>("MoistureTo")
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("RiceVarietyId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("YieldRate")
+                        .HasColumnType("decimal(6,4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RiceVarietyId");
+
+                    b.HasIndex("OrganizationId", "RiceVarietyId", "IsActive")
+                        .HasDatabaseName("IX_MillingYieldConfig_OrgId_VarietyId_Active");
+
+                    b.ToTable("MillingYieldConfig", (string)null);
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.Notification", b =>
@@ -1670,6 +2387,97 @@ namespace Backend.Infrastructure.Migrations
                     b.ToTable("NotificationType", (string)null);
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.Organization", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("ContactEmail")
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)");
+
+                    b.Property<string>("ContactPhone")
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("LogoFileId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)");
+
+                    b.Property<DateTime?>("SubscriptionExpiry")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("SubscriptionPlan")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("TaxCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Organization_Code");
+
+                    b.HasIndex("LogoFileId");
+
+                    b.ToTable("Organization", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Code = "TUANMAY",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Hộ kinh doanh kiêm xay xát lúa gạo",
+                            IsActive = true,
+                            IsDeleted = false,
+                            Name = "Cơ sở kinh doanh lúa gạo Tuấn Mây"
+                        });
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.OutboundOrder", b =>
                 {
                     b.Property<int>("Id")
@@ -1690,15 +2498,6 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedDate")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<string>("CustomerAddress")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("CustomerName")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("CustomerPhone")
-                        .HasColumnType("longtext");
-
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("tinyint(1)");
 
@@ -1706,15 +2505,20 @@ namespace Backend.Infrastructure.Migrations
                         .HasColumnType("datetime(6)");
 
                     b.Property<string>("Note")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("int");
 
                     b.Property<int>("OutboundOrderStatusId")
                         .HasColumnType("int");
 
-                    b.Property<string>("SOCode")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
+                    b.Property<int?>("OutboundOrderStatusId1")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SalesOrderId")
+                        .HasColumnType("int");
 
                     b.Property<decimal>("TotalDispatchedValue")
                         .HasColumnType("decimal(18,2)");
@@ -1725,17 +2529,26 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<int>("WarehouseId")
                         .HasColumnType("int");
 
+                    b.Property<int?>("WarehouseId1")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AssignedUserId");
 
+                    b.HasIndex("OrganizationId")
+                        .HasDatabaseName("IX_OutboundOrder_OrganizationId");
+
                     b.HasIndex("OutboundOrderStatusId");
 
-                    b.HasIndex("SOCode")
-                        .IsUnique()
-                        .HasDatabaseName("UX_OutboundOrder_SOCode");
+                    b.HasIndex("OutboundOrderStatusId1");
+
+                    b.HasIndex("SalesOrderId")
+                        .HasDatabaseName("IX_OutboundOrder_SalesOrderId");
 
                     b.HasIndex("WarehouseId");
+
+                    b.HasIndex("WarehouseId1");
 
                     b.ToTable("OutboundOrder", (string)null);
                 });
@@ -1778,10 +2591,13 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<bool>("QRScanned")
                         .HasColumnType("tinyint(1)");
 
-                    b.Property<int>("QuantityOrdered")
-                        .HasColumnType("int");
+                    b.Property<decimal>("QuantityOrdered")
+                        .HasColumnType("decimal(18,3)");
 
-                    b.Property<int>("QuantityPicked")
+                    b.Property<decimal>("QuantityPicked")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<int?>("SalesOrderItemId")
                         .HasColumnType("int");
 
                     b.Property<decimal>("UnitCostPrice")
@@ -1792,9 +2608,13 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("OutboundOrderId");
+                    b.HasIndex("OutboundOrderId")
+                        .HasDatabaseName("IX_OutboundOrderItem_OutboundOrderId");
 
                     b.HasIndex("ProductVariantId");
+
+                    b.HasIndex("SalesOrderItemId")
+                        .HasDatabaseName("IX_OutboundOrderItem_SalesOrderItemId");
 
                     b.ToTable("OutboundOrderItem", (string)null);
                 });
@@ -1833,6 +2653,435 @@ namespace Backend.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("OutboundOrderStatus", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PaddyLot", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("CostPricePerKg")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("InboundDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<decimal>("InitialWeightKg")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("LocationId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("LotCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("LotType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ProductVariantId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("QualityStatus")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<decimal>("RemainingWeightKg")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<int?>("RiceVarietyId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SourceMillingOrderId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SourceReceiptId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("StatusId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<int>("WarehouseId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InboundDate")
+                        .HasDatabaseName("IX_PaddyLot_InboundDate");
+
+                    b.HasIndex("LocationId");
+
+                    b.HasIndex("ProductVariantId");
+
+                    b.HasIndex("RiceVarietyId");
+
+                    b.HasIndex("SourceMillingOrderId");
+
+                    b.HasIndex("SourceReceiptId")
+                        .IsUnique();
+
+                    b.HasIndex("StatusId")
+                        .HasDatabaseName("IX_PaddyLot_StatusId");
+
+                    b.HasIndex("WarehouseId")
+                        .HasDatabaseName("IX_PaddyLot_WarehouseId");
+
+                    b.HasIndex("OrganizationId", "LotCode")
+                        .IsUnique()
+                        .HasDatabaseName("UX_PaddyLot_OrgId_Code");
+
+                    b.ToTable("PaddyLot", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PaddyPurchaseReceipt", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("ActualWeightKg")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<decimal>("AgreedPrice")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("BagCount")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<decimal>("DebtAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("FarmerId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("IotWeightLogId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("PaidAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("PriceAdjustReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<string>("QualityJson")
+                        .HasColumnType("json");
+
+                    b.Property<string>("ReceiptCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<DateTime>("ReceiptDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("RiceVarietyId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ScheduleId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<int>("WarehouseId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FarmerId")
+                        .HasDatabaseName("IX_PaddyPurchaseReceipt_FarmerId");
+
+                    b.HasIndex("IotWeightLogId");
+
+                    b.HasIndex("ReceiptDate")
+                        .HasDatabaseName("IX_PaddyPurchaseReceipt_ReceiptDate");
+
+                    b.HasIndex("RiceVarietyId");
+
+                    b.HasIndex("ScheduleId");
+
+                    b.HasIndex("WarehouseId");
+
+                    b.HasIndex("OrganizationId", "ReceiptCode")
+                        .IsUnique()
+                        .HasDatabaseName("UX_PaddyPurchaseReceipt_OrgId_Code");
+
+                    b.ToTable("PaddyPurchaseReceipt", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PaddyPurchaseSchedule", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("AssignedUserId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<decimal?>("EstimatedQtyKg")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<decimal?>("ExpectedPrice")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("FarmerId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Location")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("RiceVarietyId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ScheduleCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<DateTime>("ScheduleDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("StatusId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssignedUserId");
+
+                    b.HasIndex("FarmerId")
+                        .HasDatabaseName("IX_PaddyPurchaseSchedule_FarmerId");
+
+                    b.HasIndex("RiceVarietyId");
+
+                    b.HasIndex("ScheduleDate")
+                        .HasDatabaseName("IX_PaddyPurchaseSchedule_ScheduleDate");
+
+                    b.HasIndex("StatusId");
+
+                    b.HasIndex("OrganizationId", "ScheduleCode")
+                        .IsUnique()
+                        .HasDatabaseName("UX_PaddyPurchaseSchedule_OrgId_Code");
+
+                    b.ToTable("PaddyPurchaseSchedule", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PaddyPurchaseScheduleStatus", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PaddyPurchaseScheduleStatus", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Color = "#6B7280",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Mới tạo"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Color = "#3B82F6",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Đã xác nhận"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Color = "#F59E0B",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Đang đi thu"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Color = "#8B5CF6",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Đã cân hàng"
+                        },
+                        new
+                        {
+                            Id = 5,
+                            Color = "#10B981",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Đã nhập kho"
+                        },
+                        new
+                        {
+                            Id = 6,
+                            Color = "#EF4444",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Hủy"
+                        });
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PartyDebt", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<decimal?>("CreditLimit")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("CurrentBalance")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<decimal>("OpeningBalance")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PartyId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PartyType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "PartyType", "PartyId")
+                        .HasDatabaseName("IX_PartyDebt_OrgId_PartyType_PartyId");
+
+                    b.ToTable("PartyDebt", (string)null);
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.Permission", b =>
@@ -2037,6 +3286,11 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("tinyint(1)");
 
+                    b.Property<bool>("IsByproduct")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("tinyint(1)");
 
@@ -2062,6 +3316,9 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<string>("QRCode")
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
+
+                    b.Property<int?>("RiceVarietyId")
+                        .HasColumnType("int");
 
                     b.Property<string>("SKU")
                         .IsRequired()
@@ -2093,6 +3350,8 @@ namespace Backend.Infrastructure.Migrations
                         .IsUnique()
                         .HasDatabaseName("UX_ProductVariant_QRCode");
 
+                    b.HasIndex("RiceVarietyId");
+
                     b.HasIndex("SKU")
                         .IsUnique()
                         .HasDatabaseName("UX_ProductVariant_SKU");
@@ -2100,6 +3359,281 @@ namespace Backend.Infrastructure.Migrations
                     b.HasIndex("UnitOfMeasureId");
 
                     b.ToTable("ProductVariant", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PurchaseOrder", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("ExpectedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<DateTime>("OrderDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("POCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int>("StatusId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SupplierId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("WarehouseId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderDate")
+                        .HasDatabaseName("IX_PurchaseOrder_OrderDate");
+
+                    b.HasIndex("StatusId");
+
+                    b.HasIndex("SupplierId")
+                        .HasDatabaseName("IX_PurchaseOrder_SupplierId");
+
+                    b.HasIndex("WarehouseId");
+
+                    b.HasIndex("OrganizationId", "POCode")
+                        .IsUnique()
+                        .HasDatabaseName("UX_PurchaseOrder_OrgId_POCode");
+
+                    b.ToTable("PurchaseOrder", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PurchaseOrderItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<decimal>("LineAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<int>("ProductVariantId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PurchaseOrderId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("QuantityOrdered")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<decimal>("UnitCostPrice")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductVariantId");
+
+                    b.HasIndex("PurchaseOrderId")
+                        .HasDatabaseName("IX_PurchaseOrderItem_PurchaseOrderId");
+
+                    b.ToTable("PurchaseOrderItem", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PurchaseOrderStatus", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PurchaseOrderStatus", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Color = "#6B7280",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Draft"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Color = "#3B82F6",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Confirmed"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Color = "#F59E0B",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "PartiallyReceived"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Color = "#10B981",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Received"
+                        },
+                        new
+                        {
+                            Id = 5,
+                            Color = "#EF4444",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Cancelled"
+                        });
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.QualityInspection", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Handling")
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)");
+
+                    b.Property<decimal?>("ImpurityPercent")
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<DateTime>("InspectedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("InspectorId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<decimal?>("MoisturePercent")
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<string>("MoldLevel")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<string>("PackagingStatus")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int>("PaddyLotId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PestLevel")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InspectedAt")
+                        .HasDatabaseName("IX_QualityInspection_InspectedAt");
+
+                    b.HasIndex("InspectorId");
+
+                    b.HasIndex("PaddyLotId")
+                        .HasDatabaseName("IX_QualityInspection_PaddyLotId");
+
+                    b.ToTable("QualityInspection", (string)null);
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.ReturnToSupplierOrder", b =>
@@ -2272,6 +3806,67 @@ namespace Backend.Infrastructure.Migrations
                     b.ToTable("ReturnToSupplierOrderStatus", (string)null);
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.RiceVariety", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<decimal?>("DefaultYieldRate")
+                        .HasColumnType("decimal(6,4)");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Season")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("UX_RiceVariety_OrgId_Code");
+
+                    b.ToTable("RiceVariety", (string)null);
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.Role", b =>
                 {
                     b.Property<int>("Id")
@@ -2326,6 +3921,255 @@ namespace Backend.Infrastructure.Migrations
                             CreatedDate = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
                             Name = "Người dùng"
+                        });
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.SalesOrder", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("CustomerId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("DepositAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime?>("ExpectedDeliveryDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<DateTime>("OrderDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("RequiresMilling")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("SOCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("ShippingAddress")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<int>("StatusId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("WarehouseId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId")
+                        .HasDatabaseName("IX_SalesOrder_CustomerId");
+
+                    b.HasIndex("OrderDate")
+                        .HasDatabaseName("IX_SalesOrder_OrderDate");
+
+                    b.HasIndex("StatusId")
+                        .HasDatabaseName("IX_SalesOrder_StatusId");
+
+                    b.HasIndex("WarehouseId");
+
+                    b.HasIndex("OrganizationId", "SOCode")
+                        .IsUnique()
+                        .HasDatabaseName("UX_SalesOrder_OrgId_SOCode");
+
+                    b.ToTable("SalesOrder", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.SalesOrderItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<decimal?>("DiscountAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<decimal>("LineAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<int>("ProductVariantId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("QuantityOrdered")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<int>("SalesOrderId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("UnitSalePrice")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductVariantId");
+
+                    b.HasIndex("SalesOrderId")
+                        .HasDatabaseName("IX_SalesOrderItem_SalesOrderId");
+
+                    b.ToTable("SalesOrderItem", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.SalesOrderStatus", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SalesOrderStatus", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Color = "#6B7280",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Mới tạo"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Color = "#3B82F6",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Chờ xác nhận"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Color = "#8B5CF6",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Đã giữ hàng"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Color = "#F59E0B",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Chờ xay"
+                        },
+                        new
+                        {
+                            Id = 5,
+                            Color = "#06B6D4",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Đang chuẩn bị"
+                        },
+                        new
+                        {
+                            Id = 6,
+                            Color = "#F97316",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Đang giao"
+                        },
+                        new
+                        {
+                            Id = 7,
+                            Color = "#10B981",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Hoàn tất"
+                        },
+                        new
+                        {
+                            Id = 8,
+                            Color = "#EF4444",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Hủy"
                         });
                 });
 
@@ -2446,8 +4290,8 @@ namespace Backend.Infrastructure.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<int?>("ActualQuantity")
-                        .HasColumnType("int");
+                    b.Property<decimal?>("ActualQuantity")
+                        .HasColumnType("decimal(18,3)");
 
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
@@ -2476,8 +4320,8 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<int>("StockTakeId")
                         .HasColumnType("int");
 
-                    b.Property<int>("SystemQuantity")
-                        .HasColumnType("int");
+                    b.Property<decimal>("SystemQuantity")
+                        .HasColumnType("decimal(18,3)");
 
                     b.Property<int?>("UpdatedBy")
                         .HasColumnType("int");
@@ -2560,6 +4404,209 @@ namespace Backend.Infrastructure.Migrations
                             CreatedDate = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
                             Name = "Từ chối"
+                        });
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.StockTransfer", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("AssignedUserId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("FromWarehouseId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("StatusId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ToWarehouseId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TransferCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<DateTime>("TransferDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssignedUserId");
+
+                    b.HasIndex("FromWarehouseId");
+
+                    b.HasIndex("StatusId");
+
+                    b.HasIndex("ToWarehouseId");
+
+                    b.HasIndex("TransferDate")
+                        .HasDatabaseName("IX_StockTransfer_TransferDate");
+
+                    b.HasIndex("OrganizationId", "TransferCode")
+                        .IsUnique()
+                        .HasDatabaseName("UX_StockTransfer_OrgId_Code");
+
+                    b.ToTable("StockTransfer", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.StockTransferItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("FromLocationId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<int?>("PaddyLotId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ProductVariantId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("StockTransferId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ToLocationId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("WeightKg")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FromLocationId");
+
+                    b.HasIndex("PaddyLotId");
+
+                    b.HasIndex("ProductVariantId");
+
+                    b.HasIndex("StockTransferId")
+                        .HasDatabaseName("IX_StockTransferItem_StockTransferId");
+
+                    b.HasIndex("ToLocationId");
+
+                    b.ToTable("StockTransferItem", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.StockTransferStatus", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("StockTransferStatus", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Color = "#6B7280",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Nháp"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Color = "#F59E0B",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Đang chuyển"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Color = "#10B981",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Hoàn tất"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Color = "#EF4444",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Hủy"
                         });
                 });
 
@@ -3295,12 +5342,27 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("Warehouse");
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.Customer", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Organization");
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.CustomerReturnOrder", b =>
                 {
                     b.HasOne("Backend.Domain.Entities.User", "ApprovedByUser")
                         .WithMany()
                         .HasForeignKey("ApprovedBy")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Domain.Entities.Customer", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("Backend.Domain.Entities.CustomerReturnOrderStatus", "CustomerReturnOrderStatus")
                         .WithMany()
@@ -3320,6 +5382,8 @@ namespace Backend.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("ApprovedByUser");
+
+                    b.Navigation("Customer");
 
                     b.Navigation("CustomerReturnOrderStatus");
 
@@ -3360,6 +5424,17 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("RestockLocation");
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.DebtTransaction", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.PartyDebt", "PartyDebt")
+                        .WithMany("DebtTransactions")
+                        .HasForeignKey("PartyDebtId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("PartyDebt");
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.DeliveryNote", b =>
                 {
                     b.HasOne("Backend.Domain.Entities.FileUpload", "OriginalImageFile")
@@ -3367,6 +5442,16 @@ namespace Backend.Infrastructure.Migrations
                         .HasForeignKey("OriginalImageFileId");
 
                     b.Navigation("OriginalImageFile");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.Farmer", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Organization");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.FcmNotificationLog", b =>
@@ -3407,6 +5492,21 @@ namespace Backend.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("Backend.Domain.Entities.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Domain.Entities.PaddyPurchaseReceipt", "PaddyPurchaseReceipt")
+                        .WithMany()
+                        .HasForeignKey("PaddyPurchaseReceiptId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.PurchaseOrder", "PurchaseOrder")
+                        .WithMany("InboundOrders")
+                        .HasForeignKey("PurchaseOrderId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Backend.Domain.Entities.Supplier", "Supplier")
                         .WithMany()
                         .HasForeignKey("SupplierId");
@@ -3421,6 +5521,12 @@ namespace Backend.Infrastructure.Migrations
 
                     b.Navigation("InboundOrderStatus");
 
+                    b.Navigation("Organization");
+
+                    b.Navigation("PaddyPurchaseReceipt");
+
+                    b.Navigation("PurchaseOrder");
+
                     b.Navigation("Supplier");
 
                     b.Navigation("Warehouse");
@@ -3434,13 +5540,28 @@ namespace Backend.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("Backend.Domain.Entities.PaddyLot", "PaddyLot")
+                        .WithMany()
+                        .HasForeignKey("PaddyLotId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
                         .WithMany()
-                        .HasForeignKey("ProductVariantId");
+                        .HasForeignKey("ProductVariantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Domain.Entities.PurchaseOrderItem", "PurchaseOrderItem")
+                        .WithMany()
+                        .HasForeignKey("PurchaseOrderItemId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("InboundOrder");
 
+                    b.Navigation("PaddyLot");
+
                     b.Navigation("ProductVariant");
+
+                    b.Navigation("PurchaseOrderItem");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.Inventory", b =>
@@ -3449,6 +5570,11 @@ namespace Backend.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("LocationId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Domain.Entities.PaddyLot", "PaddyLot")
+                        .WithMany()
+                        .HasForeignKey("PaddyLotId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
                         .WithMany()
@@ -3463,6 +5589,8 @@ namespace Backend.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Location");
+
+                    b.Navigation("PaddyLot");
 
                     b.Navigation("ProductVariant");
 
@@ -3487,6 +5615,11 @@ namespace Backend.Infrastructure.Migrations
                         .HasForeignKey("LocationId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("Backend.Domain.Entities.PaddyLot", "PaddyLot")
+                        .WithMany()
+                        .HasForeignKey("PaddyLotId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
                         .WithMany()
                         .HasForeignKey("ProductVariantId")
@@ -3503,6 +5636,8 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("IotWeightLog");
 
                     b.Navigation("Location");
+
+                    b.Navigation("PaddyLot");
 
                     b.Navigation("ProductVariant");
 
@@ -3579,6 +5714,115 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("Warehouse");
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.MillingOrder", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.User", "Operator")
+                        .WithMany()
+                        .HasForeignKey("OperatorId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Domain.Entities.SalesOrder", "SalesOrder")
+                        .WithMany("MillingOrders")
+                        .HasForeignKey("SalesOrderId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.MillingOrderStatus", "Status")
+                        .WithMany()
+                        .HasForeignKey("StatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Operator");
+
+                    b.Navigation("Organization");
+
+                    b.Navigation("SalesOrder");
+
+                    b.Navigation("Status");
+
+                    b.Navigation("Warehouse");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.MillingOrderInput", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.Location", "Location")
+                        .WithMany()
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.MillingOrder", "MillingOrder")
+                        .WithMany("MillingOrderInputs")
+                        .HasForeignKey("MillingOrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.PaddyLot", "PaddyLot")
+                        .WithMany("MillingOrderInputs")
+                        .HasForeignKey("PaddyLotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Location");
+
+                    b.Navigation("MillingOrder");
+
+                    b.Navigation("PaddyLot");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.MillingOrderOutput", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.MillingOrder", "MillingOrder")
+                        .WithMany("MillingOrderOutputs")
+                        .HasForeignKey("MillingOrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.PaddyLot", "OutputLot")
+                        .WithMany()
+                        .HasForeignKey("OutputLotId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
+                        .WithMany()
+                        .HasForeignKey("ProductVariantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("MillingOrder");
+
+                    b.Navigation("OutputLot");
+
+                    b.Navigation("ProductVariant");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.MillingYieldConfig", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Domain.Entities.RiceVariety", "RiceVariety")
+                        .WithMany("MillingYieldConfigs")
+                        .HasForeignKey("RiceVarietyId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Organization");
+
+                    b.Navigation("RiceVariety");
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.Notification", b =>
                 {
                     b.HasOne("Backend.Domain.Entities.NotificationCategory", "NotificationCategory")
@@ -3598,27 +5842,60 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("NotificationType");
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.Organization", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.FileUpload", "LogoFile")
+                        .WithMany()
+                        .HasForeignKey("LogoFileId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("LogoFile");
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.OutboundOrder", b =>
                 {
                     b.HasOne("Backend.Domain.Entities.User", "AssignedUser")
                         .WithMany()
-                        .HasForeignKey("AssignedUserId");
+                        .HasForeignKey("AssignedUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Backend.Domain.Entities.OutboundOrderStatus", "OutboundOrderStatus")
-                        .WithMany("OutboundOrders")
+                        .WithMany()
                         .HasForeignKey("OutboundOrderStatusId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
+                    b.HasOne("Backend.Domain.Entities.OutboundOrderStatus", null)
                         .WithMany("OutboundOrders")
+                        .HasForeignKey("OutboundOrderStatusId1");
+
+                    b.HasOne("Backend.Domain.Entities.SalesOrder", "SalesOrder")
+                        .WithMany("OutboundOrders")
+                        .HasForeignKey("SalesOrderId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
+                        .WithMany()
                         .HasForeignKey("WarehouseId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Warehouse", null)
+                        .WithMany("OutboundOrders")
+                        .HasForeignKey("WarehouseId1");
 
                     b.Navigation("AssignedUser");
 
+                    b.Navigation("Organization");
+
                     b.Navigation("OutboundOrderStatus");
+
+                    b.Navigation("SalesOrder");
 
                     b.Navigation("Warehouse");
                 });
@@ -3634,12 +5911,178 @@ namespace Backend.Infrastructure.Migrations
                     b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
                         .WithMany()
                         .HasForeignKey("ProductVariantId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.SalesOrderItem", "SalesOrderItem")
+                        .WithMany()
+                        .HasForeignKey("SalesOrderItemId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("OutboundOrder");
 
                     b.Navigation("ProductVariant");
+
+                    b.Navigation("SalesOrderItem");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PaddyLot", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.Location", "Location")
+                        .WithMany()
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
+                        .WithMany()
+                        .HasForeignKey("ProductVariantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.RiceVariety", "RiceVariety")
+                        .WithMany("PaddyLots")
+                        .HasForeignKey("RiceVarietyId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.MillingOrder", "SourceMillingOrder")
+                        .WithMany()
+                        .HasForeignKey("SourceMillingOrderId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.PaddyPurchaseReceipt", "SourceReceipt")
+                        .WithOne("PaddyLot")
+                        .HasForeignKey("Backend.Domain.Entities.PaddyLot", "SourceReceiptId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.LotStatus", "Status")
+                        .WithMany()
+                        .HasForeignKey("StatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Location");
+
+                    b.Navigation("Organization");
+
+                    b.Navigation("ProductVariant");
+
+                    b.Navigation("RiceVariety");
+
+                    b.Navigation("SourceMillingOrder");
+
+                    b.Navigation("SourceReceipt");
+
+                    b.Navigation("Status");
+
+                    b.Navigation("Warehouse");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PaddyPurchaseReceipt", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.Farmer", "Farmer")
+                        .WithMany("PaddyPurchaseReceipts")
+                        .HasForeignKey("FarmerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.IotWeightLog", "IotWeightLog")
+                        .WithMany()
+                        .HasForeignKey("IotWeightLogId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Domain.Entities.RiceVariety", "RiceVariety")
+                        .WithMany()
+                        .HasForeignKey("RiceVarietyId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.PaddyPurchaseSchedule", "Schedule")
+                        .WithMany("PaddyPurchaseReceipts")
+                        .HasForeignKey("ScheduleId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Farmer");
+
+                    b.Navigation("IotWeightLog");
+
+                    b.Navigation("Organization");
+
+                    b.Navigation("RiceVariety");
+
+                    b.Navigation("Schedule");
+
+                    b.Navigation("Warehouse");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PaddyPurchaseSchedule", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.User", "AssignedUser")
+                        .WithMany()
+                        .HasForeignKey("AssignedUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.Farmer", "Farmer")
+                        .WithMany("PaddyPurchaseSchedules")
+                        .HasForeignKey("FarmerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Domain.Entities.RiceVariety", "RiceVariety")
+                        .WithMany()
+                        .HasForeignKey("RiceVarietyId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.PaddyPurchaseScheduleStatus", "Status")
+                        .WithMany()
+                        .HasForeignKey("StatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AssignedUser");
+
+                    b.Navigation("Farmer");
+
+                    b.Navigation("Organization");
+
+                    b.Navigation("RiceVariety");
+
+                    b.Navigation("Status");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PartyDebt", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Organization");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.Permission", b =>
@@ -3702,6 +6145,11 @@ namespace Backend.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("Backend.Domain.Entities.RiceVariety", "RiceVariety")
+                        .WithMany()
+                        .HasForeignKey("RiceVarietyId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Backend.Domain.Entities.UnitOfMeasure", "UnitOfMeasure")
                         .WithMany()
                         .HasForeignKey("UnitOfMeasureId")
@@ -3712,7 +6160,79 @@ namespace Backend.Infrastructure.Migrations
 
                     b.Navigation("Product");
 
+                    b.Navigation("RiceVariety");
+
                     b.Navigation("UnitOfMeasure");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PurchaseOrder", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Domain.Entities.PurchaseOrderStatus", "Status")
+                        .WithMany()
+                        .HasForeignKey("StatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Supplier", "Supplier")
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Organization");
+
+                    b.Navigation("Status");
+
+                    b.Navigation("Supplier");
+
+                    b.Navigation("Warehouse");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PurchaseOrderItem", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
+                        .WithMany()
+                        .HasForeignKey("ProductVariantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.PurchaseOrder", "PurchaseOrder")
+                        .WithMany("PurchaseOrderItems")
+                        .HasForeignKey("PurchaseOrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ProductVariant");
+
+                    b.Navigation("PurchaseOrder");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.QualityInspection", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.User", "Inspector")
+                        .WithMany()
+                        .HasForeignKey("InspectorId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.PaddyLot", "PaddyLot")
+                        .WithMany("QualityInspections")
+                        .HasForeignKey("PaddyLotId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Inspector");
+
+                    b.Navigation("PaddyLot");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.ReturnToSupplierOrder", b =>
@@ -3781,6 +6301,68 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("ReturnToSupplierOrder");
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.RiceVariety", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Organization");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.SalesOrder", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.Customer", "Customer")
+                        .WithMany("SalesOrders")
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Domain.Entities.SalesOrderStatus", "Status")
+                        .WithMany()
+                        .HasForeignKey("StatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Customer");
+
+                    b.Navigation("Organization");
+
+                    b.Navigation("Status");
+
+                    b.Navigation("Warehouse");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.SalesOrderItem", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
+                        .WithMany()
+                        .HasForeignKey("ProductVariantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.SalesOrder", "SalesOrder")
+                        .WithMany("SalesOrderItems")
+                        .HasForeignKey("SalesOrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ProductVariant");
+
+                    b.Navigation("SalesOrder");
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.StockAlertConfig", b =>
                 {
                     b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
@@ -3844,6 +6426,87 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("ProductVariant");
 
                     b.Navigation("StockTake");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.StockTransfer", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.User", "AssignedUser")
+                        .WithMany()
+                        .HasForeignKey("AssignedUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.Warehouse", "FromWarehouse")
+                        .WithMany()
+                        .HasForeignKey("FromWarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Domain.Entities.StockTransferStatus", "Status")
+                        .WithMany()
+                        .HasForeignKey("StatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Warehouse", "ToWarehouse")
+                        .WithMany()
+                        .HasForeignKey("ToWarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AssignedUser");
+
+                    b.Navigation("FromWarehouse");
+
+                    b.Navigation("Organization");
+
+                    b.Navigation("Status");
+
+                    b.Navigation("ToWarehouse");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.StockTransferItem", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.Location", "FromLocation")
+                        .WithMany()
+                        .HasForeignKey("FromLocationId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.PaddyLot", "PaddyLot")
+                        .WithMany()
+                        .HasForeignKey("PaddyLotId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
+                        .WithMany()
+                        .HasForeignKey("ProductVariantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.StockTransfer", "StockTransfer")
+                        .WithMany("StockTransferItems")
+                        .HasForeignKey("StockTransferId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Location", "ToLocation")
+                        .WithMany()
+                        .HasForeignKey("ToLocationId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("FromLocation");
+
+                    b.Navigation("PaddyLot");
+
+                    b.Navigation("ProductVariant");
+
+                    b.Navigation("StockTransfer");
+
+                    b.Navigation("ToLocation");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.User", b =>
@@ -3949,6 +6612,11 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("Permissions");
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.Customer", b =>
+                {
+                    b.Navigation("SalesOrders");
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.CustomerReturnOrder", b =>
                 {
                     b.Navigation("Items");
@@ -3957,6 +6625,13 @@ namespace Backend.Infrastructure.Migrations
             modelBuilder.Entity("Backend.Domain.Entities.DeliveryNote", b =>
                 {
                     b.Navigation("InboundOrder");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.Farmer", b =>
+                {
+                    b.Navigation("PaddyPurchaseReceipts");
+
+                    b.Navigation("PaddyPurchaseSchedules");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.FileUpload", b =>
@@ -3998,6 +6673,13 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("Permissions");
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.MillingOrder", b =>
+                {
+                    b.Navigation("MillingOrderInputs");
+
+                    b.Navigation("MillingOrderOutputs");
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.Notification", b =>
                 {
                     b.Navigation("UserNotifications");
@@ -4023,6 +6705,28 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("OutboundOrders");
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.PaddyLot", b =>
+                {
+                    b.Navigation("MillingOrderInputs");
+
+                    b.Navigation("QualityInspections");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PaddyPurchaseReceipt", b =>
+                {
+                    b.Navigation("PaddyLot");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PaddyPurchaseSchedule", b =>
+                {
+                    b.Navigation("PaddyPurchaseReceipts");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PartyDebt", b =>
+                {
+                    b.Navigation("DebtTransactions");
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.Product", b =>
                 {
                     b.Navigation("ProductVariants");
@@ -4035,9 +6739,23 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("SubCategories");
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.PurchaseOrder", b =>
+                {
+                    b.Navigation("InboundOrders");
+
+                    b.Navigation("PurchaseOrderItems");
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.ReturnToSupplierOrder", b =>
                 {
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.RiceVariety", b =>
+                {
+                    b.Navigation("MillingYieldConfigs");
+
+                    b.Navigation("PaddyLots");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.Role", b =>
@@ -4045,6 +6763,15 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("Permissions");
 
                     b.Navigation("UserRoles");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.SalesOrder", b =>
+                {
+                    b.Navigation("MillingOrders");
+
+                    b.Navigation("OutboundOrders");
+
+                    b.Navigation("SalesOrderItems");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.StockTake", b =>
@@ -4055,6 +6782,11 @@ namespace Backend.Infrastructure.Migrations
             modelBuilder.Entity("Backend.Domain.Entities.StockTakeStatus", b =>
                 {
                     b.Navigation("StockTakes");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.StockTransfer", b =>
+                {
+                    b.Navigation("StockTransferItems");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.User", b =>
