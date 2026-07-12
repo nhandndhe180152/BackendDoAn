@@ -7,10 +7,10 @@ public class StockTakeItem : EntityAuditBase<int>
 {
     public int StockTakeId { get; set; }
     public int? ProductVariantId { get; set; }
-    public int SystemQuantity { get; set; }
+    public decimal SystemQuantity { get; set; }
     public int? LocationId { get; set; }
-    public int? ActualQuantity { get; set; }
-    public int Difference => (ActualQuantity ?? 0) - SystemQuantity;
+    public decimal? ActualQuantity { get; set; }
+    public decimal Difference => (ActualQuantity ?? 0) - SystemQuantity;
     public string? Note { get; set; }
     public bool QRScanned { get; set; }
 

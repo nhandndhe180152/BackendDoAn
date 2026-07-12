@@ -28,8 +28,8 @@ public class CreateInboundOrderItemDto
     [Required]
     public int ProductVariantId { get; set; }
 
-    [Range(1, int.MaxValue)]
-    public int QuantityOrdered { get; set; }
+    [Range(0.001, double.MaxValue)]
+    public decimal QuantityOrdered { get; set; }
 
     [Range(0, double.MaxValue)]
     public decimal UnitCostPrice { get; set; }
@@ -59,8 +59,8 @@ public class UpdateInboundOrderItemDto
     [Required]
     public int ProductVariantId { get; set; }
 
-    [Range(1, int.MaxValue)]
-    public int QuantityOrdered { get; set; }
+    [Range(0.001, double.MaxValue)]
+    public decimal QuantityOrdered { get; set; }
 
     [Range(0, double.MaxValue)]
     public decimal UnitCostPrice { get; set; }
@@ -113,8 +113,8 @@ public class InboundOrderItemDto
     public int? ProductVariantId { get; set; }
     public string? ProductVariantName { get; set; }
     public string? SKU { get; set; }
-    public int QuantityOrdered { get; set; }
-    public int QuantityReceived { get; set; }
+    public decimal QuantityOrdered { get; set; }
+    public decimal QuantityReceived { get; set; }
     public decimal UnitCostPrice { get; set; }
     public decimal? ExpectedWeightKg { get; set; }
     public decimal? ActualWeightKg { get; set; }

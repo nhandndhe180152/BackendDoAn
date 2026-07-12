@@ -19,10 +19,12 @@ public class InventoryConfiguration : IEntityTypeConfiguration<Inventory>
             .HasColumnType("decimal(18,2)");
 
         builder.Property(x => x.QuantityOnHand)
+            .HasColumnType("decimal(18,3)")
             .IsRequired();
 
         builder.Property(x => x.QuantityReserved)
-            .HasDefaultValue(0);
+            .HasColumnType("decimal(18,3)")
+            .HasDefaultValue(0m);
 
         builder.HasOne(x => x.Warehouse)
             .WithMany(x => x.Inventories)
@@ -39,6 +41,11 @@ public class InventoryConfiguration : IEntityTypeConfiguration<Inventory>
             .HasForeignKey(x => x.ProductVariantId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        builder.HasOne(x => x.PaddyLot)
+            .WithMany()
+            .HasForeignKey(x => x.PaddyLotId)
+            .OnDelete(DeleteBehavior.SetNull);
+
 
         builder.Property(x => x.RowVersion)
             .IsRowVersion()
@@ -53,8 +60,8 @@ public class InventoryConfiguration : IEntityTypeConfiguration<Inventory>
         builder.HasIndex(x => x.ProductVariantId)
             .HasDatabaseName("IX_Inventory_ProductVariantId");
 
-        builder.HasIndex(x => new { x.ProductVariantId, x.WarehouseId, x.LocationId })
+        builder.HasIndex(x => new { x.ProductVariantId, x.WarehouseId, x.LocationId, x.PaddyLotId })
             .IsUnique()
-            .HasDatabaseName("UX_Inventory_ProductVariant_Warehouse_Location");
+            .HasDatabaseName("UX_Inventory_ProductVariant_Warehouse_Location_Lot");
     }
 }

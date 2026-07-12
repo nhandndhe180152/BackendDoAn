@@ -19,7 +19,14 @@ public class ProductVariant : EntityCommonBase<int>
     public decimal? MinStockLevel { get; set; }
     public bool IsIoTRequired { get; set; } // FE-09
 
+    /// <summary>Giống lúa — dùng cho lúa nguyên liệu và gạo thành phẩm</summary>
+    public int? RiceVarietyId { get; set; }
+
+    /// <summary>true = phụ phẩm (tấm/cám/trấu); false = lúa hoặc gạo chính</summary>
+    public bool IsByproduct { get; set; }
+
     public virtual Product Product { get; set; } = null!;
     public virtual UnitOfMeasure UnitOfMeasure { get; set; } = null!;
     public virtual FileUpload? Image { get; set; }
+    public virtual RiceVariety? RiceVariety { get; set; }
 }

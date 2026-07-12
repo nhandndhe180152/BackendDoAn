@@ -26,11 +26,11 @@ public class InventoryDto
 
     public decimal CostPrice { get; set; }
 
-    public int QuantityOnHand { get; set; }
+    public decimal QuantityOnHand { get; set; }
 
-    public int QuantityReserved { get; set; }
+    public decimal QuantityReserved { get; set; }
 
-    public int QuantityAvailable { get; set; }
+    public decimal QuantityAvailable { get; set; }
 
     public decimal? MinStockLevel { get; set; }
 

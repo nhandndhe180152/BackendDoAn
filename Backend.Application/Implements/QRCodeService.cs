@@ -174,7 +174,10 @@ public class QRCodeService : IQRCodeService
                         locationText = $"Vị trí: {string.Join(", ", locations)}";
                     }
 
-                    for (int i = 0; i < item.Quantity; i++)
+                    // Quantity là decimal (kg/túi); làm tròn sang int để in đúng số lượng nhãn.
+                    // Math.Max(1,...) đảm bảo luôn in ít nhất 1 nhãn dù Quantity < 0.5.
+                    var labelCount = (int)Math.Max(1, Math.Round((decimal)item.Quantity, MidpointRounding.AwayFromZero));
+                    for (int i = 0; i < labelCount; i++)
                     {
                         if (!isFirst)
                         {

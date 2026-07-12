@@ -107,7 +107,7 @@ public class InboundOrderService : IInboundOrderService
         if (!string.IsNullOrEmpty(query.Keyword))
         {
             var keyword = query.Keyword.ToLower();
-            data = data.Where(x => x.POCode.ToLower().Contains(keyword) ||
+            data = data.Where(x => (x.POCode ?? "").ToLower().Contains(keyword) ||
                                    (x.Note != null && x.Note.ToLower().Contains(keyword)));
         }
 
@@ -174,7 +174,7 @@ public class InboundOrderService : IInboundOrderService
         if (!string.IsNullOrWhiteSpace(keyword))
         {
             query = query.Where(x =>
-                x.POCode.Contains(keyword) ||
+                (x.POCode ?? "").Contains(keyword) ||
                 (x.SupplierName != null && x.SupplierName.Contains(keyword)) ||
                 (x.Note != null && x.Note.Contains(keyword)));
         }
@@ -191,7 +191,7 @@ public class InboundOrderService : IInboundOrderService
                 {
                     case "poCode":
                     case "POCode":
-                        query = query.Where(x => x.POCode.Contains(search));
+                        query = query.Where(x => (x.POCode ?? "").Contains(search));
                         break;
                     case "supplierName":
                     case "SupplierName":
@@ -1172,7 +1172,7 @@ public class InboundOrderService : IInboundOrderService
                 true
             );
 
-            var oldQty = 0;
+            var oldQty = 0m;
             decimal oldCost = 0;
 
             if (inventory == null)

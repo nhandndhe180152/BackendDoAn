@@ -19,9 +19,13 @@ public class CustomerReturnOrder : EntityAuditBase<int>
     public int? ApprovedBy { get; set; }
     public DateTime? CompletedDate { get; set; }
 
+    /// <summary>Khách hàng trả hàng — FK → Customer</summary>
+    public int? CustomerId { get; set; }
+
     public virtual Warehouse Warehouse { get; set; } = null!;
     public virtual CustomerReturnOrderStatus CustomerReturnOrderStatus { get; set; } = null!;
     public virtual OutboundOrder? OutboundOrder { get; set; }
     public virtual User? ApprovedByUser { get; set; }
+    public virtual Customer? Customer { get; set; }
     public virtual ICollection<CustomerReturnOrderItem> Items { get; set; } = new List<CustomerReturnOrderItem>();
 }

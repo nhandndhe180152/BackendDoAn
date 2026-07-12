@@ -10,9 +10,9 @@ public class ManualInventoryAdjustmentDto
 
     public int? LocationId { get; set; }
 
-    public int? NewQuantityOnHand { get; set; }
+    public decimal? NewQuantityOnHand { get; set; }
 
-    public int? AdjustmentQuantity { get; set; }
+    public decimal? AdjustmentQuantity { get; set; }
 
     public string Reason { get; set; } = null!;
 }

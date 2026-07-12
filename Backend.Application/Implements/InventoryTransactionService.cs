@@ -159,7 +159,7 @@ public class InventoryTransactionService : IInventoryTransactionService
     /// <param name="request">Tham số đầu vào dùng trong logic xử lý của hàm.</param>
     /// <param name="newQuantityOnHand">Tham số đầu vào dùng trong logic xử lý của hàm.</param>
     /// <returns>Kết quả xử lý của hàm, thường là dữ liệu, ApiResponse, IActionResult hoặc trạng thái thao tác.</returns>
-    public async Task<ApiResponse> AdjustStockAsync(StockMovementRequestDto request, int newQuantityOnHand, bool isManagedTransaction = false)
+    public async Task<ApiResponse> AdjustStockAsync(StockMovementRequestDto request, decimal newQuantityOnHand, bool isManagedTransaction = false)
     {
         return await ApplyMovementAsync(
             request,
@@ -179,7 +179,7 @@ public class InventoryTransactionService : IInventoryTransactionService
     private async Task<ApiResponse> ApplyMovementAsync(
         StockMovementRequestDto request,
         string transactionType,
-        int? newQuantityOnHand,
+        decimal? newQuantityOnHand,
         bool isManagedTransaction = false)
     {
         if (isManagedTransaction)
@@ -221,7 +221,7 @@ public class InventoryTransactionService : IInventoryTransactionService
     private async Task<ApiResponse> ApplyMovementCoreAsync(
         StockMovementRequestDto request,
         string transactionType,
-        int? newQuantityOnHand)
+        decimal? newQuantityOnHand)
     {
         if (request.ProductVariantId <= 0)
         {
@@ -283,8 +283,8 @@ public class InventoryTransactionService : IInventoryTransactionService
         }
 
         var beforeQuantity = inventory.QuantityOnHand;
-        int afterQuantity;
-        int transactionQuantity;
+        decimal afterQuantity;
+        decimal transactionQuantity;
 
         // Tính số lượng trước/sau theo từng loại giao dịch:
         // - Import: cộng tồn
