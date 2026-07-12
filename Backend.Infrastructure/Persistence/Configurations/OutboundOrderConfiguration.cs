@@ -19,7 +19,7 @@ public class OutboundOrderConfiguration : IEntityTypeConfiguration<OutboundOrder
 
         builder.Property(x => x.Note).HasMaxLength(1000);
 
-        // FK → SalesOrder (nullable ở MVP để an toàn migration)
+        // FK → SalesOrder (NOT NULL: mỗi phiếu xuất phải thuộc đơn bán)
         builder.HasOne(x => x.SalesOrder)
             .WithMany(x => x.OutboundOrders)
             .HasForeignKey(x => x.SalesOrderId)
@@ -31,12 +31,12 @@ public class OutboundOrderConfiguration : IEntityTypeConfiguration<OutboundOrder
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(x => x.Warehouse)
-            .WithMany()
+            .WithMany(w => w.OutboundOrders)
             .HasForeignKey(x => x.WarehouseId)
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(x => x.OutboundOrderStatus)
-            .WithMany()
+            .WithMany(s => s.OutboundOrders)
             .HasForeignKey(x => x.OutboundOrderStatusId)
             .OnDelete(DeleteBehavior.Restrict);
 

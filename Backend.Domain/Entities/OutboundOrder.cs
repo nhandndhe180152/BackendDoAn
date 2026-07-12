@@ -9,8 +9,8 @@ public class OutboundOrder : EntityAuditBase<int>
     public int WarehouseId { get; set; }
     public int OutboundOrderStatusId { get; set; }
 
-    /// <summary>Nguồn gốc phiếu xuất — FK → SalesOrder (nullable để an toàn migration, backfill sau)</summary>
-    public int? SalesOrderId { get; set; }
+    /// <summary>Nguồn gốc phiếu xuất — FK → SalesOrder (NOT NULL: mỗi phiếu xuất phải thuộc đơn bán)</summary>
+    public int SalesOrderId { get; set; }
 
     /// <summary>Multi-tenant (nullable ở MVP — chưa bật Global Query Filter)</summary>
     public int? OrganizationId { get; set; }
@@ -22,7 +22,7 @@ public class OutboundOrder : EntityAuditBase<int>
 
     public virtual Warehouse Warehouse { get; set; } = null!;
     public virtual OutboundOrderStatus OutboundOrderStatus { get; set; } = null!;
-    public virtual SalesOrder? SalesOrder { get; set; }
+    public virtual SalesOrder SalesOrder { get; set; } = null!;
     public virtual Organization? Organization { get; set; }
     public virtual User? AssignedUser { get; set; }
     public virtual ICollection<OutboundOrderItem> OutboundOrderItems { get; set; } = new List<OutboundOrderItem>();

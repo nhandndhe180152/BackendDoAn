@@ -7,8 +7,10 @@ namespace Backend.Infrastructure.Persistence.SeedData;
 public static class LotStatusSeed
 {
     /// <summary>
-    /// Seed 6 trạng thái lô.
-    /// IsSellable=false: Cách ly, Chờ xử lý.
+    /// Seed 6 trạng thái lô hàng.
+    /// IsSellable=true: chỉ "Dạng lưu kho" (lô đã nhập, chưa xử lý, đủ điều kiện xuất bán).
+    /// IsSellable=false: tất cả trạng thái còn lại (chưa nhập / đang xử lý / cách ly / đang xay / đã dùng hết).
+    /// → Đã được chốt lại theo nghiệp vụ (PR review 10/07/2026); lệch doc cũ chỉ nêu Cách ly + Chờ xử lý.
     /// </summary>
     public static IEnumerable<LotStatus> GetStatuses()
     {
