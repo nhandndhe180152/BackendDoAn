@@ -46,8 +46,8 @@ public static class InventoryReferenceTypeConstants
 
         return value switch
         {
-            "PO" or "PURCHASEORDER" or "PURCHASE_ORDER" or "IO" or "INBOUNDORDER" or "INBOUND_ORDER" => InboundOrder,
-            "SO" or "SALESORDER" or "SALES_ORDER" or "OO" or "OUTBOUNDORDER" or "OUTBOUND_ORDER"     => OutboundOrder,
+            "PO" or "PURCHASEORDER" or "IO" or "INBOUNDORDER" or "INBOUND_ORDER"     => InboundOrder,
+            "SO" or "SALESORDER"    or "OO" or "OUTBOUNDORDER" or "OUTBOUND_ORDER"     => OutboundOrder,
             "ST" or "STOCKTAKE" or "STOCK_TAKE"                                                       => StockTake,
             "OPENING" or "OPENING_BALANCE"                                                            => OpeningBalance,
             "MANUAL"                                                                                  => Manual,
