@@ -18,8 +18,24 @@ public class JobRegistrar : IJobRegistrar
         _scheduler = scheduler ?? throw new ArgumentNullException(nameof(scheduler));
     }
 
+    /// <summary>
+    /// Recurring job IoT đã gỡ theo BLE pivot (FDS v3). Định nghĩa cũ vẫn còn nằm trong
+    /// Hangfire storage nên scheduler cố nạp type đã xóa → JobLoadException. Xóa idempotent
+    /// mỗi lần khởi động để dọn sạch (RemoveIfExists an toàn khi không còn tồn tại).
+    /// </summary>
+    private static readonly string[] RetiredJobIds =
+    {
+        "IotDeviceHeartbeatJob",
+        "IotCommandExpiryJob"
+    };
+
     public void RegisterJobs()
     {
+        foreach (var retiredJobId in RetiredJobIds)
+        {
+            _scheduler.DeleteRecurringJob(retiredJobId);
+        }
+
         RegisterJob<UserSessionCleanupJob>(
             nameof(UserSessionCleanupJob),
             _config.CleanupUserSession.Enabled,
@@ -30,20 +46,6 @@ public class JobRegistrar : IJobRegistrar
             nameof(VerificationTokenCleanupJob),
             _config.CleanupVerificationTokens.Enabled,
             _config.CleanupVerificationTokens.Cron
-        );
-
-        // JOB-03: heartbeat thiết bị IoT -> Online/Offline (BR-47)
-        RegisterJob<IotDeviceHeartbeatJob>(
-            nameof(IotDeviceHeartbeatJob),
-            _config.IotDeviceHeartbeat.Enabled,
-            _config.IotDeviceHeartbeat.Cron
-        );
-
-        // JOB-04: hết hạn lệnh IoT đang Pending (BR-48)
-        RegisterJob<IotCommandExpiryJob>(
-            nameof(IotCommandExpiryJob),
-            _config.IotCommandExpiry.Enabled,
-            _config.IotCommandExpiry.Cron
         );
 
         // RegisterJob<PingDatabaseJob>(

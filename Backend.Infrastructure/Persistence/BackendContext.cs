@@ -40,9 +40,6 @@ public class BackendContext : DbContext
     public virtual DbSet<FcmNotificationLog> FcmNotificationLogs { get; set; }
     public virtual DbSet<Inventory> Inventories { get; set; }
     public virtual DbSet<InventoryTransaction> InventoryTransactions { get; set; }
-    public virtual DbSet<IotDevice> IotDevices { get; set; }
-    public virtual DbSet<IotDeviceCommand> IotDeviceCommands { get; set; }
-    public virtual DbSet<IotWeightLog> IotWeightLogs { get; set; }
     public virtual DbSet<Location> Locations { get; set; }
     public virtual DbSet<Product> Products { get; set; }
     public virtual DbSet<ProductAttribute> ProductAttributes { get; set; }

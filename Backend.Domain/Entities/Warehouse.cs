@@ -13,7 +13,6 @@ public class Warehouse : EntityCommonBase<int>
     public virtual ICollection<Location> Locations { get; set; } = new List<Location>();
     public virtual ICollection<Inventory> Inventories { get; set; } = new List<Inventory>();
     public virtual ICollection<InventoryTransaction> InventoryTransactions { get; set; } = new List<InventoryTransaction>();
-    public virtual ICollection<IotDevice> IotDevices { get; set; } = new List<IotDevice>();
     public virtual ICollection<InboundOrder> InboundOrders { get; set; } = new List<InboundOrder>();
     public virtual ICollection<OutboundOrder> OutboundOrders { get; set; } = new List<OutboundOrder>();
     public virtual ICollection<StockTake> StockTakes { get; set; } = new List<StockTake>();

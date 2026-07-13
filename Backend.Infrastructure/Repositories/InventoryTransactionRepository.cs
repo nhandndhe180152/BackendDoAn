@@ -70,7 +70,6 @@ public class InventoryTransactionRepository : RepositoryBase<InventoryTransactio
                 BeforeQuantity = x.BeforeQuantity,
                 AfterQuantity = x.AfterQuantity,
                 WeightKg = x.WeightKg,
-                IotWeightLogId = x.IotWeightLogId,
                 Note = x.Note,
                 CreatedDate = x.CreatedDate,
                 CreatedBy = x.CreatedBy
@@ -159,7 +158,6 @@ public class InventoryTransactionRepository : RepositoryBase<InventoryTransactio
             .Include(x => x.Location)
             .Include(x => x.ProductVariant)
                 .ThenInclude(x => x.Product)
-            .Include(x => x.IotWeightLog)
             .FirstOrDefaultAsync(x => !x.IsDeleted && x.Id == id);
     }
 

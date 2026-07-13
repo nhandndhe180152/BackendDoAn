@@ -356,7 +356,6 @@ public class InventoryTransactionService : IInventoryTransactionService
             BeforeQuantity = beforeQuantity,
             AfterQuantity = afterQuantity,
             WeightKg = request.WeightKg,
-            IotWeightLogId = request.IotWeightLogId,
             Note = request.Note,
             CreatedDate = now,
             CreatedBy = currentUserId

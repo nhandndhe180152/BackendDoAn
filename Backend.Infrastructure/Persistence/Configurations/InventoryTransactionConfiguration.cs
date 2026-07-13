@@ -57,11 +57,6 @@ public class InventoryTransactionConfiguration : IEntityTypeConfiguration<Invent
             .HasForeignKey(x => x.ProductVariantId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        builder.HasOne(x => x.IotWeightLog)
-            .WithMany()
-            .HasForeignKey(x => x.IotWeightLogId)
-            .OnDelete(DeleteBehavior.SetNull);
-
         builder.HasOne(x => x.PaddyLot)
             .WithMany()
             .HasForeignKey(x => x.PaddyLotId)
@@ -75,8 +70,5 @@ public class InventoryTransactionConfiguration : IEntityTypeConfiguration<Invent
 
         builder.HasIndex(x => new { x.ProductVariantId, x.CreatedDate })
             .HasDatabaseName("IX_InventoryTransaction_ProductVariant_CreatedDate");
-
-        builder.HasIndex(x => x.IotWeightLogId)
-            .HasDatabaseName("IX_InventoryTransaction_IotWeightLogId");
     }
 }

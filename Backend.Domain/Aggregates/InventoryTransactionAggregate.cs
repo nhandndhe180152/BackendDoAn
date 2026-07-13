@@ -40,8 +40,6 @@ public class InventoryTransactionAggregate
 
     public decimal? WeightKg { get; set; }
 
-    public int? IotWeightLogId { get; set; }
-
     public string? Note { get; set; }
 
     public DateTime CreatedDate { get; set; }

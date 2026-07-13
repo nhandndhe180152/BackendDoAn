@@ -237,8 +237,6 @@ public class ProductVariantService : IProductVariantService
         
         if (obj.MinStockLevel.HasValue && obj.MinStockLevel.Value < 0)
             return ApiResponse.UnprocessableEntity("MinStockLevel phải lớn hơn hoặc bằng 0.", ApiCodeConstants.Common.InvalidData);
-        if (obj.IsIoTRequired && obj.Weight <= 0)
-            return ApiResponse.UnprocessableEntity("Khi IsIoTRequired = true, Weight phải lớn hơn 0.", ApiCodeConstants.Common.InvalidData);
 
         // Validate AttributeValues
         var attrError = await ValidateAttributeValuesAsync(obj.AttributeValues);
@@ -412,9 +410,6 @@ public class ProductVariantService : IProductVariantService
         if (query.IsActive.HasValue)
             baseQuery = baseQuery.Where(x => x.IsActive == query.IsActive.Value);
 
-        if (query.IsIoTRequired.HasValue)
-            baseQuery = baseQuery.Where(x => x.IsIoTRequired == query.IsIoTRequired.Value);
-
         if (query.HasMinStockLevel.HasValue)
         {
             if (query.HasMinStockLevel.Value)
@@ -498,8 +493,6 @@ public class ProductVariantService : IProductVariantService
             return ApiResponse.UnprocessableEntity("Khối lượng (Weight) phải lớn hơn hoặc bằng 0.", ApiCodeConstants.Common.InvalidData);
         if (obj.MinStockLevel.HasValue && obj.MinStockLevel.Value < 0)
             return ApiResponse.UnprocessableEntity("MinStockLevel phải lớn hơn hoặc bằng 0.", ApiCodeConstants.Common.InvalidData);
-        if (obj.IsIoTRequired && obj.Weight <= 0)
-            return ApiResponse.UnprocessableEntity("Khi IsIoTRequired = true, Weight phải lớn hơn 0.", ApiCodeConstants.Common.InvalidData);
 
         // Validate AttributeValues (only overwrite when explicitly submitted)
         if (obj.AttributeValues != null)
