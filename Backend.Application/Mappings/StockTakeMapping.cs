@@ -1,5 +1,7 @@
 using System;
 using System.Linq;
+using Backend.Application.Common;
+using Backend.Application.Constants;
 using Backend.Application.DTOs.StockTakes;
 using Backend.Domain.Entities;
 using Backend.Share.Helpers;
@@ -14,7 +16,7 @@ public static class StockTakeMapping
         var entity = new StockTake
         {
             WarehouseId = dto.WarehouseId,
-            StockTakeStatusId = (int)Backend.Domain.Enums.Enums.StockTakeStatusEnum.Draft,
+            StockTakeStatusId = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Draft),
             STCode = string.IsNullOrEmpty(dto.STCode) ? $"ST{now:yyyyMMddHHmmss}" : dto.STCode,
             Note = dto.Note,
             CreatedDate = now,

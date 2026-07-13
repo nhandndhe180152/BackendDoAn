@@ -90,6 +90,7 @@ public static class ConfigureServices
 
         services.AddMemoryCache();
         services.AddScoped<ICacheService, MemoryCacheService>();
+        services.AddSingleton<ISystemLookup, SystemLookup>();
         services.AddScoped<ISerializeService, SerializeService>();
         services.AddScoped<IScheduledJobService, ScheduledJobService>();
         services.AddScoped<IJobRegistrar, JobRegistrar>();

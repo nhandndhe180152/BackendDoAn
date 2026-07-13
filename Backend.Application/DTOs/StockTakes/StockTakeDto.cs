@@ -22,7 +22,8 @@ public class StockTakeDto
 public class CreateStockTakeDto
 {
     public int WarehouseId { get; set; }
-    public int StockTakeStatusId { get; set; } = (int)Backend.Domain.Enums.Enums.StockTakeStatusEnum.Draft;
+    // Mặc định 0: trạng thái Draft được gán trong StockTakeMapping.ToEntity qua Lookup theo Code (không hard-code Id).
+    public int StockTakeStatusId { get; set; }
     public string? STCode { get; set; } // Auto-generated if null
     public string? Note { get; set; }
     public int? CreatedBy { get; set; }

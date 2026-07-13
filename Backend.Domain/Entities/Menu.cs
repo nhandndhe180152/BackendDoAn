@@ -5,6 +5,12 @@ namespace Backend.Domain.Entities;
 
 public class Menu : EntityAuditBase<int>
 {
+    /// <summary>
+    /// Mã định danh ổn định (bất biến) dùng cho phân quyền thay cho Id số của DB.
+    /// Vd: PRODUCT/NOTIFICATION/SYSTEM_CONFIG. Khớp với tên thành viên enum Enums.Menu.
+    /// </summary>
+    public string? Code { get; set; }
+
     public int? ParentId { get; set; }
     public string TreeIds { get; set; } = null!;
     public string MenuType { get; set; } = null!;

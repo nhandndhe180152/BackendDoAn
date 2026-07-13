@@ -2,6 +2,8 @@ using System;
 using System.Globalization;
 using Backend.Application.DTOs.Users;
 using Backend.Domain.Entities;
+using Backend.Application.Common;
+using Backend.Application.Constants;
 using Backend.Domain.Enums;
 using Backend.Share.Helpers;
 
@@ -23,7 +25,7 @@ public static class UserMapping
             IdentityNumber = obj.IdentityNumber,
             Gender = obj.Gender,
             AddresDetail = obj.AddresDetail,
-            UserStatusId = (int)Enums.UserStatus.Actived,
+            UserStatusId = Lookup.UserStatusId(LookupCodes.UserStatus.Active),
             AccessFailedCount = 0,
             LockEnabled = false,
             CreatedDate = DateTime.Now
@@ -69,7 +71,7 @@ public static class UserMapping
             FirstName = obj.FirstName.Trim(),
             LastName = obj.LastName.Trim(),
             Email = obj.Email.Trim(),
-            UserStatusId = (int)Enums.UserStatus.NotActivated,
+            UserStatusId = Lookup.UserStatusId(LookupCodes.UserStatus.NotActivated),
             AccessFailedCount = 0,
             LockEnabled = false,
             //OfficeId = obj.OfficeId,
@@ -89,7 +91,7 @@ public static class UserMapping
             Email = obj.Email.Trim(),
             PhoneNumber = obj.PhoneNumber.Trim(),
             IdentityNumber = obj.IdentityNumber.Trim(),
-            UserStatusId = (int)Enums.UserStatus.NotActivated,
+            UserStatusId = Lookup.UserStatusId(LookupCodes.UserStatus.NotActivated),
             AccessFailedCount = 0,
             LockEnabled = false,
             CreatedDate = DateTime.Now
@@ -109,7 +111,7 @@ public static class UserMapping
             Email = obj.Email.Trim(),
             PhoneNumber = obj.PhoneNumber != null ? obj.PhoneNumber.Trim() : null,
             IdentityNumber = obj.IdentityNumber.Trim(),
-            UserStatusId = (int)Enums.UserStatus.Actived,
+            UserStatusId = Lookup.UserStatusId(LookupCodes.UserStatus.Active),
             AccessFailedCount = 0,
             AddresDetail = obj.AddressDetail,
             LockEnabled = false,

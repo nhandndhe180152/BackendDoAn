@@ -12,24 +12,28 @@ public static class StockTakeStatusSeed
             new StockTakeStatus
             {
                 Id = 1,
+                Code = "Draft",
                 Name = "Mới tạo",
                 Color = "#ff9500"
             },
             new StockTakeStatus
             {
                 Id = 2,
+                Code = "Submitted",
                 Name = "Đã gửi yêu cầu",
                 Color = "#007bff"
             },
             new StockTakeStatus
             {
                 Id = 3,
+                Code = "Approved",
                 Name = "Đã duyệt",
                 Color = "#00b315"
             },
             new StockTakeStatus
             {
                 Id = 4,
+                Code = "Rejected",
                 Name = "Từ chối",
                 Color = "#ff0000"
             }
