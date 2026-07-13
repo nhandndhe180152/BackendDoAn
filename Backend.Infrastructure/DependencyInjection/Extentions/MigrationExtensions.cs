@@ -12,10 +12,10 @@ public static class MigrationExtensions
     {
         using var scope = host.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<BackendContext>();
-        if (dbContext.Database.GetPendingMigrations().Any())
-        {
-            dbContext.Database.Migrate();
-        }
+        // if (dbContext.Database.GetPendingMigrations().Any())
+        // {
+        //     dbContext.Database.Migrate();
+        // }
 
     }
 }
