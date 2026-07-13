@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Backend.Application.Common;
 using Backend.Application.Constants;
 using Backend.Application.DTOs.StockTakes;
 using Backend.Application.Interfaces;
@@ -108,8 +109,8 @@ public class StockTakeService : IStockTakeService
         if (existData == null)
             return ApiResponse.NotFound();
             
-        if (existData.StockTakeStatusId == (int)Enums.StockTakeStatusEnum.Approved || 
-            existData.StockTakeStatusId == (int)Enums.StockTakeStatusEnum.Rejected)
+        if (existData.StockTakeStatusId == Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Approved) || 
+            existData.StockTakeStatusId == Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Rejected))
         {
             return ApiResponse.UnprocessableEntity("Không thể xóa phiếu đã duyệt hoặc bị từ chối.", ApiCodeConstants.Common.UnprocessableEntity);
         }
@@ -135,20 +136,20 @@ public class StockTakeService : IStockTakeService
         if (existData == null)
             return ApiResponse.NotFound();
 
-        if (existData.StockTakeStatusId == (int)Enums.StockTakeStatusEnum.Approved || 
-            existData.StockTakeStatusId == (int)Enums.StockTakeStatusEnum.Rejected)
+        if (existData.StockTakeStatusId == Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Approved) || 
+            existData.StockTakeStatusId == Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Rejected))
         {
             return ApiResponse.UnprocessableEntity("Không thể cập nhật phiếu đã duyệt hoặc bị từ chối.", ApiCodeConstants.Common.UnprocessableEntity);
         }
 
-        if (obj.StockTakeStatusId == (int)Enums.StockTakeStatusEnum.Approved || 
-            obj.StockTakeStatusId == (int)Enums.StockTakeStatusEnum.Rejected)
+        if (obj.StockTakeStatusId == Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Approved) || 
+            obj.StockTakeStatusId == Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Rejected))
         {
             return ApiResponse.UnprocessableEntity("Không thể cập nhật trạng thái Duyệt/Từ chối qua chức năng này.", ApiCodeConstants.Common.UnprocessableEntity);
         }
 
-        if (obj.StockTakeStatusId == (int)Enums.StockTakeStatusEnum.Submitted && 
-            existData.StockTakeStatusId != (int)Enums.StockTakeStatusEnum.Draft)
+        if (obj.StockTakeStatusId == Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Submitted) && 
+            existData.StockTakeStatusId != Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Draft))
         {
             return ApiResponse.UnprocessableEntity("Chỉ có thể Gửi duyệt phiếu đang ở trạng thái Nháp.", ApiCodeConstants.Common.UnprocessableEntity);
         }
@@ -233,7 +234,7 @@ public class StockTakeService : IStockTakeService
         if (existData == null)
             return ApiResponse.NotFound();
 
-        if (existData.StockTakeStatusId != (int)Enums.StockTakeStatusEnum.Submitted)
+        if (existData.StockTakeStatusId != Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Submitted))
         {
             return ApiResponse.UnprocessableEntity("Chỉ có thể duyệt phiếu kiểm kho ở trạng thái chờ duyệt.", ApiCodeConstants.Common.UnprocessableEntity);
         }
@@ -241,7 +242,7 @@ public class StockTakeService : IStockTakeService
         await using var transaction = await _stockTakeRepository.BeginTransactionAsync();
         try
         {
-            existData.StockTakeStatusId = (int)Enums.StockTakeStatusEnum.Approved;
+            existData.StockTakeStatusId = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Approved);
             existData.ApprovedByUserId = userId;
             existData.ApproveNote = approveNote;
             existData.CompletedDate = DateTimeHelper.VietnamNow();
@@ -299,7 +300,7 @@ public class StockTakeService : IStockTakeService
         if (existData == null)
             return ApiResponse.NotFound();
 
-        if (existData.StockTakeStatusId != (int)Enums.StockTakeStatusEnum.Submitted)
+        if (existData.StockTakeStatusId != Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Submitted))
         {
             return ApiResponse.UnprocessableEntity("Chỉ có thể từ chối phiếu kiểm kho ở trạng thái chờ duyệt.", ApiCodeConstants.Common.UnprocessableEntity);
         }
@@ -307,7 +308,7 @@ public class StockTakeService : IStockTakeService
         await using var transaction = await _stockTakeRepository.BeginTransactionAsync();
         try
         {
-            existData.StockTakeStatusId = (int)Enums.StockTakeStatusEnum.Rejected;
+            existData.StockTakeStatusId = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Rejected);
             existData.Note = string.IsNullOrWhiteSpace(existData.Note) ? $"Từ chối: {reason}" : $"{existData.Note} | Từ chối: {reason}";
             existData.LastModifiedDate = DateTimeHelper.VietnamNow();
             existData.UpdatedBy = userId;

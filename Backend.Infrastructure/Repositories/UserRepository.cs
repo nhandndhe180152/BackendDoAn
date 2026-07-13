@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using Backend.Application.Common;
 using Backend.Application.Constants;
 using Backend.Application.Interfaces;
 using Backend.Domain.Abstractions;
@@ -32,7 +33,7 @@ public class UserRepository : RepositoryBase<User, int>, IUserRepository
                           join b in _context.Permissions on a.RoleId equals b.RoleId
                           join c in _context.Menus on b.MenuId equals c.Id
                           where !a.IsDeleted && !b.IsDeleted && !c.IsDeleted &&
-                             a.UserId == userId && b.ActionId == (int)Enums.Action.READ && c.MenuType == CommonConstants.MenuType.ADMIN
+                             a.UserId == userId && b.ActionId == Lookup.ActionId(LookupCodes.Action.Read) && c.MenuType == CommonConstants.MenuType.ADMIN
                           select new MenuAggregate
                           {
                               Id = c.Id,

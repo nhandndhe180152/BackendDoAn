@@ -1,4 +1,5 @@
 using System;
+using Backend.Application.Common;
 using Backend.Application.Constants;
 using Backend.Application.DependencyInjection.Options;
 using Backend.Application.DTOs.Auths;
@@ -73,13 +74,13 @@ public class AuthService : IAuthService
             return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.EmailNotFound), ApiCodeConstants.Auth.EmailNotFound);
 
 
-        if (user.UserStatusId == (int)Enums.UserStatus.NotActivated)
+        if (user.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.NotActivated))
             return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.UserNotActivated), ApiCodeConstants.Auth.UserNotActivated);
 
-        if (user.UserStatusId == (int)Enums.UserStatus.Deactivated)
+        if (user.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Deactivated))
             return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.UserDeactivated), ApiCodeConstants.Auth.UserDeactivated);
 
-        if (user.UserStatusId == (int)Enums.UserStatus.Locked)
+        if (user.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Locked))
             return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.UserDeactivated), ApiCodeConstants.Auth.UserLocked);
 
         var randomCode = isClientRequest ? RandomHelper.GenerateOtpCode() : RandomHelper.GenerateRandomString(50);
@@ -236,7 +237,7 @@ public class AuthService : IAuthService
             user.AccessFailedCount++;
             if (user.AccessFailedCount >= AuthConstants.MAX_ACCESS_FAILED)
             {
-                user.UserStatusId = (int)Enums.UserStatus.Locked;
+                user.UserStatusId = Lookup.UserStatusId(LookupCodes.UserStatus.Locked);
                 user.LockEnabled = true;
                 user.LockEndDate = DateTime.Now.AddHours(AuthConstants.EXPIRE_TIME_LOCKED);
 
@@ -254,10 +255,10 @@ public class AuthService : IAuthService
             return ApiResponse.NotFound(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.UserNotFound), ApiCodeConstants.Auth.UserNotFound);
         }
 
-        if (user.UserStatusId == (int)Enums.UserStatus.NotActivated)
+        if (user.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.NotActivated))
             return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.UserNotActivated), ApiCodeConstants.Auth.UserNotActivated);
 
-        if (user.UserStatusId == (int)Enums.UserStatus.Deactivated)
+        if (user.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Deactivated))
             return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.UserDeactivated), ApiCodeConstants.Auth.UserDeactivated);
 
         if (user.LockEnabled)
@@ -284,7 +285,7 @@ public class AuthService : IAuthService
             user.LockEndDate = null;
             user.LockEnabled = false;
             user.AccessFailedCount = 0;
-            user.UserStatusId = (int)Enums.UserStatus.Actived;
+            user.UserStatusId = Lookup.UserStatusId(LookupCodes.UserStatus.Active);
         }
 
         var userToken = new UserToken
@@ -619,7 +620,7 @@ public class AuthService : IAuthService
         //Check trùng tên đăng nhập
         var isExistUsername = await _userRepository.AnyAsync(x => !x.IsDeleted &&
         x.Username == obj.Username &&
-        x.UserStatusId == (int)Enums.UserStatus.Actived);
+        x.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Active));
 
         if (isExistUsername) return ApiResponse.UnprocessableEntity(
                 ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Username),
@@ -636,7 +637,7 @@ public class AuthService : IAuthService
         //Check trùng email
         var isExistEmail = await _userRepository.AnyAsync(x => !x.IsDeleted &&
         x.Email == obj.Email &&
-        x.UserStatusId == (int)Enums.UserStatus.Actived);
+        x.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Active));
         if (isExistEmail) return ApiResponse.UnprocessableEntity(
                 ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Email),
                 ApiCodeConstants.Common.DuplicatedData
@@ -731,7 +732,7 @@ public class AuthService : IAuthService
                 x.Purpose == dto.Purpose);
 
         if (token == null)
-            return ApiResponse.NotFound(ErrorMessagesConstants.GetMessage(Common.NotFound), ApiCodeConstants.Common.NotFound);
+            return ApiResponse.NotFound(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.NotFound), ApiCodeConstants.Common.NotFound);
 
         if (token.IsUsed)
             return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.VerificationCodeUsed), ApiCodeConstants.Auth.VerificationCodeUsed);
@@ -741,7 +742,7 @@ public class AuthService : IAuthService
 
         if (dto.Purpose == CommonConstants.UserVerificationTokenPurpose.ACCOUNT_ACTIVATION)
         {
-            user.UserStatusId = (int)Enums.UserStatus.Actived;
+            user.UserStatusId = Lookup.UserStatusId(LookupCodes.UserStatus.Active);
             await _userRepository.UpdateAsync(user);
 
             token.IsUsed = true;
@@ -912,7 +913,7 @@ public class AuthService : IAuthService
                 return ApiResponse.BadRequest();
             }
 
-            if (user.UserStatusId == (int)Enums.UserStatus.Actived)
+            if (user.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Active))
             {
                 return ApiResponse.BadRequest();
             }

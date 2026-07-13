@@ -1,5 +1,6 @@
 using System;
 using System.IdentityModel.Tokens.Jwt;
+using Backend.Application.Common;
 using Backend.Application.Constants;
 using Backend.Application.Interfaces;
 using Backend.Domain.Enums;
@@ -68,7 +69,7 @@ public class TokenRevocationMiddleware
                         .Where(x => x.Id.ToString() == userId)
                         .Select(x => x.UserStatusId)
                         .FirstOrDefaultAsync();
-                    if (userStatusId != (int)Enums.UserStatus.Actived)
+                    if (userStatusId != Lookup.UserStatusId(LookupCodes.UserStatus.Active))
                     {
                         context.Response.StatusCode = StatusCodes.Status403Forbidden;
                         var apiResponse = ApiResponse.Forbidden(

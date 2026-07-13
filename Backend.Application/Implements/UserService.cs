@@ -1,5 +1,6 @@
 using System;
 using System.Text.RegularExpressions;
+using Backend.Application.Common;
 using Backend.Application.Constants;
 using Backend.Application.DependencyInjection.Options;
 using Backend.Application.DTOs.FileUploads;
@@ -305,7 +306,7 @@ public class UserService : IUserService
         if (existData == null)
             return ApiResponse.NotFound();
 
-        if ((existData.UserStatusId == (int)Enums.UserStatus.Locked || existData.LockEnabled) && obj.UserStatusId == (int)Enums.UserStatus.Actived)
+        if ((existData.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Locked) || existData.LockEnabled) && obj.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Active))
         {
             existData.LockEnabled = false;
             existData.LockEndDate = null;
@@ -469,7 +470,7 @@ public class UserService : IUserService
     {
         var users = _userRepository.GetAll().Where(x => !x.IsDeleted);
         var totalUsers = await users.CountAsync();
-        var activeUsers = await users.CountAsync(x => x.UserStatusId == (int)Enums.UserStatus.Actived);
+        var activeUsers = await users.CountAsync(x => x.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Active));
 
         // Lấy các bản ghi user-role (kèm tên vai trò) rồi gom nhóm trong bộ nhớ
         // để tránh các vướng mắc dịch GROUP BY/COUNT(DISTINCT) sang SQL.
@@ -503,7 +504,7 @@ public class UserService : IUserService
     {
         var data = (from u in _userRepository.GetAll()
                     join ur in _userRoleRepository.GetAll() on u.Id equals ur.UserId
-                    where !u.IsDeleted && !ur.IsDeleted && ur.RoleId == CommonConstants.Role.END_USER && u.UserStatusId == (int)Enums.UserStatus.Actived
+                    where !u.IsDeleted && !ur.IsDeleted && ur.RoleId == Lookup.RoleId(LookupCodes.Role.EndUser) && u.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Active)
                     select new UserListDto
                     {
                         Id = u.Id,
@@ -559,7 +560,7 @@ public class UserService : IUserService
         if (user == null)
             return ApiResponse.NotFound();
 
-        user.UserStatusId = (int)Enums.UserStatus.Deactivated;
+        user.UserStatusId = Lookup.UserStatusId(LookupCodes.UserStatus.Deactivated);
         user.LastModifiedDate = DateTime.Now;
         user.UpdatedBy = userId;
 
@@ -577,7 +578,7 @@ public class UserService : IUserService
     {
         var data = await (from u in _userRepository.GetAll()
                           join ur in _userRoleRepository.GetAll() on u.Id equals ur.UserId
-                          where !u.IsDeleted && !ur.IsDeleted && ur.RoleId == CommonConstants.Role.END_USER && u.UserStatusId == (int)Enums.UserStatus.Actived
+                          where !u.IsDeleted && !ur.IsDeleted && ur.RoleId == Lookup.RoleId(LookupCodes.Role.EndUser) && u.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Active)
                           select new
                           {
                               Id = u.Id,

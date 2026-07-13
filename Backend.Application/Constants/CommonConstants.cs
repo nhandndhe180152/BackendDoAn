@@ -1,4 +1,5 @@
 using System;
+using Backend.Application.Common;
 using Backend.Share.Entities;
 
 namespace Backend.Application.Constants;
@@ -83,13 +84,17 @@ public static class CommonConstants
         public const string WORKING_HOURS_KEY = "WORKING_HOURS";
     }
 
+    /// <summary>
+    /// Id role được PHÂN GIẢI TỪ CODE ổn định lúc chạy (không còn hard-code Id số).
+    /// DB đổi Id/re-seed vẫn đúng. Fallback = Id seed cũ để không vỡ khi role chưa seed/warmup chưa chạy.
+    /// </summary>
     public static class Role
     {
-        public const int ADMIN = 1001;
-        public const int END_USER = 1002;
-        public const int DRIVER = 1003;
-        public const int DISPATCHER = 1004;
-        public const int EXECUTIVE = 1005;
+        public static int ADMIN => Lookup.RoleIdOrDefault(LookupCodes.Role.Admin, 1001);
+        public static int END_USER => Lookup.RoleIdOrDefault(LookupCodes.Role.EndUser, 1002);
+        public static int DRIVER => Lookup.RoleIdOrDefault(LookupCodes.Role.Driver, 1003);
+        public static int DISPATCHER => Lookup.RoleIdOrDefault(LookupCodes.Role.Dispatcher, 1004);
+        public static int EXECUTIVE => Lookup.RoleIdOrDefault(LookupCodes.Role.Executive, 1005);
     }
 
     public static readonly HashSet<int> ListRoleRegister = new()

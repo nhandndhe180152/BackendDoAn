@@ -18,6 +18,8 @@ public class MenuConfiguration : IEntityTypeConfiguration<Menu>
         builder.Property(x => x.Name)
             .IsRequired()
             .HasMaxLength(255);
+        builder.Property(x => x.Code).HasMaxLength(100);
+        builder.HasIndex(x => x.Code).HasDatabaseName("IX_Menu_Code");
         builder.Property(x => x.TreeIds)
             .IsRequired()
             .HasMaxLength(255);
