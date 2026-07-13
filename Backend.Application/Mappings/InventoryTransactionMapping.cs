@@ -39,7 +39,6 @@ public static class InventoryTransactionMapping
             BeforeQuantity = entity.BeforeQuantity,
             AfterQuantity = entity.AfterQuantity,
             WeightKg = entity.WeightKg,
-            IotWeightLogId = entity.IotWeightLogId,
             Note = entity.Note,
             CreatedDate = entity.CreatedDate,
             CreatedBy = entity.CreatedBy

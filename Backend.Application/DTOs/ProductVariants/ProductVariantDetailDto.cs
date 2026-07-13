@@ -26,7 +26,6 @@ public class ProductVariantDetailDto
     public bool IsActive { get; set; }
     public bool IsDeleted { get; set; }
     public decimal? MinStockLevel { get; set; }
-    public bool IsIoTRequired { get; set; }
 
     /// Parsed structured attributes when AttributeValues is valid JSON
     public List<AttributeValueDto>? AttributeValuesJson { get; set; }

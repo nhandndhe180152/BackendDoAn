@@ -74,9 +74,6 @@ public static class ConfigureServices
             .AddScoped<IProductRepository, ProductRepository>()
             .AddScoped<IProductVariantRepository, ProductVariantRepository>()
             .AddScoped<IProductAttributeRepository, ProductAttributeRepository>()
-            .AddScoped<IIotDeviceRepository, IotDeviceRepository>()
-            .AddScoped<IIotWeightLogRepository, IotWeightLogRepository>()
-            .AddScoped<IIotDeviceCommandRepository, IotDeviceCommandRepository>()
             .AddScoped<IWarehouseRepository, WarehouseRepository>()
             .AddScoped<ILocationRepository, LocationRepository>()
             .AddScoped<IInboundOrderItemRepository, InboundOrderItemRepository>()
@@ -98,8 +95,6 @@ public static class ConfigureServices
         services.AddScoped<IJobRegistrar, JobRegistrar>();
         services.AddScoped<UserSessionCleanupJob>();
         services.AddScoped<VerificationTokenCleanupJob>();
-        services.AddScoped<IotDeviceHeartbeatJob>();
-        services.AddScoped<IotCommandExpiryJob>();
         services.AddScoped<IEmailService<GoogleMailRequest>, GoogleEmailService>();
         services.AddScoped<IImageProcessor, MagickImageProcessor>();
         services.AddScoped<IFireBaseService, FireBaseService>();

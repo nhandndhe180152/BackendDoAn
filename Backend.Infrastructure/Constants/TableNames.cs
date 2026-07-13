@@ -42,9 +42,6 @@ public static class TableNames
     public const string FcmNotificationLog = nameof(FcmNotificationLog);
     public const string Inventory = nameof(Inventory);
     public const string InventoryTransaction = nameof(InventoryTransaction);
-    public const string IotDevice = nameof(IotDevice);
-    public const string IotDeviceCommand = nameof(IotDeviceCommand);
-    public const string IotWeightLog = nameof(IotWeightLog);
     public const string Location = nameof(Location);
     public const string Product = nameof(Product);
     public const string ProductAttribute = nameof(ProductAttribute);

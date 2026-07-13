@@ -77,23 +77,6 @@ public static class Enums
             USER,
         }
 
-    // Cấu hình phân loại lệnh gửi tới thiết bị cân IoT
-    public enum IotCommandType
-    {
-        TARE = 1,       // Trừ bì
-        RESET = 2,      // Khởi động lại thiết bị
-        CALIBRATE = 3   // Hiệu chuẩn cân
-    }
-
-    public enum IotCommandStatus
-    {
-        Pending = 1,
-        PickedUp = 2,
-        Executed = 3,
-        Failed = 4,
-        Expired = 5
-    }
-
     // Các kiểu giao dịch phát sinh trong kho hàng
     public enum InventoryTransactionType
     {

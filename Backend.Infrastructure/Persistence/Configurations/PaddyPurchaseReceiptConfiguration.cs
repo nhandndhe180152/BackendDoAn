@@ -51,11 +51,6 @@ public class PaddyPurchaseReceiptConfiguration : IEntityTypeConfiguration<PaddyP
             .HasForeignKey(x => x.WarehouseId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        builder.HasOne(x => x.IotWeightLog)
-            .WithMany()
-            .HasForeignKey(x => x.IotWeightLogId)
-            .OnDelete(DeleteBehavior.SetNull);
-
         builder.HasIndex(x => x.FarmerId).HasDatabaseName("IX_PaddyPurchaseReceipt_FarmerId");
         builder.HasIndex(x => x.ReceiptDate).HasDatabaseName("IX_PaddyPurchaseReceipt_ReceiptDate");
     }

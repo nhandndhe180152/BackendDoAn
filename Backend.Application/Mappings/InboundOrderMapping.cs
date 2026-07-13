@@ -116,7 +116,6 @@ public static class InboundOrderMapping
                     dto.ConfirmedLocationId = state.ConfirmedLocationId;
                     dto.ConfirmedLocationCode = state.ConfirmedLocationCode;
                     dto.PutawayOverrideReason = state.PutawayOverrideReason;
-                    dto.IotWeightLogId = state.IotWeightLogId;
                     dto.QuantityEntered = state.QuantityEntered;
                     dto.Note = state.OriginalNote; // Expose original note text to UI
                 }
@@ -201,7 +200,6 @@ public class InboundReceiptState
     public int? ConfirmedLocationId { get; set; }
     public string? ConfirmedLocationCode { get; set; }
     public string? PutawayOverrideReason { get; set; }
-    public int? IotWeightLogId { get; set; }
     public int? QuantityEntered { get; set; }
     public string? OriginalNote { get; set; }
 }

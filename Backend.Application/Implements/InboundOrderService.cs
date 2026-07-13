@@ -32,8 +32,6 @@ public class InboundOrderService : IInboundOrderService
     private readonly ILocationRepository _locationRepository;
     private readonly IInventoryRepository _inventoryRepository;
     private readonly IInventoryTransactionRepository _inventoryTransactionRepository;
-    private readonly IIotWeightLogRepository _iotWeightLogRepository;
-    private readonly IIotDeviceRepository _iotDeviceRepository;
     private readonly ISystemConfigRepository _systemConfigRepository;
     private readonly IRepositoryBase<DeliveryNote, int> _deliveryNoteRepository;
     private readonly IRepositoryBase<FileUpload, int> _fileUploadRepository;
@@ -52,8 +50,6 @@ public class InboundOrderService : IInboundOrderService
         ILocationRepository locationRepository,
         IInventoryRepository inventoryRepository,
         IInventoryTransactionRepository inventoryTransactionRepository,
-        IIotWeightLogRepository iotWeightLogRepository,
-        IIotDeviceRepository iotDeviceRepository,
         ISystemConfigRepository systemConfigRepository,
         IRepositoryBase<DeliveryNote, int> deliveryNoteRepository,
         IRepositoryBase<FileUpload, int> fileUploadRepository,
@@ -71,8 +67,6 @@ public class InboundOrderService : IInboundOrderService
         _locationRepository = locationRepository;
         _inventoryRepository = inventoryRepository;
         _inventoryTransactionRepository = inventoryTransactionRepository;
-        _iotWeightLogRepository = iotWeightLogRepository;
-        _iotDeviceRepository = iotDeviceRepository;
         _systemConfigRepository = systemConfigRepository;
         _deliveryNoteRepository = deliveryNoteRepository;
         _fileUploadRepository = fileUploadRepository;
@@ -756,33 +750,12 @@ public class InboundOrderService : IInboundOrderService
         if (state.ReceiptStatus == "PendingManagerReview" && !string.IsNullOrEmpty(state.OverReceiveReason) && state.ExceptionDecision != "Approve")
             return ApiResponse.UnprocessableEntity("Đang chờ quản lý duyệt ngoại lệ nhận quá số lượng.", ApiCodeConstants.Common.UnprocessableEntity);
 
-        // Validation for IoT Log
-        var log = await _iotWeightLogRepository.FirstOrDefaultAsync(x => x.Id == dto.IotWeightLogId && !x.IsDeleted, true, x => x.IotDevice);
-        if (log == null)
-            return ApiResponse.NotFound("Không tìm thấy log cân nặng thiết bị IoT.", ApiCodeConstants.Common.NotFound);
-
-        if (!log.IsStable)
-            return ApiResponse.UnprocessableEntity("Khối lượng chưa ổn định.", ApiCodeConstants.Common.UnprocessableEntity);
-
-        // Cho phép gắn trực tiếp từ log cân ổn định (không bắt buộc gọi attach-context trước).
-        // Chỉ chặn khi log đã gắn cho một dòng hàng KHÁC để tránh tái sử dụng bằng chứng cân.
-        if (log.IsConfirmed && log.ReferenceItemId.HasValue && log.ReferenceItemId.Value != item.Id)
-            return ApiResponse.UnprocessableEntity("Log cân này đã được gắn cho một dòng hàng khác.", ApiCodeConstants.Common.UnprocessableEntity);
-
-        if (log.WeightKg <= 0)
-            return ApiResponse.UnprocessableEntity("Log cân phải có khối lượng lớn hơn 0.", ApiCodeConstants.Common.UnprocessableEntity);
-
-        if (!log.IotDevice.IsActive || log.IotDevice.IsDeleted || !log.IotDevice.IsOnline)
-            return ApiResponse.UnprocessableEntity("Thiết bị IoT đang không hoạt động hoặc không trực tuyến.", ApiCodeConstants.Common.UnprocessableEntity);
-
-        if (log.IotDevice.WarehouseId != order.WarehouseId)
-            return ApiResponse.UnprocessableEntity("Thiết bị cân không thuộc kho hàng của phiếu nhập này.", ApiCodeConstants.Common.UnprocessableEntity);
-
-        if (log.ProductVariantId != item.ProductVariantId)
-            return ApiResponse.UnprocessableEntity("Sản phẩm cân không khớp với sản phẩm trong phiếu nhập.", ApiCodeConstants.Common.UnprocessableEntity);
+        // BLE: số cân thực tế do app đọc trực tiếp từ cân qua Bluetooth và gửi lên (dto.ActualWeightKg).
+        // Backend KHÔNG còn lưu bằng chứng cân từ thiết bị IoT — số cân được chốt thẳng vào dòng hàng của phiếu (BR-18).
+        if (dto.ActualWeightKg <= 0)
+            return ApiResponse.UnprocessableEntity("Khối lượng cân phải lớn hơn 0.", ApiCodeConstants.Common.UnprocessableEntity);
 
         // Resolve dung sai theo thứ tự ưu tiên: ProductCategory -> Warehouse -> global -> mặc định (BR-19/BR-20).
-        // Khóa chuẩn theo tài liệu là IOT_WEIGHT_TOLERANCE_PERCENT; vẫn fallback khóa cũ WeightTolerancePercent.
         int? productCategoryId = null;
         var variantWithProduct = await _productVariantRepository.FirstOrDefaultAsync(
             x => x.Id == item.ProductVariantId, false, x => x.Product);
@@ -791,43 +764,28 @@ public class InboundOrderService : IInboundOrderService
 
         var tolerancePercent = await ResolveConfigDecimalAsync(
             5m,
-            $"IOT_WEIGHT_TOLERANCE_PERCENT:CATEGORY:{productCategoryId}",
-            $"IOT_WEIGHT_TOLERANCE_PERCENT:WAREHOUSE:{order.WarehouseId}",
-            "IOT_WEIGHT_TOLERANCE_PERCENT",
+            $"WEIGHT_TOLERANCE_PERCENT:CATEGORY:{productCategoryId}",
+            $"WEIGHT_TOLERANCE_PERCENT:WAREHOUSE:{order.WarehouseId}",
+            "WEIGHT_TOLERANCE_PERCENT",
             $"WeightTolerancePercent:{order.WarehouseId}",
             "WeightTolerancePercent");
 
         var minToleranceKg = await ResolveConfigDecimalAsync(
             0.05m,
-            $"IOT_WEIGHT_MIN_TOLERANCE_KG:CATEGORY:{productCategoryId}",
-            $"IOT_WEIGHT_MIN_TOLERANCE_KG:WAREHOUSE:{order.WarehouseId}",
-            "IOT_WEIGHT_MIN_TOLERANCE_KG",
+            $"WEIGHT_MIN_TOLERANCE_KG:CATEGORY:{productCategoryId}",
+            $"WEIGHT_MIN_TOLERANCE_KG:WAREHOUSE:{order.WarehouseId}",
+            "WEIGHT_MIN_TOLERANCE_KG",
             $"WeightMinimumToleranceKg:{order.WarehouseId}",
             "WeightMinimumToleranceKg");
 
         var qty = state.QuantityEntered.Value;
         var expectedWeight = item.ProductVariant.Weight * qty;
         var allowedDiff = Math.Max(expectedWeight * (tolerancePercent / 100m), minToleranceKg);
-        var actualWeight = log.WeightKg;
+        var actualWeight = dto.ActualWeightKg;
         var diff = Math.Abs(actualWeight - expectedWeight);
 
-        state.IotWeightLogId = dto.IotWeightLogId;
         item.ExpectedWeightKg = expectedWeight;
         item.ActualWeightKg = actualWeight;
-
-        // Gắn & xác nhận bằng chứng cân vào dòng hàng (gộp luồng, thay cho việc gọi attach-context riêng).
-        // Bằng chứng được liên kết qua ReferenceType/ReferenceId/ReferenceItemId dù sai lệch hay không (BR-18).
-        var weightConfirmedBy = GetCurrentUserId();
-        var weightConfirmedAt = DateTime.Now;
-        log.ProductVariantId = item.ProductVariantId;
-        log.ReferenceType = "INBOUND_ORDER";
-        log.ReferenceId = order.Id;
-        log.ReferenceItemId = item.Id;
-        log.IsConfirmed = true;
-        log.ConfirmedBy = weightConfirmedBy;
-        log.ConfirmedAt = weightConfirmedAt;
-        log.LastModifiedDate = weightConfirmedAt;
-        await _iotWeightLogRepository.UpdateAsync(log);
 
         if (diff > allowedDiff)
         {
@@ -937,11 +895,6 @@ public class InboundOrderService : IInboundOrderService
 
         if (!state.QuantityEntered.HasValue || state.QuantityEntered.Value <= 0)
             return ApiResponse.UnprocessableEntity("Vui lòng ghi nhận số lượng trước khi đề xuất vị trí cất hàng.", ApiCodeConstants.Common.UnprocessableEntity);
-
-        if (item.ProductVariant != null && item.ProductVariant.IsIoTRequired && state.ReceiptStatus != "WeightVerified" && state.ReceiptStatus != "PutawaySelected")
-        {
-            return ApiResponse.UnprocessableEntity("Sản phẩm yêu cầu xác thực khối lượng IoT trước.", ApiCodeConstants.Common.UnprocessableEntity);
-        }
 
         // Putaway suggestions scoring configuration
         double catMatchW = 0.40;
@@ -1064,11 +1017,6 @@ public class InboundOrderService : IInboundOrderService
         var allowedStatus = new[] { "WeightVerified", "QuantityEntered", "PutawaySelected" };
         if (!allowedStatus.Contains(state.ReceiptStatus))
             return ApiResponse.UnprocessableEntity("Receipt phải ở trạng thái WeightVerified hoặc đã nhập số lượng hợp lệ.", ApiCodeConstants.Common.UnprocessableEntity);
-
-        if (item.ProductVariant != null && item.ProductVariant.IsIoTRequired && state.ReceiptStatus == "QuantityEntered")
-        {
-            return ApiResponse.UnprocessableEntity("Sản phẩm này cần xác thực khối lượng IoT trước.", ApiCodeConstants.Common.UnprocessableEntity);
-        }
 
         var loc = await _locationRepository.FirstOrDefaultAsync(x => x.Id == dto.LocationId && !x.IsDeleted && x.IsActive);
         if (loc == null)
@@ -1240,7 +1188,6 @@ public class InboundOrderService : IInboundOrderService
                 BeforeQuantity = oldQty,
                 AfterQuantity = inventory.QuantityOnHand,
                 WeightKg = item.ActualWeightKg,
-                IotWeightLogId = state.IotWeightLogId,
                 Note = state.OriginalNote,
                 CreatedBy = GetCurrentUserId(),
                 CreatedDate = DateTime.Now

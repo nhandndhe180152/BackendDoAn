@@ -17,7 +17,6 @@ public class ProductVariant : EntityCommonBase<int>
     public int? ImageId { get; set; }
     public bool IsActive { get; set; }
     public decimal? MinStockLevel { get; set; }
-    public bool IsIoTRequired { get; set; } // FE-09
 
     /// <summary>Giống lúa — dùng cho lúa nguyên liệu và gạo thành phẩm</summary>
     public int? RiceVarietyId { get; set; }

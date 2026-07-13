@@ -17,7 +17,6 @@ public class ProductVariantConfiguration : IEntityTypeConfiguration<ProductVaria
 
         builder.Property(x => x.SKU).HasMaxLength(100);
         builder.Property(x => x.QRCode).HasMaxLength(255);
-        builder.Property(x => x.IsIoTRequired).HasDefaultValue(false);
         builder.Property(x => x.IsByproduct).HasDefaultValue(false);
 
         builder.Property(x => x.CostPrice)

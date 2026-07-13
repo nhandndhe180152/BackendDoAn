@@ -130,7 +130,6 @@ public class InboundOrderItemDto
     public int? ConfirmedLocationId { get; set; }
     public string? ConfirmedLocationCode { get; set; }
     public string? PutawayOverrideReason { get; set; }
-    public int? IotWeightLogId { get; set; }
     public int? QuantityEntered { get; set; }
 }
 
@@ -155,8 +154,12 @@ public class RecordQuantityDto
 
 public class AttachWeightDto
 {
-    [Required]
-    public int IotWeightLogId { get; set; }
+    /// <summary>
+    /// Khối lượng cân thực tế (kg) do app đọc trực tiếp từ cân qua Bluetooth (BLE) và gửi lên.
+    /// Backend không còn lưu bằng chứng cân từ thiết bị IoT — số cân được chốt thẳng vào phiếu.
+    /// </summary>
+    [Range(0.001, double.MaxValue, ErrorMessage = "Khối lượng cân phải lớn hơn 0.")]
+    public decimal ActualWeightKg { get; set; }
 }
 
 public class ReviewExceptionDto

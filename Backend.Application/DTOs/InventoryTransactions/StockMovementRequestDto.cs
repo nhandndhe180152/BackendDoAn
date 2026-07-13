@@ -22,7 +22,5 @@ public class StockMovementRequestDto
 
     public decimal? WeightKg { get; set; }
 
-    public int? IotWeightLogId { get; set; }
-
     public string? Note { get; set; }
 }

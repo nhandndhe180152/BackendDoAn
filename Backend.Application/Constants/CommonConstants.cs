@@ -215,8 +215,6 @@ public static class CommonConstants
             { "OutboundOrderItem", "Chi tiết đơn xuất" },
             { "Inventory", "Tồn kho" },
             { "InventoryTransaction", "Giao dịch kho" },
-            { "IotDevice", "Thiết bị IoT" },
-            { "IotDeviceCommand", "Lệnh thiết bị IoT" },
             { "Supplier", "Nhà cung cấp" },
             { "CustomerReturnOrder", "Đơn trả hàng của khách" },
             { "CustomerReturnOrderItem", "Chi tiết đơn trả hàng của khách" },

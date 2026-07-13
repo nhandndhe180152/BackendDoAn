@@ -24,7 +24,6 @@ public class PaddyPurchaseReceipt : EntityAuditBase<int>
     public string? QualityJson { get; set; }
     public string? PriceAdjustReason { get; set; }
     public DateTime ReceiptDate { get; set; }
-    public int? IotWeightLogId { get; set; }
 
     // Navigation
     public virtual Organization? Organization { get; set; }
@@ -32,6 +31,5 @@ public class PaddyPurchaseReceipt : EntityAuditBase<int>
     public virtual Farmer Farmer { get; set; } = null!;
     public virtual RiceVariety? RiceVariety { get; set; }
     public virtual Warehouse Warehouse { get; set; } = null!;
-    public virtual IotWeightLog? IotWeightLog { get; set; }
     public virtual PaddyLot? PaddyLot { get; set; }
 }

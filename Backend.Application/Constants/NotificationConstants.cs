@@ -7,7 +7,7 @@ namespace Backend.Application.Constants;
 /// - Danh mục dùng theo TÊN; dispatcher tự tạo trong DB nếu chưa có.
 /// - Catalog ánh xạ mã sự kiện -> mẫu tiêu đề/nội dung + danh mục, theo các
 ///   sự kiện cần thông báo trong tài liệu (Low Stock, Inbound Bottleneck,
-///   duyệt Inbound/Outbound, sai lệch trả hàng, lỗi thiết bị IoT).
+///   duyệt Inbound/Outbound, sai lệch trả hàng).
 /// </summary>
 public static class NotificationConstants
 {
@@ -19,7 +19,6 @@ public static class NotificationConstants
         public const string OutboundOrder = "Đơn xuất kho";
         public const string ReturnOrder = "Đơn trả hàng";
         public const string StockTake = "Kiểm kê kho";
-        public const string IotDevice = "Thiết bị IoT";
         public const string System = "Hệ thống";
     }
 
@@ -35,8 +34,6 @@ public static class NotificationConstants
         public const string OutboundApproved = "OUTBOUND_APPROVED";
         public const string OutboundRejected = "OUTBOUND_REJECTED";
         public const string ReturnDiscrepancy = "RETURN_DISCREPANCY";
-        public const string IotDeviceOffline = "IOT_DEVICE_OFFLINE";
-        public const string IotCommandFailed = "IOT_COMMAND_FAILED";
     }
 
     public sealed class Template
@@ -116,20 +113,6 @@ public static class NotificationConstants
                 Color = "#f59e0b",
                 Title = "Sai lệch khi trả hàng",
                 Content = "Phát hiện sai lệch ở đơn trả hàng {0}: {1}."
-            },
-            [Code.IotDeviceOffline] = new()
-            {
-                Category = Category.IotDevice,
-                Color = "#ef4444",
-                Title = "Thiết bị IoT mất kết nối",
-                Content = "Thiết bị \"{0}\" ({1}) đã ngắt kết nối (offline)."
-            },
-            [Code.IotCommandFailed] = new()
-            {
-                Category = Category.IotDevice,
-                Color = "#ef4444",
-                Title = "Lệnh thiết bị IoT thất bại",
-                Content = "Lệnh {0} gửi tới thiết bị \"{1}\" thực thi thất bại."
             },
         };
 }
