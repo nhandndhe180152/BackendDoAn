@@ -83,6 +83,10 @@ public static class ConfigureServices
             .AddScoped<IInventoryRepository, InventoryRepository>()
             .AddScoped<IInventoryTransactionRepository, InventoryTransactionRepository>()
             .AddScoped<ISupplierRepository, SupplierRepository>()
+            .AddScoped<IRiceVarietyRepository, RiceVarietyRepository>()
+            .AddScoped<IFarmerRepository, FarmerRepository>()
+            .AddScoped<ICustomerRepository, CustomerRepository>()
+            .AddScoped<IOrganizationRepository, OrganizationRepository>()
             .AddScoped<IUnitOfMeasureRepository, UnitOfMeasureRepository>();
 
 
