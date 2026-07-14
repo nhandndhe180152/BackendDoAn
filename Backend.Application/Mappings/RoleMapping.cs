@@ -11,6 +11,7 @@ public static class RoleMapping
         return new Role
         {
             CreatedBy = obj.CreatedBy,
+            Code = obj.Code,
             Description = obj.Description,
             Name = obj.Name,
             CreatedDate = DateTime.Now
@@ -22,6 +23,7 @@ public static class RoleMapping
         existData.UpdatedBy = obj.UpdatedBy;
         existData.Description = obj.Description;
         existData.Name = obj.Name;
+        existData.Code = obj.Code;
         existData.LastModifiedDate = DateTime.Now;
 
         return existData;
@@ -32,6 +34,7 @@ public static class RoleMapping
         return new RoleDetailDto
         {
             Id = entity.Id,
+            Code = entity.Code,
             CreatedDate = entity.CreatedDate,
             Description = entity.Description,
             Name = entity.Name,

@@ -4,6 +4,8 @@ namespace Backend.Application.DTOs.Roles;
 
 public class CreateRoleDto
 {
+    /// <summary>Mã định danh ổn định (tùy chọn) — chỉ cần khi code backend tham chiếu role này theo Code (vd ADMIN).</summary>
+    public string? Code { get; set; }
     public string Name { get; set; } = null!;
     public string? Description { get; set; }
     public int? CreatedBy { get; set; }

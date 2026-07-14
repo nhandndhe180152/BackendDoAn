@@ -125,6 +125,7 @@ public class RoleService : IRoleService
             .Select(x => new RoleDetailDto
             {
                 Id = x.Id,
+                Code = x.Code,
                 CreatedDate = x.CreatedDate,
                 Description = x.Description,
                 Name = x.Name
@@ -158,6 +159,7 @@ public class RoleService : IRoleService
                           select new
                           {
                               Id = a.Id,
+                              Code = a.Code,
                               Name = a.Name,
                               Description = a.Description,
                               CreatedDate = a.CreatedDate,
@@ -169,6 +171,7 @@ public class RoleService : IRoleService
                    .GroupBy(x => new
                    {
                        x.Id,
+                       x.Code,
                        x.Name,
                        x.Description,
                        x.CreatedDate,
@@ -177,6 +180,7 @@ public class RoleService : IRoleService
                    .Select(x => new RoleListDto
                    {
                        Id = x.Key.Id,
+                       Code = x.Key.Code,
                        CreatedDate = x.Key.CreatedDate,
                        Description = x.Key.Description,
                        Name = x.Key.Name,
@@ -201,6 +205,7 @@ public class RoleService : IRoleService
             .Select(x => new RoleListDto
             {
                 CreatedDate = x.CreatedDate,
+                Code = x.Code,
                 Description = x.Description,
                 Id = x.Id,
                 Name = x.Name,
@@ -246,6 +251,7 @@ public class RoleService : IRoleService
             .Select(x => new RolePermissionDetailDto
             {
                 Id = x.Id,
+                Code = x.Code,
                 CreatedDate = x.CreatedDate,
                 Description = x.Description,
                 Name = x.Name,
@@ -402,6 +408,7 @@ public class RoleService : IRoleService
             .Select(x => new RoleDetailDto
             {
                 Id = x.Id,
+                Code = x.Code,
                 CreatedDate = x.CreatedDate,
                 Description = x.Description,
                 Name = x.Name

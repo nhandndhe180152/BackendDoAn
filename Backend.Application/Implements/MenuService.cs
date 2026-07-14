@@ -101,6 +101,7 @@ public class MenuService : IMenuService
             .Select(x => new MenuDetailDto
             {
                 ClassName = x.ClassName,
+                Code = x.Code,
                 Icon = x.Icon,
                 Id = x.Id,
                 MenuType = x.MenuType,
@@ -122,6 +123,7 @@ public class MenuService : IMenuService
             .Select(x => new MenuDetailDto
             {
                 ParentId = x.ParentId,
+                Code = x.Code,
                 ClassName = x.ClassName,
                 Icon = x.Icon,
                 Id = x.Id,
@@ -149,6 +151,7 @@ public class MenuService : IMenuService
             .Select(x => new MenuListDto
             {
                 ClassName = x.ClassName,
+                Code = x.Code,
                 Icon = x.Icon,
                 Id = x.Id,
                 MenuType = x.MenuType,
@@ -172,6 +175,7 @@ public class MenuService : IMenuService
             .Select(m => new MenuListDto
             {
                 Id = m.Id,
+                Code = m.Code,
                 Name = m.Name,
                 Url = m.Url,
                 Icon = m.Icon,

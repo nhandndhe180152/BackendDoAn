@@ -4,6 +4,8 @@ namespace Backend.Application.DTOs.Menus;
 
 public class CreateMenuDto
 {
+    /// <summary>Mã định danh ổn định dùng cho phân quyền (khớp Enums.Menu). Chỉ cần khi menu này được gán quyền qua code.</summary>
+    public string? Code { get; set; }
     public int? ParentId { get; set; }
     public string MenuType { get; set; } = "ADMIN";
     public string Name { get; set; } = null!;
