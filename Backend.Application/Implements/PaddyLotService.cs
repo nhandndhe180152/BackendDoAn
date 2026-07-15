@@ -38,9 +38,7 @@ public class PaddyLotService : IPaddyLotService
     }
 
     public Task<ApiResponse> CreateListAsync(IEnumerable<CreatePaddyLotDto> objs)
-    {
-        throw new NotImplementedException();
-    }
+        => Task.FromResult(ApiResponse.Error(message: "CreateList chưa được hỗ trợ.", status: 501));
 
     public async Task<ApiResponse> GetAllAsync()
     {
@@ -75,14 +73,10 @@ public class PaddyLotService : IPaddyLotService
     }
 
     public Task<ApiResponse> GetPagedAsync(SearchQuery query)
-    {
-        throw new NotImplementedException();
-    }
+        => Task.FromResult(ApiResponse.Error(message: "GetPaged (SearchQuery) chưa được hỗ trợ.", status: 501));
 
     public Task<ApiResponse> GetPagedAsync<T>(AdvancedSearchQuery<T> query)
-    {
-        throw new NotImplementedException();
-    }
+        => Task.FromResult(ApiResponse.Error(message: "GetPaged (AdvancedSearchQuery) chưa được hỗ trợ.", status: 501));
 
     public async Task<ApiResponse> UpdateAsync(UpdatePaddyLotDto obj)
     {
@@ -99,9 +93,7 @@ public class PaddyLotService : IPaddyLotService
     }
 
     public Task<ApiResponse> UpdateListAsync(IEnumerable<UpdatePaddyLotDto> objs)
-    {
-        throw new NotImplementedException();
-    }
+        => Task.FromResult(ApiResponse.Error(message: "UpdateList chưa được hỗ trợ.", status: 501));
 
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {

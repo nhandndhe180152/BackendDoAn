@@ -6,5 +6,5 @@ namespace Backend.Application.Interfaces;
 
 public interface IPaddyPurchaseScheduleService : IServiceBase<int, CreatePaddyPurchaseScheduleDto, UpdatePaddyPurchaseScheduleDto, DTParameter>
 {
-    Task<ApiResponse> UpdateStatusAsync(int id, int statusId, int updatedBy);
+    Task<ApiResponse> UpdateStatusAsync(int id, string statusCode, int updatedBy);
 }

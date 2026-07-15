@@ -18,10 +18,14 @@ namespace Backend.Application.Implements;
 public class PaddyPurchaseScheduleService : IPaddyPurchaseScheduleService
 {
     private readonly IPaddyPurchaseScheduleRepository _scheduleRepository;
+    private readonly ISystemLookup _systemLookup;
 
-    public PaddyPurchaseScheduleService(IPaddyPurchaseScheduleRepository scheduleRepository)
+    public PaddyPurchaseScheduleService(
+        IPaddyPurchaseScheduleRepository scheduleRepository,
+        ISystemLookup systemLookup)
     {
         _scheduleRepository = scheduleRepository;
+        _systemLookup = systemLookup;
     }
 
     public async Task<ApiResponse> CreateAsync(CreatePaddyPurchaseScheduleDto obj)
@@ -38,7 +42,8 @@ public class PaddyPurchaseScheduleService : IPaddyPurchaseScheduleService
         return ApiResponse.Created(model.Id, "Tạo lịch thu mua thành công.");
     }
 
-    public Task<ApiResponse> CreateListAsync(IEnumerable<CreatePaddyPurchaseScheduleDto> objs) => throw new NotImplementedException();
+    public Task<ApiResponse> CreateListAsync(IEnumerable<CreatePaddyPurchaseScheduleDto> objs)
+        => Task.FromResult(ApiResponse.Error(message: "CreateList chưa được hỗ trợ.", status: 501));
 
     public async Task<ApiResponse> GetAllAsync()
     {
@@ -67,8 +72,10 @@ public class PaddyPurchaseScheduleService : IPaddyPurchaseScheduleService
         return ApiResponse.Success(data);
     }
 
-    public Task<ApiResponse> GetPagedAsync(SearchQuery query) => throw new NotImplementedException();
-    public Task<ApiResponse> GetPagedAsync<T>(AdvancedSearchQuery<T> query) => throw new NotImplementedException();
+    public Task<ApiResponse> GetPagedAsync(SearchQuery query)
+        => Task.FromResult(ApiResponse.Error(message: "GetPaged (SearchQuery) chưa được hỗ trợ.", status: 501));
+    public Task<ApiResponse> GetPagedAsync<T>(AdvancedSearchQuery<T> query)
+        => Task.FromResult(ApiResponse.Error(message: "GetPaged (AdvancedSearchQuery) chưa được hỗ trợ.", status: 501));
 
     public async Task<ApiResponse> UpdateAsync(UpdatePaddyPurchaseScheduleDto obj)
     {
@@ -82,7 +89,8 @@ public class PaddyPurchaseScheduleService : IPaddyPurchaseScheduleService
         return ApiResponse.Success(existData.Id, "Cập nhật lịch thu mua thành công.");
     }
 
-    public Task<ApiResponse> UpdateListAsync(IEnumerable<UpdatePaddyPurchaseScheduleDto> objs) => throw new NotImplementedException();
+    public Task<ApiResponse> UpdateListAsync(IEnumerable<UpdatePaddyPurchaseScheduleDto> objs)
+        => Task.FromResult(ApiResponse.Error(message: "UpdateList chưa được hỗ trợ.", status: 501));
 
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {
@@ -100,14 +108,25 @@ public class PaddyPurchaseScheduleService : IPaddyPurchaseScheduleService
         return ApiResponse.Success(isDeleted);
     }
 
-    public async Task<ApiResponse> UpdateStatusAsync(int id, int statusId, int updatedBy)
+    public async Task<ApiResponse> UpdateStatusAsync(int id, string statusCode, int updatedBy)
     {
         var entity = await _scheduleRepository.GetByIdAsync(id);
         if (entity == null || entity.IsDeleted) return ApiResponse.NotFound();
 
-        entity.StatusId = statusId;
+        // #9: Validate statusCode hợp lệ qua ISystemLookup (Code→Id đã được cache)
+        int newStatusId;
+        try
+        {
+            newStatusId = _systemLookup.PaddyScheduleStatusId(statusCode);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ApiResponse.BadRequest(message: ex.Message);
+        }
+
+        entity.StatusId = newStatusId;
         entity.UpdatedBy = updatedBy;
-        entity.LastModifiedDate = DateTime.Now;
+        entity.LastModifiedDate = DateTimeHelper.VietnamNow(); // #8
 
         await _scheduleRepository.UpdateAsync(entity);
         await _scheduleRepository.SaveChangesAsync();

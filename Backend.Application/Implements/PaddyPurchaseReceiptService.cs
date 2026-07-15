@@ -79,7 +79,8 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         return ApiResponse.Created(model.Id, "Tạo phiếu mua lúa thành công.");
     }
 
-    public Task<ApiResponse> CreateListAsync(IEnumerable<CreatePaddyPurchaseReceiptDto> objs) => throw new NotImplementedException();
+    public Task<ApiResponse> CreateListAsync(IEnumerable<CreatePaddyPurchaseReceiptDto> objs)
+        => Task.FromResult(ApiResponse.Error(message: "CreateList chưa được hỗ trợ.", status: 501));
 
     public async Task<ApiResponse> GetAllAsync()
     {
@@ -112,8 +113,10 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         return ApiResponse.Success(data);
     }
 
-    public Task<ApiResponse> GetPagedAsync(SearchQuery query) => throw new NotImplementedException();
-    public Task<ApiResponse> GetPagedAsync<T>(AdvancedSearchQuery<T> query) => throw new NotImplementedException();
+    public Task<ApiResponse> GetPagedAsync(SearchQuery query)
+        => Task.FromResult(ApiResponse.Error(message: "GetPaged (SearchQuery) chưa được hỗ trợ.", status: 501));
+    public Task<ApiResponse> GetPagedAsync<T>(AdvancedSearchQuery<T> query)
+        => Task.FromResult(ApiResponse.Error(message: "GetPaged (AdvancedSearchQuery) chưa được hỗ trợ.", status: 501));
 
     public async Task<ApiResponse> UpdateAsync(UpdatePaddyPurchaseReceiptDto obj)
     {
@@ -132,7 +135,8 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         return ApiResponse.Success(existData.Id, "Cập nhật phiếu mua lúa thành công.");
     }
 
-    public Task<ApiResponse> UpdateListAsync(IEnumerable<UpdatePaddyPurchaseReceiptDto> objs) => throw new NotImplementedException();
+    public Task<ApiResponse> UpdateListAsync(IEnumerable<UpdatePaddyPurchaseReceiptDto> objs)
+        => Task.FromResult(ApiResponse.Error(message: "UpdateList chưa được hỗ trợ.", status: 501));
 
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {

@@ -99,7 +99,8 @@ public class StockTransferService : IStockTransferService
         return ApiResponse.Created(transfer.Id, "Tạo phiếu điều chuyển thành công.");
     }
 
-    public Task<ApiResponse> CreateListAsync(IEnumerable<CreateStockTransferDto> objs) => throw new NotImplementedException();
+    public Task<ApiResponse> CreateListAsync(IEnumerable<CreateStockTransferDto> objs)
+        => Task.FromResult(ApiResponse.Error(message: "CreateList chưa được hỗ trợ.", status: 501));
 
     public async Task<ApiResponse> GetAllAsync()
     {
@@ -132,8 +133,10 @@ public class StockTransferService : IStockTransferService
         return ApiResponse.Success(data);
     }
 
-    public Task<ApiResponse> GetPagedAsync(SearchQuery query) => throw new NotImplementedException();
-    public Task<ApiResponse> GetPagedAsync<T>(AdvancedSearchQuery<T> query) => throw new NotImplementedException();
+    public Task<ApiResponse> GetPagedAsync(SearchQuery query)
+        => Task.FromResult(ApiResponse.Error(message: "GetPaged (SearchQuery) chưa được hỗ trợ.", status: 501));
+    public Task<ApiResponse> GetPagedAsync<T>(AdvancedSearchQuery<T> query)
+        => Task.FromResult(ApiResponse.Error(message: "GetPaged (AdvancedSearchQuery) chưa được hỗ trợ.", status: 501));
 
     public async Task<ApiResponse> UpdateAsync(UpdateStockTransferDto obj)
     {
@@ -151,7 +154,7 @@ public class StockTransferService : IStockTransferService
         entity.AssignedUserId = obj.AssignedUserId;
         entity.Note = obj.Note?.Trim();
         entity.UpdatedBy = obj.UpdatedBy;
-        entity.LastModifiedDate = DateTime.Now;
+        entity.LastModifiedDate = DateTimeHelper.VietnamNow();
 
         await _transferRepository.UpdateAsync(entity);
         await _transferRepository.SaveChangesAsync();
@@ -159,7 +162,8 @@ public class StockTransferService : IStockTransferService
         return ApiResponse.Success(entity.Id, "Cập nhật phiếu điều chuyển thành công.");
     }
 
-    public Task<ApiResponse> UpdateListAsync(IEnumerable<UpdateStockTransferDto> objs) => throw new NotImplementedException();
+    public Task<ApiResponse> UpdateListAsync(IEnumerable<UpdateStockTransferDto> objs)
+        => Task.FromResult(ApiResponse.Error(message: "UpdateList chưa được hỗ trợ.", status: 501));
 
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {

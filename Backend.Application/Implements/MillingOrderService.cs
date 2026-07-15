@@ -57,6 +57,7 @@ public class MillingOrderService : IMillingOrderService
         var now = DateTimeHelper.VietnamNow();
         var datePart = now.ToString("yyyyMMdd");
         var baseCode = $"MO-{datePart}";
+        // #10: Đếm tất cả (kể cả IsDeleted) để tránh trùng suffix. Unique index là safety net.
         var count = await _millingOrderRepository
             .FindByCondition(x => x.MillingCode.StartsWith(baseCode))
             .CountAsync();
@@ -80,6 +81,18 @@ public class MillingOrderService : IMillingOrderService
                     return ApiResponse.BadRequest(message: $"Vị trí (LocationId={outputDto.LocationId.Value}) không tồn tại hoặc không thuộc kho (WarehouseId={obj.WarehouseId}).");
                 }
             }
+        }
+
+        // Validate cân bằng khối lượng (mass balance): tổng đầu ra + hao hụt ≤ tổng lúa đầu vào (dung sai 2%)
+        var totalInputKg = obj.Inputs.Sum(i => i.ConsumedWeightKg);
+        var totalOutputKg = obj.Outputs.Sum(o => o.OutputWeightKg);
+        var totalLossKg = obj.LossKg ?? 0;
+        var tolerance = totalInputKg * 0.02m; // dung sai 2%
+        if (totalInputKg > 0 && (totalOutputKg + totalLossKg) > (totalInputKg + tolerance))
+        {
+            return ApiResponse.BadRequest(message:
+                $"Mass balance không hợp lệ: Tổng đầu ra ({totalOutputKg} kg) + Hao hụt ({totalLossKg} kg) " +
+                $"vượt quá Tổng lúa đầu vào ({totalInputKg} kg) ± 2% dung sai.");
         }
 
         var order = new MillingOrder
@@ -146,7 +159,8 @@ public class MillingOrderService : IMillingOrderService
         return ApiResponse.Created(order.Id, "Tạo lệnh xay thành công.");
     }
 
-    public Task<ApiResponse> CreateListAsync(IEnumerable<CreateMillingOrderDto> objs) => throw new NotImplementedException();
+    public Task<ApiResponse> CreateListAsync(IEnumerable<CreateMillingOrderDto> objs)
+        => Task.FromResult(ApiResponse.Error(message: "CreateList chưa được hỗ trợ.", status: 501));
 
     public async Task<ApiResponse> GetAllAsync()
     {
@@ -179,8 +193,10 @@ public class MillingOrderService : IMillingOrderService
         return ApiResponse.Success(data);
     }
 
-    public Task<ApiResponse> GetPagedAsync(SearchQuery query) => throw new NotImplementedException();
-    public Task<ApiResponse> GetPagedAsync<T>(AdvancedSearchQuery<T> query) => throw new NotImplementedException();
+    public Task<ApiResponse> GetPagedAsync(SearchQuery query)
+        => Task.FromResult(ApiResponse.Error(message: "GetPaged (SearchQuery) chưa được hỗ trợ.", status: 501));
+    public Task<ApiResponse> GetPagedAsync<T>(AdvancedSearchQuery<T> query)
+        => Task.FromResult(ApiResponse.Error(message: "GetPaged (AdvancedSearchQuery) chưa được hỗ trợ.", status: 501));
 
     public async Task<ApiResponse> UpdateAsync(UpdateMillingOrderDto obj)
     {
@@ -204,7 +220,7 @@ public class MillingOrderService : IMillingOrderService
         existData.OperatorId = obj.OperatorId;
         existData.StartedAt = obj.StartedAt;
         existData.UpdatedBy = obj.UpdatedBy;
-        existData.LastModifiedDate = DateTime.Now;
+        existData.LastModifiedDate = DateTimeHelper.VietnamNow();
 
         await _millingOrderRepository.UpdateAsync(existData);
         await _millingOrderRepository.SaveChangesAsync();
@@ -212,7 +228,8 @@ public class MillingOrderService : IMillingOrderService
         return ApiResponse.Success(existData.Id, "Cập nhật lệnh xay thành công.");
     }
 
-    public Task<ApiResponse> UpdateListAsync(IEnumerable<UpdateMillingOrderDto> objs) => throw new NotImplementedException();
+    public Task<ApiResponse> UpdateListAsync(IEnumerable<UpdateMillingOrderDto> objs)
+        => Task.FromResult(ApiResponse.Error(message: "UpdateList chưa được hỗ trợ.", status: 501));
 
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {
@@ -255,6 +272,19 @@ public class MillingOrderService : IMillingOrderService
             return ApiResponse.UnprocessableEntity("Lệnh xay đã hoàn thành trước đó.");
 
         var now = DateTimeHelper.VietnamNow();
+
+        // Kiểm tra cân bằng khối lượng (mass balance) trước khi chốt — dung sai 2%
+        var totalConsumedKg = order.MillingOrderInputs.Sum(i => i.ConsumedWeightKg);
+        var totalProducedKg = order.MillingOrderOutputs.Sum(o => o.OutputWeightKg);
+        var lossKg = order.LossKg ?? 0;
+        var massBalanceTolerance = totalConsumedKg * 0.02m;
+        if (totalConsumedKg > 0 && (totalProducedKg + lossKg) > (totalConsumedKg + massBalanceTolerance))
+        {
+            return ApiResponse.UnprocessableEntity(
+                $"Mass balance không hợp lệ: Tổng đầu ra ({totalProducedKg} kg) + Hao hụt ({lossKg} kg) " +
+                $"vượt quá tổng lúa đầu vào ({totalConsumedKg} kg) ± 2% dung sai. " +
+                "Vui lòng kiểm tra lại số liệu trước khi hoàn thành lệnh xay.");
+        }
 
         await using var tx = await _millingOrderRepository.BeginTransactionAsync();
         try

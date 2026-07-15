@@ -1217,7 +1217,7 @@ public class InboundOrderService : IInboundOrderService
             if (settledLines == totalLines)
             {
                 nextDocStatusName = InboundOrderStatusNames.Confirmed;
-                order.CompletedDate = DateTime.Now;
+                order.CompletedDate = DateTimeHelper.VietnamNow();
             }
             else if (hasAnyReceived)
             {
@@ -1240,7 +1240,7 @@ public class InboundOrderService : IInboundOrderService
                         {
                             schedule.StatusId = stockedStatusId;
                             schedule.UpdatedBy = GetCurrentUserId();
-                            schedule.LastModifiedDate = DateTime.Now;
+                            schedule.LastModifiedDate = DateTimeHelper.VietnamNow();
                             await _paddyPurchaseScheduleRepository.UpdateAsync(schedule);
                             await _paddyPurchaseScheduleRepository.SaveChangesAsync();
                         }

@@ -34,6 +34,7 @@ public class QualityInspectionService : IQualityInspectionService
         if (lot == null || lot.IsDeleted)
             return ApiResponse.NotFound(message: "Không tìm thấy lô lúa/gạo.");
 
+        var now = DateTimeHelper.VietnamNow();
         var entity = new QualityInspection
         {
             PaddyLotId = obj.PaddyLotId,
@@ -48,22 +49,35 @@ public class QualityInspectionService : IQualityInspectionService
             Handling = obj.Handling?.Trim(),
             Note = obj.Note?.Trim(),
             CreatedBy = obj.CreatedBy,
-            CreatedDate = DateTimeHelper.VietnamNow()
+            CreatedDate = now
         };
 
-        await _repo.CreateAsync(entity);
-        await _repo.SaveChangesAsync();
+        // Bọc trong transaction: tạo phiếu kiểm tra và cập nhật QualityStatus cùng lúc (#12)
+        await using var tx = await _repo.BeginTransactionAsync();
+        try
+        {
+            await _repo.CreateAsync(entity);
+            await _repo.SaveChangesAsync();
 
-        // Cập nhật QualityStatus trên PaddyLot
-        lot.QualityStatus = obj.PassedInspection ? "PASSED" : "FAILED";
-        lot.LastModifiedDate = entity.CreatedDate;
-        await _paddyLotRepository.UpdateAsync(lot);
-        await _paddyLotRepository.SaveChangesAsync();
+            // Cập nhật QualityStatus trên PaddyLot
+            lot.QualityStatus = obj.PassedInspection ? "PASSED" : "FAILED";
+            lot.LastModifiedDate = now;
+            await _paddyLotRepository.UpdateAsync(lot);
+            await _paddyLotRepository.SaveChangesAsync();
+
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
 
         return ApiResponse.Created(entity.Id, "Tạo phiếu kiểm tra chất lượng thành công.");
     }
 
-    public Task<ApiResponse> CreateListAsync(IEnumerable<CreateQualityInspectionDto> objs) => throw new NotImplementedException();
+    public Task<ApiResponse> CreateListAsync(IEnumerable<CreateQualityInspectionDto> objs)
+        => Task.FromResult(ApiResponse.Error(message: "CreateList chưa được hỗ trợ.", status: 501));
 
     public async Task<ApiResponse> GetAllAsync()
     {
@@ -101,8 +115,10 @@ public class QualityInspectionService : IQualityInspectionService
         return ApiResponse.Success(data);
     }
 
-    public Task<ApiResponse> GetPagedAsync(SearchQuery query) => throw new NotImplementedException();
-    public Task<ApiResponse> GetPagedAsync<T>(AdvancedSearchQuery<T> query) => throw new NotImplementedException();
+    public Task<ApiResponse> GetPagedAsync(SearchQuery query)
+        => Task.FromResult(ApiResponse.Error(message: "GetPaged (SearchQuery) chưa được hỗ trợ.", status: 501));
+    public Task<ApiResponse> GetPagedAsync<T>(AdvancedSearchQuery<T> query)
+        => Task.FromResult(ApiResponse.Error(message: "GetPaged (AdvancedSearchQuery) chưa được hỗ trợ.", status: 501));
 
     public async Task<ApiResponse> UpdateAsync(UpdateQualityInspectionDto obj)
     {
@@ -121,15 +137,26 @@ public class QualityInspectionService : IQualityInspectionService
         entity.Handling = obj.Handling?.Trim();
         entity.Note = obj.Note?.Trim();
         entity.UpdatedBy = obj.UpdatedBy;
-        entity.LastModifiedDate = DateTime.Now;
+        entity.LastModifiedDate = DateTimeHelper.VietnamNow();
 
         await _repo.UpdateAsync(entity);
         await _repo.SaveChangesAsync();
 
+        // Đồng bộ QualityStatus về lô lúa/gạo (#14: giữ nhất quán khi phiếu bị cập nhật)
+        var lot = await _paddyLotRepository.GetByIdAsync(obj.PaddyLotId);
+        if (lot != null && !lot.IsDeleted)
+        {
+            lot.QualityStatus = obj.PassedInspection ? "PASSED" : "FAILED";
+            lot.LastModifiedDate = entity.LastModifiedDate;
+            await _paddyLotRepository.UpdateAsync(lot);
+            await _paddyLotRepository.SaveChangesAsync();
+        }
+
         return ApiResponse.Success(entity.Id, "Cập nhật phiếu kiểm tra thành công.");
     }
 
-    public Task<ApiResponse> UpdateListAsync(IEnumerable<UpdateQualityInspectionDto> objs) => throw new NotImplementedException();
+    public Task<ApiResponse> UpdateListAsync(IEnumerable<UpdateQualityInspectionDto> objs)
+        => Task.FromResult(ApiResponse.Error(message: "UpdateList chưa được hỗ trợ.", status: 501));
 
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {

@@ -63,10 +63,10 @@ namespace Backend.API.Controllers
         }
 
         [HttpPatch("{id}/status")]
-        public async Task<IActionResult> UpdateStatusAsync(int id, [FromQuery] int statusId)
+        public async Task<IActionResult> UpdateStatusAsync(int id, [FromQuery] string statusCode)
         {
             var userId = this.GetLoggedInUserId();
-            var result = await _scheduleService.UpdateStatusAsync(id, statusId, userId);
+            var result = await _scheduleService.UpdateStatusAsync(id, statusCode, userId);
             return BaseResult(result);
         }
 

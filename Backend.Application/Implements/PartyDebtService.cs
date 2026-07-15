@@ -108,6 +108,12 @@ public class PartyDebtService : IPartyDebtService
         var balanceBefore = debt.CurrentBalance;
 
         // Phát sinh nợ: cộng số dư. Thanh toán: trừ số dư.
+        // #11: Ngăn số dư âm — thanh toán không được vượt quá dư nợ hiện tại
+        if (!isDebit && dto.Amount > balanceBefore)
+            return ApiResponse.UnprocessableEntity(
+                $"Số tiền thanh toán ({dto.Amount:N0} VNĐ) vượt quá dư nợ hiện tại ({balanceBefore:N0} VNĐ). " +
+                "Vui lòng kiểm tra lại.");
+
         debt.CurrentBalance = isDebit
             ? balanceBefore + dto.Amount
             : balanceBefore - dto.Amount;
