@@ -40,8 +40,9 @@ public class AuthService : IAuthService
     private readonly IRoleRepository _roleRepository;
     private readonly ILogger<AuthService> _logger;
     private readonly IFileUploadRepository _fileUploadRepository;
+    private readonly ISystemConfigRepository _systemConfigRepository;
 
-    public AuthService(IUserRepository userRepository, IUserSessionRepository userSessionRepository, ITokenProviderService tokenProviderService, IUserRoleRepository userRoleRepository, IStorageService storageService, IPermissionRepository permissionRepository, IEmailService<GoogleMailRequest> emailService, IUserVerificationTokenRepository userVerificationTokenRepository, IHttpContextAccessor httpContextAccessor, IOptions<HostSettings> hostSettings, IEmailTemplateService emailTemplateService, IMenuRepository menuRepository, IRoleRepository roleRepository, ILoggerFactory loggerFactory, IFileUploadRepository fileUploadRepository)
+    public AuthService(IUserRepository userRepository, IUserSessionRepository userSessionRepository, ITokenProviderService tokenProviderService, IUserRoleRepository userRoleRepository, IStorageService storageService, IPermissionRepository permissionRepository, IEmailService<GoogleMailRequest> emailService, IUserVerificationTokenRepository userVerificationTokenRepository, IHttpContextAccessor httpContextAccessor, IOptions<HostSettings> hostSettings, IEmailTemplateService emailTemplateService, IMenuRepository menuRepository, IRoleRepository roleRepository, ILoggerFactory loggerFactory, IFileUploadRepository fileUploadRepository, ISystemConfigRepository systemConfigRepository)
     {
         _userRepository = userRepository;
         _userSessionRepository = userSessionRepository;
@@ -58,6 +59,23 @@ public class AuthService : IAuthService
         _roleRepository = roleRepository;
         _logger = loggerFactory.CreateLogger<AuthService>();
         _fileUploadRepository = fileUploadRepository;
+        _systemConfigRepository = systemConfigRepository;
+    }
+
+    /// <summary>
+    /// Lấy tên hệ thống + logo từ SystemConfig (có giá trị mặc định nếu chưa cấu hình) để dựng email.
+    /// </summary>
+    private async Task<(string SystemName, string LogoUrl)> GetSystemBrandAsync()
+    {
+        var systemName = await _systemConfigRepository.GetValueByKey(SystemConfigConstants.Keys.SystemName);
+        var logoUrl = await _systemConfigRepository.GetValueByKey(SystemConfigConstants.Keys.SystemLogoUrl);
+
+        if (string.IsNullOrWhiteSpace(systemName))
+            systemName = SystemConfigConstants.Defaults.SystemName;
+        if (string.IsNullOrWhiteSpace(logoUrl))
+            logoUrl = SystemConfigConstants.Defaults.SystemLogoUrl;
+
+        return (systemName, logoUrl);
     }
 
     public async Task<ApiResponse> AdminLoginAsync(LoginRequestDto obj)
@@ -83,7 +101,6 @@ public class AuthService : IAuthService
         if (user.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Locked))
             return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.UserDeactivated), ApiCodeConstants.Auth.UserLocked);
 
-        var randomCode = isClientRequest ? RandomHelper.GenerateOtpCode() : RandomHelper.GenerateRandomString(50);
         var currentDate = DateTime.Now.Date;
         var requestCountToday = await _userVerificationTokenRepository
                                         .FindByCondition(x => x.UserId == user.Id &&
@@ -95,7 +112,59 @@ public class AuthService : IAuthService
         if (requestCountToday >= AuthConstants.MAX_ACCESS_FAILED)
             return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.ForgotPasswordReachToLimit), ApiCodeConstants.Auth.ForgotPasswordReachToLimit);
 
+        // ── ADMIN: sinh mật khẩu mới, gửi qua email, buộc đổi ở lần đăng nhập kế tiếp ──
+        if (!isClientRequest)
+        {
+            var newPassword = RandomHelper.GeneratePassword(12);
+            user.PasswordHash = PasswordHelper.HashPassword(newPassword);
+            user.MustChangePassword = true;
+            user.LastModifiedDate = DateTime.Now;
+            await _userRepository.UpdateAsync(user);
 
+            // Lưu vết yêu cầu (đánh dấu đã dùng) để phục vụ giới hạn số lần/ngày.
+            await _userVerificationTokenRepository.CreateAsync(new UserVerificationToken
+            {
+                UserId = user.Id,
+                Code = RandomHelper.GenerateRandomString(50),
+                Purpose = CommonConstants.UserVerificationTokenPurpose.FORGOT_PASSWORD,
+                ExpirationDate = DateTime.Now.AddHours(AuthConstants.FORGOT_PASSWORD_TOKEN_EXPIRE_HOURS),
+                IsUsed = true,
+                CreatedDate = DateTime.Now
+            });
+
+            await _userRepository.SaveChangesAsync();
+            await _userVerificationTokenRepository.SaveChangesAsync();
+
+            var (systemName, logoUrl) = await GetSystemBrandAsync();
+            var resetModel = new ResetPasswordEmailDto
+            {
+                SystemName = systemName,
+                LogoUrl = logoUrl,
+                FullName = $"{user.FirstName} {user.LastName}".Trim(),
+                Password = newPassword,
+                LoginLink = _hostSettings.AdminUrl,
+                Year = DateTime.Now.Year.ToString()
+            };
+
+            var resetBody = await _emailTemplateService
+                .GetEmailTemplateAsync(AuthConstants.EmailTemplates.ADMIN_RESET_PASSWORD, resetModel);
+
+            var resetRequest = new GoogleMailRequest
+            {
+                ToEmails = new List<string> { email },
+                Subject = AuthConstants.NEW_PASSWORD_EMAIL_TITLE,
+                Body = resetBody,
+                CcEmails = new List<string>(),
+                BccEmails = new List<string>()
+            };
+
+            await _emailService.SendMailAsync(resetRequest);
+
+            return ApiResponse.Success();
+        }
+
+        // ── CLIENT: giữ nguyên luồng gửi mã OTP qua email ──
+        var randomCode = RandomHelper.GenerateOtpCode();
         var newToken = new UserVerificationToken
         {
             UserId = user.Id,
@@ -108,11 +177,8 @@ public class AuthService : IAuthService
         await _userVerificationTokenRepository.CreateAsync(newToken);
         await _userVerificationTokenRepository.SaveChangesAsync();
 
-        var host = isClientRequest ? _hostSettings.ClientUrl : _hostSettings.AdminUrl;
-        var resetUrl = isClientRequest
-            ? $"{host}/dat-lai-mat-khau?code={randomCode}&email={email}&purpose={newToken.Purpose}"
-            : $"{host}/reset-password?code={randomCode}&email={email}&purpose={newToken.Purpose}";
-
+        var host = _hostSettings.ClientUrl;
+        var resetUrl = $"{host}/dat-lai-mat-khau?code={randomCode}&email={email}&purpose={newToken.Purpose}";
 
         var model = new AdminForgotPasswordEmailDto
         {
@@ -124,11 +190,8 @@ public class AuthService : IAuthService
             OtpCode = randomCode
         };
 
-        var emailTemplate = isClientRequest
-            ? AuthConstants.EmailTemplates.CLIENT_FORGOT_PASSWORD_OTP
-            : AuthConstants.EmailTemplates.ADMIN_FORGOT_PASSWORD;
-        var emailBody = await _emailTemplateService.GetEmailTemplateAsync(emailTemplate, model);
-
+        var emailBody = await _emailTemplateService
+            .GetEmailTemplateAsync(AuthConstants.EmailTemplates.CLIENT_FORGOT_PASSWORD_OTP, model);
 
         var emailRequest = new GoogleMailRequest
         {
@@ -335,6 +398,7 @@ public class AuthService : IAuthService
                     Roles = listRoles,
                     Permissions = permissions,
                     Menus = menus,
+                    MustChangePassword = user.MustChangePassword,
                 }
             };
 
@@ -351,7 +415,8 @@ public class AuthService : IAuthService
                     Id = user.Id,
                     FullName = user.FirstName + " " + user.LastName,
                     Email = user.Email,
-                    AvatarUrl = userInfo.AvatarUrl
+                    AvatarUrl = userInfo.AvatarUrl,
+                    MustChangePassword = user.MustChangePassword,
                 }
             };
 

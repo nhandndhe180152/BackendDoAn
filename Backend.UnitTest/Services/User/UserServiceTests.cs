@@ -27,11 +27,16 @@ public class UserServiceTests
     private readonly Mock<IEmailTemplateService> _emailTemplate = new();
     private readonly Mock<IEmailService<GoogleMailRequest>> _emailService = new();
     private readonly Mock<IUserSessionRepository> _sessionRepo = new();
+    private readonly Mock<ISystemConfigRepository> _systemConfigRepo = new();
 
     private readonly global::Backend.Application.Implements.UserService _sut;
 
     public UserServiceTests()
     {
+        // Mặc định trả về rỗng cho brand config (service tự dùng giá trị mặc định).
+        _systemConfigRepo.Setup(r => r.GetValueByKey(It.IsAny<string>()))
+                         .ReturnsAsync(string.Empty);
+
         _sut = new global::Backend.Application.Implements.UserService(
             _userRepo.Object,
             _userRoleRepo.Object,
@@ -44,7 +49,8 @@ public class UserServiceTests
             _emailTemplate.Object,
             _emailService.Object,
             MockHelper.HttpContextAccessor().Object,
-            _sessionRepo.Object
+            _sessionRepo.Object,
+            _systemConfigRepo.Object
         );
     }
 
@@ -59,8 +65,10 @@ public class UserServiceTests
     {
         // Arrange
         var dto = TestDataBuilder.ValidCreateUserDto();
-        _userRepo.Setup(r => r.AnyAsync(It.IsAny<Expression<Func<Domain.Entities.User, bool>>>()))
-                 .ReturnsAsync(true); // email đã tồn tại
+        // Thứ tự kiểm tra: username → email. Username OK, email trùng.
+        _userRepo.SetupSequence(r => r.AnyAsync(It.IsAny<Expression<Func<Domain.Entities.User, bool>>>()))
+                 .ReturnsAsync(false)  // username OK
+                 .ReturnsAsync(true);  // email đã tồn tại
 
         // Act
         var result = await _sut.CreateAsync(dto);
@@ -74,14 +82,52 @@ public class UserServiceTests
     [Fact]
     [Trait("Service", "User")]
     [Trait("Method", "Create")]
+    public async Task Create_DuplicateUsername_ReturnsUnprocessableEntity()
+    {
+        // Arrange
+        var dto = TestDataBuilder.ValidCreateUserDto();
+        _userRepo.Setup(r => r.AnyAsync(It.IsAny<Expression<Func<Domain.Entities.User, bool>>>()))
+                 .ReturnsAsync(true); // username đã tồn tại (call đầu tiên)
+
+        // Act
+        var result = await _sut.CreateAsync(dto);
+
+        // Assert
+        result.IsSucceeded.Should().BeFalse();
+        result.Status.Should().Be(422);
+        result.Code.Should().Be(ApiCodeConstants.User.DuplicatedUsername);
+    }
+
+    [Fact]
+    [Trait("Service", "User")]
+    [Trait("Method", "Create")]
+    public async Task Create_EmptyRoles_ReturnsUnprocessableEntity()
+    {
+        // Arrange
+        var dto = TestDataBuilder.ValidCreateUserDto();
+        dto.Roles = new List<int>();
+
+        // Act
+        var result = await _sut.CreateAsync(dto);
+
+        // Assert
+        result.IsSucceeded.Should().BeFalse();
+        result.Status.Should().Be(422);
+        result.Code.Should().Be(ApiCodeConstants.User.RequiredRole);
+    }
+
+    [Fact]
+    [Trait("Service", "User")]
+    [Trait("Method", "Create")]
     public async Task Create_DuplicatePhone_ReturnsUnprocessableEntity()
     {
         // Arrange
         var dto = TestDataBuilder.ValidCreateUserDto();
 
-        // Lần 1: email OK, lần 2: phone duplicate
+        // Thứ tự: username OK, email OK, phone duplicate
         _userRepo.SetupSequence(r => r.AnyAsync(It.IsAny<Expression<Func<Domain.Entities.User, bool>>>()))
-                 .ReturnsAsync(false)  // email check → not duplicated
+                 .ReturnsAsync(false)  // username OK
+                 .ReturnsAsync(false)  // email OK
                  .ReturnsAsync(true);  // phone check → duplicated
 
         // Act
@@ -102,6 +148,7 @@ public class UserServiceTests
         var dto = TestDataBuilder.ValidCreateUserDto();
 
         _userRepo.SetupSequence(r => r.AnyAsync(It.IsAny<Expression<Func<Domain.Entities.User, bool>>>()))
+                 .ReturnsAsync(false)  // username OK
                  .ReturnsAsync(false)  // email OK
                  .ReturnsAsync(false)  // phone OK
                  .ReturnsAsync(true);  // identity → duplicate

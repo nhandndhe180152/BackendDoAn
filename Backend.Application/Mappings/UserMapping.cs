@@ -16,18 +16,22 @@ public static class UserMapping
         return new User
         {
             CreatedBy = obj.CreatedBy,
-            Username = obj.Email.ToLower(),
-            PasswordHash = obj.PasswordHash,
+            // Username tách riêng khỏi Email; Email chỉ để nhận thông báo hệ thống.
+            Username = obj.Username.Trim().ToLower(),
+            // PasswordHash được gán ở UserService (mật khẩu do hệ thống sinh).
             FirstName = obj.FirstName,
             LastName = obj.LastName,
-            Email = obj.Email.ToLower(),
+            Email = obj.Email.Trim().ToLower(),
             PhoneNumber = obj.PhoneNumber,
             IdentityNumber = obj.IdentityNumber,
             Gender = obj.Gender,
             AddresDetail = obj.AddresDetail,
+            // Chỉ admin tạo tài khoản nên kích hoạt ngay (không qua email xác thực).
             UserStatusId = Lookup.UserStatusId(LookupCodes.UserStatus.Active),
             AccessFailedCount = 0,
             LockEnabled = false,
+            // Buộc đổi mật khẩu ở lần đăng nhập đầu tiên.
+            MustChangePassword = true,
             CreatedDate = DateTime.Now
         };
     }

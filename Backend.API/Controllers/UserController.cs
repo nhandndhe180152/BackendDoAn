@@ -1,5 +1,6 @@
 using Asp.Versioning;
 using Backend.API.Utilities;
+using Backend.Application.Constants;
 using Backend.Application.DTOs.Users;
 using Backend.Application.Interfaces;
 using Backend.Domain.DTParameters;
@@ -27,10 +28,43 @@ namespace Backend.API.Controllers
         [HttpPost]
         public async Task<IActionResult> CreateAsync([FromBody] CreateUserDto obj)
         {
-            var passwordHashed = PasswordHelper.HashPassword(obj.PasswordHash);
+            // Mật khẩu do hệ thống tự sinh trong UserService và gửi qua email; controller không xử lý mật khẩu.
             obj.CreatedBy = this.GetLoggedInUserId();
-            obj.PasswordHash = passwordHashed;
             var result = await _userService.CreateAsync(obj);
+
+            return BaseResult(result);
+        }
+
+        /// <summary>Tạo hàng loạt user (toàn bộ hoặc không). Trả lỗi theo từng dòng nếu có.</summary>
+        [HttpPost("create-list")]
+        public async Task<IActionResult> CreateListAsync([FromBody] List<CreateUserDto> objs)
+        {
+            var userId = this.GetLoggedInUserId();
+            foreach (var o in objs)
+                o.CreatedBy = userId;
+
+            var result = await _userService.CreateListAsync(objs);
+
+            return BaseResult(result);
+        }
+
+        /// <summary>Tải file mẫu để import tạo user hàng loạt (format = xlsx | csv).</summary>
+        [HttpGet("import-template")]
+        public async Task<IActionResult> ImportTemplateAsync([FromQuery] string format = "xlsx")
+        {
+            var (content, contentType, fileName) = await _userService.GenerateImportTemplateAsync(format);
+            return File(content, contentType, fileName);
+        }
+
+        /// <summary>Đọc file Excel/CSV upload, trả về danh sách dòng user để hiển thị/kiểm tra trước khi tạo.</summary>
+        [HttpPost("import-parse")]
+        public async Task<IActionResult> ImportParseAsync([FromForm] IFormFile file)
+        {
+            if (file == null || file.Length == 0)
+                return BaseResult(ApiResponse.BadRequest("Vui lòng chọn file.", ApiCodeConstants.Common.InvalidFileFormat));
+
+            using var stream = file.OpenReadStream();
+            var result = await _userService.ParseImportFileAsync(stream, file.FileName);
 
             return BaseResult(result);
         }
