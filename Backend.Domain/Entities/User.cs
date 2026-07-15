@@ -23,6 +23,11 @@ public class User : EntityAuditBase<int>
     public string? PlaceOfIssue { get; set; }
     public string? MicrosoftId { get; set; }
     public int AccessFailedCount { get; set; }
+    /// <summary>
+    /// Buộc người dùng đổi mật khẩu ở lần đăng nhập kế tiếp. Bật khi admin tạo tài khoản
+    /// (mật khẩu do hệ thống sinh) hoặc sau khi reset mật khẩu qua "Quên mật khẩu".
+    /// </summary>
+    public bool MustChangePassword { get; set; }
     public bool LockEnabled { get; set; }
     public DateTime? LockEndDate { get; set; }
     public DateTime? LastLoginDate { get; set; }

@@ -14,7 +14,7 @@ public class UserValidatorTests
 
     private static CreateUserDto ValidCreateUser() => new()
     {
-        PasswordHash = "Abcd@1234",
+        Username = "nguyenan",
         FirstName = "Nguyen",
         LastName = "An",
         Email = "user@example.com",
@@ -31,17 +31,34 @@ public class UserValidatorTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("short")] // < 8 chars
-    public void CreateUser_InvalidPassword_Fails(string? pw)
+    [InlineData("abc")]        // < 6 ký tự
+    [InlineData("user name")]  // có khoảng trắng — sai định dạng
+    public void CreateUser_InvalidUsername_Fails(string? username)
     {
-        var dto = ValidCreateUser(); dto.PasswordHash = pw!;
+        var dto = ValidCreateUser(); dto.Username = username!;
         _createValidator.Validate(dto).IsValid.Should().BeFalse();
     }
 
     [Fact]
-    public void CreateUser_PasswordTooLong_Fails()
+    public void CreateUser_UsernameTooLong_Fails()
     {
-        var dto = ValidCreateUser(); dto.PasswordHash = new string('A', 65);
+        var dto = ValidCreateUser(); dto.Username = new string('a', 31);
+        _createValidator.Validate(dto).IsValid.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("not-an-email")]
+    [InlineData("abc@")]
+    public void CreateUser_InvalidEmailFormat_Fails(string email)
+    {
+        var dto = ValidCreateUser(); dto.Email = email;
+        _createValidator.Validate(dto).IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void CreateUser_EmptyRoles_Fails()
+    {
+        var dto = ValidCreateUser(); dto.Roles = new List<int>();
         _createValidator.Validate(dto).IsValid.Should().BeFalse();
     }
 

@@ -91,6 +91,12 @@
     <Folder Include="Validators/Wards/" />
   </ItemGroup>
 
+  <!-- Copy các template email (.html) ra thư mục output để EmailTemplateService đọc được lúc chạy. -->
+  <ItemGroup>
+    <None Remove="EmailTemplates\**\*.html" />
+    <Content Include="EmailTemplates\**\*.html" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
     <PackageReference Include="Handlebars.Net" Version="2.1.6" />

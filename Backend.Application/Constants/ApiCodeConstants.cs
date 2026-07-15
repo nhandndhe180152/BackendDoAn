@@ -74,5 +74,7 @@ public static class ApiCodeConstants
         public const string DuplicatedEmail = "USR_422_01";
         public const string DuplicatedPhoneNumber = "USR_422_02";
         public const string DuplicatedIdentityNumber = "USR_422_03";
+        public const string DuplicatedUsername = "USR_422_04";
+        public const string RequiredRole = "USR_422_05";
     }
 }

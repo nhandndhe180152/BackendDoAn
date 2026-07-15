@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Backend.Application.Common;
 using Backend.Application.Constants;
 using Backend.Application.DependencyInjection.Options;
+using Backend.Application.DTOs.Emails;
 using Backend.Application.DTOs.FileUploads;
 using Backend.Application.DTOs.Users;
 using Backend.Application.Interfaces;
@@ -35,8 +36,9 @@ public class UserService : IUserService
     private readonly IEmailService<GoogleMailRequest> _emailService;
     private readonly IUserSessionRepository _userSessionRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly ISystemConfigRepository _systemConfigRepository;
 
-    public UserService(IUserRepository userRepository, IUserRoleRepository userRoleRepository, IMenuRepository menuRepository, IPermissionRepository permissionRepository, ILoggerFactory loggerFactory, IStorageService storageService, IUserVerificationTokenRepository userVerificationTokenRepository, IOptions<HostSettings> hostSettings, IEmailTemplateService emailTemplateService, IEmailService<GoogleMailRequest> emailService, IHttpContextAccessor httpContextAccessor, IUserSessionRepository userSessionRepository)
+    public UserService(IUserRepository userRepository, IUserRoleRepository userRoleRepository, IMenuRepository menuRepository, IPermissionRepository permissionRepository, ILoggerFactory loggerFactory, IStorageService storageService, IUserVerificationTokenRepository userVerificationTokenRepository, IOptions<HostSettings> hostSettings, IEmailTemplateService emailTemplateService, IEmailService<GoogleMailRequest> emailService, IHttpContextAccessor httpContextAccessor, IUserSessionRepository userSessionRepository, ISystemConfigRepository systemConfigRepository)
     {
         _userRepository = userRepository;
         _userRoleRepository = userRoleRepository;
@@ -50,10 +52,32 @@ public class UserService : IUserService
         _emailService = emailService;
         _httpContextAccessor = httpContextAccessor;
         _userSessionRepository = userSessionRepository;
+        _systemConfigRepository = systemConfigRepository;
     }
 
     public async Task<ApiResponse> CreateAsync(CreateUserDto obj)
     {
+        // Bắt buộc chọn ít nhất một vai trò để tài khoản có quyền sử dụng.
+        if (obj.Roles == null || obj.Roles.Count == 0)
+        {
+            return ApiResponse.UnprocessableEntity(
+                ErrorMessagesConstants.GetMessage(ApiCodeConstants.User.RequiredRole),
+                ApiCodeConstants.User.RequiredRole
+            );
+        }
+
+        // Trùng tên đăng nhập (username tách riêng khỏi email).
+        var normalizedUsername = obj.Username.Trim().ToLower();
+        var duplicateUsername = await _userRepository
+            .AnyAsync(x => x.Username.ToLower() == normalizedUsername);
+        if (duplicateUsername)
+        {
+            return ApiResponse.UnprocessableEntity(
+                ErrorMessagesConstants.GetMessage(ApiCodeConstants.User.DuplicatedUsername).Replace("{key}", obj.Username),
+                ApiCodeConstants.User.DuplicatedUsername
+            );
+        }
+
         var duplicateUser = await _userRepository
             .AnyAsync(x => x.Email.ToLower() == obj.Email.ToLower());
         if (duplicateUser)
@@ -92,6 +116,10 @@ public class UserService : IUserService
 
         var model = obj.ToEntity();
 
+        // Hệ thống tự sinh mật khẩu tạm; hash để lưu. Mật khẩu gốc chỉ để gửi email bàn giao.
+        var tempPassword = RandomHelper.GeneratePassword(12);
+        model.PasswordHash = PasswordHelper.HashPassword(tempPassword);
+
         await _userRepository.BeginTransactionAsync();
         try
         {
@@ -117,7 +145,66 @@ public class UserService : IUserService
             return ApiResponse.InternalServerError();
         }
 
+        // Bàn giao tài khoản qua email. Lỗi gửi email không làm hỏng việc tạo tài khoản.
+        await SendAccountCredentialsEmailAsync(model, tempPassword);
+
         return ApiResponse.Created(model.Id);
+    }
+
+    /// <summary>
+    /// Lấy tên hệ thống + logo từ SystemConfig (có giá trị mặc định nếu chưa cấu hình) để dựng email.
+    /// </summary>
+    private async Task<(string SystemName, string LogoUrl)> GetSystemBrandAsync()
+    {
+        var systemName = await _systemConfigRepository.GetValueByKey(SystemConfigConstants.Keys.SystemName);
+        var logoUrl = await _systemConfigRepository.GetValueByKey(SystemConfigConstants.Keys.SystemLogoUrl);
+
+        if (string.IsNullOrWhiteSpace(systemName))
+            systemName = SystemConfigConstants.Defaults.SystemName;
+        if (string.IsNullOrWhiteSpace(logoUrl))
+            logoUrl = SystemConfigConstants.Defaults.SystemLogoUrl;
+
+        return (systemName, logoUrl);
+    }
+
+    /// <summary>
+    /// Gửi email bàn giao tài khoản mới (username + mật khẩu tạm) cho người dùng.
+    /// </summary>
+    private async Task SendAccountCredentialsEmailAsync(User user, string tempPassword)
+    {
+        try
+        {
+            var (systemName, logoUrl) = await GetSystemBrandAsync();
+
+            var model = new AccountCredentialsEmailDto
+            {
+                SystemName = systemName,
+                LogoUrl = logoUrl,
+                FullName = $"{user.FirstName} {user.LastName}".Trim(),
+                Username = user.Username,
+                Password = tempPassword,
+                LoginLink = _hostSettings.AdminUrl,
+                Year = DateTime.Now.Year.ToString()
+            };
+
+            var emailBody = await _emailTemplateService
+                .GetEmailTemplateAsync(AuthConstants.EmailTemplates.ACCOUNT_CREDENTIALS, model);
+
+            var emailRequest = new GoogleMailRequest
+            {
+                ToEmails = new List<string> { user.Email },
+                Subject = AuthConstants.ACCOUNT_CREDENTIALS_EMAIL_TITLE,
+                Body = emailBody,
+                CcEmails = new List<string>(),
+                BccEmails = new List<string>()
+            };
+
+            await _emailService.SendMailAsync(emailRequest);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send account credentials email to {Email}: {Message}", user.Email, ex.Message);
+        }
     }
 
     public async Task<ApiResponse> CreateListAsync(IEnumerable<CreateUserDto> objs)
@@ -427,6 +514,9 @@ public class UserService : IUserService
         }
 
         user.PasswordHash = PasswordHelper.HashPassword(obj.NewPassword);
+        // Đã đổi mật khẩu -> gỡ cờ bắt buộc đổi (áp dụng cho cả đổi lần đầu và sau reset).
+        user.MustChangePassword = false;
+        user.LastModifiedDate = DateTime.Now;
         await _userRepository.UpdateAsync(user);
         await _userRepository.SaveChangesAsync();
         return ApiResponse.Success(user);

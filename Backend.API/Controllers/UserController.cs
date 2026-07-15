@@ -27,9 +27,8 @@ namespace Backend.API.Controllers
         [HttpPost]
         public async Task<IActionResult> CreateAsync([FromBody] CreateUserDto obj)
         {
-            var passwordHashed = PasswordHelper.HashPassword(obj.PasswordHash);
+            // Mật khẩu do hệ thống tự sinh trong UserService và gửi qua email; controller không xử lý mật khẩu.
             obj.CreatedBy = this.GetLoggedInUserId();
-            obj.PasswordHash = passwordHashed;
             var result = await _userService.CreateAsync(obj);
 
             return BaseResult(result);

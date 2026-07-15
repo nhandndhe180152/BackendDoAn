@@ -37,11 +37,16 @@ public class AuthServiceTests
     private readonly Mock<IMenuRepository> _menuRepo = new();
     private readonly Mock<IRoleRepository> _roleRepo = new();
     private readonly Mock<IFileUploadRepository> _fileUploadRepo = new();
+    private readonly Mock<ISystemConfigRepository> _systemConfigRepo = new();
 
     private readonly AuthService _sut; // System Under Test
 
     public AuthServiceTests()
     {
+        // Mặc định trả rỗng cho brand config (service tự dùng giá trị mặc định).
+        _systemConfigRepo.Setup(r => r.GetValueByKey(It.IsAny<string>()))
+                         .ReturnsAsync(string.Empty);
+
         _sut = new AuthService(
             _userRepo.Object,
             _sessionRepo.Object,
@@ -57,7 +62,8 @@ public class AuthServiceTests
             _menuRepo.Object,
             _roleRepo.Object,
             MockHelper.LoggerFactory().Object,
-            _fileUploadRepo.Object
+            _fileUploadRepo.Object,
+            _systemConfigRepo.Object
         );
     }
 
@@ -139,16 +145,17 @@ public class AuthServiceTests
     // ResetPasswordAsync
     // ════════════════════════════════════════════════════════════════════════
 
-    // Note: success path verifies token creation, template rendering, and mail dispatch.
+    // Note: admin forgot-password sinh mật khẩu mới, buộc đổi lần kế tiếp và gửi email.
     [Fact]
     [Trait("Service", "Auth")]
     [Trait("Method", "ForgotPassword")]
-    public async Task ForgotPassword_ValidUser_CreatesTokenAndSendsEmail()
+    public async Task ForgotPassword_ValidUser_ResetsPasswordAndSendsEmail()
     {
         // Arrange
         UserVerificationToken? createdToken = null;
         GoogleMailRequest? sentMail = null;
         var user = TestDataBuilder.DefaultUser();
+        var oldHash = user.PasswordHash;
 
         _userRepo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<Expression<Func<Domain.Entities.User, bool>>>(), false))
                  .ReturnsAsync(user);
@@ -157,7 +164,7 @@ public class AuthServiceTests
         _tokenRepo.Setup(r => r.CreateAsync(It.IsAny<UserVerificationToken>()))
                   .Callback<UserVerificationToken>(token => createdToken = token);
         _emailTemplate.Setup(s => s.GetEmailTemplateAsync(It.IsAny<string>(), It.IsAny<object>()))
-                      .ReturnsAsync("<html>forgot password</html>");
+                      .ReturnsAsync("<html>new password</html>");
         _emailService.Setup(s => s.SendMailAsync(It.IsAny<GoogleMailRequest>()))
                      .Callback<GoogleMailRequest>(mail => sentMail = mail);
 
@@ -167,13 +174,14 @@ public class AuthServiceTests
         // Assert
         result.IsSucceeded.Should().BeTrue();
         result.Status.Should().Be(200);
+        // Đã đặt lại mật khẩu và buộc đổi lần kế tiếp.
+        user.PasswordHash.Should().NotBe(oldHash);
+        user.MustChangePassword.Should().BeTrue();
         createdToken.Should().NotBeNull();
         createdToken!.UserId.Should().Be(user.Id);
         createdToken.Purpose.Should().Be(CommonConstants.UserVerificationTokenPurpose.FORGOT_PASSWORD);
-        createdToken.IsUsed.Should().BeFalse();
         sentMail.Should().NotBeNull();
         sentMail!.ToEmails.Should().ContainSingle(user.Email);
-        _tokenRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
         _emailService.Verify(s => s.SendMailAsync(It.IsAny<GoogleMailRequest>()), Times.Once);
     }
 
