@@ -58,13 +58,13 @@ namespace Backend.API.Controllers
 
         /// <summary>Đọc file Excel/CSV upload, trả về danh sách dòng user để hiển thị/kiểm tra trước khi tạo.</summary>
         [HttpPost("import-parse")]
-        public async Task<IActionResult> ImportParseAsync([FromForm] IFormFile file)
+        public async Task<IActionResult> ImportParseAsync([FromForm] ImportUserFileDto request)
         {
-            if (file == null || file.Length == 0)
+            if (request.File == null || request.File.Length == 0)
                 return BaseResult(ApiResponse.BadRequest("Vui lòng chọn file.", ApiCodeConstants.Common.InvalidFileFormat));
 
-            using var stream = file.OpenReadStream();
-            var result = await _userService.ParseImportFileAsync(stream, file.FileName);
+            using var stream = request.File.OpenReadStream();
+            var result = await _userService.ParseImportFileAsync(stream, request.File.FileName);
 
             return BaseResult(result);
         }
