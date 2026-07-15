@@ -277,8 +277,8 @@ public class MillingOrderService : IMillingOrderService
                 lot.LastModifiedDate = now;
                 await _paddyLotRepository.UpdateAsync(lot);
 
-                // 3. InventoryTransaction EXPORT cho lúa đầu vào
-                await ExportLotInventoryAsync(lot, input.ConsumedWeightKg, orderId, input.Id, completedById, now);
+                // 3. InventoryTransaction EXPORT cho lúa đầu vào (sử dụng input.LocationId để tránh lệch vị trí thực tế của lô)
+                await ExportLotInventoryAsync(lot, input.LocationId, input.ConsumedWeightKg, orderId, input.Id, completedById, now);
             }
 
             await _paddyLotRepository.SaveChangesAsync();
@@ -367,6 +367,11 @@ public class MillingOrderService : IMillingOrderService
 
             return ApiResponse.Success(new { OrderId = orderId }, "Hoàn thành lệnh xay. Đã sinh lô gạo/phụ phẩm và cập nhật tồn kho.");
         }
+        catch (InvalidOperationException ex)
+        {
+            await _millingOrderRepository.RollbackTransactionAsync();
+            return ApiResponse.UnprocessableEntity(ex.Message);
+        }
         catch
         {
             await _millingOrderRepository.RollbackTransactionAsync();
@@ -376,12 +381,16 @@ public class MillingOrderService : IMillingOrderService
 
     // ── Private helpers ─────────────────────────────────────────────────────
 
-    private async Task ExportLotInventoryAsync(PaddyLot lot, decimal qty, int orderId, int inputId, int userId, DateTime now)
+    private async Task ExportLotInventoryAsync(PaddyLot lot, int? inputLocationId, decimal qty, int orderId, int inputId, int userId, DateTime now)
     {
+        var targetLocationId = inputLocationId ?? lot.LocationId;
         var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
-            lot.ProductVariantId, lot.WarehouseId, lot.LocationId);
+            lot.ProductVariantId, lot.WarehouseId, targetLocationId);
 
-        if (inventory == null) return; // tồn kho chưa tạo — bỏ qua
+        if (inventory == null || inventory.QuantityOnHand < qty)
+        {
+            throw new InvalidOperationException($"Lô lúa {lot.LotCode} không đủ tồn kho vật lý tại kho {lot.WarehouseId} và ô kệ {targetLocationId} (chỉ còn {inventory?.QuantityOnHand ?? 0} kg) để thực hiện xuất {qty} kg.");
+        }
 
         var before = inventory.QuantityOnHand;
         inventory.QuantityOnHand = Math.Max(0, inventory.QuantityOnHand - qty);
@@ -392,7 +401,7 @@ public class MillingOrderService : IMillingOrderService
         {
             InventoryId = inventory.Id,
             WarehouseId = lot.WarehouseId,
-            LocationId = lot.LocationId,
+            LocationId = targetLocationId,
             ProductVariantId = lot.ProductVariantId,
             TransactionType = InventoryTransactionTypeConstants.Export,
             ReferenceType = InventoryReferenceTypeConstants.MillingOrder,
@@ -433,8 +442,17 @@ public class MillingOrderService : IMillingOrderService
         }
 
         var before = inventory.QuantityOnHand;
+        // Áp dụng bình quân gia quyền cho giá vốn khi nhập thêm thành phẩm
+        if (before > 0 && inventory.CostPrice > 0)
+        {
+            inventory.CostPrice = Math.Round(((before * inventory.CostPrice) + (qty * lot.CostPricePerKg)) / (before + qty), 2);
+        }
+        else
+        {
+            inventory.CostPrice = lot.CostPricePerKg;
+        }
+
         inventory.QuantityOnHand += qty;
-        inventory.CostPrice = lot.CostPricePerKg;
         inventory.LastModifiedDate = now;
         await _inventoryRepository.UpdateAsync(inventory);
 

@@ -202,30 +202,87 @@ public class StockTransferService : IStockTransferService
         {
             foreach (var item in transfer.StockTransferItems)
             {
-                // EXPORT từ FromWarehouse
+                decimal costPrice = 0;
+                PaddyLot? lot = null;
+
+                if (item.PaddyLotId.HasValue)
+                {
+                    lot = await _paddyLotRepository.GetByIdAsync(item.PaddyLotId.Value);
+                    if (lot != null && !lot.IsDeleted)
+                    {
+                        costPrice = lot.CostPricePerKg;
+                    }
+                }
+                else
+                {
+                    var sourceInventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
+                        item.ProductVariantId, transfer.FromWarehouseId, item.FromLocationId);
+                    costPrice = sourceInventory?.CostPrice ?? 0;
+                }
+
+                // EXPORT từ FromWarehouse (sẽ tự động ném Exception nếu không đủ tồn kho)
                 await MoveInventoryAsync(
                     item.ProductVariantId, transfer.FromWarehouseId, item.FromLocationId,
-                    item.WeightKg, isExport: true,
+                    item.WeightKg, isExport: true, costPrice,
                     refId: id, refItemId: item.Id, userId: confirmedById, now,
                     note: $"Điều chuyển từ kho {transfer.FromWarehouseId} → {transfer.ToWarehouseId}");
 
                 // IMPORT vào ToWarehouse
                 await MoveInventoryAsync(
                     item.ProductVariantId, transfer.ToWarehouseId, item.ToLocationId,
-                    item.WeightKg, isExport: false,
+                    item.WeightKg, isExport: false, costPrice,
                     refId: id, refItemId: item.Id, userId: confirmedById, now,
                     note: $"Nhận hàng điều chuyển từ kho {transfer.FromWarehouseId}");
 
-                // Cập nhật PaddyLot.WarehouseId nếu chuyển nguyên lô
-                if (item.PaddyLotId.HasValue)
+                // Cập nhật lô lúa (Nếu chuyển 1 phần thì tách lô để bảo toàn vị trí phần còn lại)
+                if (lot != null)
                 {
-                    var lot = await _paddyLotRepository.GetByIdAsync(item.PaddyLotId.Value);
-                    if (lot != null)
+                    if (item.WeightKg < lot.RemainingWeightKg)
                     {
+                        // Tách lô mới ở kho đích
+                        var datePart = now.ToString("yyyyMMdd");
+                        var lotType = lot.LotType;
+                        var baseCode = $"LOT-{lotType}-{datePart}";
+                        var count = await _paddyLotRepository.FindByCondition(x => x.LotCode.StartsWith(baseCode)).CountAsync();
+                        var newLotCode = $"{baseCode}-{(count + 1):D4}";
+
+                        var newLot = new PaddyLot
+                        {
+                            OrganizationId = lot.OrganizationId,
+                            LotCode = newLotCode,
+                            LotType = lot.LotType,
+                            ProductVariantId = lot.ProductVariantId,
+                            RiceVarietyId = lot.RiceVarietyId,
+                            StatusId = lot.StatusId,
+                            SourceReceiptId = lot.SourceReceiptId,
+                            SourceMillingOrderId = lot.SourceMillingOrderId,
+                            WarehouseId = transfer.ToWarehouseId,
+                            LocationId = item.ToLocationId,
+                            InboundDate = lot.InboundDate,
+                            InitialWeightKg = item.WeightKg,
+                            RemainingWeightKg = item.WeightKg,
+                            CostPricePerKg = lot.CostPricePerKg,
+                            QualityStatus = lot.QualityStatus,
+                            CreatedBy = confirmedById,
+                            CreatedDate = now
+                        };
+                        await _paddyLotRepository.CreateAsync(newLot);
+                        await _paddyLotRepository.SaveChangesAsync();
+
+                        // Trừ RemainingWeightKg của lô gốc
+                        lot.RemainingWeightKg -= item.WeightKg;
+                        lot.LastModifiedDate = now;
+                        await _paddyLotRepository.UpdateAsync(lot);
+                        await _paddyLotRepository.SaveChangesAsync();
+                    }
+                    else
+                    {
+                        // Chuyển toàn bộ lô
                         lot.WarehouseId = transfer.ToWarehouseId;
                         lot.LocationId = item.ToLocationId;
                         lot.LastModifiedDate = now;
                         await _paddyLotRepository.UpdateAsync(lot);
+                        await _paddyLotRepository.SaveChangesAsync();
                     }
                 }
             }
@@ -243,6 +300,11 @@ public class StockTransferService : IStockTransferService
 
             return ApiResponse.Success(new { TransferId = id }, "Xác nhận điều chuyển thành công. Đã cập nhật tồn kho 2 kho.");
         }
+        catch (InvalidOperationException ex)
+        {
+            await _transferRepository.RollbackTransactionAsync();
+            return ApiResponse.UnprocessableEntity(ex.Message);
+        }
         catch
         {
             await _transferRepository.RollbackTransactionAsync();
@@ -254,7 +316,7 @@ public class StockTransferService : IStockTransferService
 
     private async Task MoveInventoryAsync(
         int productVariantId, int warehouseId, int? locationId,
-        decimal qty, bool isExport,
+        decimal qty, bool isExport, decimal costPrice,
         int refId, int refItemId, int userId, DateTime now, string note)
     {
         var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
@@ -262,13 +324,17 @@ public class StockTransferService : IStockTransferService
 
         if (inventory == null)
         {
-            if (isExport) return; // Xuất từ kho chưa có tồn — bỏ qua
+            if (isExport)
+            {
+                throw new InvalidOperationException($"Không có tồn kho của sản phẩm tại kho {warehouseId} (kệ {locationId}) để xuất điều chuyển {qty} kg.");
+            }
+
             inventory = new Inventory
             {
                 WarehouseId = warehouseId,
                 LocationId = locationId,
                 ProductVariantId = productVariantId,
-                CostPrice = 0,
+                CostPrice = costPrice,
                 QuantityOnHand = 0,
                 QuantityReserved = 0,
                 CreatedDate = now
@@ -278,9 +344,31 @@ public class StockTransferService : IStockTransferService
         }
 
         var before = inventory.QuantityOnHand;
-        inventory.QuantityOnHand = isExport
-            ? Math.Max(0, inventory.QuantityOnHand - qty)
-            : inventory.QuantityOnHand + qty;
+
+        if (isExport)
+        {
+            if (inventory.QuantityOnHand < qty)
+            {
+                throw new InvalidOperationException($"Số lượng tồn kho tại kho {warehouseId} (kệ {locationId}) không đủ (chỉ còn {inventory.QuantityOnHand} kg) để xuất điều chuyển {qty} kg.");
+            }
+
+            inventory.QuantityOnHand = Math.Max(0, inventory.QuantityOnHand - qty);
+        }
+        else
+        {
+            // Áp dụng bình quân gia quyền cho giá vốn khi nhập hàng điều chuyển vào kho đích
+            if (before > 0 && inventory.CostPrice > 0)
+            {
+                inventory.CostPrice = Math.Round(((before * inventory.CostPrice) + (qty * costPrice)) / (before + qty), 2);
+            }
+            else
+            {
+                inventory.CostPrice = costPrice;
+            }
+
+            inventory.QuantityOnHand += qty;
+        }
+
         inventory.LastModifiedDate = now;
         await _inventoryRepository.UpdateAsync(inventory);
 

@@ -179,12 +179,12 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         var defaultLotStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => !x.IsDeleted) 
             ?? throw new InvalidOperationException("Không tìm thấy LotStatus nào trong hệ thống.");
 
-        // Lấy ProductVariantId
-        var productVariantId = await GetDefaultPaddyVariantIdAsync(receipt);
-
         await using var tx = await _receiptRepository.BeginTransactionAsync();
         try
         {
+            // Lấy ProductVariantId (ném exception rõ ràng nếu lỗi)
+            var productVariantId = await GetDefaultPaddyVariantIdAsync(receipt);
+
             // 4. Tạo PaddyLot
             var lot = new PaddyLot
             {
@@ -257,17 +257,17 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                 await RecordDebtAsync(receipt, confirmedById, now);
             }
 
-            // 9. Cập nhật trạng thái lịch hẹn sang "Đã cân hàng" (WEIGHED) nếu có liên kết
+            // 9. Cập nhật trạng thái lịch hẹn sang "Đã nhập kho" (STOCKED) trực tiếp vì hàng đã vào kho
             if (receipt.ScheduleId.HasValue)
             {
                 var schedule = await _scheduleRepository.GetByIdAsync(receipt.ScheduleId.Value);
                 if (schedule != null && !schedule.IsDeleted)
                 {
-                    var weighedStatusId = _systemLookup.PaddyScheduleStatusId("WEIGHED");
-                    // Guard: forward-only (chỉ đẩy lên, không lùi trạng thái nếu đã ở STOCKED/CANCELLED >= 5)
-                    if (schedule.StatusId < weighedStatusId)
+                    var stockedStatusId = _systemLookup.PaddyScheduleStatusId("STOCKED");
+                    // Guard: forward-only (chỉ đẩy lên, không lùi trạng thái nếu đã hủy)
+                    if (schedule.StatusId < stockedStatusId)
                     {
-                        schedule.StatusId = weighedStatusId;
+                        schedule.StatusId = stockedStatusId;
                         schedule.UpdatedBy = confirmedById;
                         schedule.LastModifiedDate = now;
                         await _scheduleRepository.UpdateAsync(schedule);
@@ -280,6 +280,11 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
             return ApiResponse.Success(new { LotId = lot.Id, LotCode = lot.LotCode, InboundOrderId = inboundOrder.Id },
                 "Chốt phiếu thành công. Đã sinh lô và phiếu nhập kho.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            await _receiptRepository.RollbackTransactionAsync();
+            return ApiResponse.UnprocessableEntity(ex.Message);
         }
         catch
         {
@@ -297,18 +302,40 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
     {
         if (receipt.RiceVarietyId.HasValue)
         {
+            // Tìm variant khớp RiceVarietyId, không phải byproduct, và tên sản phẩm/category chứa từ "Lúa"
             var matchedVariant = await _productVariantRepository
+                .FindByCondition(x => x.RiceVarietyId == receipt.RiceVarietyId.Value 
+                    && !x.IsByproduct 
+                    && x.IsActive 
+                    && (x.Product.ProductCategory.Name.Contains("Lúa") || x.Name.Contains("Lúa") || x.Product.Name.Contains("Lúa")))
+                .FirstOrDefaultAsync();
+
+            if (matchedVariant != null) return matchedVariant.Id;
+
+            // Fallback 1: bỏ qua điều kiện tên chứa "Lúa"
+            matchedVariant = await _productVariantRepository
                 .FindByCondition(x => x.RiceVarietyId == receipt.RiceVarietyId.Value && !x.IsByproduct && x.IsActive)
                 .FirstOrDefaultAsync();
+
             if (matchedVariant != null) return matchedVariant.Id;
         }
 
-        // Fallback tìm variant đầu tiên không phải byproduct
+        // Fallback 2: Tìm variant đầu tiên không phải byproduct và thuộc category "Lúa"
         var fallback = await _productVariantRepository
+            .FindByCondition(x => !x.IsByproduct && x.IsActive 
+                && (x.Product.ProductCategory.Name.Contains("Lúa") || x.Name.Contains("Lúa") || x.Product.Name.Contains("Lúa")))
+            .FirstOrDefaultAsync();
+
+        if (fallback != null) return fallback.Id;
+
+        // Fallback 3: Tìm variant active không phải byproduct bất kỳ
+        fallback = await _productVariantRepository
             .FindByCondition(x => !x.IsByproduct && x.IsActive)
             .FirstOrDefaultAsync();
 
-        return fallback?.Id ?? 1;
+        if (fallback != null) return fallback.Id;
+
+        throw new InvalidOperationException("Không tìm thấy biến thể sản phẩm (ProductVariant) nào đại diện cho Lúa thô trong hệ thống để thực hiện chốt phiếu. Vui lòng cấu hình sản phẩm Lúa thô trước.");
     }
 
     private async Task UpsertInventoryAsync(PaddyLot lot, PaddyPurchaseReceipt receipt,
@@ -334,8 +361,17 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         }
 
         var before = inventory.QuantityOnHand;
+        // Áp dụng bình quân gia quyền cho giá vốn khi nhập thêm hàng
+        if (before > 0 && inventory.CostPrice > 0)
+        {
+            inventory.CostPrice = Math.Round(((before * inventory.CostPrice) + (receipt.ActualWeightKg * lot.CostPricePerKg)) / (before + receipt.ActualWeightKg), 2);
+        }
+        else
+        {
+            inventory.CostPrice = lot.CostPricePerKg;
+        }
+
         inventory.QuantityOnHand += receipt.ActualWeightKg;
-        inventory.CostPrice = lot.CostPricePerKg;
         inventory.LastModifiedDate = now;
 
         await _inventoryRepository.UpdateAsync(inventory);
