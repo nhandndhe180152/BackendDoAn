@@ -34,6 +34,40 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        /// <summary>Tạo hàng loạt user (toàn bộ hoặc không). Trả lỗi theo từng dòng nếu có.</summary>
+        [HttpPost("create-list")]
+        public async Task<IActionResult> CreateListAsync([FromBody] List<CreateUserDto> objs)
+        {
+            var userId = this.GetLoggedInUserId();
+            foreach (var o in objs)
+                o.CreatedBy = userId;
+
+            var result = await _userService.CreateListAsync(objs);
+
+            return BaseResult(result);
+        }
+
+        /// <summary>Tải file mẫu để import tạo user hàng loạt (format = xlsx | csv).</summary>
+        [HttpGet("import-template")]
+        public async Task<IActionResult> ImportTemplateAsync([FromQuery] string format = "xlsx")
+        {
+            var (content, contentType, fileName) = await _userService.GenerateImportTemplateAsync(format);
+            return File(content, contentType, fileName);
+        }
+
+        /// <summary>Đọc file Excel/CSV upload, trả về danh sách dòng user để hiển thị/kiểm tra trước khi tạo.</summary>
+        [HttpPost("import-parse")]
+        public async Task<IActionResult> ImportParseAsync([FromForm] IFormFile file)
+        {
+            if (file == null || file.Length == 0)
+                return BaseResult(ApiResponse.BadRequest("Vui lòng chọn file."));
+
+            using var stream = file.OpenReadStream();
+            var result = await _userService.ParseImportFileAsync(stream, file.FileName);
+
+            return BaseResult(result);
+        }
+
         [HttpGet]
         public async Task<IActionResult> GetAllAsync()
         {

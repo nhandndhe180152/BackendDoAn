@@ -42,6 +42,7 @@ public static class ApiCodeConstants
         public const string UnprocessableEntity = "CMN_422";
         public const string RequiredMessage = "CMN_422_01";
         public const string InvalidFormatMessage = "CMN_422_02";
+        public const string InvalidFileFormat = "CMN_422_15";
         public const string MaxLengthMessage = "CMN_422_03";
         public const string MinLengthMessage = "CMN_422_04";
         public const string InvalidData = "CMN_422_05";

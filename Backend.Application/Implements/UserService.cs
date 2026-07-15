@@ -1,5 +1,9 @@
 using System;
+using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
+using NPOI.SS.UserModel;
+using NPOI.XSSF.UserModel;
 using Backend.Application.Common;
 using Backend.Application.Constants;
 using Backend.Application.DependencyInjection.Options;
@@ -8,6 +12,7 @@ using Backend.Application.DTOs.FileUploads;
 using Backend.Application.DTOs.Users;
 using Backend.Application.Interfaces;
 using Backend.Application.Mappings;
+using Backend.Application.Validators.Users;
 using Backend.Domain.DTParameters;
 using Backend.Domain.Entities;
 using Backend.Domain.Enums;
@@ -207,14 +212,300 @@ public class UserService : IUserService
         }
     }
 
+    // ── Import hàng loạt (Excel/CSV) ─────────────────────────────────────────
+
+    private static readonly string[] ImportHeaders =
+    {
+        "Tên đăng nhập", "Email", "Họ và tên đệm", "Tên", "Số điện thoại", "CCCD/CMND", "Giới tính (Nam/Nữ)"
+    };
+
+    private static readonly string[] ImportSampleRow =
+    {
+        "nguyenvana", "vana@example.com", "Nguyễn Văn", "A", "0901234567", "012345678901", "Nam"
+    };
+
+    public Task<(byte[] Content, string ContentType, string FileName)> GenerateImportTemplateAsync(string format)
+    {
+        format = string.IsNullOrWhiteSpace(format) ? "xlsx" : format.Trim().ToLower();
+
+        if (format == "csv")
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine(string.Join(",", ImportHeaders));
+            sb.AppendLine(string.Join(",", ImportSampleRow));
+            // BOM UTF-8 để Excel hiển thị tiếng Việt đúng.
+            var bytes = new UTF8Encoding(true).GetBytes(sb.ToString());
+            return Task.FromResult((bytes, "text/csv; charset=utf-8", "mau-tao-user.csv"));
+        }
+
+        IWorkbook wb = new XSSFWorkbook();
+        var sheet = wb.CreateSheet("Users");
+        var header = sheet.CreateRow(0);
+        for (int i = 0; i < ImportHeaders.Length; i++)
+            header.CreateCell(i).SetCellValue(ImportHeaders[i]);
+        var example = sheet.CreateRow(1);
+        for (int i = 0; i < ImportSampleRow.Length; i++)
+            example.CreateCell(i).SetCellValue(ImportSampleRow[i]);
+
+        using var ms = new MemoryStream();
+        wb.Write(ms);
+        // MemoryStream.ToArray hoạt động kể cả khi stream đã bị NPOI đóng.
+        var content = ms.ToArray();
+        return Task.FromResult((content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "mau-tao-user.xlsx"));
+    }
+
+    public async Task<ApiResponse> ParseImportFileAsync(Stream fileStream, string fileName)
+    {
+        try
+        {
+            // Sao chép ra MemoryStream để NPOI đọc ổn định (cần seek).
+            using var ms = new MemoryStream();
+            await fileStream.CopyToAsync(ms);
+            ms.Position = 0;
+
+            var ext = Path.GetExtension(fileName ?? string.Empty).ToLower();
+            var rows = new List<UserImportRowDto>();
+
+            if (ext == ".csv")
+            {
+                using var reader = new StreamReader(ms, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+                string? line;
+                bool first = true;
+                while ((line = await reader.ReadLineAsync()) != null)
+                {
+                    if (first) { first = false; continue; } // bỏ dòng tiêu đề
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    rows.Add(MapImportRow(SplitCsvLine(line)));
+                }
+            }
+            else
+            {
+                IWorkbook wb = WorkbookFactory.Create(ms);
+                var sheet = wb.GetSheetAt(0);
+                if (sheet != null)
+                {
+                    for (int r = 1; r <= sheet.LastRowNum; r++) // bỏ dòng tiêu đề (row 0)
+                    {
+                        var row = sheet.GetRow(r);
+                        if (row == null) continue;
+                        var cols = new string?[ImportHeaders.Length];
+                        for (int c = 0; c < ImportHeaders.Length; c++)
+                            cols[c] = GetCellString(row.GetCell(c));
+                        if (cols.All(string.IsNullOrWhiteSpace)) continue;
+                        rows.Add(MapImportRow(cols));
+                    }
+                }
+            }
+
+            return ApiResponse.Success(rows);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to parse import file {FileName}: {Message}", fileName, ex.Message);
+            return ApiResponse.BadRequest("Không đọc được file. Vui lòng dùng đúng file mẫu (Excel/CSV).", ApiCodeConstants.Common.InvalidFileFormat);
+        }
+    }
+
+    private static UserImportRowDto MapImportRow(string?[] c)
+    {
+        string? Get(int i) => (i < c.Length && !string.IsNullOrWhiteSpace(c[i])) ? c[i]!.Trim() : null;
+
+        int? gender = null;
+        var g = Get(6)?.ToLower();
+        if (g == "nam" || g == "male" || g == "1") gender = 1;
+        else if (g == "nữ" || g == "nu" || g == "female" || g == "0") gender = 0;
+
+        return new UserImportRowDto
+        {
+            Username = Get(0),
+            Email = Get(1),
+            FirstName = Get(2),
+            LastName = Get(3),
+            PhoneNumber = Get(4),
+            IdentityNumber = Get(5),
+            Gender = gender
+        };
+    }
+
+    private static string? GetCellString(ICell? cell)
+    {
+        if (cell == null) return null;
+        switch (cell.CellType)
+        {
+            case CellType.String:
+                return cell.StringCellValue?.Trim();
+            case CellType.Numeric:
+                var d = cell.NumericCellValue;
+                return (d == Math.Floor(d) && !double.IsInfinity(d))
+                    ? ((long)d).ToString()
+                    : d.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            case CellType.Boolean:
+                return cell.BooleanCellValue ? "true" : "false";
+            case CellType.Formula:
+                try { return cell.StringCellValue?.Trim(); }
+                catch { return cell.NumericCellValue.ToString(System.Globalization.CultureInfo.InvariantCulture); }
+            default:
+                return cell.ToString()?.Trim();
+        }
+    }
+
+    private static string?[] SplitCsvLine(string line)
+    {
+        var result = new List<string>();
+        var sb = new StringBuilder();
+        bool inQuotes = false;
+        for (int i = 0; i < line.Length; i++)
+        {
+            char ch = line[i];
+            if (ch == '"')
+            {
+                if (inQuotes && i + 1 < line.Length && line[i + 1] == '"') { sb.Append('"'); i++; }
+                else inQuotes = !inQuotes;
+            }
+            else if (ch == ',' && !inQuotes)
+            {
+                result.Add(sb.ToString());
+                sb.Clear();
+            }
+            else sb.Append(ch);
+        }
+        result.Add(sb.ToString());
+        return result.Select(x => (string?)x.Trim()).ToArray();
+    }
+
+    /// <summary>
+    /// Tạo hàng loạt user theo kiểu "toàn bộ hoặc không": validate tất cả các dòng (định dạng,
+    /// trùng trong lô, trùng DB, bắt buộc vai trò). Nếu có bất kỳ lỗi nào thì KHÔNG tạo ai và trả
+    /// về danh sách lỗi theo từng dòng. Nếu hợp lệ hết thì tạo tất cả trong 1 transaction, mỗi user
+    /// được sinh mật khẩu tạm + gửi email bàn giao + buộc đổi mật khẩu lần đầu.
+    /// </summary>
     public async Task<ApiResponse> CreateListAsync(IEnumerable<CreateUserDto> objs)
     {
-        var model = objs.Select(x => x.ToEntity());
+        var list = objs?.ToList() ?? new List<CreateUserDto>();
+        if (list.Count == 0)
+            return ApiResponse.UnprocessableEntity(
+                ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.RequiredMessage).Replace("{PropertyName}", "Danh sách người dùng"),
+                ApiCodeConstants.Common.RequiredMessage);
 
-        await _userRepository.CreateListAsync(model);
-        await _userRepository.SaveChangesAsync();
+        var validator = new CreateUserDtoValidator();
+        var rowErrors = new Dictionary<int, List<string>>();
 
-        return ApiResponse.Created(model.Select(x => x.Id));
+        void AddError(int row, string message)
+        {
+            if (!rowErrors.TryGetValue(row, out var msgs))
+            {
+                msgs = new List<string>();
+                rowErrors[row] = msgs;
+            }
+            if (!msgs.Contains(message)) msgs.Add(message);
+        }
+
+        // 1) Validate định dạng từng dòng (dùng chung luật với tạo đơn lẻ).
+        for (int i = 0; i < list.Count; i++)
+        {
+            var vr = validator.Validate(list[i]);
+            foreach (var e in vr.Errors)
+                AddError(i + 1, e.ErrorMessage);
+        }
+
+        // 2) Trùng trong lô (username/email/phone/CCCD).
+        void CheckIntraBatchDuplicate(Func<CreateUserDto, string?> selector, string label)
+        {
+            var seen = new Dictionary<string, int>();
+            for (int i = 0; i < list.Count; i++)
+            {
+                var raw = selector(list[i]);
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                var key = raw.Trim().ToLower();
+                if (seen.TryGetValue(key, out var firstRow))
+                    AddError(i + 1, $"{label} '{raw}' bị trùng với dòng {firstRow} trong danh sách.");
+                else
+                    seen[key] = i + 1;
+            }
+        }
+        CheckIntraBatchDuplicate(x => x.Username, "Tên đăng nhập");
+        CheckIntraBatchDuplicate(x => x.Email, "Email");
+        CheckIntraBatchDuplicate(x => x.PhoneNumber, "Số điện thoại");
+        CheckIntraBatchDuplicate(x => x.IdentityNumber, "CCCD/CMND");
+
+        // 3) Trùng với dữ liệu đã có trong DB (truy vấn gộp cho nhanh).
+        var usernames = list.Where(x => !string.IsNullOrWhiteSpace(x.Username)).Select(x => x.Username.Trim().ToLower()).Distinct().ToList();
+        var emails = list.Where(x => !string.IsNullOrWhiteSpace(x.Email)).Select(x => x.Email.Trim().ToLower()).Distinct().ToList();
+        var phones = list.Where(x => !string.IsNullOrWhiteSpace(x.PhoneNumber)).Select(x => x.PhoneNumber!.Trim()).Distinct().ToList();
+        var idents = list.Where(x => !string.IsNullOrWhiteSpace(x.IdentityNumber)).Select(x => x.IdentityNumber!.Trim()).Distinct().ToList();
+
+        var existedUsernames = usernames.Count == 0 ? new List<string>() :
+            await _userRepository.FindByCondition(x => !x.IsDeleted && usernames.Contains(x.Username.ToLower())).Select(x => x.Username.ToLower()).ToListAsync();
+        var existedEmails = emails.Count == 0 ? new List<string>() :
+            await _userRepository.FindByCondition(x => !x.IsDeleted && emails.Contains(x.Email.ToLower())).Select(x => x.Email.ToLower()).ToListAsync();
+        var existedPhones = phones.Count == 0 ? new List<string>() :
+            await _userRepository.FindByCondition(x => !x.IsDeleted && x.PhoneNumber != null && phones.Contains(x.PhoneNumber)).Select(x => x.PhoneNumber!).ToListAsync();
+        var existedIdents = idents.Count == 0 ? new List<string>() :
+            await _userRepository.FindByCondition(x => !x.IsDeleted && x.IdentityNumber != null && idents.Contains(x.IdentityNumber)).Select(x => x.IdentityNumber!).ToListAsync();
+
+        for (int i = 0; i < list.Count; i++)
+        {
+            var row = list[i];
+            if (!string.IsNullOrWhiteSpace(row.Username) && existedUsernames.Contains(row.Username.Trim().ToLower()))
+                AddError(i + 1, $"Tên đăng nhập '{row.Username}' đã tồn tại.");
+            if (!string.IsNullOrWhiteSpace(row.Email) && existedEmails.Contains(row.Email.Trim().ToLower()))
+                AddError(i + 1, $"Email '{row.Email}' đã tồn tại.");
+            if (!string.IsNullOrWhiteSpace(row.PhoneNumber) && existedPhones.Contains(row.PhoneNumber.Trim()))
+                AddError(i + 1, $"Số điện thoại '{row.PhoneNumber}' đã tồn tại.");
+            if (!string.IsNullOrWhiteSpace(row.IdentityNumber) && existedIdents.Contains(row.IdentityNumber.Trim()))
+                AddError(i + 1, $"CCCD/CMND '{row.IdentityNumber}' đã tồn tại.");
+        }
+
+        // Có lỗi -> KHÔNG tạo gì, trả về lỗi theo dòng.
+        if (rowErrors.Count > 0)
+        {
+            var errors = rowErrors
+                .OrderBy(x => x.Key)
+                .Select(x => new UserBatchRowErrorDto { Row = x.Key, Errors = x.Value })
+                .ToList();
+            return ApiResponse.Error(errors, "Danh sách có lỗi, vui lòng kiểm tra và sửa lại trước khi tạo.", (int)System.Net.HttpStatusCode.UnprocessableEntity, ApiCodeConstants.Common.UnprocessableEntity);
+        }
+
+        // Hợp lệ -> tạo tất cả trong 1 transaction.
+        var created = new List<(User User, string Password)>();
+        await _userRepository.BeginTransactionAsync();
+        try
+        {
+            foreach (var row in list)
+            {
+                var model = row.ToEntity();
+                var tempPassword = RandomHelper.GeneratePassword(12);
+                model.PasswordHash = PasswordHelper.HashPassword(tempPassword);
+
+                await _userRepository.CreateAsync(model);
+                await _userRepository.SaveChangesAsync(); // cần Id để gán vai trò
+
+                await _userRoleRepository.CreateListAsync(row.Roles.Select(roleId => new UserRole
+                {
+                    RoleId = roleId,
+                    UserId = model.Id,
+                    CreatedBy = row.CreatedBy,
+                    CreatedDate = DateTime.Now
+                }));
+
+                created.Add((model, tempPassword));
+            }
+
+            await _userRepository.SaveChangesAsync();
+            await _userRepository.EndTransactionAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to bulk create users with message {Message}", ex.Message);
+            await _userRepository.RollbackTransactionAsync();
+            return ApiResponse.InternalServerError();
+        }
+
+        // Gửi email bàn giao cho từng user (best-effort, không làm hỏng kết quả tạo).
+        foreach (var item in created)
+            await SendAccountCredentialsEmailAsync(item.User, item.Password);
+
+        return ApiResponse.Created(created.Select(x => x.User.Id).ToList());
     }
 
     public async Task<ApiResponse> GetAllAsync()
