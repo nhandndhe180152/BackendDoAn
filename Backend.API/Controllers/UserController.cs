@@ -1,5 +1,6 @@
 using Asp.Versioning;
 using Backend.API.Utilities;
+using Backend.Application.Constants;
 using Backend.Application.DTOs.Users;
 using Backend.Application.Interfaces;
 using Backend.Domain.DTParameters;
@@ -60,7 +61,7 @@ namespace Backend.API.Controllers
         public async Task<IActionResult> ImportParseAsync([FromForm] IFormFile file)
         {
             if (file == null || file.Length == 0)
-                return BaseResult(ApiResponse.BadRequest("Vui lòng chọn file."));
+                return BaseResult(ApiResponse.BadRequest("Vui lòng chọn file.", ApiCodeConstants.Common.InvalidFileFormat));
 
             using var stream = file.OpenReadStream();
             var result = await _userService.ParseImportFileAsync(stream, file.FileName);
