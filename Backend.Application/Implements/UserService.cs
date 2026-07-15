@@ -216,13 +216,16 @@ public class UserService : IUserService
 
     private static readonly string[] ImportHeaders =
     {
-        "Tên đăng nhập", "Email", "Họ và tên đệm", "Tên", "Số điện thoại", "CCCD/CMND", "Giới tính (Nam/Nữ)"
+        "Tên đăng nhập", "Email", "Họ và tên đệm", "Tên", "Số điện thoại", "Giới tính (Nam/Nữ)"
     };
 
     private static readonly string[] ImportSampleRow =
     {
-        "nguyenvana", "vana@example.com", "Nguyễn Văn", "A", "0901234567", "012345678901", "Nam"
+        "nguyenvana", "vana@example.com", "Nguyễn Văn", "A", "0901234567", "Nam"
     };
+
+    // Độ rộng cột tối thiểu (theo số ký tự) để nội dung dài không bị che khi mở Excel.
+    private static readonly int[] ImportColumnWidths = { 22, 30, 22, 12, 16, 18 };
 
     public Task<(byte[] Content, string ContentType, string FileName)> GenerateImportTemplateAsync(string format)
     {
@@ -246,6 +249,18 @@ public class UserService : IUserService
         var example = sheet.CreateRow(1);
         for (int i = 0; i < ImportSampleRow.Length; i++)
             example.CreateCell(i).SetCellValue(ImportSampleRow[i]);
+
+        // Căn độ rộng cột: ưu tiên tự động theo nội dung; nếu môi trường (Linux) thiếu font
+        // khiến AutoSizeColumn lỗi thì dùng độ rộng tối thiểu cố định để nội dung không bị che.
+        for (int i = 0; i < ImportHeaders.Length; i++)
+        {
+            try { sheet.AutoSizeColumn(i); }
+            catch { /* bỏ qua, dùng width tối thiểu bên dưới */ }
+
+            var minWidth = (i < ImportColumnWidths.Length ? ImportColumnWidths[i] : 18) * 256;
+            if (sheet.GetColumnWidth(i) < minWidth)
+                sheet.SetColumnWidth(i, minWidth);
+        }
 
         using var ms = new MemoryStream();
         wb.Write(ms);
@@ -310,8 +325,9 @@ public class UserService : IUserService
     {
         string? Get(int i) => (i < c.Length && !string.IsNullOrWhiteSpace(c[i])) ? c[i]!.Trim() : null;
 
+        // Cột: 0=Tên đăng nhập, 1=Email, 2=Họ, 3=Tên, 4=SĐT, 5=Giới tính
         int? gender = null;
-        var g = Get(6)?.ToLower();
+        var g = Get(5)?.ToLower();
         if (g == "nam" || g == "male" || g == "1") gender = 1;
         else if (g == "nữ" || g == "nu" || g == "female" || g == "0") gender = 0;
 
@@ -322,7 +338,6 @@ public class UserService : IUserService
             FirstName = Get(2),
             LastName = Get(3),
             PhoneNumber = Get(4),
-            IdentityNumber = Get(5),
             Gender = gender
         };
     }
