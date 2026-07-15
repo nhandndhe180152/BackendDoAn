@@ -1,0 +1,150 @@
+using System;
+using Backend.Application.DTOs.PaddyPurchaseReceipts;
+using Backend.Application.DTOs.PaddyPurchaseSchedules;
+using Backend.Domain.Entities;
+
+namespace Backend.Application.Mappings;
+
+public static class PaddyPurchaseMapping
+{
+    // ── Schedule ────────────────────────────────────────────────────────────
+
+    public static PaddyPurchaseSchedule ToEntity(this CreatePaddyPurchaseScheduleDto dto, string scheduleCode)
+    {
+        return new PaddyPurchaseSchedule
+        {
+            OrganizationId = dto.OrganizationId,
+            ScheduleCode = scheduleCode,
+            FarmerId = dto.FarmerId,
+            StatusId = dto.StatusId,
+            RiceVarietyId = dto.RiceVarietyId,
+            ScheduleDate = dto.ScheduleDate,
+            Location = dto.Location?.Trim(),
+            EstimatedQtyKg = dto.EstimatedQtyKg,
+            ExpectedPrice = dto.ExpectedPrice,
+            AssignedUserId = dto.AssignedUserId,
+            Note = dto.Note?.Trim(),
+            CreatedBy = dto.CreatedBy,
+            CreatedDate = DateTime.Now
+        };
+    }
+
+    public static PaddyPurchaseSchedule ToEntity(this UpdatePaddyPurchaseScheduleDto dto, PaddyPurchaseSchedule existData)
+    {
+        existData.OrganizationId = dto.OrganizationId;
+        existData.FarmerId = dto.FarmerId;
+        existData.StatusId = dto.StatusId;
+        existData.RiceVarietyId = dto.RiceVarietyId;
+        existData.ScheduleDate = dto.ScheduleDate;
+        existData.Location = dto.Location?.Trim();
+        existData.EstimatedQtyKg = dto.EstimatedQtyKg;
+        existData.ExpectedPrice = dto.ExpectedPrice;
+        existData.AssignedUserId = dto.AssignedUserId;
+        existData.Note = dto.Note?.Trim();
+        existData.UpdatedBy = dto.UpdatedBy;
+        existData.LastModifiedDate = DateTime.Now;
+        return existData;
+    }
+
+    public static PaddyPurchaseScheduleDetailDto ToDto(this PaddyPurchaseSchedule entity)
+    {
+        return new PaddyPurchaseScheduleDetailDto
+        {
+            Id = entity.Id,
+            OrganizationId = entity.OrganizationId,
+            ScheduleCode = entity.ScheduleCode,
+            FarmerId = entity.FarmerId,
+            FarmerName = entity.Farmer?.Name,
+            StatusId = entity.StatusId,
+            StatusName = entity.Status?.Name,
+            RiceVarietyId = entity.RiceVarietyId,
+            RiceVarietyName = entity.RiceVariety?.Name,
+            ScheduleDate = entity.ScheduleDate,
+            Location = entity.Location,
+            EstimatedQtyKg = entity.EstimatedQtyKg,
+            ExpectedPrice = entity.ExpectedPrice,
+            AssignedUserId = entity.AssignedUserId,
+            Note = entity.Note,
+            CreatedDate = entity.CreatedDate,
+            LastModifiedDate = entity.LastModifiedDate
+        };
+    }
+
+    // ── Receipt ─────────────────────────────────────────────────────────────
+
+    public static PaddyPurchaseReceipt ToEntity(this CreatePaddyPurchaseReceiptDto dto, string receiptCode)
+    {
+        return new PaddyPurchaseReceipt
+        {
+            OrganizationId = dto.OrganizationId,
+            ReceiptCode = receiptCode,
+            ScheduleId = dto.ScheduleId,
+            FarmerId = dto.FarmerId,
+            RiceVarietyId = dto.RiceVarietyId,
+            WarehouseId = dto.WarehouseId,
+            ActualWeightKg = dto.ActualWeightKg,
+            BagCount = dto.BagCount,
+            AgreedPrice = dto.AgreedPrice,
+            TotalAmount = dto.TotalAmount,
+            PaidAmount = dto.PaidAmount,
+            DebtAmount = dto.DebtAmount,
+            QualityJson = dto.QualityJson,
+            PriceAdjustReason = dto.PriceAdjustReason?.Trim(),
+            ReceiptDate = dto.ReceiptDate,
+            CreatedBy = dto.CreatedBy,
+            CreatedDate = DateTime.Now
+        };
+    }
+
+    public static PaddyPurchaseReceipt ToEntity(this UpdatePaddyPurchaseReceiptDto dto, PaddyPurchaseReceipt existData)
+    {
+        existData.OrganizationId = dto.OrganizationId;
+        existData.ScheduleId = dto.ScheduleId;
+        existData.FarmerId = dto.FarmerId;
+        existData.RiceVarietyId = dto.RiceVarietyId;
+        existData.WarehouseId = dto.WarehouseId;
+        existData.ActualWeightKg = dto.ActualWeightKg;
+        existData.BagCount = dto.BagCount;
+        existData.AgreedPrice = dto.AgreedPrice;
+        existData.TotalAmount = dto.TotalAmount;
+        existData.PaidAmount = dto.PaidAmount;
+        existData.DebtAmount = dto.DebtAmount;
+        existData.QualityJson = dto.QualityJson;
+        existData.PriceAdjustReason = dto.PriceAdjustReason?.Trim();
+        existData.ReceiptDate = dto.ReceiptDate;
+        existData.UpdatedBy = dto.UpdatedBy;
+        existData.LastModifiedDate = DateTime.Now;
+        return existData;
+    }
+
+    public static PaddyPurchaseReceiptDetailDto ToDto(this PaddyPurchaseReceipt entity)
+    {
+        return new PaddyPurchaseReceiptDetailDto
+        {
+            Id = entity.Id,
+            OrganizationId = entity.OrganizationId,
+            ReceiptCode = entity.ReceiptCode,
+            ScheduleId = entity.ScheduleId,
+            ScheduleCode = entity.Schedule?.ScheduleCode,
+            FarmerId = entity.FarmerId,
+            FarmerName = entity.Farmer?.Name,
+            RiceVarietyId = entity.RiceVarietyId,
+            RiceVarietyName = entity.RiceVariety?.Name,
+            WarehouseId = entity.WarehouseId,
+            WarehouseName = entity.Warehouse?.Name,
+            ActualWeightKg = entity.ActualWeightKg,
+            BagCount = entity.BagCount,
+            AgreedPrice = entity.AgreedPrice,
+            TotalAmount = entity.TotalAmount,
+            PaidAmount = entity.PaidAmount,
+            DebtAmount = entity.DebtAmount,
+            QualityJson = entity.QualityJson,
+            PriceAdjustReason = entity.PriceAdjustReason,
+            ReceiptDate = entity.ReceiptDate,
+            PaddyLotId = entity.PaddyLot?.Id,
+            IsConfirmed = entity.PaddyLot != null,
+            CreatedDate = entity.CreatedDate,
+            LastModifiedDate = entity.LastModifiedDate
+        };
+    }
+}

@@ -17,6 +17,7 @@ public interface ISystemLookup
 
     int UserStatusId(string code);
     int StockTakeStatusId(string code);
+    int PaddyScheduleStatusId(string code);
 
     /// <summary>Thử phân giải, trả về false thay vì ném lỗi khi không thấy Code.</summary>
     bool TryMenuId(string code, out int id);

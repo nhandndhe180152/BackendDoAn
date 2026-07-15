@@ -1059,6 +1059,10 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<int?>("PurchaseOrderId")
                         .HasColumnType("int");
 
+                    b.Property<string>("SourceType")
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
                     b.Property<int?>("SupplierId")
                         .HasColumnType("int");
 
@@ -1799,6 +1803,9 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<DateTime?>("LastModifiedDate")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<int?>("LocationId")
+                        .HasColumnType("int");
+
                     b.Property<int>("MillingOrderId")
                         .HasColumnType("int");
 
@@ -1823,6 +1830,8 @@ namespace Backend.Infrastructure.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("LocationId");
 
                     b.HasIndex("MillingOrderId")
                         .HasDatabaseName("IX_MillingOrderOutput_MillingOrderId");
@@ -2671,6 +2680,11 @@ namespace Backend.Infrastructure.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
                     b.Property<string>("Color")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -2704,6 +2718,7 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 1,
+                            Code = "NEW",
                             Color = "#6B7280",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -2712,6 +2727,7 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 2,
+                            Code = "CONFIRMED",
                             Color = "#3B82F6",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -2720,6 +2736,7 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 3,
+                            Code = "COLLECTING",
                             Color = "#F59E0B",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -2728,6 +2745,7 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 4,
+                            Code = "WEIGHED",
                             Color = "#8B5CF6",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -2736,6 +2754,7 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 5,
+                            Code = "STOCKED",
                             Color = "#10B981",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -2744,6 +2763,7 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 6,
+                            Code = "CANCELLED",
                             Color = "#EF4444",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -3338,6 +3358,11 @@ namespace Backend.Infrastructure.Migrations
 
                     b.Property<int>("PaddyLotId")
                         .HasColumnType("int");
+
+                    b.Property<bool>("PassedInspection")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValue(false);
 
                     b.Property<string>("PestLevel")
                         .HasMaxLength(50)
@@ -5482,6 +5507,11 @@ namespace Backend.Infrastructure.Migrations
 
             modelBuilder.Entity("Backend.Domain.Entities.MillingOrderOutput", b =>
                 {
+                    b.HasOne("Backend.Domain.Entities.Location", "Location")
+                        .WithMany()
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Backend.Domain.Entities.MillingOrder", "MillingOrder")
                         .WithMany("MillingOrderOutputs")
                         .HasForeignKey("MillingOrderId")
@@ -5498,6 +5528,8 @@ namespace Backend.Infrastructure.Migrations
                         .HasForeignKey("ProductVariantId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Location");
 
                     b.Navigation("MillingOrder");
 

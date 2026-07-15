@@ -87,7 +87,16 @@ public static class ConfigureServices
             .AddScoped<IFarmerRepository, FarmerRepository>()
             .AddScoped<ICustomerRepository, CustomerRepository>()
             .AddScoped<IOrganizationRepository, OrganizationRepository>()
-            .AddScoped<IUnitOfMeasureRepository, UnitOfMeasureRepository>();
+            .AddScoped<IUnitOfMeasureRepository, UnitOfMeasureRepository>()
+            // ── Rice supply chain repositories ───────────────────────────────────────
+            .AddScoped<IPaddyLotRepository, PaddyLotRepository>()
+            .AddScoped<IPaddyPurchaseReceiptRepository, PaddyPurchaseReceiptRepository>()
+            .AddScoped<IPaddyPurchaseScheduleRepository, PaddyPurchaseScheduleRepository>()
+            .AddScoped<IMillingOrderRepository, MillingOrderRepository>()
+            .AddScoped<IPartyDebtRepository, PartyDebtRepository>()
+            .AddScoped<IDebtTransactionRepository, DebtTransactionRepository>()
+            .AddScoped<IQualityInspectionRepository, QualityInspectionRepository>()
+            .AddScoped<IStockTransferRepository, StockTransferRepository>();
 
 
 

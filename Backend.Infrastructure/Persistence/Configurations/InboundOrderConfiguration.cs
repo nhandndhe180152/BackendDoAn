@@ -16,6 +16,7 @@ public class InboundOrderConfiguration : IEntityTypeConfiguration<InboundOrder>
 
         // POCode là nullable fallback — chỉ dùng khi không có PurchaseOrderId
         builder.Property(x => x.POCode).HasMaxLength(50).IsRequired(false);
+        builder.Property(x => x.SourceType).HasMaxLength(20).IsRequired(false);
         builder.Property(x => x.TotalAssetValue)
             .HasColumnType("decimal(18,2)");
 

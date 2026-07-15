@@ -27,6 +27,10 @@ public class QualityInspection : EntityAuditBase<int>
     public string? Handling { get; set; }
 
     public int? InspectorId { get; set; }
+
+    /// <summary>Kết quả tổng: Đạt / Không đạt</summary>
+    public bool PassedInspection { get; set; }
+
     public string? Note { get; set; }
 
     // Navigation

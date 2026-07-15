@@ -13,6 +13,7 @@ public class PaddyPurchaseScheduleStatusConfiguration : IEntityTypeConfiguration
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).ValueGeneratedOnAdd();
 
+        builder.Property(x => x.Code).HasMaxLength(50).IsRequired();
         builder.Property(x => x.Name).HasMaxLength(100).IsRequired();
         builder.Property(x => x.Color).HasMaxLength(50).IsRequired();
     }
