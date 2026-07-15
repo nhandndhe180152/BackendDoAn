@@ -68,7 +68,7 @@ namespace Backend.API.Controllers
 
             return BaseResult(result);
         }
-
+        /// <summary>Lay danh sach user</summary>
         [HttpGet]
         public async Task<IActionResult> GetAllAsync()
         {
