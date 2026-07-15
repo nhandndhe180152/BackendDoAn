@@ -52,7 +52,15 @@ public static class ConfigureServices
             .AddScoped<ICustomerService, CustomerService>()
             .AddScoped<IOrganizationService, OrganizationService>()
             .AddScoped<IStockTakeService, StockTakeService>()
-            .AddScoped<IUnitOfMeasureService, UnitOfMeasureService>();
+            .AddScoped<IUnitOfMeasureService, UnitOfMeasureService>()
+            // ── Rice supply chain services ────────────────────────────────────────────
+            .AddScoped<IPaddyLotService, PaddyLotService>()
+            .AddScoped<IPaddyPurchaseScheduleService, PaddyPurchaseScheduleService>()
+            .AddScoped<IPaddyPurchaseReceiptService, PaddyPurchaseReceiptService>()
+            .AddScoped<IMillingOrderService, MillingOrderService>()
+            .AddScoped<IPartyDebtService, PartyDebtService>()
+            .AddScoped<IQualityInspectionService, QualityInspectionService>()
+            .AddScoped<IStockTransferService, StockTransferService>();
 
 
         services.AddFluentValidationAutoValidation(options => options.DisableDataAnnotationsValidation = true);

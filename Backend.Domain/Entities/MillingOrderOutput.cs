@@ -11,6 +11,7 @@ public class MillingOrderOutput : EntityAuditBase<int>
     public int MillingOrderId { get; set; }
     public int ProductVariantId { get; set; }
     public int? OutputLotId { get; set; }
+    public int? LocationId { get; set; }
 
     /// <summary>RICE | BROKEN | BRAN | HUSK</summary>
     public string OutputType { get; set; } = null!;
@@ -24,4 +25,5 @@ public class MillingOrderOutput : EntityAuditBase<int>
     public virtual MillingOrder MillingOrder { get; set; } = null!;
     public virtual ProductVariant ProductVariant { get; set; } = null!;
     public virtual PaddyLot? OutputLot { get; set; }
+    public virtual Location? Location { get; set; }
 }

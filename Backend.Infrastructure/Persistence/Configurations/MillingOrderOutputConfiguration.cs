@@ -33,6 +33,11 @@ public class MillingOrderOutputConfiguration : IEntityTypeConfiguration<MillingO
             .HasForeignKey(x => x.OutputLotId)
             .OnDelete(DeleteBehavior.SetNull);
 
+        builder.HasOne(x => x.Location)
+            .WithMany()
+            .HasForeignKey(x => x.LocationId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasIndex(x => x.MillingOrderId).HasDatabaseName("IX_MillingOrderOutput_MillingOrderId");
     }
 }

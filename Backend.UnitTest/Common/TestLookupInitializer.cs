@@ -68,6 +68,17 @@ internal sealed class TestSystemLookup : ISystemLookup
         _ => 0
     };
 
+    public int PaddyScheduleStatusId(string code) => code switch
+    {
+        "NEW" => 1,
+        "CONFIRMED" => 2,
+        "COLLECTING" => 3,
+        "WEIGHED" => 4,
+        "STOCKED" => 5,
+        "CANCELLED" => 6,
+        _ => 0
+    };
+
     public bool TryMenuId(string code, out int id) { id = MenuId(code); return id != 0; }
 
     public bool TryActionId(string code, out int id) { id = ActionId(code); return id != 0; }

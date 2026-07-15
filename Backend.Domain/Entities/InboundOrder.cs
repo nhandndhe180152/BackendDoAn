@@ -25,6 +25,9 @@ public class InboundOrder : EntityAuditBase<int>
     /// <summary>Nguồn gốc khi nhập lúa thu mua trực tiếp</summary>
     public int? PaddyPurchaseReceiptId { get; set; }
 
+    /// <summary>Loại nguồn: RECEIPT | PO | MANUAL</summary>
+    public string? SourceType { get; set; }
+
     /// <summary>Multi-tenant (nullable ở MVP)</summary>
     public int? OrganizationId { get; set; }
 

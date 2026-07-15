@@ -20,6 +20,7 @@ public class SystemLookup : ISystemLookup
     private Dictionary<string, int> _role = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, int> _userStatus = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, int> _stockTakeStatus = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, int> _paddyScheduleStatus = new(StringComparer.OrdinalIgnoreCase);
 
     private volatile bool _loaded;
     private readonly object _gate = new();
@@ -39,6 +40,7 @@ public class SystemLookup : ISystemLookup
         _role = await LoadAsync<Role>(db);
         _userStatus = await LoadAsync<UserStatus>(db);
         _stockTakeStatus = await LoadAsync<StockTakeStatus>(db);
+        _paddyScheduleStatus = await LoadAsync<PaddyPurchaseScheduleStatus>(db);
 
         _loaded = true;
     }
@@ -54,6 +56,7 @@ public class SystemLookup : ISystemLookup
     }
     public int UserStatusId(string code) => Resolve(_userStatus, code, nameof(UserStatus));
     public int StockTakeStatusId(string code) => Resolve(_stockTakeStatus, code, nameof(StockTakeStatus));
+    public int PaddyScheduleStatusId(string code) => Resolve(_paddyScheduleStatus, code, nameof(PaddyPurchaseScheduleStatus));
 
     public bool TryMenuId(string code, out int id) => TryResolve(_menu, code, out id);
     public bool TryActionId(string code, out int id) => TryResolve(_action, code, out id);

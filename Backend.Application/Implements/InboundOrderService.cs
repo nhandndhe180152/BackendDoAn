@@ -39,6 +39,9 @@ public class InboundOrderService : IInboundOrderService
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<InboundOrderService> _logger;
     private readonly INotificationDispatcher _notificationDispatcher;
+    private readonly IRepositoryBase<PaddyPurchaseReceipt, int> _paddyPurchaseReceiptRepository;
+    private readonly IRepositoryBase<PaddyPurchaseSchedule, int> _paddyPurchaseScheduleRepository;
+    private readonly ISystemLookup _systemLookup;
 
     public InboundOrderService(
         IRepositoryBase<InboundOrder, int> inboundOrderRepository,
@@ -56,7 +59,10 @@ public class InboundOrderService : IInboundOrderService
         IStorageService storageService,
         IHttpContextAccessor httpContextAccessor,
         ILogger<InboundOrderService> logger,
-        INotificationDispatcher notificationDispatcher)
+        INotificationDispatcher notificationDispatcher,
+        IRepositoryBase<PaddyPurchaseReceipt, int> paddyPurchaseReceiptRepository,
+        IRepositoryBase<PaddyPurchaseSchedule, int> paddyPurchaseScheduleRepository,
+        ISystemLookup systemLookup)
     {
         _inboundOrderRepository = inboundOrderRepository;
         _inboundOrderItemRepository = inboundOrderItemRepository;
@@ -74,6 +80,9 @@ public class InboundOrderService : IInboundOrderService
         _httpContextAccessor = httpContextAccessor;
         _logger = logger;
         _notificationDispatcher = notificationDispatcher;
+        _paddyPurchaseReceiptRepository = paddyPurchaseReceiptRepository;
+        _paddyPurchaseScheduleRepository = paddyPurchaseScheduleRepository;
+        _systemLookup = systemLookup;
     }
 
     private async Task<int> GetStatusIdAsync(string name)
@@ -1217,6 +1226,28 @@ public class InboundOrderService : IInboundOrderService
 
             order.InboundOrderStatusId = await GetStatusIdAsync(nextDocStatusName);
             await _inboundOrderRepository.UpdateAsync(order);
+            // Cập nhật trạng thái lịch hẹn liên kết sang "Đã nhập kho" (STOCKED)
+            if (order.PaddyPurchaseReceiptId.HasValue)
+            {
+                var receipt = await _paddyPurchaseReceiptRepository.GetByIdAsync(order.PaddyPurchaseReceiptId.Value);
+                if (receipt != null && receipt.ScheduleId.HasValue)
+                {
+                    var schedule = await _paddyPurchaseScheduleRepository.GetByIdAsync(receipt.ScheduleId.Value);
+                    if (schedule != null && !schedule.IsDeleted)
+                    {
+                        var stockedStatusId = _systemLookup.PaddyScheduleStatusId("STOCKED");
+                        if (schedule.StatusId < stockedStatusId)
+                        {
+                            schedule.StatusId = stockedStatusId;
+                            schedule.UpdatedBy = GetCurrentUserId();
+                            schedule.LastModifiedDate = DateTime.Now;
+                            await _paddyPurchaseScheduleRepository.UpdateAsync(schedule);
+                            await _paddyPurchaseScheduleRepository.SaveChangesAsync();
+                        }
+                    }
+                }
+            }
+
             await _inboundOrderRepository.SaveChangesAsync();
 
             await transaction.CommitAsync();
