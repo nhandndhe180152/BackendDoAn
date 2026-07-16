@@ -180,6 +180,7 @@ public class AuthService : IAuthService
         var host = _hostSettings.ClientUrl;
         var resetUrl = $"{host}/dat-lai-mat-khau?code={randomCode}&email={email}&purpose={newToken.Purpose}";
 
+        var (systemName, logoUrl) = await GetSystemBrandAsync();
         var model = new AdminForgotPasswordEmailDto
         {
             FullName = $"{user.FirstName} {user.LastName}",
@@ -187,7 +188,9 @@ public class AuthService : IAuthService
             ValidExpired = AuthConstants.FORGOT_PASSWORD_TOKEN_EXPIRE_HOURS.ToString(),
             DateTime = DateTime.Now.Year.ToString(),
             Link = host,
-            OtpCode = randomCode
+            OtpCode = randomCode,
+            SystemName = systemName,
+            LogoUrl = logoUrl
         };
 
         var emailBody = await _emailTemplateService
@@ -647,13 +650,16 @@ public class AuthService : IAuthService
             var apiBase = _hostSettings.ApiUrl;
             var resetUrl = $"{apiBase}/auth/activate?code={Uri.EscapeDataString(randomCode)}&email={Uri.EscapeDataString(model.Email)}&purpose={CommonConstants.UserVerificationTokenPurpose.ACCOUNT_ACTIVATION}";
 
+            var (systemName, logoUrl) = await GetSystemBrandAsync();
             var modelEmail = new UserActivationDto
             {
                 FullName = $"{model.FirstName} {model.LastName}",
                 ActiveLink = resetUrl,
                 ValidExpired = AuthConstants.ACCOUNT_ACTIVATION_EXPIRE_TIME.ToString(),
                 DateTime = DateTime.Now.Year.ToString(),
-                Link = apiBase
+                Link = apiBase,
+                SystemName = systemName,
+                LogoUrl = logoUrl
             };
 
             var emailBody = await _emailTemplateService.GetEmailTemplateAsync(AuthConstants.EmailTemplates.ADMIN_ACCOUNT_ACTIVATION, modelEmail);
@@ -1013,13 +1019,16 @@ public class AuthService : IAuthService
             var apiBase = _hostSettings.ApiUrl;
             var resetUrl = $"{apiBase}/auth/activate?code={Uri.EscapeDataString(randomCode)}&email={Uri.EscapeDataString(user.Email)}&purpose={CommonConstants.UserVerificationTokenPurpose.ACCOUNT_ACTIVATION}";
 
+            var (systemName, logoUrl) = await GetSystemBrandAsync();
             var modelEmail = new UserActivationDto
             {
                 FullName = $"{user.FirstName} {user.LastName}",
                 ActiveLink = resetUrl,
                 ValidExpired = AuthConstants.ACCOUNT_ACTIVATION_EXPIRE_TIME.ToString(),
                 DateTime = DateTime.Now.Year.ToString(),
-                Link = apiBase
+                Link = apiBase,
+                SystemName = systemName,
+                LogoUrl = logoUrl
             };
 
             var emailBody = await _emailTemplateService.GetEmailTemplateAsync(AuthConstants.EmailTemplates.ADMIN_ACCOUNT_ACTIVATION, modelEmail);
