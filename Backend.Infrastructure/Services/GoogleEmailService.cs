@@ -57,6 +57,9 @@ public class GoogleEmailService : IEmailService<GoogleMailRequest>
 
             using (var client = new MailKit.Net.Smtp.SmtpClient())
             {
+                // Giới hạn thời gian kết nối để không treo ~2 phút khi cổng SMTP bị chặn
+                // (vd Render gói Free chặn outbound SMTP) — thất bại nhanh sau 15s.
+                client.Timeout = 15000;
                 await client.ConnectAsync(_smtpSettings.Server, _smtpSettings.Port, MailKit.Security.SecureSocketOptions.StartTls);
                 await client.AuthenticateAsync(_smtpSettings.UserName, _smtpSettings.Password);
                 await client.SendAsync(emailMessage);
