@@ -31,6 +31,8 @@ public class MyDeviceDto
     public string? UserAgent { get; set; }
     /// <summary>Thiết bị còn phiên đăng nhập hiệu lực hay không.</summary>
     public bool HasActiveSession { get; set; }
+    /// <summary>Trạng thái realtime: active (đang hoạt động) | idle (đang chờ) | offline (không hoạt động).</summary>
+    public string Status { get; set; } = "offline";
     public DateTime CreatedDate { get; set; }
     public DateTime? LastModifiedDate { get; set; }
 }

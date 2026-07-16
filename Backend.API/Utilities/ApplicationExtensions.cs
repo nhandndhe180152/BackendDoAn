@@ -81,6 +81,7 @@ public static class ApplicationExtensions
             ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
         });
         app.MapHub<Backend.API.Hubs.DataChangeHub>("/hubs/data-change");
+        app.MapHub<Backend.API.Hubs.DevicePresenceHub>("/hubs/device-presence");
         app.Run();
     }
 }

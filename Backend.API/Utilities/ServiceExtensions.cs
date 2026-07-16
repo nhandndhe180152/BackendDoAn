@@ -123,6 +123,19 @@ public static class ServiceExtensions
                 IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings?.SecretKey ?? string.Empty)),
                 ClockSkew = TimeSpan.Zero
             };
+
+            // Cho phép SignalR (WebSocket) gửi token qua query string access_token với các path /hubs.
+            options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+            {
+                OnMessageReceived = context =>
+                {
+                    var accessToken = context.Request.Query["access_token"];
+                    var path = context.HttpContext.Request.Path;
+                    if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                        context.Token = accessToken;
+                    return System.Threading.Tasks.Task.CompletedTask;
+                }
+            };
         });
         services.Configure<HostSettings>(configuration.GetSection("HostSettings"));
         services.AddHttpClient();
@@ -130,6 +143,9 @@ public static class ServiceExtensions
         services.AddRateLimitPolicies();
         services.AddSignalR();
         services.AddScoped<Backend.Application.Interfaces.IDataChangeNotifier, DataChangeNotifier>();
+        // Hiện diện thiết bị (presence) cho realtime trạng thái + force-logout.
+        services.AddSingleton<Backend.Application.Interfaces.IDevicePresenceStore, Backend.Application.Implements.DevicePresenceStore>();
+        services.AddScoped<Backend.Application.Interfaces.IDevicePresenceNotifier, DevicePresenceNotifier>();
 
         var servicePath = configuration["FireBase:ServicePath"];
 

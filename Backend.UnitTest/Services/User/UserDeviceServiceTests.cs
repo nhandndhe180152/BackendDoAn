@@ -18,11 +18,14 @@ public class UserDeviceServiceTests
 {
     private readonly Mock<IUserDeviceRepository> _deviceRepository = new();
     private readonly Mock<IUserSessionRepository> _sessionRepository = new();
+    private readonly Mock<Backend.Application.Interfaces.IDevicePresenceStore> _presenceStore = new();
+    private readonly Mock<Backend.Application.Interfaces.IDevicePresenceNotifier> _presenceNotifier = new();
     private readonly UserDeviceService _sut;
 
     public UserDeviceServiceTests()
     {
-        _sut = new UserDeviceService(_deviceRepository.Object, _sessionRepository.Object);
+        _sut = new UserDeviceService(_deviceRepository.Object, _sessionRepository.Object,
+            _presenceStore.Object, _presenceNotifier.Object);
     }
 
     [Fact]

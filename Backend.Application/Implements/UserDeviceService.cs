@@ -13,11 +13,16 @@ public class UserDeviceService : IUserDeviceService
 {
     private readonly IUserDeviceRepository _userDeviceRepository;
     private readonly IUserSessionRepository _userSessionRepository;
+    private readonly IDevicePresenceStore _presenceStore;
+    private readonly IDevicePresenceNotifier _presenceNotifier;
 
-    public UserDeviceService(IUserDeviceRepository userDeviceRepository, IUserSessionRepository userSessionRepository)
+    public UserDeviceService(IUserDeviceRepository userDeviceRepository, IUserSessionRepository userSessionRepository,
+        IDevicePresenceStore presenceStore, IDevicePresenceNotifier presenceNotifier)
     {
         _userDeviceRepository = userDeviceRepository;
         _userSessionRepository = userSessionRepository;
+        _presenceStore = presenceStore;
+        _presenceNotifier = presenceNotifier;
     }
 
     /// <summary>
@@ -66,6 +71,9 @@ public class UserDeviceService : IUserDeviceService
                 }
             }
 
+            // Báo realtime để danh sách thiết bị của user cập nhật ở các phiên khác.
+            await _presenceNotifier.NotifyDevicesChangedAsync(dto.UserId.Value);
+
             return ApiResponse.Success(device.Id);
         }
         catch (Exception)
@@ -94,6 +102,10 @@ public class UserDeviceService : IUserDeviceService
             })
             .ToListAsync();
 
+        // Gán trạng thái realtime từ presence store (active/idle/offline).
+        foreach (var d in devices)
+            d.Status = string.IsNullOrWhiteSpace(d.DeviceId) ? "offline" : _presenceStore.GetStatus(d.DeviceId);
+
         return ApiResponse.Success(devices);
     }
 
@@ -120,6 +132,10 @@ public class UserDeviceService : IUserDeviceService
 
         await _userSessionRepository.SaveChangesAsync();
         await _userDeviceRepository.SaveChangesAsync();
+
+        // Buộc thiết bị đó đăng xuất tại chỗ + báo realtime cho danh sách.
+        await _presenceNotifier.ForceLogoutDeviceAsync(deviceId);
+        await _presenceNotifier.NotifyDevicesChangedAsync(userId);
 
         return ApiResponse.Success();
     }
@@ -172,6 +188,12 @@ public class UserDeviceService : IUserDeviceService
 
         await _userSessionRepository.SaveChangesAsync();
         await _userDeviceRepository.SaveChangesAsync();
+
+        // Buộc các thiết bị khác đăng xuất tại chỗ + báo realtime.
+        foreach (var d in otherDevices)
+            if (!string.IsNullOrWhiteSpace(d.DeviceId))
+                await _presenceNotifier.ForceLogoutDeviceAsync(d.DeviceId);
+        await _presenceNotifier.NotifyDevicesChangedAsync(userId);
 
         return ApiResponse.Success();
     }
