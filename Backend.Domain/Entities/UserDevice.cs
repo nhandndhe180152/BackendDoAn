@@ -6,6 +6,8 @@ namespace Backend.Domain.Entities;
 public class UserDevice : EntityAuditBase<int>
 {
     public int UserId { get; set; }
+    /// <summary>Định danh thiết bị ổn định do client sinh (lưu ở localStorage), tách khỏi DeviceToken (FCM).</summary>
+    public string? DeviceId { get; set; }
     public string? DeviceName { get; set; }
     public string? Platform { get; set; }
     public string? OsVersion { get; set; }

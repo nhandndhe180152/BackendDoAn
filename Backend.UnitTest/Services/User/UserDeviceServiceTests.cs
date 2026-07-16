@@ -17,11 +17,12 @@ namespace Backend.UnitTest.Services.User;
 public class UserDeviceServiceTests
 {
     private readonly Mock<IUserDeviceRepository> _deviceRepository = new();
+    private readonly Mock<IUserSessionRepository> _sessionRepository = new();
     private readonly UserDeviceService _sut;
 
     public UserDeviceServiceTests()
     {
-        _sut = new UserDeviceService(_deviceRepository.Object);
+        _sut = new UserDeviceService(_deviceRepository.Object, _sessionRepository.Object);
     }
 
     [Fact]
