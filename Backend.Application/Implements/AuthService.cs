@@ -112,6 +112,9 @@ public class AuthService : IAuthService
         if (requestCountToday >= AuthConstants.MAX_ACCESS_FAILED)
             return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.ForgotPasswordReachToLimit), ApiCodeConstants.Auth.ForgotPasswordReachToLimit);
 
+        // Brand hệ thống dùng chung cho cả 2 nhánh (admin/client).
+        var (systemName, logoUrl) = await GetSystemBrandAsync();
+
         // ── ADMIN: sinh mật khẩu mới, gửi qua email, buộc đổi ở lần đăng nhập kế tiếp ──
         if (!isClientRequest)
         {
@@ -135,7 +138,6 @@ public class AuthService : IAuthService
             await _userRepository.SaveChangesAsync();
             await _userVerificationTokenRepository.SaveChangesAsync();
 
-            var (systemName, logoUrl) = await GetSystemBrandAsync();
             var resetModel = new ResetPasswordEmailDto
             {
                 SystemName = systemName,
@@ -180,7 +182,6 @@ public class AuthService : IAuthService
         var host = _hostSettings.ClientUrl;
         var resetUrl = $"{host}/dat-lai-mat-khau?code={randomCode}&email={email}&purpose={newToken.Purpose}";
 
-        var (systemName, logoUrl) = await GetSystemBrandAsync();
         var model = new AdminForgotPasswordEmailDto
         {
             FullName = $"{user.FirstName} {user.LastName}",
