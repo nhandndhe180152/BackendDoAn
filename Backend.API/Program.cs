@@ -38,6 +38,8 @@ try
     builder.Host.UseSerilog();
     builder.AddAppConfigurations();
 
+    // Chẩn đoán cấu hình (che giá trị nhạy cảm) — bật bằng env CONFIG_DIAGNOSTICS=true, xem ở tab Logs.
+    ConfigDiagnostics.LogEffectiveConfig(builder.Configuration);
 
     var app = builder.Build();
 
