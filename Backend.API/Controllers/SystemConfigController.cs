@@ -24,7 +24,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost]
-        [CustomAuthorize(Enums.Menu.SYSTEM_CONFIG, Enums.Action.CREATE)]
+        [CustomAuthorize(Enums.Menu.SYSTEM_SETTINGS, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreateSystemConfigDto obj)
         {
             obj.CreatedBy = this.GetLoggedInUserId();
@@ -42,7 +42,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}")]
-        [CustomAuthorize(Enums.Menu.SYSTEM_CONFIG, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.SYSTEM_SETTINGS, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var result = await _systemConfigService.GetByIdAsync(id);
@@ -59,7 +59,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged-advanced")]
-        [CustomAuthorize(Enums.Menu.SYSTEM_CONFIG, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.SYSTEM_SETTINGS, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)
         {
             var result = await _systemConfigService.GetPagedAsync(parameters);
@@ -68,7 +68,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpDelete("{id}")]
-        [CustomAuthorize(Enums.Menu.SYSTEM_CONFIG, Enums.Action.DELETE)]
+        [CustomAuthorize(Enums.Menu.SYSTEM_SETTINGS, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var result = await _systemConfigService.SoftDeleteAsync(id);
@@ -77,7 +77,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut]
-        [CustomAuthorize(Enums.Menu.SYSTEM_CONFIG, Enums.Action.UPDATE)]
+        [CustomAuthorize(Enums.Menu.SYSTEM_SETTINGS, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateSystemConfigDto obj)
         {
             obj.UpdatedBy = this.GetLoggedInUserId();
@@ -87,7 +87,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut("update-list")]
-        [CustomAuthorize(Enums.Menu.SYSTEM_CONFIG, Enums.Action.UPDATE)]
+        [CustomAuthorize(Enums.Menu.SYSTEM_SETTINGS, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateListAsync([FromBody] List<UpdateSystemConfigDto> objs)
         {
             var result = await _systemConfigService.UpdateListAsync(objs);
