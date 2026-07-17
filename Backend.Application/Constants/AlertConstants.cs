@@ -27,4 +27,19 @@ public static class AlertConstants
         public const string LotQuality = "LOT_QUALITY";
         public const string DebtOverdue = "DEBT_OVERDUE";
     }
+
+    /// <summary>
+    /// Mã quy tắc cảnh báo (bật/tắt) hiển thị ở khối "Quy tắc cảnh báo" (SCR-21).
+    /// Trạng thái bật/tắt được lưu trong bảng SystemConfig theo <see cref="RuleEnabledKey"/>
+    /// để không phải tạo bảng/migration mới.
+    /// </summary>
+    public static class Rules
+    {
+        public const string LowStock = "LOW_STOCK";
+        public const string WarehouseCapacity = "WAREHOUSE_CAPACITY";
+        public const string ExpirySoon = "EXPIRY_SOON";
+    }
+
+    /// <summary>Khoá SystemConfig lưu trạng thái bật/tắt của 1 quy tắc: "AlertRule.{code}.Enabled".</summary>
+    public static string RuleEnabledKey(string ruleCode) => $"AlertRule.{ruleCode}.Enabled";
 }

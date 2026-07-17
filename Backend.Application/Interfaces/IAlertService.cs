@@ -15,4 +15,13 @@ public interface IAlertService
     Task<ApiResponse> AcknowledgeAsync(int id, int userId);
     Task<ApiResponse> ResolveAsync(int id, int userId);
     Task<ApiResponse> SoftDeleteAsync(int id);
+
+    /// <summary>Đánh dấu tất cả cảnh báo đang mở (OPEN) là đã đọc/ghi nhận (ACKNOWLEDGED).</summary>
+    Task<ApiResponse> MarkAllReadAsync(int userId);
+
+    /// <summary>Danh sách quy tắc cảnh báo + trạng thái bật/tắt (khối "Quy tắc cảnh báo").</summary>
+    Task<ApiResponse> GetRulesAsync();
+
+    /// <summary>Bật/tắt một quy tắc cảnh báo theo mã.</summary>
+    Task<ApiResponse> ToggleRuleAsync(string code, bool enabled, int userId);
 }
