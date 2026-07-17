@@ -60,7 +60,11 @@ public static class ConfigureServices
             .AddScoped<IMillingOrderService, MillingOrderService>()
             .AddScoped<IPartyDebtService, PartyDebtService>()
             .AddScoped<IQualityInspectionService, QualityInspectionService>()
-            .AddScoped<IStockTransferService, StockTransferService>();
+            .AddScoped<IStockTransferService, StockTransferService>()
+            // ── Cấu hình rule & cảnh báo (SCR-20/21) ─────────────────────────────────
+            .AddScoped<IMillingYieldConfigService, MillingYieldConfigService>()
+            .AddScoped<IStockAlertConfigService, StockAlertConfigService>()
+            .AddScoped<IAlertService, AlertService>();
 
 
         services.AddFluentValidationAutoValidation(options => options.DisableDataAnnotationsValidation = true);
