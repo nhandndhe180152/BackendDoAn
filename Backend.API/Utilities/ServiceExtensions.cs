@@ -38,9 +38,14 @@ public static class ServiceExtensions
         {
             options.AddPolicy("Default", policy =>
             {
-                policy.AllowAnyOrigin() // Cho phép tất cả các nguồn
+                policy.WithOrigins(
+                        "https://stocklite.dpdns.org",          // FE web (custom domain)
+                        "https://do-an-frontend-six.vercel.app", // FE web (Vercel)
+                        "http://localhost:4200",                 // FE web (local dev)
+                        "http://10.0.2.2:5257")                  // Mobile (Android emulator)
                     .AllowAnyHeader()
-                    .AllowAnyMethod();
+                    .AllowAnyMethod()
+                    .AllowCredentials(); // Cần cho SignalR (WebSocket) gửi kèm access_token
             });
         });
         services.AddControllers()

@@ -15,18 +15,18 @@ public static class ApplicationExtensions
 {
     public static void UseInfrastructure(this WebApplication app, IConfiguration configuration)
     {
-        //if (app.Environment.IsDevelopment())
-        //{
-        app.UseSwagger();
-        app.UseSwaggerUI(options =>
+        if (app.Environment.IsDevelopment())
         {
-            var descriptions = app.DescribeApiVersions();
-            foreach (var description in descriptions)
+            app.UseSwagger();
+            app.UseSwaggerUI(options =>
             {
-                options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json", description.GroupName.ToUpperInvariant());
-            }
-        });
-        //}
+                var descriptions = app.DescribeApiVersions();
+                foreach (var description in descriptions)
+                {
+                    options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json", description.GroupName.ToUpperInvariant());
+                }
+            });
+        }
 
         var allowedStaticPrefixes = new[] {
                 "/uploads/users/avatars",
