@@ -101,6 +101,10 @@ public static class ConfigureServices
             .AddScoped<IStockTransferRepository, StockTransferRepository>()
             .AddScoped<ISalesOrderRepository, SalesOrderRepository>()
             .AddScoped<IOutboundOrderRepository, OutboundOrderRepository>();
+            // ── Cấu hình rule & cảnh báo (SCR-20/21) ─────────────────────────────────
+            .AddScoped<IMillingYieldConfigRepository, MillingYieldConfigRepository>()
+            .AddScoped<IStockAlertConfigRepository, StockAlertConfigRepository>()
+            .AddScoped<IAlertRepository, AlertRepository>();
 
 
 

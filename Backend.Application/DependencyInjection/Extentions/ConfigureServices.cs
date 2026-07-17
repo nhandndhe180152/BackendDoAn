@@ -68,6 +68,10 @@ public static class ConfigureServices
             .AddScoped<IPurchaseOrderService, PurchaseOrderService>()
             // ── Putaway Suggestion engine ─────────────────────────────────────────────
             .AddScoped<IPutawaySuggestionService, PutawaySuggestionService>();
+            // ── Cấu hình rule & cảnh báo (SCR-20/21) ─────────────────────────────────
+            .AddScoped<IMillingYieldConfigService, MillingYieldConfigService>()
+            .AddScoped<IStockAlertConfigService, StockAlertConfigService>()
+            .AddScoped<IAlertService, AlertService>();
 
 
         services.AddFluentValidationAutoValidation(options => options.DisableDataAnnotationsValidation = true);
