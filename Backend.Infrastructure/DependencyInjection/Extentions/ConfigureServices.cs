@@ -96,7 +96,11 @@ public static class ConfigureServices
             .AddScoped<IPartyDebtRepository, PartyDebtRepository>()
             .AddScoped<IDebtTransactionRepository, DebtTransactionRepository>()
             .AddScoped<IQualityInspectionRepository, QualityInspectionRepository>()
-            .AddScoped<IStockTransferRepository, StockTransferRepository>();
+            .AddScoped<IStockTransferRepository, StockTransferRepository>()
+            // ── Cấu hình rule & cảnh báo (SCR-20/21) ─────────────────────────────────
+            .AddScoped<IMillingYieldConfigRepository, MillingYieldConfigRepository>()
+            .AddScoped<IStockAlertConfigRepository, StockAlertConfigRepository>()
+            .AddScoped<IAlertRepository, AlertRepository>();
 
 
 

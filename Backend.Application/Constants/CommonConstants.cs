@@ -82,6 +82,16 @@ public static class CommonConstants
         public const string LOGO_KEY = "LOGO";
         public const string GOOGLE_MAPS_LINK_KEY = "GOOGLE_MAPS_LINK";
         public const string WORKING_HOURS_KEY = "WORKING_HOURS";
+
+        // ── Trọng số Smart Put-away (SCR-08) ─────────────────────────────────────
+        // KHÔNG tách bảng: lưu thẳng vào SystemConfig, ConfigValue = số thực trong [0..1].
+        // InboundOrderService.GetPutawaySuggestionsAsync đọc 4 key này; RÀNG BUỘC: cả 4 trọng số ≥ 0 và TỔNG = 1.0 (sai lệch tối đa 0.001).
+        // Ghi đè theo từng kho: nối ":{warehouseId}" (vd "PutawayCategoryMatchWeight:5"),
+        // thiếu → fallback về key global (không hậu tố) → mặc định code 0.40 / 0.30 / 0.20 / 0.10.
+        public const string PUTAWAY_CATEGORY_MATCH_WEIGHT_KEY = "PutawayCategoryMatchWeight";
+        public const string PUTAWAY_CAPACITY_FIT_WEIGHT_KEY = "PutawayCapacityFitWeight";
+        public const string PUTAWAY_OCCUPANCY_WEIGHT_KEY = "PutawayOccupancyWeight";
+        public const string PUTAWAY_PRIORITY_WEIGHT_KEY = "PutawayPriorityWeight";
     }
 
     /// <summary>
