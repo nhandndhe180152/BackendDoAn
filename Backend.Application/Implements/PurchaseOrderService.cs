@@ -219,6 +219,14 @@ public class PurchaseOrderService : IPurchaseOrderService
             .CountAsync();
         var poCode = $"{baseCode}-{(count + 1):D4}";
 
+        // L2: Tránh trùng mã PO do race condition
+        int attempts = 0;
+        while (await _purchaseOrderRepository.AnyAsync(x => x.POCode == poCode && x.OrganizationId == dto.OrganizationId) && attempts < 10)
+        {
+            attempts++;
+            poCode = $"{baseCode}-{(count + 1 + attempts):D4}";
+        }
+
         var statusId = await GetPoStatusIdAsync(PurchaseOrderStatusNames.Draft);
 
         decimal totalAmount = 0;
@@ -396,6 +404,14 @@ public class PurchaseOrderService : IPurchaseOrderService
             .FindByCondition(x => x.POCode != null && x.POCode.StartsWith(baseCode))
             .CountAsync();
         var inbCode = $"{baseCode}-{(cntToday + 1):D4}";
+
+        // L2: Tránh trùng mã phiếu nhập INB do race condition
+        int attemptsInb = 0;
+        while (await _inboundOrderRepository.AnyAsync(x => x.POCode == inbCode && x.OrganizationId == po.OrganizationId) && attemptsInb < 10)
+        {
+            attemptsInb++;
+            inbCode = $"{baseCode}-{(cntToday + 1 + attemptsInb):D4}";
+        }
 
         var inbound = new InboundOrder
         {

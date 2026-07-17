@@ -172,7 +172,9 @@ public class SalesOrderService : ISalesOrderService
         if (dto.Items == null || !dto.Items.Any())
             return ApiResponse.BadRequest("Đơn bán phải có ít nhất 1 dòng sản phẩm.", ApiCodeConstants.SalesOrder.InvalidRequest);
 
-        var now = DateTimeHelper.VietnamNow();
+        var now    = DateTimeHelper.VietnamNow();
+        var userId = GetCurrentUserId();
+        var orgId  = GetCurrentOrganizationId();
 
         // Generate SOCode: SO-YYYYMMDD-XXXX
         var datePart = now.ToString("yyyyMMdd");
@@ -182,10 +184,15 @@ public class SalesOrderService : ISalesOrderService
             .CountAsync();
         var soCode = $"{baseCode}-{(count + 1):D4}";
 
-        var statusId = await GetStatusIdAsync(SalesOrderStatusNames.New);
+        // L2: Tránh race condition trùng mã khi nhiều request chạy đồng thời
+        int attempts = 0;
+        while (await _salesOrderRepository.AnyAsync(x => x.SOCode == soCode && x.OrganizationId == orgId) && attempts < 10)
+        {
+            attempts++;
+            soCode = $"{baseCode}-{(count + 1 + attempts):D4}";
+        }
 
-        var userId = GetCurrentUserId();
-        var orgId  = GetCurrentOrganizationId();
+        var statusId = await GetStatusIdAsync(SalesOrderStatusNames.New);
 
         // BE tự tính LineAmount và TotalAmount — không nhận từ frontend
         var items      = new List<SalesOrderItem>();
