@@ -67,7 +67,7 @@ public static class ConfigureServices
             // ── Purchase & Non-Paddy Inbound flow ─────────────────────────────────────
             .AddScoped<IPurchaseOrderService, PurchaseOrderService>()
             // ── Putaway Suggestion engine ─────────────────────────────────────────────
-            .AddScoped<IPutawaySuggestionService, PutawaySuggestionService>();
+            .AddScoped<IPutawaySuggestionService, PutawaySuggestionService>()
             // ── Cấu hình rule & cảnh báo (SCR-20/21) ─────────────────────────────────
             .AddScoped<IMillingYieldConfigService, MillingYieldConfigService>()
             .AddScoped<IStockAlertConfigService, StockAlertConfigService>()
