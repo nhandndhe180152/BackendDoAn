@@ -16,7 +16,7 @@ public interface IInboundOrderService
     Task<ApiResponse> RejectAsync(int id, string reason);
     Task<ApiResponse> CancelAsync(int id);
 
-    // Receiving flow
+    // Receiving flow (Paddy / legacy)
     Task<ApiResponse> StartReceiptAsync(int orderId, StartReceiptDto dto);
     Task<ApiResponse> ScanQrAsync(int orderId, int receiptId, ScanQrDto dto);
     Task<ApiResponse> RecordQuantityAsync(int orderId, int receiptId, RecordQuantityDto dto);
@@ -30,4 +30,17 @@ public interface IInboundOrderService
     // Chứng từ giao hàng (Delivery Note: ảnh + OCR)
     Task<ApiResponse> SaveDeliveryNoteAsync(int orderId, SaveDeliveryNoteDto dto);
     Task<ApiResponse> GetDeliveryNoteAsync(int orderId);
+
+    // ── Non-paddy (PO → InboundOrder) flow ──────────────────────────────────
+    /// <summary>
+    /// Ghi số lượng thực nhận cho từng dòng InboundOrderItem (non-paddy).
+    /// Có thể gọi nhiều lần (nhận từng đợt).
+    /// </summary>
+    Task<ApiResponse> ReceiveNonPaddyAsync(int id, ReceiveNonPaddyDto dto);
+
+    /// <summary>
+    /// Xác nhận hoàn tất nhập kho non-paddy trong 1 DB transaction:
+    /// tăng QuantityOnHand, tạo InventoryTransaction, cập nhật PO status.
+    /// </summary>
+    Task<ApiResponse> ConfirmNonPaddyReceiveAsync(int id, ConfirmNonPaddyReceiveDto dto);
 }

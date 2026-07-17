@@ -25,5 +25,12 @@ namespace Backend.API.Controllers
             var result = await _dashboardService.GetReportStatisticsAsync(period);
             return BaseResult(result);
         }
+
+        [HttpGet("summary")]
+        public async Task<IActionResult> GetSummaryAsync([FromQuery] Backend.Application.DTOs.Dashboard.DashboardQuery query)
+        {
+            var result = await _dashboardService.GetSummaryAsync(query);
+            return BaseResult(result);
+        }
     }
 }

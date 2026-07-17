@@ -8,13 +8,18 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
 using Microsoft.EntityFrameworkCore.Storage;
 
+using Backend.Application.Interfaces;
+using Microsoft.AspNetCore.Http;
+
 namespace Backend.Infrastructure.Persistence;
 
-public class BackendContext : DbContext
+public class BackendContext : DbContext, IApplicationDbContext
 {
-    public BackendContext(DbContextOptions<BackendContext> options) : base(options)
-    {
+    private readonly IHttpContextAccessor? _httpContextAccessor;
 
+    public BackendContext(DbContextOptions<BackendContext> options, IHttpContextAccessor? httpContextAccessor = null) : base(options)
+    {
+        _httpContextAccessor = httpContextAccessor;
     }
 
     public virtual DbSet<Domain.Entities.Action> Actions { get; set; }
@@ -51,6 +56,7 @@ public class BackendContext : DbContext
     public virtual DbSet<OutboundOrder> OutboundOrders { get; set; }
     public virtual DbSet<OutboundOrderItem> OutboundOrderItems { get; set; }
     public virtual DbSet<OutboundOrderStatus> OutboundOrderStatuses { get; set; }
+    public virtual DbSet<OutboundOrderItemAllocation> OutboundOrderItemAllocations { get; set; }
     public virtual DbSet<StockAlertConfig> StockAlertConfigs { get; set; }
     public virtual DbSet<StockTake> StockTakes { get; set; }
     public virtual DbSet<StockTakeItem> StockTakeItems { get; set; }
@@ -95,6 +101,10 @@ public class BackendContext : DbContext
     public virtual DbSet<PurchaseOrderStatus> PurchaseOrderStatuses { get; set; }
     public virtual DbSet<PurchaseOrder> PurchaseOrders { get; set; }
     public virtual DbSet<PurchaseOrderItem> PurchaseOrderItems { get; set; }
+
+    // new putaway tables
+    public virtual DbSet<PutawayRuleConfig> PutawayRuleConfigs { get; set; }
+    public virtual DbSet<PutawayDecision> PutawayDecisions { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -180,6 +190,93 @@ public class BackendContext : DbContext
         modelBuilder.Entity<SalesOrderStatus>().HasData(SalesOrderStatusSeed.GetStatuses());
         modelBuilder.Entity<PurchaseOrderStatus>().HasData(PurchaseOrderStatusSeed.GetStatuses());
         modelBuilder.Entity<StockTransferStatus>().HasData(StockTransferStatusSeed.GetStatuses());
+        modelBuilder.Entity<OutboundOrderStatus>().HasData(OutboundOrderStatusSeed.GetStatuses());
         base.OnModelCreating(modelBuilder);
+    }
+
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        // Check if we need to bypass occupancy interception (e.g. during raw SQL updates in store-in confirm)
+        var httpContext = _httpContextAccessor?.HttpContext;
+        var bypass = httpContext?.Items.ContainsKey("BypassLocationOccupancyInterceptor") == true;
+
+        if (!bypass)
+        {
+            var inventoryEntries = ChangeTracker.Entries<Inventory>()
+                .Where(e => e.State == EntityState.Added || e.State == EntityState.Modified || e.State == EntityState.Deleted)
+                .ToList();
+
+            foreach (var entry in inventoryEntries)
+            {
+                decimal oldQty = 0;
+                int? oldLocId = null;
+                int? oldPvId = null;
+
+                if (entry.State == EntityState.Modified || entry.State == EntityState.Deleted)
+                {
+                    oldQty = (decimal)entry.OriginalValues[nameof(Inventory.QuantityOnHand)];
+                    oldLocId = (int?)entry.OriginalValues[nameof(Inventory.LocationId)];
+                    oldPvId = (int?)entry.OriginalValues[nameof(Inventory.ProductVariantId)];
+                }
+
+                decimal newQty = 0;
+                int? newLocId = null;
+                int? newPvId = null;
+
+                if (entry.State == EntityState.Added || entry.State == EntityState.Modified)
+                {
+                    newQty = entry.Entity.QuantityOnHand;
+                    newLocId = entry.Entity.LocationId;
+                    newPvId = entry.Entity.ProductVariantId;
+                }
+
+                if (oldLocId.HasValue && oldLocId == newLocId)
+                {
+                    var diff = newQty - oldQty;
+                    if (diff != 0)
+                    {
+                        await UpdateLocationOccupancyInternalAsync(oldLocId.Value, diff, newPvId!.Value, cancellationToken);
+                    }
+                }
+                else
+                {
+                    if (oldLocId.HasValue && oldQty > 0)
+                    {
+                        await UpdateLocationOccupancyInternalAsync(oldLocId.Value, -oldQty, oldPvId!.Value, cancellationToken);
+                    }
+                    if (newLocId.HasValue && newQty > 0)
+                    {
+                        await UpdateLocationOccupancyInternalAsync(newLocId.Value, newQty, newPvId!.Value, cancellationToken);
+                    }
+                }
+            }
+        }
+
+        return await base.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task UpdateLocationOccupancyInternalAsync(int locationId, decimal delta, int productVariantId, CancellationToken cancellationToken)
+    {
+        var loc = ChangeTracker.Entries<Location>()
+            .FirstOrDefault(e => e.Entity.Id == locationId)?.Entity;
+
+        if (loc == null)
+        {
+            loc = await Locations.FindAsync(new object[] { locationId }, cancellationToken);
+        }
+
+        if (loc != null)
+        {
+            loc.CurrentOccupancy += delta;
+            if (loc.CurrentOccupancy <= 0)
+            {
+                loc.CurrentOccupancy = 0;
+                loc.CurrentProductVariantId = null;
+            }
+            else
+            {
+                loc.CurrentProductVariantId = productVariantId;
+            }
+        }
     }
 }

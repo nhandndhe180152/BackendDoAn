@@ -72,10 +72,41 @@ public static class ApiCodeConstants
 
     public static class User
     {
-        public const string DuplicatedEmail = "USR_422_01";
-        public const string DuplicatedPhoneNumber = "USR_422_02";
+        public const string DuplicatedEmail          = "USR_422_01";
+        public const string DuplicatedPhoneNumber    = "USR_422_02";
         public const string DuplicatedIdentityNumber = "USR_422_03";
-        public const string DuplicatedUsername = "USR_422_04";
-        public const string RequiredRole = "USR_422_05";
+        public const string DuplicatedUsername       = "USR_422_04";
+        public const string RequiredRole             = "USR_422_05";
+    }
+
+    public static class SalesOrder
+    {
+        public const string NotFound                   = "SO_404_01";  // SALES_ORDER_NOT_FOUND
+        public const string InvalidState               = "SO_409_01";  // INVALID_ORDER_STATE
+        public const string ConcurrencyConflict        = "SO_409_02";  // INVENTORY_CONCURRENCY_CONFLICT
+        public const string InsufficientStock          = "SO_422_01";  // INSUFFICIENT_AVAILABLE_STOCK
+        public const string LotQuarantined             = "SO_422_02";  // LOT_QUARANTINED
+        public const string CreditLimitExceeded        = "SO_422_03";  // CREDIT_LIMIT_EXCEEDED
+        public const string InvalidRequest             = "SO_400_01";  // INVALID_REQUEST
+    }
+
+    public static class OutboundOrder
+    {
+        public const string NotFound                   = "OO_404_01";  // OUTBOUND_ORDER_NOT_FOUND
+        public const string InvalidState               = "OO_409_01";  // INVALID_ORDER_STATE
+        public const string ConcurrencyConflict        = "OO_409_02";  // INVENTORY_CONCURRENCY_CONFLICT
+        public const string InsufficientStock          = "OO_422_01";  // INSUFFICIENT_AVAILABLE_STOCK
+        public const string LotQuarantined             = "OO_422_02";  // LOT_QUARANTINED
+        public const string PickedQuantityMismatch     = "OO_422_03";  // PICKED_QUANTITY_MISMATCH
+        public const string InvalidRequest             = "OO_400_01";  // INVALID_REQUEST
+    }
+
+    public static class PurchaseOrder
+    {
+        public const string NotFound              = "PO_404_01";  // PURCHASE_ORDER_NOT_FOUND
+        public const string InvalidState          = "PO_409_01";  // INVALID_ORDER_STATE
+        public const string QuantityExceedsRemain = "PO_422_01";  // QUANTITY_EXCEEDS_REMAINING
+        public const string InvalidRequest        = "PO_400_01";  // INVALID_REQUEST
+        public const string InboundNotFound       = "PO_404_02";  // INBOUND_ORDER_NOT_FOUND
     }
 }

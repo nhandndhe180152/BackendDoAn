@@ -18,4 +18,11 @@ public interface IInventoryRepository : IRepositoryBase<Inventory, int>
     Task<List<Inventory>> GetByProductVariantAsync(int productVariantId);
 
     Task<List<Inventory>> GetLowStockAsync(int? warehouseId, int limit = 50);
+
+    /// <summary>
+    /// Trả về danh sách Inventory (theo lot) của warehouse có tồn khả dụng > 0,
+    /// lot không bị cách ly và IsSellable = true.
+    /// Dùng cho bước ReserveAsync để chọn lô.
+    /// </summary>
+    Task<List<Inventory>> GetAvailableForSalesAsync(int productVariantId, int warehouseId);
 }
