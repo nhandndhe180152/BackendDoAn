@@ -92,6 +92,12 @@ public static class CommonConstants
         public const string PUTAWAY_CAPACITY_FIT_WEIGHT_KEY = "PutawayCapacityFitWeight";
         public const string PUTAWAY_OCCUPANCY_WEIGHT_KEY = "PutawayOccupancyWeight";
         public const string PUTAWAY_PRIORITY_WEIGHT_KEY = "PutawayPriorityWeight";
+
+        // ── Bật/tắt quy tắc cảnh báo (SCR-21) ────────────────────────────────────
+        // KHÔNG tách bảng: lưu thẳng vào SystemConfig giống Put-away.
+        // Key = "AlertRuleEnabled:{ruleCode}" (vd "AlertRuleEnabled:LOW_STOCK"), ConfigValue = "true"/"false".
+        // Thiếu row → mặc định code = BẬT (true). AlertService đọc/ghi qua ISystemConfigService.
+        public const string ALERT_RULE_ENABLED_KEY = "AlertRuleEnabled";
     }
 
     /// <summary>

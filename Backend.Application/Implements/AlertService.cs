@@ -6,7 +6,6 @@ using Backend.Application.Constants;
 using Backend.Application.DTOs.Alerts;
 using Backend.Application.Interfaces;
 using Backend.Application.Mappings;
-using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -19,12 +18,12 @@ namespace Backend.Application.Implements;
 public class AlertService : IAlertService
 {
     private readonly IAlertRepository _alertRepository;
-    private readonly ISystemConfigRepository _systemConfigRepository;
+    private readonly ISystemConfigService _systemConfigService;
 
-    public AlertService(IAlertRepository alertRepository, ISystemConfigRepository systemConfigRepository)
+    public AlertService(IAlertRepository alertRepository, ISystemConfigService systemConfigService)
     {
         _alertRepository = alertRepository;
-        _systemConfigRepository = systemConfigRepository;
+        _systemConfigService = systemConfigService;
     }
 
     /// <summary>Metadata cố định của 3 quy tắc cảnh báo (nhãn + mô tả) hiển thị trên màn.</summary>
@@ -157,26 +156,22 @@ public class AlertService : IAlertService
 
     public async Task<ApiResponse> GetRulesAsync()
     {
-        var stored = await _systemConfigRepository
-            .FindByCondition(x => !x.IsDeleted && x.ConfigKey.StartsWith("AlertRule."))
-            .ToListAsync();
-
-        var rules = RuleCatalog
-            .Select(meta =>
+        var rules = new List<AlertRuleDto>();
+        foreach (var meta in RuleCatalog)
+        {
+            var value = await _systemConfigService.GetValueByKey(AlertConstants.RuleEnabledKey(meta.Code));
+            // Mặc định BẬT khi thiếu/không hợp lệ; đọc bằng bool.TryParse (giống Put-away dùng double.TryParse).
+            var enabled = true;
+            if (!string.IsNullOrEmpty(value) && bool.TryParse(value, out var parsed))
+                enabled = parsed;
+            rules.Add(new AlertRuleDto
             {
-                var key = AlertConstants.RuleEnabledKey(meta.Code);
-                var config = stored.FirstOrDefault(c => c.ConfigKey == key);
-                // Mặc định BẬT khi chưa có cấu hình.
-                var enabled = config == null || !string.Equals(config.ConfigValue, "false", StringComparison.OrdinalIgnoreCase);
-                return new AlertRuleDto
-                {
-                    Code = meta.Code,
-                    Title = meta.Title,
-                    Description = meta.Description,
-                    Enabled = enabled
-                };
-            })
-            .ToList();
+                Code = meta.Code,
+                Title = meta.Title,
+                Description = meta.Description,
+                Enabled = enabled
+            });
+        }
 
         return ApiResponse.Success(rules);
     }
@@ -187,35 +182,11 @@ public class AlertService : IAlertService
         if (meta.Code == null)
             return ApiResponse.NotFound();
 
-        var key = AlertConstants.RuleEnabledKey(code);
-        var value = enabled ? "true" : "false";
-
-        var existing = await _systemConfigRepository
-            .FindByCondition(x => x.ConfigKey == key && !x.IsDeleted)
-            .FirstOrDefaultAsync();
-
-        if (existing == null)
-        {
-            var entity = new SystemConfig
-            {
-                ConfigKey = key,
-                ConfigValue = value,
-                Name = meta.Title,
-                Description = meta.Description,
-                UpdatedBy = userId,
-                LastModifiedDate = DateTime.Now
-            };
-            await _systemConfigRepository.CreateAsync(entity);
-        }
-        else
-        {
-            existing.ConfigValue = value;
-            existing.UpdatedBy = userId;
-            existing.LastModifiedDate = DateTime.Now;
-            await _systemConfigRepository.UpdateAsync(existing);
-        }
-
-        await _systemConfigRepository.SaveChangesAsync();
+        await _systemConfigService.SetValueByKeyAsync(
+            AlertConstants.RuleEnabledKey(code),
+            enabled ? "true" : "false",
+            meta.Title,
+            meta.Description);
 
         return ApiResponse.Success(enabled, "Đã cập nhật quy tắc cảnh báo.");
     }
