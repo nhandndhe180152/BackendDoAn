@@ -17,8 +17,8 @@ using Backend.UnitTest.Fixtures;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -34,7 +34,7 @@ public class PutawaySuggestionServiceTests
 
     private readonly List<Location> _locations = new();
     private readonly List<ProductVariant> _productVariants = new();
-    private readonly List<PutawayRuleConfig> _configs = new();
+    private readonly List<SystemConfig> _systemConfigs = new();
     private readonly List<PutawayDecision> _decisions = new();
     private readonly List<Backend.Domain.Entities.PaddyLot> _paddyLots = new();
     private readonly List<PaddyPurchaseReceipt> _paddyPurchaseReceipts = new();
@@ -52,7 +52,7 @@ public class PutawaySuggestionServiceTests
         // Setup DbContext DbSets
         _contextMock.Setup(c => c.Locations).Returns(MockDbSet(_locations).Object);
         _contextMock.Setup(c => c.ProductVariants).Returns(MockDbSet(_productVariants).Object);
-        _contextMock.Setup(c => c.PutawayRuleConfigs).Returns(MockDbSet(_configs).Object);
+        _contextMock.Setup(c => c.SystemConfigs).Returns(MockDbSet(_systemConfigs).Object);
         _contextMock.Setup(c => c.PutawayDecisions).Returns(MockDbSet(_decisions).Object);
         _contextMock.Setup(c => c.PaddyLots).Returns(MockDbSet(_paddyLots).Object);
         _contextMock.Setup(c => c.PaddyPurchaseReceipts).Returns(MockDbSet(_paddyPurchaseReceipts).Object);
@@ -134,15 +134,30 @@ public class PutawaySuggestionServiceTests
 
     [Fact]
     [Trait("Service", "Putaway")]
-    public async Task GetSuggestionsAsync_ConfigNotFound_ReturnsBadRequest()
+    public async Task GetSuggestionsAsync_NoConfigInDb_UsesDefaultsAndSucceeds()
     {
         _productVariants.Add(new ProductVariant { Id = 2, Product = new Domain.Entities.Product { ProductCategoryId = 10 } });
+        _locations.Add(new Location
+        {
+            Id = 101,
+            WarehouseId = 1,
+            SlotCode = "LOC-101",
+            ZoneName = "Zone A",
+            MaxCapacity = 1000m,
+            CurrentOccupancy = 200m,
+            CurrentProductVariantId = 2,
+            AllowedCategoryId = 10,
+            Priority = 80,
+            IsActive = true,
+            IsQuarantine = false
+        });
         var request = new GetPutawaySuggestionsRequest(1, 2, null, 100);
 
         var result = await Sut().GetSuggestionsAsync(request, CancellationToken.None);
 
-        result.Status.Should().Be((int)HttpStatusCode.BadRequest);
-        result.Message.Should().Contain("Chưa cấu hình");
+        result.Status.Should().Be((int)HttpStatusCode.OK);
+        var response = (PutawaySuggestionsResponse)result.Resources;
+        response.HasSuggestion.Should().BeTrue();
     }
 
     [Fact]
@@ -150,14 +165,13 @@ public class PutawaySuggestionServiceTests
     public async Task GetSuggestionsAsync_ConfigWeightSumInvalid_ReturnsUnprocessableEntity()
     {
         _productVariants.Add(new ProductVariant { Id = 2, Product = new Domain.Entities.Product { ProductCategoryId = 10 } });
-        _configs.Add(new PutawayRuleConfig
-        {
-            WarehouseId = 1,
-            CapacityWeight = 0.5m,
-            OccupancyWeight = 0.5m,
-            CategoryWeight = 0.5m, // total = 1.5 != 1.0
-            PriorityWeight = 0.0m
-        });
+        
+        // Seed invalid sum of weights: 0.5 + 0.5 + 0.5 = 1.5 != 1.0
+        _systemConfigs.Add(new SystemConfig { ConfigKey = SystemConfigConstants.Keys.PutawayCapacityFitWeight, ConfigValue = "0.5" });
+        _systemConfigs.Add(new SystemConfig { ConfigKey = SystemConfigConstants.Keys.PutawayOccupancyWeight, ConfigValue = "0.5" });
+        _systemConfigs.Add(new SystemConfig { ConfigKey = SystemConfigConstants.Keys.PutawayCategoryMatchWeight, ConfigValue = "0.5" });
+        _systemConfigs.Add(new SystemConfig { ConfigKey = SystemConfigConstants.Keys.PutawayPriorityWeight, ConfigValue = "0.0" });
+
         var request = new GetPutawaySuggestionsRequest(1, 2, null, 100);
 
         var result = await Sut().GetSuggestionsAsync(request, CancellationToken.None);
@@ -171,14 +185,13 @@ public class PutawaySuggestionServiceTests
     public async Task GetSuggestionsAsync_NormalFlowSuggestionsFound_ReturnsTopRankedSuggestions()
     {
         _productVariants.Add(new ProductVariant { Id = 2, Product = new Domain.Entities.Product { ProductCategoryId = 10 } });
-        _configs.Add(new PutawayRuleConfig
-        {
-            WarehouseId = 1,
-            CapacityWeight = 0.4m,
-            OccupancyWeight = 0.3m,
-            CategoryWeight = 0.2m,
-            PriorityWeight = 0.1m
-        });
+        
+        // Seed valid weights
+        _systemConfigs.Add(new SystemConfig { ConfigKey = SystemConfigConstants.Keys.PutawayCapacityFitWeight, ConfigValue = "0.4" });
+        _systemConfigs.Add(new SystemConfig { ConfigKey = SystemConfigConstants.Keys.PutawayOccupancyWeight, ConfigValue = "0.3" });
+        _systemConfigs.Add(new SystemConfig { ConfigKey = SystemConfigConstants.Keys.PutawayCategoryMatchWeight, ConfigValue = "0.2" });
+        _systemConfigs.Add(new SystemConfig { ConfigKey = SystemConfigConstants.Keys.PutawayPriorityWeight, ConfigValue = "0.1" });
+
         _locations.Add(new Location
         {
             Id = 101,
@@ -209,15 +222,7 @@ public class PutawaySuggestionServiceTests
     public async Task GetSuggestionsAsync_SingleColumnCannotFit_ReturnsSplitSuggestions()
     {
         _productVariants.Add(new ProductVariant { Id = 2, Product = new Domain.Entities.Product { ProductCategoryId = 10 } });
-        _configs.Add(new PutawayRuleConfig
-        {
-            WarehouseId = 1,
-            CapacityWeight = 0.4m,
-            OccupancyWeight = 0.3m,
-            CategoryWeight = 0.2m,
-            PriorityWeight = 0.1m
-        });
-        // 2 locations, each has 600kg free capacity. Required is 1000kg. Neither can fit 1000kg alone.
+        
         _locations.Add(new Location
         {
             Id = 101,
@@ -332,7 +337,7 @@ public class PutawaySuggestionServiceTests
     {
         _paddyPurchaseReceipts.Add(new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1 });
         _productVariants.Add(new ProductVariant { Id = 2 });
-        _locations.Add(new Location { Id = 101, IsActive = true });
+        _locations.Add(new Location { Id = 101, WarehouseId = 1, IsActive = true });
 
         _locationRepositoryMock
             .Setup(r => r.UpdateCapacitySafetyAsync(101, 1, 500, 2, It.IsAny<bool>(), 1))
@@ -357,7 +362,7 @@ public class PutawaySuggestionServiceTests
     {
         _paddyPurchaseReceipts.Add(new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1 });
         _productVariants.Add(new ProductVariant { Id = 2 });
-        _locations.Add(new Location { Id = 101, IsActive = true });
+        _locations.Add(new Location { Id = 101, WarehouseId = 1, IsActive = true });
 
         _locationRepositoryMock
             .Setup(r => r.UpdateCapacitySafetyAsync(101, 1, 500, 2, It.IsAny<bool>(), 1))

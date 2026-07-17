@@ -89,7 +89,6 @@ public interface IApplicationDbContext
     DbSet<PurchaseOrderItem> PurchaseOrderItems { get; }
 
     // new putaway tables
-    DbSet<PutawayRuleConfig> PutawayRuleConfigs { get; }
     DbSet<PutawayDecision> PutawayDecisions { get; }
 
     DatabaseFacade Database { get; }

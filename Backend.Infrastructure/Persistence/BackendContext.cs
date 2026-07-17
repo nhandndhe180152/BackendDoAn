@@ -103,7 +103,6 @@ public class BackendContext : DbContext, IApplicationDbContext
     public virtual DbSet<PurchaseOrderItem> PurchaseOrderItems { get; set; }
 
     // new putaway tables
-    public virtual DbSet<PutawayRuleConfig> PutawayRuleConfigs { get; set; }
     public virtual DbSet<PutawayDecision> PutawayDecisions { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
