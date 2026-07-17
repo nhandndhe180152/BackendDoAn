@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Backend.Application.Constants;
 using Backend.Application.DTOs.Alerts;
 using Backend.Application.Interfaces;
 using Backend.Application.Mappings;
+using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -17,11 +19,21 @@ namespace Backend.Application.Implements;
 public class AlertService : IAlertService
 {
     private readonly IAlertRepository _alertRepository;
+    private readonly ISystemConfigRepository _systemConfigRepository;
 
-    public AlertService(IAlertRepository alertRepository)
+    public AlertService(IAlertRepository alertRepository, ISystemConfigRepository systemConfigRepository)
     {
         _alertRepository = alertRepository;
+        _systemConfigRepository = systemConfigRepository;
     }
+
+    /// <summary>Metadata cố định của 3 quy tắc cảnh báo (nhãn + mô tả) hiển thị trên màn.</summary>
+    private static readonly (string Code, string Title, string Description)[] RuleCatalog = new[]
+    {
+        (AlertConstants.Rules.LowStock, "Tồn kho thấp", "Khi tồn kho < ngưỡng cảnh báo"),
+        (AlertConstants.Rules.WarehouseCapacity, "Kho gần đầy", "Khi sức chứa đạt ≥ 85%"),
+        (AlertConstants.Rules.ExpirySoon, "Hàng sắp hết hạn", "Cảnh báo trước 7 ngày hết hạn")
+    };
 
     public async Task<ApiResponse> GetPagedAsync(DTParameter parameters)
     {
@@ -120,5 +132,91 @@ public class AlertService : IAlertService
 
         await _alertRepository.SaveChangesAsync();
         return ApiResponse.Success(isDeleted);
+    }
+
+    public async Task<ApiResponse> MarkAllReadAsync(int userId)
+    {
+        var openAlerts = await _alertRepository
+            .FindByCondition(x => !x.IsDeleted && x.Status == AlertConstants.Status.Open)
+            .ToListAsync();
+
+        foreach (var alert in openAlerts)
+        {
+            alert.Status = AlertConstants.Status.Acknowledged;
+            alert.AcknowledgedBy = userId;
+            alert.AcknowledgedAt = DateTime.Now;
+            alert.UpdatedBy = userId;
+            alert.LastModifiedDate = DateTime.Now;
+            await _alertRepository.UpdateAsync(alert);
+        }
+
+        await _alertRepository.SaveChangesAsync();
+
+        return ApiResponse.Success(openAlerts.Count, "Đã đánh dấu tất cả cảnh báo là đã đọc.");
+    }
+
+    public async Task<ApiResponse> GetRulesAsync()
+    {
+        var stored = await _systemConfigRepository
+            .FindByCondition(x => !x.IsDeleted && x.ConfigKey.StartsWith("AlertRule."))
+            .ToListAsync();
+
+        var rules = RuleCatalog
+            .Select(meta =>
+            {
+                var key = AlertConstants.RuleEnabledKey(meta.Code);
+                var config = stored.FirstOrDefault(c => c.ConfigKey == key);
+                // Mặc định BẬT khi chưa có cấu hình.
+                var enabled = config == null || !string.Equals(config.ConfigValue, "false", StringComparison.OrdinalIgnoreCase);
+                return new AlertRuleDto
+                {
+                    Code = meta.Code,
+                    Title = meta.Title,
+                    Description = meta.Description,
+                    Enabled = enabled
+                };
+            })
+            .ToList();
+
+        return ApiResponse.Success(rules);
+    }
+
+    public async Task<ApiResponse> ToggleRuleAsync(string code, bool enabled, int userId)
+    {
+        var meta = RuleCatalog.FirstOrDefault(r => r.Code == code);
+        if (meta.Code == null)
+            return ApiResponse.NotFound();
+
+        var key = AlertConstants.RuleEnabledKey(code);
+        var value = enabled ? "true" : "false";
+
+        var existing = await _systemConfigRepository
+            .FindByCondition(x => x.ConfigKey == key && !x.IsDeleted)
+            .FirstOrDefaultAsync();
+
+        if (existing == null)
+        {
+            var entity = new SystemConfig
+            {
+                ConfigKey = key,
+                ConfigValue = value,
+                Name = meta.Title,
+                Description = meta.Description,
+                UpdatedBy = userId,
+                LastModifiedDate = DateTime.Now
+            };
+            await _systemConfigRepository.CreateAsync(entity);
+        }
+        else
+        {
+            existing.ConfigValue = value;
+            existing.UpdatedBy = userId;
+            existing.LastModifiedDate = DateTime.Now;
+            await _systemConfigRepository.UpdateAsync(existing);
+        }
+
+        await _systemConfigRepository.SaveChangesAsync();
+
+        return ApiResponse.Success(enabled, "Đã cập nhật quy tắc cảnh báo.");
     }
 }
