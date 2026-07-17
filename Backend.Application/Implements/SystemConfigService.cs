@@ -179,7 +179,7 @@ public class SystemConfigService : ISystemConfigService
         var systemConfigs = await _systemConfigRepository.GetAllAsync();
         await _cacheService.SetAsync<List<SystemConfig>>(CommonConstants.Cache.SYSTEMCONFIG_ALL_KEY, systemConfigs);
 
-        return ApiResponse.Success(value);
+        return ApiResponse.Success();
     }
 
     public async Task<ApiResponse> SoftDeleteAsync(int id)
