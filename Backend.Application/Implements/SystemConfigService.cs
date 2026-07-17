@@ -143,6 +143,45 @@ public class SystemConfigService : ISystemConfigService
         return await _systemConfigRepository.GetValueByKey(key);
     }
 
+    public async Task<ApiResponse> SetValueByKeyAsync(string key, string value, string? name = null, string? description = null)
+    {
+        var existing = await _systemConfigRepository
+            .FindByCondition(x => x.ConfigKey == key && !x.IsDeleted)
+            .FirstOrDefaultAsync();
+
+        var userId = _httpContextAccessor.HttpContext?.GetCurrentUserId();
+
+        if (existing == null)
+        {
+            var entity = new SystemConfig
+            {
+                ConfigKey = key,
+                ConfigValue = value,
+                Name = name ?? key,
+                Description = description
+            };
+            await _systemConfigRepository.CreateAsync(entity);
+        }
+        else
+        {
+            existing.ConfigValue = value;
+            if (name != null) existing.Name = name;
+            if (description != null) existing.Description = description;
+            existing.UpdatedBy = userId;
+            existing.LastModifiedDate = DateTime.Now;
+            await _systemConfigRepository.UpdateAsync(existing);
+        }
+
+        await _systemConfigRepository.SaveChangesAsync();
+
+        // Làm mới cache SystemConfig:All giống Create/Update/Delete.
+        await _cacheService.RemoveAsync(CommonConstants.Cache.SYSTEMCONFIG_ALL_KEY);
+        var systemConfigs = await _systemConfigRepository.GetAllAsync();
+        await _cacheService.SetAsync<List<SystemConfig>>(CommonConstants.Cache.SYSTEMCONFIG_ALL_KEY, systemConfigs);
+
+        return ApiResponse.Success(value);
+    }
+
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {
         var isDeleted = await _systemConfigRepository.SoftDeleteAsync(id);

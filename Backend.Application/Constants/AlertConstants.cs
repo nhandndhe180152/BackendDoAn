@@ -31,7 +31,7 @@ public static class AlertConstants
     /// <summary>
     /// Mã quy tắc cảnh báo (bật/tắt) hiển thị ở khối "Quy tắc cảnh báo" (SCR-21).
     /// Trạng thái bật/tắt được lưu trong bảng SystemConfig theo <see cref="RuleEnabledKey"/>
-    /// để không phải tạo bảng/migration mới.
+    /// để không phải tạo bảng/migration mới (theo đúng khuôn Smart Put-away).
     /// </summary>
     public static class Rules
     {
@@ -40,6 +40,10 @@ public static class AlertConstants
         public const string ExpirySoon = "EXPIRY_SOON";
     }
 
-    /// <summary>Khoá SystemConfig lưu trạng thái bật/tắt của 1 quy tắc: "AlertRule.{code}.Enabled".</summary>
-    public static string RuleEnabledKey(string ruleCode) => $"AlertRule.{ruleCode}.Enabled";
+    /// <summary>
+    /// Khoá SystemConfig lưu bật/tắt của 1 quy tắc, theo khuôn "base:scope" giống Put-away:
+    /// "AlertRuleEnabled:{ruleCode}" (vd "AlertRuleEnabled:LOW_STOCK").
+    /// </summary>
+    public static string RuleEnabledKey(string ruleCode) =>
+        $"{CommonConstants.SystemConfig.ALERT_RULE_ENABLED_KEY}:{ruleCode}";
 }
