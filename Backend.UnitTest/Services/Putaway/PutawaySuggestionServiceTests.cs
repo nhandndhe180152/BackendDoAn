@@ -167,10 +167,10 @@ public class PutawaySuggestionServiceTests
         _productVariants.Add(new ProductVariant { Id = 2, Product = new Domain.Entities.Product { ProductCategoryId = 10 } });
         
         // Seed invalid sum of weights: 0.5 + 0.5 + 0.5 = 1.5 != 1.0
-        _systemConfigs.Add(new SystemConfig { ConfigKey = SystemConfigConstants.Keys.PutawayCapacityFitWeight, ConfigValue = "0.5" });
-        _systemConfigs.Add(new SystemConfig { ConfigKey = SystemConfigConstants.Keys.PutawayOccupancyWeight, ConfigValue = "0.5" });
-        _systemConfigs.Add(new SystemConfig { ConfigKey = SystemConfigConstants.Keys.PutawayCategoryMatchWeight, ConfigValue = "0.5" });
-        _systemConfigs.Add(new SystemConfig { ConfigKey = SystemConfigConstants.Keys.PutawayPriorityWeight, ConfigValue = "0.0" });
+        _systemConfigs.Add(new SystemConfig { ConfigKey = CommonConstants.SystemConfig.PUTAWAY_CAPACITY_FIT_WEIGHT_KEY, ConfigValue = "0.5" });
+        _systemConfigs.Add(new SystemConfig { ConfigKey = CommonConstants.SystemConfig.PUTAWAY_OCCUPANCY_WEIGHT_KEY, ConfigValue = "0.5" });
+        _systemConfigs.Add(new SystemConfig { ConfigKey = CommonConstants.SystemConfig.PUTAWAY_CATEGORY_MATCH_WEIGHT_KEY, ConfigValue = "0.5" });
+        _systemConfigs.Add(new SystemConfig { ConfigKey = CommonConstants.SystemConfig.PUTAWAY_PRIORITY_WEIGHT_KEY, ConfigValue = "0.0" });
 
         var request = new GetPutawaySuggestionsRequest(1, 2, null, 100);
 
@@ -187,10 +187,10 @@ public class PutawaySuggestionServiceTests
         _productVariants.Add(new ProductVariant { Id = 2, Product = new Domain.Entities.Product { ProductCategoryId = 10 } });
         
         // Seed valid weights
-        _systemConfigs.Add(new SystemConfig { ConfigKey = SystemConfigConstants.Keys.PutawayCapacityFitWeight, ConfigValue = "0.4" });
-        _systemConfigs.Add(new SystemConfig { ConfigKey = SystemConfigConstants.Keys.PutawayOccupancyWeight, ConfigValue = "0.3" });
-        _systemConfigs.Add(new SystemConfig { ConfigKey = SystemConfigConstants.Keys.PutawayCategoryMatchWeight, ConfigValue = "0.2" });
-        _systemConfigs.Add(new SystemConfig { ConfigKey = SystemConfigConstants.Keys.PutawayPriorityWeight, ConfigValue = "0.1" });
+        _systemConfigs.Add(new SystemConfig { ConfigKey = CommonConstants.SystemConfig.PUTAWAY_CAPACITY_FIT_WEIGHT_KEY, ConfigValue = "0.4" });
+        _systemConfigs.Add(new SystemConfig { ConfigKey = CommonConstants.SystemConfig.PUTAWAY_OCCUPANCY_WEIGHT_KEY, ConfigValue = "0.3" });
+        _systemConfigs.Add(new SystemConfig { ConfigKey = CommonConstants.SystemConfig.PUTAWAY_CATEGORY_MATCH_WEIGHT_KEY, ConfigValue = "0.2" });
+        _systemConfigs.Add(new SystemConfig { ConfigKey = CommonConstants.SystemConfig.PUTAWAY_PRIORITY_WEIGHT_KEY, ConfigValue = "0.1" });
 
         _locations.Add(new Location
         {

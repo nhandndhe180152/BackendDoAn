@@ -92,6 +92,16 @@ public static class CommonConstants
         public const string PUTAWAY_CAPACITY_FIT_WEIGHT_KEY = "PutawayCapacityFitWeight";
         public const string PUTAWAY_OCCUPANCY_WEIGHT_KEY = "PutawayOccupancyWeight";
         public const string PUTAWAY_PRIORITY_WEIGHT_KEY = "PutawayPriorityWeight";
+        public const string PUTAWAY_SAME_PRODUCT_SCORE_KEY = "PutawaySameProductScore";
+        public const string PUTAWAY_EMPTY_COLUMN_SCORE_KEY = "PutawayEmptyColumnScore";
+
+        // Mặc định cho Smart Put-away
+        public const decimal DEFAULT_PUTAWAY_CATEGORY_MATCH_WEIGHT = 0.20m;
+        public const decimal DEFAULT_PUTAWAY_CAPACITY_FIT_WEIGHT = 0.40m;
+        public const decimal DEFAULT_PUTAWAY_OCCUPANCY_WEIGHT = 0.30m;
+        public const decimal DEFAULT_PUTAWAY_PRIORITY_WEIGHT = 0.10m;
+        public const decimal DEFAULT_PUTAWAY_SAME_PRODUCT_SCORE = 1.00m;
+        public const decimal DEFAULT_PUTAWAY_EMPTY_COLUMN_SCORE = 0.60m;
     }
 
     /// <summary>

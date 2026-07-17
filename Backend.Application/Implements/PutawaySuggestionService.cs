@@ -128,38 +128,38 @@ public class PutawaySuggestionService : IPutawaySuggestionService
 
         // Resolving weights from SystemConfig
         var capacityWeight = await ResolveConfigDecimalAsync(
-            SystemConfigConstants.Keys.PutawayCapacityFitWeight,
-            decimal.Parse(SystemConfigConstants.Defaults.PutawayCapacityFitWeight),
+            CommonConstants.SystemConfig.PUTAWAY_CAPACITY_FIT_WEIGHT_KEY,
+            CommonConstants.SystemConfig.DEFAULT_PUTAWAY_CAPACITY_FIT_WEIGHT,
             request.WarehouseId,
             cancellationToken);
 
         var occupancyWeight = await ResolveConfigDecimalAsync(
-            SystemConfigConstants.Keys.PutawayOccupancyWeight,
-            decimal.Parse(SystemConfigConstants.Defaults.PutawayOccupancyWeight),
+            CommonConstants.SystemConfig.PUTAWAY_OCCUPANCY_WEIGHT_KEY,
+            CommonConstants.SystemConfig.DEFAULT_PUTAWAY_OCCUPANCY_WEIGHT,
             request.WarehouseId,
             cancellationToken);
 
         var categoryWeight = await ResolveConfigDecimalAsync(
-            SystemConfigConstants.Keys.PutawayCategoryMatchWeight,
-            decimal.Parse(SystemConfigConstants.Defaults.PutawayCategoryMatchWeight),
+            CommonConstants.SystemConfig.PUTAWAY_CATEGORY_MATCH_WEIGHT_KEY,
+            CommonConstants.SystemConfig.DEFAULT_PUTAWAY_CATEGORY_MATCH_WEIGHT,
             request.WarehouseId,
             cancellationToken);
 
         var priorityWeight = await ResolveConfigDecimalAsync(
-            SystemConfigConstants.Keys.PutawayPriorityWeight,
-            decimal.Parse(SystemConfigConstants.Defaults.PutawayPriorityWeight),
+            CommonConstants.SystemConfig.PUTAWAY_PRIORITY_WEIGHT_KEY,
+            CommonConstants.SystemConfig.DEFAULT_PUTAWAY_PRIORITY_WEIGHT,
             request.WarehouseId,
             cancellationToken);
 
         var sameProductScore = await ResolveConfigDecimalAsync(
-            SystemConfigConstants.Keys.PutawaySameProductScore,
-            decimal.Parse(SystemConfigConstants.Defaults.PutawaySameProductScore),
+            CommonConstants.SystemConfig.PUTAWAY_SAME_PRODUCT_SCORE_KEY,
+            CommonConstants.SystemConfig.DEFAULT_PUTAWAY_SAME_PRODUCT_SCORE,
             request.WarehouseId,
             cancellationToken);
 
         var emptyColumnScore = await ResolveConfigDecimalAsync(
-            SystemConfigConstants.Keys.PutawayEmptyColumnScore,
-            decimal.Parse(SystemConfigConstants.Defaults.PutawayEmptyColumnScore),
+            CommonConstants.SystemConfig.PUTAWAY_EMPTY_COLUMN_SCORE_KEY,
+            CommonConstants.SystemConfig.DEFAULT_PUTAWAY_EMPTY_COLUMN_SCORE,
             request.WarehouseId,
             cancellationToken);
 
@@ -371,38 +371,38 @@ public class PutawaySuggestionService : IPutawaySuggestionService
     public async Task<ApiResponse> GetConfigAsync(int? warehouseId, CancellationToken cancellationToken)
     {
         var capacityWeight = await ResolveConfigDecimalAsync(
-            SystemConfigConstants.Keys.PutawayCapacityFitWeight,
-            decimal.Parse(SystemConfigConstants.Defaults.PutawayCapacityFitWeight),
+            CommonConstants.SystemConfig.PUTAWAY_CAPACITY_FIT_WEIGHT_KEY,
+            CommonConstants.SystemConfig.DEFAULT_PUTAWAY_CAPACITY_FIT_WEIGHT,
             warehouseId,
             cancellationToken);
 
         var occupancyWeight = await ResolveConfigDecimalAsync(
-            SystemConfigConstants.Keys.PutawayOccupancyWeight,
-            decimal.Parse(SystemConfigConstants.Defaults.PutawayOccupancyWeight),
+            CommonConstants.SystemConfig.PUTAWAY_OCCUPANCY_WEIGHT_KEY,
+            CommonConstants.SystemConfig.DEFAULT_PUTAWAY_OCCUPANCY_WEIGHT,
             warehouseId,
             cancellationToken);
 
         var categoryWeight = await ResolveConfigDecimalAsync(
-            SystemConfigConstants.Keys.PutawayCategoryMatchWeight,
-            decimal.Parse(SystemConfigConstants.Defaults.PutawayCategoryMatchWeight),
+            CommonConstants.SystemConfig.PUTAWAY_CATEGORY_MATCH_WEIGHT_KEY,
+            CommonConstants.SystemConfig.DEFAULT_PUTAWAY_CATEGORY_MATCH_WEIGHT,
             warehouseId,
             cancellationToken);
 
         var priorityWeight = await ResolveConfigDecimalAsync(
-            SystemConfigConstants.Keys.PutawayPriorityWeight,
-            decimal.Parse(SystemConfigConstants.Defaults.PutawayPriorityWeight),
+            CommonConstants.SystemConfig.PUTAWAY_PRIORITY_WEIGHT_KEY,
+            CommonConstants.SystemConfig.DEFAULT_PUTAWAY_PRIORITY_WEIGHT,
             warehouseId,
             cancellationToken);
 
         var sameProductScore = await ResolveConfigDecimalAsync(
-            SystemConfigConstants.Keys.PutawaySameProductScore,
-            decimal.Parse(SystemConfigConstants.Defaults.PutawaySameProductScore),
+            CommonConstants.SystemConfig.PUTAWAY_SAME_PRODUCT_SCORE_KEY,
+            CommonConstants.SystemConfig.DEFAULT_PUTAWAY_SAME_PRODUCT_SCORE,
             warehouseId,
             cancellationToken);
 
         var emptyColumnScore = await ResolveConfigDecimalAsync(
-            SystemConfigConstants.Keys.PutawayEmptyColumnScore,
-            decimal.Parse(SystemConfigConstants.Defaults.PutawayEmptyColumnScore),
+            CommonConstants.SystemConfig.PUTAWAY_EMPTY_COLUMN_SCORE_KEY,
+            CommonConstants.SystemConfig.DEFAULT_PUTAWAY_EMPTY_COLUMN_SCORE,
             warehouseId,
             cancellationToken);
 
@@ -432,12 +432,12 @@ public class PutawaySuggestionService : IPutawaySuggestionService
 
         int? warehouseId = id > 0 ? id : null;
 
-        await SaveConfigValueAsync(SystemConfigConstants.Keys.PutawayCapacityFitWeight, dto.CapacityWeight.ToString("F4"), warehouseId, cancellationToken);
-        await SaveConfigValueAsync(SystemConfigConstants.Keys.PutawayOccupancyWeight, dto.OccupancyWeight.ToString("F4"), warehouseId, cancellationToken);
-        await SaveConfigValueAsync(SystemConfigConstants.Keys.PutawayCategoryMatchWeight, dto.CategoryWeight.ToString("F4"), warehouseId, cancellationToken);
-        await SaveConfigValueAsync(SystemConfigConstants.Keys.PutawayPriorityWeight, dto.PriorityWeight.ToString("F4"), warehouseId, cancellationToken);
-        await SaveConfigValueAsync(SystemConfigConstants.Keys.PutawaySameProductScore, dto.SameProductScore.ToString("F4"), warehouseId, cancellationToken);
-        await SaveConfigValueAsync(SystemConfigConstants.Keys.PutawayEmptyColumnScore, dto.EmptyColumnScore.ToString("F4"), warehouseId, cancellationToken);
+        await SaveConfigValueAsync(CommonConstants.SystemConfig.PUTAWAY_CAPACITY_FIT_WEIGHT_KEY, dto.CapacityWeight.ToString("F4"), warehouseId, cancellationToken);
+        await SaveConfigValueAsync(CommonConstants.SystemConfig.PUTAWAY_OCCUPANCY_WEIGHT_KEY, dto.OccupancyWeight.ToString("F4"), warehouseId, cancellationToken);
+        await SaveConfigValueAsync(CommonConstants.SystemConfig.PUTAWAY_CATEGORY_MATCH_WEIGHT_KEY, dto.CategoryWeight.ToString("F4"), warehouseId, cancellationToken);
+        await SaveConfigValueAsync(CommonConstants.SystemConfig.PUTAWAY_PRIORITY_WEIGHT_KEY, dto.PriorityWeight.ToString("F4"), warehouseId, cancellationToken);
+        await SaveConfigValueAsync(CommonConstants.SystemConfig.PUTAWAY_SAME_PRODUCT_SCORE_KEY, dto.SameProductScore.ToString("F4"), warehouseId, cancellationToken);
+        await SaveConfigValueAsync(CommonConstants.SystemConfig.PUTAWAY_EMPTY_COLUMN_SCORE_KEY, dto.EmptyColumnScore.ToString("F4"), warehouseId, cancellationToken);
 
         await _context.SaveChangesAsync(cancellationToken);
 
