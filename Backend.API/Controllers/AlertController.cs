@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using Asp.Versioning;
 using Backend.API.Utilities;
+using Backend.Application.DTOs.Alerts;
 using Backend.Application.Interfaces;
 using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
@@ -65,6 +66,30 @@ namespace Backend.API.Controllers
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var result = await _alertService.SoftDeleteAsync(id);
+            return BaseResult(result);
+        }
+
+        /// <summary>Đánh dấu tất cả cảnh báo đang mở là đã đọc/ghi nhận.</summary>
+        [HttpPut("read-all")]
+        public async Task<IActionResult> MarkAllReadAsync()
+        {
+            var result = await _alertService.MarkAllReadAsync(this.GetLoggedInUserId());
+            return BaseResult(result);
+        }
+
+        /// <summary>Danh sách quy tắc cảnh báo + trạng thái bật/tắt (khối "Quy tắc cảnh báo").</summary>
+        [HttpGet("rules")]
+        public async Task<IActionResult> GetRulesAsync()
+        {
+            var result = await _alertService.GetRulesAsync();
+            return BaseResult(result);
+        }
+
+        /// <summary>Bật/tắt một quy tắc cảnh báo theo mã.</summary>
+        [HttpPut("rules/{code}")]
+        public async Task<IActionResult> ToggleRuleAsync(string code, [FromBody] ToggleAlertRuleDto body)
+        {
+            var result = await _alertService.ToggleRuleAsync(code, body.Enabled, this.GetLoggedInUserId());
             return BaseResult(result);
         }
     }

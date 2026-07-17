@@ -102,6 +102,12 @@ public static class CommonConstants
         public const decimal DEFAULT_PUTAWAY_PRIORITY_WEIGHT = 0.10m;
         public const decimal DEFAULT_PUTAWAY_SAME_PRODUCT_SCORE = 1.00m;
         public const decimal DEFAULT_PUTAWAY_EMPTY_COLUMN_SCORE = 0.60m;
+
+        // ── Bật/tắt quy tắc cảnh báo (SCR-21) ────────────────────────────────────
+        // KHÔNG tách bảng: lưu thẳng vào SystemConfig giống Put-away.
+        // Key = "AlertRuleEnabled:{ruleCode}" (vd "AlertRuleEnabled:LOW_STOCK"), ConfigValue = "true"/"false".
+        // Thiếu row → mặc định code = BẬT (true). AlertService đọc/ghi qua ISystemConfigService.
+        public const string ALERT_RULE_ENABLED_KEY = "AlertRuleEnabled";
     }
 
     /// <summary>
