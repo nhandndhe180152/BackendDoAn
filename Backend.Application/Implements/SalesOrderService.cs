@@ -8,6 +8,7 @@ using Backend.Application.Interfaces;
 using Backend.Domain.Abstractions.Repositories;
 using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
+using Backend.Share.Constants;
 using Backend.Share.Entities;
 using Backend.Share.Extensions;
 using Backend.Share.Helpers;
@@ -62,6 +63,12 @@ public class SalesOrderService : ISalesOrderService
 
     private int GetCurrentUserId()
         => _httpContextAccessor.HttpContext?.GetCurrentUserId() ?? 0;
+
+    private int GetCurrentOrganizationId()
+    {
+        var officeIdStr = _httpContextAccessor.HttpContext?.User?.FindFirst(ClaimNames.OFFICE_ID)?.Value;
+        return int.TryParse(officeIdStr, out var id) ? id : 1; // Default to 1 if claim not present
+    }
 
     private async Task<int> GetStatusIdAsync(string name)
     {
@@ -177,6 +184,9 @@ public class SalesOrderService : ISalesOrderService
 
         var statusId = await GetStatusIdAsync(SalesOrderStatusNames.New);
 
+        var userId = GetCurrentUserId();
+        var orgId  = GetCurrentOrganizationId();
+
         // BE tự tính LineAmount và TotalAmount — không nhận từ frontend
         var items      = new List<SalesOrderItem>();
         decimal total  = 0;
@@ -199,7 +209,7 @@ public class SalesOrderService : ISalesOrderService
                 LineAmount       = lineAmount,
                 Note             = itemDto.Note,
                 CreatedDate      = now,
-                CreatedBy        = dto.CreatedBy
+                CreatedBy        = userId
             });
         }
 
@@ -210,7 +220,7 @@ public class SalesOrderService : ISalesOrderService
             StatusId             = statusId,
             Channel              = dto.Channel,
             WarehouseId          = dto.WarehouseId,
-            OrganizationId       = dto.OrganizationId,
+            OrganizationId       = orgId,
             OrderDate            = now,
             ExpectedDeliveryDate = dto.ExpectedDeliveryDate,
             RequiresMilling      = dto.RequiresMilling,
@@ -219,7 +229,7 @@ public class SalesOrderService : ISalesOrderService
             ShippingAddress      = dto.ShippingAddress,
             Note                 = dto.Note,
             CreatedDate          = now,
-            CreatedBy            = dto.CreatedBy,
+            CreatedBy            = userId,
             SalesOrderItems      = items
         };
 

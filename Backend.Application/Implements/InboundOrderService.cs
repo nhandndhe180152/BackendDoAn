@@ -1560,37 +1560,8 @@ public class InboundOrderService : IInboundOrderService
                     item.PaddyLotId = lot.Id;
                 }
 
-                // 4. Tìm hoặc tạo Inventory
-                var inv = await _inventoryRepository.FirstOrDefaultAsync(x =>
-                    !x.IsDeleted &&
-                    x.ProductVariantId == item.ProductVariantId!.Value &&
-                    x.WarehouseId == order.WarehouseId &&
-                    x.LocationId == locationId &&
-                    x.PaddyLotId == paddyLotId);
-
-                if (inv == null)
-                {
-                    inv = new Inventory
-                    {
-                        WarehouseId      = order.WarehouseId,
-                        LocationId       = locationId,
-                        ProductVariantId = item.ProductVariantId!.Value,
-                        CostPrice        = item.UnitCostPrice,
-                        QuantityOnHand   = 0, // C2: Luôn bắt đầu từ 0, tồn thực tế tăng qua Putaway ConfirmStoreIn
-                        QuantityReserved = 0,
-                        PaddyLotId       = paddyLotId,
-                        CreatedDate      = now,
-                        CreatedBy        = userId
-                    };
-                    await _inventoryRepository.CreateAsync(inv);
-                }
-                else
-                {
-                    inv.CostPrice        = item.UnitCostPrice;
-                    inv.LastModifiedDate  = now;
-                    inv.UpdatedBy         = userId;
-                    await _inventoryRepository.UpdateAsync(inv);
-                }
+                // Ghi chú C2/M5: KHÔNG tự tạo Inventory row rỗng (QuantityOnHand=0, LocationId=null) và KHÔNG tạo InventoryTransaction tại đây.
+                // Bản ghi Inventory thực tế và giao dịch nhập kho sẽ do PutawaySuggestionService.ConfirmStoreInAsync tự tìm/tạo khi xếp vào vị trí thực tế.
 
                 // Ghi chú C2: KHÔNG tăng inv.QuantityOnHand và KHÔNG tạo InventoryTransaction tại đây.
                 // Việc tăng tồn vật lý và tạo giao dịch nhập kho (Import) sẽ do PutawaySuggestionService.ConfirmStoreInAsync thực hiện.

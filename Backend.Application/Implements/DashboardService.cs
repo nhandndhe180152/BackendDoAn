@@ -136,25 +136,37 @@ public class DashboardService : IDashboardService
         decimal overdueReceivable = 0;
         var nowLimit = DateTimeHelper.VietnamNow();
 
+        // M4b: Bulk-load all CHARGE transactions for debts that have balance > 0 to prevent N+1 query
+        var debtIdsWithBalance = debts.Where(x => x.CurrentBalance > 0).Select(x => x.Id).ToList();
+        var chargesByDebtId = debtIdsWithBalance.Count > 0
+            ? await _debtTransactionRepository
+                .FindByCondition(x =>
+                    !x.IsDeleted &&
+                    x.TransactionType == "CHARGE" &&
+                    debtIdsWithBalance.Contains(x.PartyDebtId), false)
+                .OrderByDescending(x => x.TransactionDate)
+                .ToListAsync()
+            : new List<DebtTransaction>();
+
+        var chargeMap = chargesByDebtId.GroupBy(x => x.PartyDebtId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
         foreach (var debt in debts.Where(x => x.CurrentBalance > 0))
         {
-            var charges = await _debtTransactionRepository
-                .FindByCondition(x => !x.IsDeleted && x.PartyDebtId == debt.Id && x.TransactionType == "CHARGE", false)
-                .OrderByDescending(x => x.TransactionDate)
-                .ToListAsync();
-
-            decimal remaining = debt.CurrentBalance;
             decimal overdue = 0;
-
-            foreach (var charge in charges)
+            if (chargeMap.TryGetValue(debt.Id, out var charges))
             {
-                if (remaining <= 0) break;
-                var unpaidAmount = Math.Min(charge.Amount, remaining);
-                if (charge.DueDate.HasValue && charge.DueDate.Value < nowLimit)
+                decimal remaining = debt.CurrentBalance;
+                foreach (var charge in charges)
                 {
-                    overdue += unpaidAmount;
+                    if (remaining <= 0) break;
+                    var unpaidAmount = Math.Min(charge.Amount, remaining);
+                    if (charge.DueDate.HasValue && charge.DueDate.Value < nowLimit)
+                    {
+                        overdue += unpaidAmount;
+                    }
+                    remaining -= unpaidAmount;
                 }
-                remaining -= unpaidAmount;
             }
 
             if (debt.Direction == "PAYABLE") overduePayable += overdue;

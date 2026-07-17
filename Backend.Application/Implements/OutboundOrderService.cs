@@ -255,7 +255,17 @@ public class OutboundOrderService : IOutboundOrderService
         order.LastModifiedDate      = now;
         order.UpdatedBy             = userId;
         await _outboundOrderRepository.UpdateAsync(order);
-        await _outboundOrderRepository.SaveChangesAsync();
+
+        try
+        {
+            await _outboundOrderRepository.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return ApiResponse.Conflict(
+                "Tồn kho đã thay đổi trong lúc phân bổ. Vui lòng tải lại và thử lại.",
+                ApiCodeConstants.OutboundOrder.ConcurrencyConflict);
+        }
 
         return ApiResponse.Success(message: "Phân bổ lot/vị trí thành công. Trạng thái: PICKING.");
     }
