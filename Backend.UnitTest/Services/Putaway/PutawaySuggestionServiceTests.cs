@@ -294,8 +294,8 @@ public class PutawaySuggestionServiceTests
     [Trait("Service", "Putaway")]
     public async Task ConfirmStoreInAsync_PaddyPurchaseAlreadyConfirmed_ReturnsConflict()
     {
-        _paddyPurchaseReceipts.Add(new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1 });
-        _decisions.Add(new PutawayDecision { ReferenceType = "PADDY_PURCHASE", ReferenceId = 10 });
+        _paddyPurchaseReceipts.Add(new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1, ActualWeightKg = 500 });
+        _decisions.Add(new PutawayDecision { ReferenceType = "PADDY_PURCHASE", ReferenceId = 10, RequiredWeightKg = 500 });
         var request = new ConfirmStoreInRequest
         {
             ProductVariantId = 2,
@@ -306,14 +306,14 @@ public class PutawaySuggestionServiceTests
         var result = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 10, request, CancellationToken.None);
 
         result.Status.Should().Be((int)HttpStatusCode.Conflict);
-        result.Message.Should().Contain("đã được nhập kho trước đó");
+        result.Message.Should().Contain("đã nhập kho đủ");
     }
 
     [Fact]
     [Trait("Service", "Putaway")]
     public async Task ConfirmStoreInAsync_MissingOverrideReason_ReturnsUnprocessableEntity()
     {
-        _paddyPurchaseReceipts.Add(new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1 });
+        _paddyPurchaseReceipts.Add(new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1, ActualWeightKg = 1000 });
         _productVariants.Add(new ProductVariant { Id = 2 });
         _locations.Add(new Location { Id = 101, IsActive = true });
         var request = new ConfirmStoreInRequest
@@ -335,7 +335,7 @@ public class PutawaySuggestionServiceTests
     [Trait("Service", "Putaway")]
     public async Task ConfirmStoreInAsync_UpdateCapacityClash_ReturnsConflict()
     {
-        _paddyPurchaseReceipts.Add(new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1 });
+        _paddyPurchaseReceipts.Add(new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1, ActualWeightKg = 1000 });
         _productVariants.Add(new ProductVariant { Id = 2 });
         _locations.Add(new Location { Id = 101, WarehouseId = 1, IsActive = true });
 
@@ -360,7 +360,7 @@ public class PutawaySuggestionServiceTests
     [Trait("Service", "Putaway")]
     public async Task ConfirmStoreInAsync_SuccessFlow_CommitTransaction()
     {
-        _paddyPurchaseReceipts.Add(new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1 });
+        _paddyPurchaseReceipts.Add(new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1, ActualWeightKg = 1000 });
         _productVariants.Add(new ProductVariant { Id = 2 });
         _locations.Add(new Location { Id = 101, WarehouseId = 1, IsActive = true });
 

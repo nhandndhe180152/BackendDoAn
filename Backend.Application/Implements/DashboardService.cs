@@ -22,6 +22,7 @@ public class DashboardService : IDashboardService
     private readonly IRepositoryBase<PaddyLot, int> _paddyLotRepository;
     private readonly IRepositoryBase<MillingOrder, int> _millingOrderRepository;
     private readonly IRepositoryBase<SalesOrder, int> _salesOrderRepository;
+    private readonly IRepositoryBase<SalesOrderStatus, int> _salesOrderStatusRepository;
     private readonly IRepositoryBase<PartyDebt, int> _partyDebtRepository;
     private readonly IRepositoryBase<DebtTransaction, int> _debtTransactionRepository;
     private readonly IRepositoryBase<Alert, int> _alertRepository;
@@ -35,6 +36,7 @@ public class DashboardService : IDashboardService
         IRepositoryBase<PaddyLot, int> paddyLotRepository,
         IRepositoryBase<MillingOrder, int> millingOrderRepository,
         IRepositoryBase<SalesOrder, int> salesOrderRepository,
+        IRepositoryBase<SalesOrderStatus, int> salesOrderStatusRepository,
         IRepositoryBase<PartyDebt, int> partyDebtRepository,
         IRepositoryBase<DebtTransaction, int> debtTransactionRepository,
         IRepositoryBase<Alert, int> alertRepository,
@@ -47,6 +49,7 @@ public class DashboardService : IDashboardService
         _paddyLotRepository = paddyLotRepository;
         _millingOrderRepository = millingOrderRepository;
         _salesOrderRepository = salesOrderRepository;
+        _salesOrderStatusRepository = salesOrderStatusRepository;
         _partyDebtRepository = partyDebtRepository;
         _debtTransactionRepository = debtTransactionRepository;
         _alertRepository = alertRepository;
@@ -54,6 +57,18 @@ public class DashboardService : IDashboardService
         _farmerRepository = farmerRepository;
         _logger = logger;
         _httpContextAccessor = httpContextAccessor;
+    }
+
+    // H2: resolve Completed status ID by Name to avoid magic number
+    private int? _completedSalesStatusId;
+    private async Task<int> GetCompletedSalesOrderStatusIdAsync()
+    {
+        if (_completedSalesStatusId.HasValue) return _completedSalesStatusId.Value;
+        var status = await _salesOrderStatusRepository.FirstOrDefaultAsync(
+            x => x.Name == SalesOrderStatusNames.Completed && !x.IsDeleted);
+        _completedSalesStatusId = status?.Id
+            ?? throw new InvalidOperationException($"SalesOrderStatus '{SalesOrderStatusNames.Completed}' not found.");
+        return _completedSalesStatusId.Value;
     }
 
     public async Task<ApiResponse> GetReportStatisticsAsync(string period)
@@ -183,9 +198,10 @@ public class DashboardService : IDashboardService
             LossKg          = millingData.Sum(x => x.LossKg)
         };
 
-        // 4. Sales Summary
+        // 4. Sales Summary — H2: resolve status by Name, not hard-coded ID
+        var completedStatusId = await GetCompletedSalesOrderStatusIdAsync();
         var salesQuery = _salesOrderRepository
-            .FindByCondition(x => !x.IsDeleted && x.StatusId == 7 &&
+            .FindByCondition(x => !x.IsDeleted && x.StatusId == completedStatusId &&
                                   x.OrderDate >= fromDate && x.OrderDate < toDate, false);
 
         if (query.WarehouseId.HasValue)
@@ -369,40 +385,59 @@ public class DashboardService : IDashboardService
             .FindByCondition(x => !x.IsDeleted && x.IsActive, false)
             .ToListAsync();
 
-        var report = new List<TwoWayDebtReportDto>();
+        if (debts.Count == 0)
+            return ApiResponse.Success(new List<TwoWayDebtReportDto>());
+
         var nowLimit = DateTimeHelper.VietnamNow();
+
+        // M4: Bulk-load customers and farmers — 2 queries instead of N queries
+        var customerIds = debts.Where(d => d.PartyType == "CUSTOMER").Select(d => d.PartyId).Distinct().ToList();
+        var farmerIds   = debts.Where(d => d.PartyType == "FARMER").Select(d => d.PartyId).Distinct().ToList();
+
+        var customerNames = await _customerRepository
+            .FindByCondition(x => customerIds.Contains(x.Id) && !x.IsDeleted, false)
+            .Select(x => new { x.Id, x.Name })
+            .ToDictionaryAsync(x => x.Id, x => x.Name);
+
+        var farmerNames = await _farmerRepository
+            .FindByCondition(x => farmerIds.Contains(x.Id) && !x.IsDeleted, false)
+            .Select(x => new { x.Id, x.Name })
+            .ToDictionaryAsync(x => x.Id, x => x.Name);
+
+        // M4: Bulk-load all CHARGE transactions for debts that have balance > 0
+        var debtIdsWithBalance = debts.Where(d => d.CurrentBalance > 0).Select(d => d.Id).ToList();
+        var chargesByDebtId = await _debtTransactionRepository
+            .FindByCondition(x =>
+                !x.IsDeleted &&
+                x.TransactionType == "CHARGE" &&
+                debtIdsWithBalance.Contains(x.PartyDebtId), false)
+            .OrderByDescending(x => x.TransactionDate)
+            .ToListAsync();
+
+        var chargeMap = chargesByDebtId.GroupBy(x => x.PartyDebtId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var report = new List<TwoWayDebtReportDto>(debts.Count);
 
         foreach (var debt in debts)
         {
-            var name = "";
-            if (debt.PartyType == "CUSTOMER")
+            var name = debt.PartyType switch
             {
-                var cust = await _customerRepository.GetByIdAsync(debt.PartyId);
-                name = cust?.Name ?? $"Khách hàng {debt.PartyId}";
-            }
-            else if (debt.PartyType == "FARMER")
-            {
-                var farmer = await _farmerRepository.GetByIdAsync(debt.PartyId);
-                name = farmer?.Name ?? $"Nông dân {debt.PartyId}";
-            }
+                "CUSTOMER" => customerNames.GetValueOrDefault(debt.PartyId) ?? $"Khách hàng {debt.PartyId}",
+                "FARMER"   => farmerNames.GetValueOrDefault(debt.PartyId) ?? $"Nông dân {debt.PartyId}",
+                _          => $"Bên {debt.PartyId}"
+            };
 
             decimal overdue = 0;
-            if (debt.CurrentBalance > 0)
+            if (debt.CurrentBalance > 0 && chargeMap.TryGetValue(debt.Id, out var charges))
             {
-                var charges = await _debtTransactionRepository
-                    .FindByCondition(x => !x.IsDeleted && x.PartyDebtId == debt.Id && x.TransactionType == "CHARGE", false)
-                    .OrderByDescending(x => x.TransactionDate)
-                    .ToListAsync();
-
                 decimal remaining = debt.CurrentBalance;
                 foreach (var charge in charges)
                 {
                     if (remaining <= 0) break;
                     var unpaidAmount = Math.Min(charge.Amount, remaining);
                     if (charge.DueDate.HasValue && charge.DueDate.Value < nowLimit)
-                    {
                         overdue += unpaidAmount;
-                    }
                     remaining -= unpaidAmount;
                 }
             }
@@ -454,8 +489,10 @@ public class DashboardService : IDashboardService
 
     public async Task<ApiResponse> GetSalesRevenueReportAsync(DashboardQuery query)
     {
+        // H2: resolve status by Name, not hard-coded ID
+        var completedStatusId = await GetCompletedSalesOrderStatusIdAsync();
         var baseQuery = _salesOrderRepository
-            .FindByCondition(x => !x.IsDeleted && x.StatusId == 7 &&
+            .FindByCondition(x => !x.IsDeleted && x.StatusId == completedStatusId &&
                                   x.OrderDate >= query.FromDate && x.OrderDate < query.ToDate, false);
 
         if (query.WarehouseId.HasValue)

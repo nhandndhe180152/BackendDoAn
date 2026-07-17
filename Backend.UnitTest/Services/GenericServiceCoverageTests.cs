@@ -144,21 +144,23 @@ public class SimpleServiceCoverageTests
         var loggerMock  = new Mock<Microsoft.Extensions.Logging.ILogger<DashboardService>>();
         var httpContext = MockHelper.HttpContextAccessor();
 
-        var invRepo   = new Mock<IRepositoryBase<Backend.Domain.Entities.Inventory, int>>();
-        var lotRepo   = new Mock<IRepositoryBase<Backend.Domain.Entities.PaddyLot, int>>();
-        var millRepo  = new Mock<IRepositoryBase<Backend.Domain.Entities.MillingOrder, int>>();
-        var salesRepo = new Mock<IRepositoryBase<Backend.Domain.Entities.SalesOrder, int>>();
-        var debtRepo  = new Mock<IRepositoryBase<Backend.Domain.Entities.PartyDebt, int>>();
-        var txRepo    = new Mock<IRepositoryBase<Backend.Domain.Entities.DebtTransaction, int>>();
-        var alertRepo = new Mock<IRepositoryBase<Backend.Domain.Entities.Alert, int>>();
-        var custRepo  = new Mock<IRepositoryBase<Backend.Domain.Entities.Customer, int>>();
-        var farmRepo  = new Mock<IRepositoryBase<Backend.Domain.Entities.Farmer, int>>();
+        var invRepo            = new Mock<IRepositoryBase<Backend.Domain.Entities.Inventory, int>>();
+        var lotRepo            = new Mock<IRepositoryBase<Backend.Domain.Entities.PaddyLot, int>>();
+        var millRepo           = new Mock<IRepositoryBase<Backend.Domain.Entities.MillingOrder, int>>();
+        var salesRepo          = new Mock<IRepositoryBase<Backend.Domain.Entities.SalesOrder, int>>();
+        var salesStatusRepo    = new Mock<IRepositoryBase<Backend.Domain.Entities.SalesOrderStatus, int>>();
+        var debtRepo           = new Mock<IRepositoryBase<Backend.Domain.Entities.PartyDebt, int>>();
+        var txRepo             = new Mock<IRepositoryBase<Backend.Domain.Entities.DebtTransaction, int>>();
+        var alertRepo          = new Mock<IRepositoryBase<Backend.Domain.Entities.Alert, int>>();
+        var custRepo           = new Mock<IRepositoryBase<Backend.Domain.Entities.Customer, int>>();
+        var farmRepo           = new Mock<IRepositoryBase<Backend.Domain.Entities.Farmer, int>>();
 
         var svc = new DashboardService(
             invRepo.Object,
             lotRepo.Object,
             millRepo.Object,
             salesRepo.Object,
+            salesStatusRepo.Object,
             debtRepo.Object,
             txRepo.Object,
             alertRepo.Object,

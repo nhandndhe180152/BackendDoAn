@@ -17,9 +17,12 @@ public interface ISalesOrderService
     /// <summary>PENDING_CONFIRM → RESERVED (giữ tồn kho)</summary>
     Task<ApiResponse> ReserveAsync(int id);
 
-    /// <summary>Hủy đơn — giải phóng tồn đã giữ nếu trạng thái RESERVED</summary>
+    /// <summary>Hủy đơn — chỉ có thể hủy khi chưa có phiếu xuất nào được xác nhận. QuantityReserved do OutboundOrder quản lý.</summary>
     Task<ApiResponse> CancelAsync(int id);
 
     /// <summary>Tạo OutboundOrder từ SalesOrder (RESERVED/PREPARING → PREPARING + OutboundOrder DRAFT)</summary>
     Task<ApiResponse> CreateOutboundAsync(int id);
+
+    /// <summary>H1: Xác nhận giao hàng hoàn tất — DELIVERING → Hoàn tất. Cho phép Dashboard dịch vụ ghi nhận doanh thu.</summary>
+    Task<ApiResponse> CompleteDeliveryAsync(int id);
 }

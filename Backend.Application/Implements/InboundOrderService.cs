@@ -1512,6 +1512,7 @@ public class InboundOrderService : IInboundOrderService
         var userId = GetCurrentUserId();
         decimal totalAssetValue = 0;
 
+        await using var transaction = await _inboundOrderRepository.BeginTransactionAsync();
         try
         {
             // Load PurchaseOrder để tính trạng thái sau nhận
@@ -1524,13 +1525,7 @@ public class InboundOrderService : IInboundOrderService
             // 4–7. Xử lý từng InboundOrderItem
             foreach (var item in activeItems)
             {
-                // Validate location (nếu có)
                 int? locationId = null;
-                if (item.ActualWeightKg.HasValue)
-                {
-                    // ActualWeightKg được dùng như proxy — location sẽ được gán từ LocationId nếu có
-                    // Ở đây ta lấy từ Inventory existing hoặc null (không bắt buộc location cho non-paddy)
-                }
 
                 // 7. Tạo PaddyLot nếu yêu cầu lưu theo batch
                 int? paddyLotId = null;
@@ -1558,7 +1553,8 @@ public class InboundOrderService : IInboundOrderService
                     };
 
                     await _paddyLotRepository.CreateAsync(lot);
-                    await _paddyLotRepository.SaveChangesAsync();
+                    // Lưu tạm để lấy Id của Lot (chưa commit transaction)
+                    await _inboundOrderRepository.SaveChangesAsync();
 
                     paddyLotId = lot.Id;
                     item.PaddyLotId = lot.Id;
@@ -1580,50 +1576,29 @@ public class InboundOrderService : IInboundOrderService
                         LocationId       = locationId,
                         ProductVariantId = item.ProductVariantId!.Value,
                         CostPrice        = item.UnitCostPrice,
-                        QuantityOnHand   = 0,
+                        QuantityOnHand   = 0, // C2: Luôn bắt đầu từ 0, tồn thực tế tăng qua Putaway ConfirmStoreIn
                         QuantityReserved = 0,
                         PaddyLotId       = paddyLotId,
                         CreatedDate      = now,
                         CreatedBy        = userId
                     };
                     await _inventoryRepository.CreateAsync(inv);
-                    await _inventoryRepository.SaveChangesAsync();
+                }
+                else
+                {
+                    inv.CostPrice        = item.UnitCostPrice;
+                    inv.LastModifiedDate  = now;
+                    inv.UpdatedBy         = userId;
+                    await _inventoryRepository.UpdateAsync(inv);
                 }
 
-                var beforeQty = inv.QuantityOnHand;
-
-                // 5. Tăng QuantityOnHand
-                inv.QuantityOnHand   += item.QuantityReceived;
-                inv.CostPrice         = item.UnitCostPrice;
-                inv.LastModifiedDate  = now;
-                inv.UpdatedBy         = userId;
-                await _inventoryRepository.UpdateAsync(inv);
-
-                // 6. Tạo InventoryTransaction
-                var txn = new InventoryTransaction
-                {
-                    InventoryId      = inv.Id,
-                    WarehouseId      = order.WarehouseId,
-                    LocationId       = locationId,
-                    ProductVariantId = item.ProductVariantId,
-                    TransactionType  = InventoryTransactionTypeConstants.Import,
-                    ReferenceType    = InventoryReferenceTypeConstants.InboundOrder,
-                    ReferenceId      = order.Id,
-                    ReferenceItemId  = item.Id,
-                    PaddyLotId       = paddyLotId,
-                    Quantity         = item.QuantityReceived,
-                    BeforeQuantity   = beforeQty,
-                    AfterQuantity    = inv.QuantityOnHand,
-                    WeightKg         = item.ActualWeightKg,
-                    Note             = dto.Note ?? $"Nhập kho từ đơn mua {po?.POCode}",
-                    CreatedDate      = now,
-                    CreatedBy        = userId
-                };
-                await _inventoryTransactionRepository.CreateAsync(txn);
+                // Ghi chú C2: KHÔNG tăng inv.QuantityOnHand và KHÔNG tạo InventoryTransaction tại đây.
+                // Việc tăng tồn vật lý và tạo giao dịch nhập kho (Import) sẽ do PutawaySuggestionService.ConfirmStoreInAsync thực hiện.
 
                 totalAssetValue += item.QuantityReceived * item.UnitCostPrice;
                 item.LastModifiedDate = now;
                 item.UpdatedBy        = userId;
+                await _inboundOrderItemRepository.UpdateAsync(item);
             }
 
             // 8. Cập nhật InboundOrder → Confirmed
@@ -1671,10 +1646,13 @@ public class InboundOrderService : IInboundOrderService
                 }
             }
 
+            // Ghi nhận tất cả thay đổi đồng loạt (C3)
             await _inboundOrderRepository.SaveChangesAsync();
+            await transaction.CommitAsync();
         }
         catch (Exception ex)
         {
+            await transaction.RollbackAsync();
             _logger.LogError(ex, "ConfirmNonPaddyReceiveAsync failed for InboundOrder {Id}", id);
             return ApiResponse.BadRequest($"Lỗi xử lý: {ex.Message}", ApiCodeConstants.Common.BadRequest);
         }

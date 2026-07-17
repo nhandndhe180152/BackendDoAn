@@ -185,6 +185,19 @@ public class OutboundOrderService : IOutboundOrderService
                     $"OutboundOrderItem ID {allocItem.OutboundOrderItemId} không tồn tại trong phiếu.",
                     ApiCodeConstants.OutboundOrder.InvalidRequest);
 
+            // Validate tổng quantity allocated không vượt quantity ordered cho item này
+            var alreadyAllocated = item.Allocations.Sum(a => a.QuantityAllocated);
+            var newAllocTotal    = allocItem.Lots.Sum(l => l.QuantityAllocated);
+            if (alreadyAllocated + newAllocTotal > item.QuantityOrdered)
+                return ApiResponse.UnprocessableEntity(
+                    $"Tổng số lượng phân bổ ({alreadyAllocated + newAllocTotal}) vượt quá số lượng đặt ({item.QuantityOrdered}) " +
+                    $"cho OutboundOrderItem ID {item.Id}.",
+                    ApiCodeConstants.OutboundOrder.InvalidRequest);
+
+            // Tính weighted-average cost trước khi tạo allocation
+            decimal totalAllocQty   = alreadyAllocated;
+            decimal weightedCostSum = alreadyAllocated * item.UnitCostPrice;
+
             foreach (var lot in allocItem.Lots)
             {
                 var inv = await _inventoryRepository.GetByIdAsync(lot.InventoryId);
@@ -196,6 +209,14 @@ public class OutboundOrderService : IOutboundOrderService
                 if (inv.LocationId == null)
                     return ApiResponse.BadRequest(
                         $"Inventory ID {lot.InventoryId} chưa có vị trí.",
+                        ApiCodeConstants.OutboundOrder.InvalidRequest);
+
+                // C1: Kiểm tra tồn khả dụng thực tế của inventory row này
+                var availableQty = inv.QuantityOnHand - inv.QuantityReserved;
+                if (lot.QuantityAllocated > availableQty)
+                    return ApiResponse.UnprocessableEntity(
+                        $"Inventory ID {lot.InventoryId} chỉ còn {availableQty} kg khả dụng, " +
+                        $"không đủ để phân bổ {lot.QuantityAllocated} kg.",
                         ApiCodeConstants.OutboundOrder.InvalidRequest);
 
                 await _allocationRepository.CreateAsync(new OutboundOrderItemAllocation
@@ -211,11 +232,23 @@ public class OutboundOrderService : IOutboundOrderService
                     CreatedBy           = userId
                 });
 
-                // Cập nhật giá vốn vào OutboundOrderItem (weighted average)
-                item.UnitCostPrice = inv.CostPrice;
+                // C1: Tăng QuantityReserved trên đúng inventory row được chọn
+                inv.QuantityReserved  += lot.QuantityAllocated;
+                if (inv.QuantityReserved > inv.QuantityOnHand)
+                    inv.QuantityReserved = inv.QuantityOnHand; // safety clamp
+                inv.LastModifiedDate   = now;
+                inv.UpdatedBy          = userId;
+                await _inventoryRepository.UpdateAsync(inv);
+
+                // M3: Tích lũy để tính weighted-average cost
+                weightedCostSum += lot.QuantityAllocated * inv.CostPrice;
+                totalAllocQty   += lot.QuantityAllocated;
             }
 
-            await _outboundOrderRepository.UpdateAsync(order);
+            // M3: Gán weighted-average cost cho OutboundOrderItem
+            item.UnitCostPrice = totalAllocQty > 0
+                ? Math.Round(weightedCostSum / totalAllocQty, 2)
+                : item.UnitCostPrice;
         }
 
         order.OutboundOrderStatusId = await GetOutboundStatusIdAsync(OutboundOrderStatusNames.Picking);
@@ -313,7 +346,8 @@ public class OutboundOrderService : IOutboundOrderService
     }
 
     /// <summary>
-    /// Xác nhận xuất kho — bước quan trọng nhất, thực hiện trong 1 DB transaction.
+    /// Xác nhận xuất kho — bước quan trọng nhất.
+    /// Toàn bộ logic chạy trong 1 DB transaction thật:
     /// Giảm tồn, tạo InventoryTransaction, cập nhật SalesOrder, tạo công nợ nếu chưa trả đủ.
     /// </summary>
     public async Task<ApiResponse> ConfirmDispatchAsync(int id, ConfirmDispatchDto dto)
@@ -356,6 +390,8 @@ public class OutboundOrderService : IOutboundOrderService
         var userId = GetCurrentUserId();
         decimal totalDispatchedValue = 0;
 
+        // Bọc toàn bộ trong 1 DB transaction thật — đảm bảo nguyên tử
+        await using var tx = await _outboundOrderRepository.BeginTransactionAsync();
         try
         {
             // 4. Với từng allocation: giảm tồn + tạo giao dịch
@@ -365,9 +401,12 @@ public class OutboundOrderService : IOutboundOrderService
                 {
                     var inv = alloc.Inventory;
                     if (inv == null || inv.IsDeleted)
+                    {
+                        await _outboundOrderRepository.RollbackTransactionAsync();
                         return ApiResponse.BadRequest(
                             $"Inventory ID {alloc.InventoryId} không còn tồn tại.",
                             ApiCodeConstants.OutboundOrder.InvalidRequest);
+                    }
 
                     var before = inv.QuantityOnHand;
 
@@ -458,13 +497,13 @@ public class OutboundOrderService : IOutboundOrderService
                             CreatedBy       = userId
                         };
                         await _partyDebtRepository.CreateAsync(partyDebt);
-                        await _partyDebtRepository.SaveChangesAsync();
+                        // Lưu để lấy Id của PartyDebt mới (vẫn trong transaction)
+                        await _outboundOrderRepository.SaveChangesAsync();
                     }
 
-                    var balanceBefore = partyDebt.CurrentBalance;
-                    partyDebt.CurrentBalance += remaining;
-                    partyDebt.LastModifiedDate = now;
-                    partyDebt.UpdatedBy        = userId;
+                    partyDebt.CurrentBalance  += remaining;
+                    partyDebt.LastModifiedDate  = now;
+                    partyDebt.UpdatedBy         = userId;
                     await _partyDebtRepository.UpdateAsync(partyDebt);
 
                     // Tạo DebtTransaction CHARGE
@@ -484,13 +523,21 @@ public class OutboundOrderService : IOutboundOrderService
                 }
             }
 
+            // Ghi toàn bộ thay đổi vào DB rồi commit trong 1 transaction
             await _outboundOrderRepository.SaveChangesAsync();
+            await _outboundOrderRepository.EndTransactionAsync();
         }
         catch (DbUpdateConcurrencyException)
         {
+            await _outboundOrderRepository.RollbackTransactionAsync();
             return ApiResponse.Conflict(
                 "Tồn kho đã thay đổi trong lúc xử lý. Vui lòng tải lại và thử lại.",
                 ApiCodeConstants.OutboundOrder.ConcurrencyConflict);
+        }
+        catch (Exception)
+        {
+            await _outboundOrderRepository.RollbackTransactionAsync();
+            throw;
         }
 
         return ApiResponse.Success(

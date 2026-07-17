@@ -72,7 +72,8 @@ public class SalesOrderController : BaseController
 
     /// <summary>
     /// Giữ hàng: PENDING_CONFIRM → RESERVED.
-    /// Kiểm tra khách hàng, hạn mức công nợ, tồn khả dụng và tăng QuantityReserved.
+    /// Kiểm tra khách hàng, hạn mức công nợ, tồn khả dụng (chưa khóa QuantityReserved).
+    /// QuantityReserved sẽ được khóa tại bước Allocate của phiếu xuất.
     /// </summary>
     [HttpPost("{id}/reserve")]
     public async Task<IActionResult> ReserveAsync(int id)
@@ -81,7 +82,7 @@ public class SalesOrderController : BaseController
         return BaseResult(result);
     }
 
-    /// <summary>Hủy đơn bán. Giải phóng tồn giữ nếu đang RESERVED.</summary>
+    /// <summary>Hủy đơn bán. QuantityReserved do OutboundOrder quản lý — không giải phóng tại đây.</summary>
     [HttpPost("{id}/cancel")]
     public async Task<IActionResult> CancelAsync(int id)
     {
@@ -96,6 +97,17 @@ public class SalesOrderController : BaseController
     public async Task<IActionResult> CreateOutboundAsync(int id)
     {
         var result = await _salesOrderService.CreateOutboundAsync(id);
+        return BaseResult(result);
+    }
+
+    /// <summary>
+    /// H1: Xác nhận giao hàng hoàn tất (DELIVERING → Hoàn tất).
+    /// Sau bước này Dashboard mới tính đúng doanh thu.
+    /// </summary>
+    [HttpPost("{id}/complete")]
+    public async Task<IActionResult> CompleteDeliveryAsync(int id)
+    {
+        var result = await _salesOrderService.CompleteDeliveryAsync(id);
         return BaseResult(result);
     }
 }

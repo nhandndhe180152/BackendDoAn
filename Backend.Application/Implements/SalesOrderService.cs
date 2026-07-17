@@ -341,55 +341,32 @@ public class SalesOrderService : ISalesOrderService
                     ApiCodeConstants.SalesOrder.CreditLimitExceeded);
         }
 
-        // 3. Kiểm tra + giữ tồn khả dụng cho từng sản phẩm
+        // 3. Chỉ kiểm tra tồn khả dụng — KHÔNG tăng QuantityReserved tại đây.
+        //    QuantityReserved sẽ được cập nhật đúng row tại bước AllocateAsync,
+        //    khi người dùng chỉ định chính xác inventory row nào sẽ được xuất.
         if (!so.WarehouseId.HasValue)
             return ApiResponse.BadRequest("Đơn bán chưa có kho xuất.", ApiCodeConstants.SalesOrder.InvalidRequest);
-
-        var reservedInventories = new List<(Inventory inv, decimal qty)>();
 
         foreach (var item in so.SalesOrderItems.Where(i => !i.IsDeleted))
         {
             var available = await _inventoryRepository.GetAvailableForSalesAsync(
                 item.ProductVariantId, so.WarehouseId.Value);
 
-            // Kiểm tra lot cách ly
-            var quarantinedLot = available.FirstOrDefault(x =>
-                x.PaddyLot != null && !x.PaddyLot.Status.IsSellable);
-            if (quarantinedLot != null)
-                return ApiResponse.UnprocessableEntity(
-                    $"Lô {quarantinedLot.PaddyLot?.LotCode} đang bị cách ly, không thể giữ hàng.",
-                    ApiCodeConstants.SalesOrder.LotQuarantined);
+            // Ghi chú M2: repository GetAvailableForSalesAsync đã lọc sẵn lô cách ly,
+            // nên không cần kiểm tra IsSellable thêm ở đây.
 
-            decimal needed = item.QuantityOrdered;
-            decimal totalAvail = available.Sum(x => x.QuantityOnHand - x.QuantityReserved);
+            var totalAvail = available.Sum(x => x.QuantityOnHand - x.QuantityReserved);
 
-            if (totalAvail < needed)
+            if (totalAvail < item.QuantityOrdered)
                 return ApiResponse.UnprocessableEntity(
                     $"Tồn khả dụng không đủ cho sản phẩm ID {item.ProductVariantId}. " +
-                    $"Cần: {needed}, Khả dụng: {totalAvail}.",
+                    $"Cần: {item.QuantityOrdered}, Khả dụng: {totalAvail}.",
                     ApiCodeConstants.SalesOrder.InsufficientStock);
-
-            // FIFO: phân bổ tồn từ từng lô
-            foreach (var inv in available)
-            {
-                if (needed <= 0) break;
-                var avail = inv.QuantityOnHand - inv.QuantityReserved;
-                var take  = Math.Min(avail, needed);
-                reservedInventories.Add((inv, take));
-                needed -= take;
-            }
         }
 
-        // 4. Tăng QuantityReserved (chưa giảm QuantityOnHand)
+        // 4. Chuyển trạng thái sang RESERVED
         try
         {
-            foreach (var (inv, qty) in reservedInventories)
-            {
-                inv.QuantityReserved  += qty;
-                inv.LastModifiedDate   = DateTimeHelper.VietnamNow();
-                await _inventoryRepository.UpdateAsync(inv);
-            }
-
             so.StatusId         = await GetStatusIdAsync(SalesOrderStatusNames.Reserved);
             so.LastModifiedDate = DateTimeHelper.VietnamNow();
             so.UpdatedBy        = GetCurrentUserId();
@@ -423,27 +400,12 @@ public class SalesOrderService : ISalesOrderService
                 $"Không thể hủy đơn ở trạng thái '{so.Status?.Name}'.",
                 ApiCodeConstants.SalesOrder.InvalidState);
 
-        // Nếu đã giữ hàng → phải hoàn trả QuantityReserved
-        if (so.Status?.Name == SalesOrderStatusNames.Reserved && so.WarehouseId.HasValue)
-        {
-            foreach (var item in so.SalesOrderItems.Where(i => !i.IsDeleted))
-            {
-                var available = await _inventoryRepository.GetAvailableForSalesAsync(
-                    item.ProductVariantId, so.WarehouseId.Value);
-
-                // Lấy các inventory đang reserved (đơn giản: release theo tổng qty)
-                decimal toRelease = item.QuantityOrdered;
-                foreach (var inv in available.OrderByDescending(x => x.QuantityReserved))
-                {
-                    if (toRelease <= 0) break;
-                    var release = Math.Min(inv.QuantityReserved, toRelease);
-                    inv.QuantityReserved -= release;
-                    toRelease -= release;
-                    inv.LastModifiedDate = DateTimeHelper.VietnamNow();
-                    await _inventoryRepository.UpdateAsync(inv);
-                }
-            }
-        }
+        // Ghi chú C1/M6: ReserveAsync không còn tăng QuantityReserved nữa.
+        // QuantityReserved chỉ được tăng tại AllocateAsync (OutboundOrderService).
+        // Nếu đơn đang ở RESERVED mà chưa có phiếu xuất nào được Allocate,
+        // thì không có QuantityReserved nào cần giải phóng.
+        // Nếu đã có OutboundOrder đang ở PICKING/PACKED, việc giải phóng
+        // QuantityReserved được thực hiện tại OutboundOrderService.CancelAsync.
 
         so.StatusId         = await GetStatusIdAsync(SalesOrderStatusNames.Cancelled);
         so.LastModifiedDate = DateTimeHelper.VietnamNow();
@@ -470,9 +432,10 @@ public class SalesOrderService : ISalesOrderService
                 $"Không thể tạo phiếu xuất từ đơn ở trạng thái '{so.Status?.Name}'.",
                 ApiCodeConstants.SalesOrder.InvalidState);
 
-        var draftStatusId = await _outboundOrderStatusRepository.FirstOrDefaultAsync(
-            x => x.Name == OutboundOrderStatusNames.Draft && !x.IsDeleted)
-            .ContinueWith(t => t.Result?.Id ?? throw new InvalidOperationException("OutboundOrderStatus DRAFT not found."));
+        var draftStatus = await _outboundOrderStatusRepository.FirstOrDefaultAsync(
+            x => x.Name == OutboundOrderStatusNames.Draft && !x.IsDeleted);
+        var draftStatusId = draftStatus?.Id
+            ?? throw new InvalidOperationException("OutboundOrderStatus DRAFT not found.");
 
         var now = DateTimeHelper.VietnamNow();
         var userId = GetCurrentUserId();
@@ -519,5 +482,33 @@ public class SalesOrderService : ISalesOrderService
 
         return ApiResponse.Created(new { OutboundOrderId = outbound.Id },
             "Tạo phiếu xuất kho thành công.");
+    }
+    /// <summary>
+    /// H1: Xác nhận giao hàng hoàn tất (DELIVERING → Hoàn tất).
+    /// Sau bước này Dashboard mới tính doanh thu và Dashboard mới hiển thị đúng.
+    /// </summary>
+    public async Task<ApiResponse> CompleteDeliveryAsync(int id)
+    {
+        var so = await _salesOrderRepository.GetByIdDetailAsync(id);
+        if (so == null || so.IsDeleted)
+            return ApiResponse.NotFound("Đơn bán không tồn tại.", ApiCodeConstants.SalesOrder.NotFound);
+
+        if (so.Status?.Name != SalesOrderStatusNames.Delivering)
+            return ApiResponse.Conflict(
+                $"Đơn phải ở trạng thái 'Đang giao' để xác nhận hoàn tất. "
+                + $"Trạng thái hiện tại: '{so.Status?.Name}'.",
+                ApiCodeConstants.SalesOrder.InvalidState);
+
+        var now    = DateTimeHelper.VietnamNow();
+        var userId = GetCurrentUserId();
+
+        so.StatusId         = await GetStatusIdAsync(SalesOrderStatusNames.Completed);
+        so.LastModifiedDate = now;
+        so.UpdatedBy        = userId;
+
+        await _salesOrderRepository.UpdateAsync(so);
+        await _salesOrderRepository.SaveChangesAsync();
+
+        return ApiResponse.Success(message: $"Đơn bán {so.SOCode} đã hoàn tất.");
     }
 }

@@ -457,7 +457,7 @@ public class PutawaySuggestionService : IPutawaySuggestionService
         using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
         try
         {
-            // 2. Kiểm tra tài liệu nguồn (Source Document)
+            // 2. Kiểm tra tài liệu nguồn (Source Document) + M1: cho phép split
             if (isPaddy)
             {
                 var paddyReceipt = await _context.PaddyPurchaseReceipts
@@ -466,27 +466,38 @@ public class PutawaySuggestionService : IPutawaySuggestionService
                 if (paddyReceipt == null)
                     return ApiResponse.NotFound("Không tìm thấy phiếu thu mua lúa gốc.", ApiCodeConstants.Common.NotFound);
 
-                // Check đã confirm qua PutawayDecision chưa
-                var alreadyConfirmed = await _context.PutawayDecisions
-                    .AnyAsync(x => x.ReferenceType == "PADDY_PURCHASE" && x.ReferenceId == referenceId, cancellationToken);
+                // M1: Cho phép split — chỉ block khi đã nhập đủ hoặc vượt quá tổng khối lượng
+                var totalStoredKg = await _context.PutawayDecisions
+                    .Where(x => x.ReferenceType == "PADDY_PURCHASE" && x.ReferenceId == referenceId)
+                    .SumAsync(x => x.RequiredWeightKg, cancellationToken);
 
-                if (alreadyConfirmed)
-                    return ApiResponse.Conflict("Phiếu thu mua lúa này đã được nhập kho trước đó.", "DOCUMENT_ALREADY_STORED");
+                if (totalStoredKg >= paddyReceipt.ActualWeightKg)
+                    return ApiResponse.Conflict(
+                        $"Phiếu thu mua lúa này đã nhập kho đủ {totalStoredKg:N0} kg (tổng: {paddyReceipt.ActualWeightKg:N0} kg).",
+                        "DOCUMENT_ALREADY_STORED");
             }
             else
             {
                 var inboundOrder = await _context.InboundOrders
+                    .Include(x => x.InboundOrderItems)
                     .FirstOrDefaultAsync(x => x.Id == referenceId && !x.IsDeleted, cancellationToken);
 
                 if (inboundOrder == null)
                     return ApiResponse.NotFound("Không tìm thấy phiếu nhập kho nguồn.", ApiCodeConstants.Common.NotFound);
 
-                // Check đã confirm qua PutawayDecision chưa
-                var alreadyConfirmed = await _context.PutawayDecisions
-                    .AnyAsync(x => x.ReferenceType == referenceType && x.ReferenceId == referenceId, cancellationToken);
+                // M1: Cho phép split — chỉ block khi tổng đã store-in >= tổng số lượng đặt
+                var totalOrderedQty = inboundOrder.InboundOrderItems
+                    .Where(i => !i.IsDeleted)
+                    .Sum(i => i.QuantityOrdered);
 
-                if (alreadyConfirmed)
-                    return ApiResponse.Conflict("Phiếu nhập kho này đã được nhập kho trước đó.", "DOCUMENT_ALREADY_STORED");
+                var totalStoredKg = await _context.PutawayDecisions
+                    .Where(x => x.ReferenceType == referenceType && x.ReferenceId == referenceId)
+                    .SumAsync(x => x.RequiredWeightKg, cancellationToken);
+
+                if (totalStoredKg >= totalOrderedQty && totalOrderedQty > 0)
+                    return ApiResponse.Conflict(
+                        $"Phiếu nhập kho này đã nhập kho đủ {totalStoredKg:N0} kg (tổng: {totalOrderedQty:N0} kg).",
+                        "DOCUMENT_ALREADY_STORED");
             }
 
             // 3. Khách hàng xếp vị trí khác vị trí đề xuất (Override Check)
