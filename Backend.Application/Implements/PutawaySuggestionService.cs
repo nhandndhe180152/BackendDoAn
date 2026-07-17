@@ -603,7 +603,8 @@ public class PutawaySuggestionService : IPutawaySuggestionService
         catch (Exception ex)
         {
             await transaction.RollbackAsync(cancellationToken);
-            _logger.LogError(ex, "ConfirmStoreInAsync failed. RefType: {RefType}, RefId: {RefId}", referenceType, referenceId);
+            var safeReferenceType = (referenceType ?? string.Empty).Replace("\r", string.Empty).Replace("\n", string.Empty);
+            _logger.LogError(ex, "ConfirmStoreInAsync failed. RefType: {RefType}, RefId: {RefId}", safeReferenceType, referenceId);
             return ApiResponse.BadRequest($"Lỗi xác nhận nhập kho: {ex.Message}", ApiCodeConstants.Common.BadRequest);
         }
     }
