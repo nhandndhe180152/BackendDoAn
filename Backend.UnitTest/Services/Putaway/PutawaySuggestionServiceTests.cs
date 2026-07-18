@@ -306,7 +306,7 @@ public class PutawaySuggestionServiceTests
         var result = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 10, request, CancellationToken.None);
 
         result.Status.Should().Be((int)HttpStatusCode.Conflict);
-        result.Message.Should().Contain("đã nhập kho đủ");
+        result.Message.Should().Contain("vượt quá khối lượng còn lại");
     }
 
     [Fact]
