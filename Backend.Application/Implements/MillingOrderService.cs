@@ -415,7 +415,7 @@ public class MillingOrderService : IMillingOrderService
     {
         var targetLocationId = inputLocationId ?? lot.LocationId;
         var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
-            lot.ProductVariantId, lot.WarehouseId, targetLocationId);
+            lot.ProductVariantId, lot.WarehouseId, targetLocationId, lot.Id);
 
         if (inventory == null || inventory.QuantityOnHand < qty)
         {
@@ -453,7 +453,7 @@ public class MillingOrderService : IMillingOrderService
     private async Task ImportOutputInventoryAsync(PaddyLot lot, decimal qty, int orderId, int outputId, int userId, DateTime now)
     {
         var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
-            lot.ProductVariantId, lot.WarehouseId, lot.LocationId);
+            lot.ProductVariantId, lot.WarehouseId, lot.LocationId, lot.Id);
 
         if (inventory == null)
         {
@@ -462,6 +462,7 @@ public class MillingOrderService : IMillingOrderService
                 WarehouseId = lot.WarehouseId,
                 LocationId = lot.LocationId,
                 ProductVariantId = lot.ProductVariantId,
+                PaddyLotId = lot.Id,
                 CostPrice = lot.CostPricePerKg,
                 QuantityOnHand = 0,
                 QuantityReserved = 0,

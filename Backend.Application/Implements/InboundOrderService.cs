@@ -1134,10 +1134,13 @@ public class InboundOrderService : IInboundOrderService
                 return ApiResponse.UnprocessableEntity("Vị trí lưu trữ hiện đã hết sức chứa.", ApiCodeConstants.Common.UnprocessableEntity);
 
             // Recheck RowVersion/concurrency: fetch inventory with tracking
+            // RC-3 fix: phải bao gồm PaddyLotId trong điều kiện tìm — khớp unique index (variant, warehouse, location, lot)
+            var paddyLotId = item.PaddyLotId; // nullable, null nếu không phải lô lúa
             var inventory = await _inventoryRepository.FirstOrDefaultAsync(x =>
                 x.WarehouseId == order.WarehouseId &&
                 x.LocationId == loc.Id &&
-                x.ProductVariantId == item.ProductVariantId,
+                x.ProductVariantId == item.ProductVariantId &&
+                x.PaddyLotId == paddyLotId,
                 true
             );
 
@@ -1151,6 +1154,8 @@ public class InboundOrderService : IInboundOrderService
                     WarehouseId = order.WarehouseId,
                     LocationId = loc.Id,
                     ProductVariantId = item.ProductVariantId!.Value,
+                    // RC-3 fix: gán PaddyLotId để tồn kho tách lô đúng theo unique index
+                    PaddyLotId = paddyLotId,
                     QuantityOnHand = 0,
                     QuantityReserved = 0,
                     CostPrice = item.UnitCostPrice,

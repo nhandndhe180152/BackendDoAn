@@ -346,7 +346,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         int inboundOrderId, int inboundItemId, int userId, DateTime now)
     {
         var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
-            lot.ProductVariantId, lot.WarehouseId, lot.LocationId);
+            lot.ProductVariantId, lot.WarehouseId, lot.LocationId, lot.Id);
 
         if (inventory == null)
         {
@@ -355,6 +355,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                 WarehouseId = lot.WarehouseId,
                 LocationId = lot.LocationId,
                 ProductVariantId = lot.ProductVariantId,
+                PaddyLotId = lot.Id,
                 CostPrice = lot.CostPricePerKg,
                 QuantityOnHand = 0,
                 QuantityReserved = 0,

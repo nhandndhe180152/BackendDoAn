@@ -80,8 +80,11 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
                         && (x.PaddyLot.Status.Name == LotStatusNameConstants.Processing
                             || x.PaddyLot.Status.Name == LotStatusNameConstants.Milling))
                         ? x.QuantityOnHand : 0m,
-                TotalWeightKg = x.QuantityOnHand * x.ProductVariant.Weight,
-                Bags = (int)x.QuantityOnHand,
+                // QuantityOnHand lưu kg trực tiếp → TotalWeightKg = QoH, Bags = QoH / trọng lượng mỗi bao
+                TotalWeightKg = x.QuantityOnHand,
+                Bags = x.ProductVariant.Weight > 0
+                    ? (int)Math.Round(x.QuantityOnHand / x.ProductVariant.Weight)
+                    : 0,
                 MinStockLevel = x.ProductVariant.MinStockLevel,
                 IsLowStock = x.ProductVariant.MinStockLevel != null &&
                              x.QuantityOnHand <= x.ProductVariant.MinStockLevel,
@@ -219,17 +222,18 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
 
         var dto = new InventoryStockSummaryAggregate
         {
+            // QuantityOnHand lưu kg trực tiếp → *WeightKg = Sum(QoH), không nhân ProductVariant.Weight
             TotalOnHand = await query.SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m,
-            TotalOnHandWeightKg = await query.SumAsync(x => (decimal?)(x.QuantityOnHand * x.ProductVariant.Weight)) ?? 0m,
+            TotalOnHandWeightKg = await query.SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m,
 
             TotalQuarantine = await quarantineQuery.SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m,
-            TotalQuarantineWeightKg = await quarantineQuery.SumAsync(x => (decimal?)(x.QuantityOnHand * x.ProductVariant.Weight)) ?? 0m,
+            TotalQuarantineWeightKg = await quarantineQuery.SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m,
 
             TotalProcessing = await processingQuery.SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m,
-            TotalProcessingWeightKg = await processingQuery.SumAsync(x => (decimal?)(x.QuantityOnHand * x.ProductVariant.Weight)) ?? 0m,
+            TotalProcessingWeightKg = await processingQuery.SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m,
 
             TotalReserved = await normalQuery.SumAsync(x => (decimal?)x.QuantityReserved) ?? 0m,
-            TotalReservedWeightKg = await normalQuery.SumAsync(x => (decimal?)(x.QuantityReserved * x.ProductVariant.Weight)) ?? 0m,
+            TotalReservedWeightKg = await normalQuery.SumAsync(x => (decimal?)x.QuantityReserved) ?? 0m,
 
             LineCount = await query.CountAsync(),
             LowStockCount = await query.CountAsync(x =>
@@ -266,14 +270,15 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
     /// <param name="warehouseId">Tham số đầu vào dùng trong logic xử lý của hàm.</param>
     /// <param name="locationId">Tham số đầu vào dùng trong logic xử lý của hàm.</param>
     /// <returns>Kết quả xử lý của hàm, thường là dữ liệu, ApiResponse, IActionResult hoặc trạng thái thao tác.</returns>
-    public async Task<Inventory?> GetByVariantWarehouseLocationAsync(int productVariantId, int warehouseId, int? locationId)
+    public async Task<Inventory?> GetByVariantWarehouseLocationAsync(int productVariantId, int warehouseId, int? locationId, int? paddyLotId = null)
     {
         return await _context.Inventories
             .FirstOrDefaultAsync(x =>
                 !x.IsDeleted &&
                 x.ProductVariantId == productVariantId &&
                 x.WarehouseId == warehouseId &&
-                x.LocationId == locationId);
+                x.LocationId == locationId &&
+                x.PaddyLotId == paddyLotId);
     }
 
     /// <summary>
