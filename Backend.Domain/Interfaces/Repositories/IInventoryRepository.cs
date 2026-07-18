@@ -11,6 +11,9 @@ public interface IInventoryRepository : IRepositoryBase<Inventory, int>
 {
     Task<DTResult<InventoryAggregate>> GetPagedAsync(InventoryDTParameters parameters);
 
+    /// <summary>Tổng hợp tồn kho theo trạng thái cho 5 thẻ KPI (giám sát tồn kho).</summary>
+    Task<InventoryStockSummaryAggregate> GetStockSummaryAsync(InventorySummaryParameters parameters);
+
     Task<Inventory?> GetByIdDetailAsync(int id);
 
     Task<Inventory?> GetByVariantWarehouseLocationAsync(int productVariantId, int warehouseId, int? locationId);

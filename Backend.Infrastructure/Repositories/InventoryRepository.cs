@@ -1,4 +1,5 @@
 using System;
+using Backend.Application.Constants;
 using Backend.Domain.Abstractions;
 using Backend.Domain.Aggregates;
 using Backend.Domain.DTParameters;
@@ -61,13 +62,41 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
                 ProductVariantName = x.ProductVariant.Name,
                 ProductId = x.ProductVariant.ProductId,
                 ProductName = x.ProductVariant.Product.Name,
+                ProductCategoryId = x.ProductVariant.Product.ProductCategoryId,
+                CategoryName = x.ProductVariant.Product.ProductCategory.Name,
+                IsByproduct = x.ProductVariant.IsByproduct,
+                UnitName = x.ProductVariant.UnitOfMeasure.Name,
+                UnitWeightKg = x.ProductVariant.Weight,
                 CostPrice = x.CostPrice,
                 QuantityOnHand = x.QuantityOnHand,
                 QuantityReserved = x.QuantityReserved,
                 QuantityAvailable = x.QuantityOnHand - x.QuantityReserved,
+                QuantityQuarantine =
+                    ((x.PaddyLot != null && x.PaddyLot.Status.Name == LotStatusNameConstants.Quarantine)
+                        || (x.Location != null && x.Location.IsQuarantine))
+                        ? x.QuantityOnHand : 0m,
+                QuantityProcessing =
+                    (!((x.PaddyLot != null && x.PaddyLot.Status.Name == LotStatusNameConstants.Quarantine)
+                        || (x.Location != null && x.Location.IsQuarantine))
+                        && x.PaddyLot != null
+                        && (x.PaddyLot.Status.Name == LotStatusNameConstants.Processing
+                            || x.PaddyLot.Status.Name == LotStatusNameConstants.Milling))
+                        ? x.QuantityOnHand : 0m,
+                TotalWeightKg = x.QuantityOnHand * x.ProductVariant.Weight,
+                Bags = (int)x.QuantityOnHand,
                 MinStockLevel = x.ProductVariant.MinStockLevel,
                 IsLowStock = x.ProductVariant.MinStockLevel != null &&
                              x.QuantityOnHand <= x.ProductVariant.MinStockLevel,
+                PaddyLotId = x.PaddyLotId,
+                LotCode = x.PaddyLot != null ? x.PaddyLot.LotCode : null,
+                LotType = x.PaddyLot != null ? x.PaddyLot.LotType : null,
+                LotInboundDate = x.PaddyLot != null ? x.PaddyLot.InboundDate : (DateTime?)null,
+                LotQualityStatus = x.PaddyLot != null ? x.PaddyLot.QualityStatus : null,
+                LotCostPricePerKg = x.PaddyLot != null ? x.PaddyLot.CostPricePerKg : (decimal?)null,
+                LotStatusId = x.PaddyLot != null ? x.PaddyLot.StatusId : (int?)null,
+                LotStatusName = x.PaddyLot != null ? x.PaddyLot.Status.Name : null,
+                LotStatusColor = x.PaddyLot != null ? x.PaddyLot.Status.Color : null,
+                LotIsSellable = x.PaddyLot != null ? x.PaddyLot.Status.IsSellable : (bool?)null,
                 LastStockTakeDate = x.LastStockTakeDate,
                 CreatedDate = x.CreatedDate
             });
@@ -81,6 +110,7 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
                 EF.Functions.Collate(x.ProductVariantName, SQLParams.Latin_General).Contains(keyword) ||
                 EF.Functions.Collate(x.ProductName, SQLParams.Latin_General).Contains(keyword) ||
                 EF.Functions.Collate(x.WarehouseName, SQLParams.Latin_General).Contains(keyword) ||
+                (x.LotCode != null && EF.Functions.Collate(x.LotCode, SQLParams.Latin_General).Contains(keyword)) ||
                 (x.LocationCode != null && EF.Functions.Collate(x.LocationCode, SQLParams.Latin_General).Contains(keyword)));
         }
 
@@ -97,6 +127,26 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
         if (parameters.ProductVariantId.HasValue)
         {
             query = query.Where(x => x.ProductVariantId == parameters.ProductVariantId.Value);
+        }
+
+        if (parameters.ProductCategoryId.HasValue)
+        {
+            query = query.Where(x => x.ProductCategoryId == parameters.ProductCategoryId.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(parameters.LotType))
+        {
+            query = query.Where(x => x.LotType == parameters.LotType);
+        }
+
+        if (parameters.LotStatusId.HasValue)
+        {
+            query = query.Where(x => x.LotStatusId == parameters.LotStatusId.Value);
+        }
+
+        if (parameters.WithLotOnly == true)
+        {
+            query = query.Where(x => x.PaddyLotId != null);
         }
 
         if (parameters.LowStockOnly == true)
@@ -117,6 +167,88 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
         };
 
         return data;
+    }
+
+    /// <summary>
+    /// Tổng hợp tồn kho theo trạng thái (Tồn thực tế / Khả dụng / Đã giữ / Đang xử lý / Cách ly)
+    /// cho 5 thẻ KPI. Phân bổ tồn thực tế thành 4 nhóm không chồng lấn:
+    /// Cách ly → Đang xử lý → Đã giữ → Khả dụng (phần còn lại).
+    /// </summary>
+    public async Task<InventoryStockSummaryAggregate> GetStockSummaryAsync(InventorySummaryParameters parameters)
+    {
+        var query = _context.Inventories.Where(x => !x.IsDeleted);
+
+        if (parameters.WarehouseId.HasValue)
+        {
+            query = query.Where(x => x.WarehouseId == parameters.WarehouseId.Value);
+        }
+
+        if (parameters.LocationId.HasValue)
+        {
+            query = query.Where(x => x.LocationId == parameters.LocationId.Value);
+        }
+
+        if (parameters.ProductCategoryId.HasValue)
+        {
+            query = query.Where(x => x.ProductVariant.Product.ProductCategoryId == parameters.ProductCategoryId.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(parameters.LotType))
+        {
+            query = query.Where(x => x.PaddyLot != null && x.PaddyLot.LotType == parameters.LotType);
+        }
+
+        // Nhóm CÁCH LY (CL): lô "Cách ly" hoặc vị trí cách ly.
+        var quarantineQuery = query.Where(x =>
+            (x.PaddyLot != null && x.PaddyLot.Status.Name == LotStatusNameConstants.Quarantine)
+            || (x.Location != null && x.Location.IsQuarantine));
+
+        // Nhóm ĐANG XỬ LÝ (XL): lô "Chờ xử lý"/"Đang xay" và KHÔNG thuộc nhóm cách ly.
+        var processingQuery = query.Where(x =>
+            !((x.PaddyLot != null && x.PaddyLot.Status.Name == LotStatusNameConstants.Quarantine)
+                || (x.Location != null && x.Location.IsQuarantine))
+            && x.PaddyLot != null
+            && (x.PaddyLot.Status.Name == LotStatusNameConstants.Processing
+                || x.PaddyLot.Status.Name == LotStatusNameConstants.Milling));
+
+        // Phần còn lại (không cách ly, không đang xử lý) — nơi tính "Đã giữ".
+        var normalQuery = query.Where(x =>
+            !((x.PaddyLot != null && x.PaddyLot.Status.Name == LotStatusNameConstants.Quarantine)
+                || (x.Location != null && x.Location.IsQuarantine))
+            && !(x.PaddyLot != null
+                && (x.PaddyLot.Status.Name == LotStatusNameConstants.Processing
+                    || x.PaddyLot.Status.Name == LotStatusNameConstants.Milling)));
+
+        var dto = new InventoryStockSummaryAggregate
+        {
+            TotalOnHand = await query.SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m,
+            TotalOnHandWeightKg = await query.SumAsync(x => (decimal?)(x.QuantityOnHand * x.ProductVariant.Weight)) ?? 0m,
+
+            TotalQuarantine = await quarantineQuery.SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m,
+            TotalQuarantineWeightKg = await quarantineQuery.SumAsync(x => (decimal?)(x.QuantityOnHand * x.ProductVariant.Weight)) ?? 0m,
+
+            TotalProcessing = await processingQuery.SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m,
+            TotalProcessingWeightKg = await processingQuery.SumAsync(x => (decimal?)(x.QuantityOnHand * x.ProductVariant.Weight)) ?? 0m,
+
+            TotalReserved = await normalQuery.SumAsync(x => (decimal?)x.QuantityReserved) ?? 0m,
+            TotalReservedWeightKg = await normalQuery.SumAsync(x => (decimal?)(x.QuantityReserved * x.ProductVariant.Weight)) ?? 0m,
+
+            LineCount = await query.CountAsync(),
+            LowStockCount = await query.CountAsync(x =>
+                x.ProductVariant.MinStockLevel != null && x.QuantityOnHand <= x.ProductVariant.MinStockLevel),
+            QuarantineLotCount = await quarantineQuery
+                .Where(x => x.PaddyLotId != null)
+                .Select(x => x.PaddyLotId)
+                .Distinct()
+                .CountAsync()
+        };
+
+        // Khả dụng = Tồn thực tế − Cách ly − Đang xử lý − Đã giữ (phân bổ không chồng lấn).
+        dto.TotalAvailable = dto.TotalOnHand - dto.TotalQuarantine - dto.TotalProcessing - dto.TotalReserved;
+        dto.TotalAvailableWeightKg = dto.TotalOnHandWeightKg - dto.TotalQuarantineWeightKg
+            - dto.TotalProcessingWeightKg - dto.TotalReservedWeightKg;
+
+        return dto;
     }
 
     public async Task<Inventory?> GetByIdDetailAsync(int id)

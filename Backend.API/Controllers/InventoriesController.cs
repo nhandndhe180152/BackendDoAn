@@ -27,6 +27,17 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        /// <summary>
+        /// Tổng hợp KPI tồn kho theo trạng thái (Tồn thực tế / Khả dụng / Đã giữ / Đang xử lý / Cách ly)
+        /// cho 5 thẻ đầu màn giám sát tồn kho. Nhận cùng bộ lọc với bảng để hai bên đồng bộ.
+        /// </summary>
+        [HttpPost("summary")]
+        public async Task<IActionResult> GetStockSummaryAsync([FromBody] InventorySummaryParameters parameters)
+        {
+            var result = await _inventoryService.GetStockSummaryAsync(parameters ?? new InventorySummaryParameters());
+            return BaseResult(result);
+        }
+
         [HttpGet("{id:int}")]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
