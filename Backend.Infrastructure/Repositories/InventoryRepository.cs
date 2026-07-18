@@ -47,16 +47,14 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
                 WarehouseId = x.WarehouseId,
                 WarehouseName = x.Warehouse.Name,
                 LocationId = x.LocationId,
+                // Ghép mã vị trí bằng chuỗi nối (translatable sang SQL). Không dùng string.Join
+                // vì EF Core không dịch được string.Join trong projection -> lỗi 500 khi query.
                 LocationCode = x.Location == null
                     ? null
-                    : string.Join("-",
-                        new[]
-                        {
-                            x.Location.ZoneName,
-                            x.Location.ShelfRow,
-                            x.Location.ShelfLevel,
-                            x.Location.SlotCode
-                        }.Where(s => !string.IsNullOrWhiteSpace(s))),
+                    : (string.IsNullOrEmpty(x.Location.ZoneName) ? "" : x.Location.ZoneName)
+                        + (string.IsNullOrEmpty(x.Location.ShelfRow) ? "" : "-" + x.Location.ShelfRow)
+                        + (string.IsNullOrEmpty(x.Location.ShelfLevel) ? "" : "-" + x.Location.ShelfLevel)
+                        + (string.IsNullOrEmpty(x.Location.SlotCode) ? "" : "-" + x.Location.SlotCode),
                 ProductVariantId = x.ProductVariantId,
                 SKU = x.ProductVariant.SKU,
                 ProductVariantName = x.ProductVariant.Name,
