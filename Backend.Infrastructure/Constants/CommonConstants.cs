@@ -55,6 +55,7 @@ public static class CommonConstants
             "InboundOrder",
             "Inventory",
             "InventoryTransaction",
+            "Alert",
             "SystemConfig",
             "Notification",
             "NotificationCategory",
