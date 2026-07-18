@@ -97,4 +97,7 @@ public static class TableNames
     public const string PurchaseOrder = nameof(PurchaseOrder);
     public const string PurchaseOrderItem = nameof(PurchaseOrderItem);
     public const string Organization = nameof(Organization);
+    public const string OutboundOrderItemAllocation = nameof(OutboundOrderItemAllocation);
+    public const string PutawayRuleConfig = nameof(PutawayRuleConfig);
+    public const string PutawayDecision = nameof(PutawayDecision);
 }

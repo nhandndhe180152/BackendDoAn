@@ -38,6 +38,8 @@ public static class ConfigureServices
             options.AddInterceptors(provider.GetRequiredService<AuditSaveChangesInterceptor>());
         });
 
+        services.AddScoped<IApplicationDbContext>(provider => provider.GetRequiredService<BackendContext>());
+
         services.Configure<JwtSettings>(configuration.GetSection("JwtSettings"));
         services.Configure<SmtpSettings>(configuration.GetSection("SmtpSettings"));
         services.Configure<StorageSettings>(configuration.GetSection("StorageSettings"));
@@ -97,6 +99,8 @@ public static class ConfigureServices
             .AddScoped<IDebtTransactionRepository, DebtTransactionRepository>()
             .AddScoped<IQualityInspectionRepository, QualityInspectionRepository>()
             .AddScoped<IStockTransferRepository, StockTransferRepository>()
+            .AddScoped<ISalesOrderRepository, SalesOrderRepository>()
+            .AddScoped<IOutboundOrderRepository, OutboundOrderRepository>()
             // ── Cấu hình rule & cảnh báo (SCR-20/21) ─────────────────────────────────
             .AddScoped<IMillingYieldConfigRepository, MillingYieldConfigRepository>()
             .AddScoped<IStockAlertConfigRepository, StockAlertConfigRepository>()

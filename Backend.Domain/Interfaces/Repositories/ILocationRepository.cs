@@ -10,4 +10,5 @@ namespace Backend.Domain.Interfaces.Repositories;
 public interface ILocationRepository : IRepositoryBase<Location, int>
 {
     Task<DTResult<LocationAggregate>> GetPagedAsync(DTParameter parameters);
+    Task<int> UpdateCapacitySafetyAsync(int locationId, int warehouseId, decimal weightKg, int productVariantId, bool isQuarantine, int userId);
 }

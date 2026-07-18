@@ -109,4 +109,30 @@ public class LocationRepository : RepositoryBase<Location, int>, ILocationReposi
 
         return data;
     }
+
+    public async Task<int> UpdateCapacitySafetyAsync(int locationId, int warehouseId, decimal weightKg, int productVariantId, bool isQuarantine, int userId)
+    {
+        var sql = @"
+            UPDATE `Location`
+            SET
+                `CurrentOccupancy` = `CurrentOccupancy` + {0},
+                `CurrentProductVariantId` = COALESCE(`CurrentProductVariantId`, {1}),
+                `LastModifiedDate` = UTC_TIMESTAMP(6),
+                `UpdatedBy` = {2}
+            WHERE
+                `Id` = {3}
+                AND `WarehouseId` = {4}
+                AND `IsActive` = 1
+                AND `IsDeleted` = 0
+                AND `IsQuarantine` = {5}
+                AND (
+                    `CurrentProductVariantId` IS NULL
+                    OR `CurrentProductVariantId` = {1}
+                )
+                AND (
+                    `CurrentOccupancy` + {0} <= `MaxCapacity`
+                );";
+
+        return await _context.Database.ExecuteSqlRawAsync(sql, weightKg, productVariantId, userId, locationId, warehouseId, isQuarantine);
+    }
 }

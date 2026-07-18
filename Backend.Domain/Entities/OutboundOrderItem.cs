@@ -21,5 +21,6 @@ public class OutboundOrderItem : EntityAuditBase<int>
     public virtual OutboundOrder OutboundOrder { get; set; } = null!;
     public virtual ProductVariant ProductVariant { get; set; } = null!;
     public virtual SalesOrderItem? SalesOrderItem { get; set; }
+    public virtual ICollection<OutboundOrderItemAllocation> Allocations { get; set; } = new List<OutboundOrderItemAllocation>();
 }
 

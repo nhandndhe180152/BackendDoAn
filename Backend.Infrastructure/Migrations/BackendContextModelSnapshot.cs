@@ -1389,7 +1389,12 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedDate")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<int>("CurrentOccupancy")
+                    b.Property<decimal>("CurrentOccupancy")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("decimal(18,3)")
+                        .HasDefaultValue(0.000m);
+
+                    b.Property<int?>("CurrentProductVariantId")
                         .HasColumnType("int");
 
                     b.Property<string>("Description")
@@ -1405,11 +1410,14 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<bool>("IsQuarantine")
                         .HasColumnType("tinyint(1)");
 
+                    b.Property<bool>("IsSingleTypeColumn")
+                        .HasColumnType("tinyint(1)");
+
                     b.Property<DateTime?>("LastModifiedDate")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<int?>("MaxCapacity")
-                        .HasColumnType("int");
+                    b.Property<decimal?>("MaxCapacity")
+                        .HasColumnType("decimal(18,3)");
 
                     b.Property<int>("Priority")
                         .HasColumnType("int");
@@ -1442,10 +1450,13 @@ namespace Backend.Infrastructure.Migrations
                     b.HasIndex("AllowedCategoryId")
                         .HasDatabaseName("IX_Location_AllowedCategoryId");
 
+                    b.HasIndex("CurrentProductVariantId");
+
                     b.HasIndex("IsQuarantine")
                         .HasDatabaseName("IX_Location_IsQuarantine");
 
-                    b.HasIndex("WarehouseId");
+                    b.HasIndex("WarehouseId", "IsActive", "IsDeleted", "IsQuarantine", "CurrentProductVariantId")
+                        .HasDatabaseName("IX_Location_PutawayCandidate");
 
                     b.ToTable("Location", (string)null);
                 });
@@ -2361,6 +2372,71 @@ namespace Backend.Infrastructure.Migrations
                     b.ToTable("OutboundOrderItem", (string)null);
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.OutboundOrderItemAllocation", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("InventoryId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("LocationId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("OutboundOrderItemId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("PaddyLotId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("QuantityAllocated")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<decimal>("QuantityPicked")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<DateTime?>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("timestamp(6)");
+
+                    b.Property<decimal>("UnitCostPrice")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InventoryId")
+                        .HasDatabaseName("IX_OutboundOrderItemAllocation_InventoryId");
+
+                    b.HasIndex("LocationId");
+
+                    b.HasIndex("OutboundOrderItemId")
+                        .HasDatabaseName("IX_OutboundOrderItemAllocation_OutboundOrderItemId");
+
+                    b.HasIndex("PaddyLotId")
+                        .HasDatabaseName("IX_OutboundOrderItemAllocation_PaddyLotId");
+
+                    b.ToTable("OutboundOrderItemAllocation", (string)null);
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.OutboundOrderStatus", b =>
                 {
                     b.Property<int>("Id")
@@ -2395,6 +2471,56 @@ namespace Backend.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("OutboundOrderStatus", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Color = "#6B7280",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "DRAFT"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Color = "#3B82F6",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "PICKING"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Color = "#8B5CF6",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "PACKED"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Color = "#F97316",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "DISPATCHED"
+                        },
+                        new
+                        {
+                            Id = 5,
+                            Color = "#10B981",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "COMPLETED"
+                        },
+                        new
+                        {
+                            Id = 6,
+                            Color = "#EF4444",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "CANCELLED"
+                        });
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.PaddyLot", b =>
@@ -3306,6 +3432,83 @@ namespace Backend.Infrastructure.Migrations
                             IsDeleted = false,
                             Name = "Cancelled"
                         });
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PutawayDecision", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<bool>("IsOverride")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("OverrideReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<int?>("PaddyLotId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ProductVariantId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ReferenceId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ReferenceType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<decimal>("RequiredWeightKg")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<string>("ScoreDetailsJson")
+                        .HasColumnType("longtext");
+
+                    b.Property<int>("SelectedLocationId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SuggestedLocationId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("SuggestedScore")
+                        .HasColumnType("decimal(8,6)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<int>("WarehouseId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaddyLotId");
+
+                    b.HasIndex("ProductVariantId");
+
+                    b.HasIndex("SelectedLocationId");
+
+                    b.HasIndex("SuggestedLocationId");
+
+                    b.HasIndex("WarehouseId");
+
+                    b.ToTable("PutawayDecision", (string)null);
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.QualityInspection", b =>
@@ -4655,6 +4858,7 @@ namespace Backend.Infrastructure.Migrations
                             IsDeleted = false,
                             LastName = "Admin",
                             LockEnabled = false,
+                            MustChangePassword = false,
                             PasswordHash = "$2a$11$kH4XY8m7bRFmUHhvuMlznOhLH74exbW2sjXnO0TSOkDQK4q/0gfVG",
                             UserStatusId = 1002,
                             Username = "admin"
@@ -5432,6 +5636,11 @@ namespace Backend.Infrastructure.Migrations
                         .HasForeignKey("AllowedCategoryId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("Backend.Domain.Entities.ProductVariant", "CurrentProductVariant")
+                        .WithMany()
+                        .HasForeignKey("CurrentProductVariantId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
                         .WithMany("Locations")
                         .HasForeignKey("WarehouseId")
@@ -5439,6 +5648,8 @@ namespace Backend.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("AllowedCategory");
+
+                    b.Navigation("CurrentProductVariant");
 
                     b.Navigation("Warehouse");
                 });
@@ -5653,6 +5864,40 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("ProductVariant");
 
                     b.Navigation("SalesOrderItem");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.OutboundOrderItemAllocation", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.Inventory", "Inventory")
+                        .WithMany()
+                        .HasForeignKey("InventoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Location", "Location")
+                        .WithMany()
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.OutboundOrderItem", "OutboundOrderItem")
+                        .WithMany("Allocations")
+                        .HasForeignKey("OutboundOrderItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.PaddyLot", "PaddyLot")
+                        .WithMany()
+                        .HasForeignKey("PaddyLotId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Inventory");
+
+                    b.Navigation("Location");
+
+                    b.Navigation("OutboundOrderItem");
+
+                    b.Navigation("PaddyLot");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.PaddyLot", b =>
@@ -5937,6 +6182,47 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("ProductVariant");
 
                     b.Navigation("PurchaseOrder");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.PutawayDecision", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.PaddyLot", "PaddyLot")
+                        .WithMany()
+                        .HasForeignKey("PaddyLotId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
+                        .WithMany()
+                        .HasForeignKey("ProductVariantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Location", "SelectedLocation")
+                        .WithMany()
+                        .HasForeignKey("SelectedLocationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Location", "SuggestedLocation")
+                        .WithMany()
+                        .HasForeignKey("SuggestedLocationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("PaddyLot");
+
+                    b.Navigation("ProductVariant");
+
+                    b.Navigation("SelectedLocation");
+
+                    b.Navigation("SuggestedLocation");
+
+                    b.Navigation("Warehouse");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.QualityInspection", b =>
@@ -6413,6 +6699,11 @@ namespace Backend.Infrastructure.Migrations
             modelBuilder.Entity("Backend.Domain.Entities.OutboundOrder", b =>
                 {
                     b.Navigation("OutboundOrderItems");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.OutboundOrderItem", b =>
+                {
+                    b.Navigation("Allocations");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.OutboundOrderStatus", b =>

@@ -193,4 +193,29 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
             .Take(limit)
             .ToListAsync();
     }
+
+    /// <summary>
+    /// Tồn khả dụng để bán: theo từng lô (PaddyLotId), tại kho chỉ định.
+    /// Điều kiện: lot phải có IsSellable=true, không bị cách ly, AvailableQty > 0.
+    /// Kết quả sắp xếp FIFO: nhập sớm nhất → bán trước.
+    /// </summary>
+    public async Task<List<Inventory>> GetAvailableForSalesAsync(int productVariantId, int warehouseId)
+    {
+        return await _context.Inventories
+            .Include(x => x.PaddyLot)
+                .ThenInclude(pl => pl!.Status)
+            .Include(x => x.Location)
+            .Where(x =>
+                !x.IsDeleted &&
+                x.ProductVariantId == productVariantId &&
+                x.WarehouseId == warehouseId &&
+                // Tồn khả dụng phải dương
+                (x.QuantityOnHand - x.QuantityReserved) > 0 &&
+                // Nếu có lô: lô phải IsSellable
+                (x.PaddyLotId == null || (x.PaddyLot != null && x.PaddyLot.Status.IsSellable)))
+            // FIFO: lot nhập sớm hơn được chọn trước
+            .OrderBy(x => x.PaddyLot != null ? x.PaddyLot.InboundDate : x.CreatedDate)
+            .ThenBy(x => x.Id)
+            .ToListAsync();
+    }
 }

@@ -42,6 +42,10 @@ public class InboundOrderService : IInboundOrderService
     private readonly IRepositoryBase<PaddyPurchaseReceipt, int> _paddyPurchaseReceiptRepository;
     private readonly IRepositoryBase<PaddyPurchaseSchedule, int> _paddyPurchaseScheduleRepository;
     private readonly ISystemLookup _systemLookup;
+    private readonly IRepositoryBase<PurchaseOrder, int> _purchaseOrderRepository;
+    private readonly IRepositoryBase<PurchaseOrderStatus, int> _purchaseOrderStatusRepository;
+    private readonly IRepositoryBase<PaddyLot, int> _paddyLotRepository;
+    private readonly IRepositoryBase<LotStatus, int> _lotStatusRepository;
 
     public InboundOrderService(
         IRepositoryBase<InboundOrder, int> inboundOrderRepository,
@@ -62,7 +66,11 @@ public class InboundOrderService : IInboundOrderService
         INotificationDispatcher notificationDispatcher,
         IRepositoryBase<PaddyPurchaseReceipt, int> paddyPurchaseReceiptRepository,
         IRepositoryBase<PaddyPurchaseSchedule, int> paddyPurchaseScheduleRepository,
-        ISystemLookup systemLookup)
+        ISystemLookup systemLookup,
+        IRepositoryBase<PurchaseOrder, int> purchaseOrderRepository,
+        IRepositoryBase<PurchaseOrderStatus, int> purchaseOrderStatusRepository,
+        IRepositoryBase<PaddyLot, int> paddyLotRepository,
+        IRepositoryBase<LotStatus, int> lotStatusRepository)
     {
         _inboundOrderRepository = inboundOrderRepository;
         _inboundOrderItemRepository = inboundOrderItemRepository;
@@ -83,6 +91,10 @@ public class InboundOrderService : IInboundOrderService
         _paddyPurchaseReceiptRepository = paddyPurchaseReceiptRepository;
         _paddyPurchaseScheduleRepository = paddyPurchaseScheduleRepository;
         _systemLookup = systemLookup;
+        _purchaseOrderRepository       = purchaseOrderRepository;
+        _purchaseOrderStatusRepository = purchaseOrderStatusRepository;
+        _paddyLotRepository            = paddyLotRepository;
+        _lotStatusRepository           = lotStatusRepository;
     }
 
     private async Task<int> GetStatusIdAsync(string name)
@@ -965,10 +977,10 @@ public class InboundOrderService : IInboundOrderService
             }
 
             // Capacity fit score
-            double fitScore = 1.0 - ((double)(availCap - receiptQty) / loc.MaxCapacity.Value);
+            double fitScore = 1.0 - ((double)(availCap - (decimal)receiptQty) / (double)loc.MaxCapacity.Value);
 
             // Low occupancy score
-            double occScore = 1.0 - ((double)loc.CurrentOccupancy / loc.MaxCapacity.Value);
+            double occScore = 1.0 - ((double)loc.CurrentOccupancy / (double)loc.MaxCapacity.Value);
 
             // Priority score
             double pScore = maxPriority > 0 ? (double)loc.Priority / maxPriority : 0.0;
@@ -983,8 +995,8 @@ public class InboundOrderService : IInboundOrderService
                 ShelfLevel = loc.ShelfLevel,
                 SlotCode = loc.SlotCode,
                 Score = Math.Round(finalScore, 4),
-                AvailableCapacity = availCap,
-                CurrentOccupancy = loc.CurrentOccupancy,
+                AvailableCapacity = (int)availCap,
+                CurrentOccupancy = (int)loc.CurrentOccupancy,
                 Priority = loc.Priority,
                 CategoryMatch = loc.AllowedCategoryId.HasValue,
                 ScoreBreakdown = new Dictionary<string, double>
@@ -1374,4 +1386,251 @@ public class InboundOrderService : IInboundOrderService
 
         return ApiResponse.Success(deliveryNote.ToDto(order.Id, imageUrl));
     }
+
+    // ════════════════════════════════════════════════════════════════════
+    // Non-paddy (PO → InboundOrder) flow
+    // ════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Ghi số lượng thực nhận cho từng dòng InboundOrderItem (non-paddy).
+    /// Chỉ cập nhật QuantityReceived — chưa tăng tồn kho.
+    /// Có thể gọi nhiều đợt cho đến khi gọi ConfirmNonPaddyReceiveAsync.
+    /// </summary>
+    public async Task<ApiResponse> ReceiveNonPaddyAsync(int id, ReceiveNonPaddyDto dto)
+    {
+        var order = await _inboundOrderRepository.FirstOrDefaultAsync(
+            x => x.Id == id && !x.IsDeleted, true, x => x.InboundOrderItems);
+        if (order == null)
+            return ApiResponse.NotFound("Không tìm thấy phiếu nhập.", ApiCodeConstants.Common.NotFound);
+
+        if (order.SourceType != "PO")
+            return ApiResponse.Conflict("API này chỉ áp dụng cho phiếu nhập từ đơn mua (SourceType=PO).",
+                ApiCodeConstants.Common.BadRequest);
+
+        var draftStatusId = await GetStatusIdAsync(InboundOrderStatusNames.Draft);
+        var receivingId   = await GetStatusIdAsync(InboundOrderStatusNames.Receiving);
+        var allowedStatus = new[] { draftStatusId, receivingId };
+
+        if (!allowedStatus.Contains(order.InboundOrderStatusId))
+            return ApiResponse.Conflict(
+                "Phiếu nhập phải ở trạng thái Draft hoặc Receiving để ghi nhận hàng.",
+                ApiCodeConstants.Common.UnprocessableEntity);
+
+        var now    = DateTimeHelper.VietnamNow();
+        var userId = GetCurrentUserId();
+
+        foreach (var itemDto in dto.Items)
+        {
+            var item = order.InboundOrderItems.FirstOrDefault(i => !i.IsDeleted && i.Id == itemDto.InboundOrderItemId);
+            if (item == null)
+                return ApiResponse.BadRequest(
+                    $"InboundOrderItem ID {itemDto.InboundOrderItemId} không tồn tại trong phiếu.",
+                    ApiCodeConstants.Common.BadRequest);
+
+            // Validate: số lượng nhận không được vượt số lượng còn lại
+            var remaining = item.QuantityOrdered - item.QuantityReceived;
+            if (itemDto.QuantityReceived > remaining)
+                return ApiResponse.UnprocessableEntity(
+                    $"Số lượng nhận ({itemDto.QuantityReceived}) vượt quá số lượng còn lại ({remaining}) " +
+                    $"cho sản phẩm ID {item.ProductVariantId}.",
+                    ApiCodeConstants.PurchaseOrder.QuantityExceedsRemain);
+
+            item.QuantityReceived  += itemDto.QuantityReceived;
+            item.ActualWeightKg     = itemDto.ActualWeightKg;
+            item.Note               = itemDto.Note ?? item.Note;
+            item.LastModifiedDate   = now;
+            item.UpdatedBy          = userId;
+            await _inboundOrderItemRepository.UpdateAsync(item);
+        }
+
+        // Chuyển trạng thái → Receiving nếu đang Draft
+        if (order.InboundOrderStatusId == draftStatusId)
+        {
+            order.InboundOrderStatusId = receivingId;
+            order.LastModifiedDate     = now;
+            order.UpdatedBy            = userId;
+            await _inboundOrderRepository.UpdateAsync(order);
+        }
+
+        await _inboundOrderRepository.SaveChangesAsync();
+        return ApiResponse.Success(message: "Ghi nhận số lượng thực nhận thành công.");
+    }
+
+    /// <summary>
+    /// Xác nhận hoàn tất nhập kho non-paddy — thực hiện trong 1 DB transaction.
+    /// 1. Validate InboundOrder + SourceType=PO
+    /// 2. Validate supplier, warehouse active
+    /// 3. Validate QuantityReceived > 0 cho mỗi item
+    /// 4. Tìm hoặc tạo Inventory per (variant + warehouse + location)
+    /// 5. QuantityOnHand += QuantityReceived
+    /// 6. Tạo InventoryTransaction(IMPORT, INBOUND_ORDER)
+    /// 7. Nếu CreateBatchLot: tạo PaddyLot(LotType=PURCHASED_GOOD)
+    /// 8. Cập nhật InboundOrder → Confirmed/Completed
+    /// 9. Cập nhật PurchaseOrder → PartiallyReceived hoặc Received
+    /// </summary>
+    public async Task<ApiResponse> ConfirmNonPaddyReceiveAsync(int id, ConfirmNonPaddyReceiveDto dto)
+    {
+        // 1. Load InboundOrder
+        var order = await _inboundOrderRepository.FirstOrDefaultAsync(
+            x => x.Id == id && !x.IsDeleted, true,
+            x => x.InboundOrderItems,
+            x => x.Warehouse,
+            x => x.PurchaseOrder);
+        if (order == null)
+            return ApiResponse.NotFound("Không tìm thấy phiếu nhập.", ApiCodeConstants.Common.NotFound);
+
+        if (order.SourceType != "PO")
+            return ApiResponse.Conflict("API này chỉ áp dụng cho phiếu nhập từ đơn mua (SourceType=PO).",
+                ApiCodeConstants.Common.BadRequest);
+
+        var receivingId = await GetStatusIdAsync(InboundOrderStatusNames.Receiving);
+        if (order.InboundOrderStatusId != receivingId)
+            return ApiResponse.Conflict(
+                "Phiếu nhập phải ở trạng thái Receiving để xác nhận nhập kho.",
+                ApiCodeConstants.Common.UnprocessableEntity);
+
+        // 2. Validate warehouse
+        var warehouse = await _warehouseRepository.FirstOrDefaultAsync(x => x.Id == order.WarehouseId && !x.IsDeleted && x.IsActive);
+        if (warehouse == null)
+            return ApiResponse.UnprocessableEntity("Kho hàng không còn hoạt động.", ApiCodeConstants.Common.UnprocessableEntity);
+
+        // 3. Validate items đều có QuantityReceived > 0
+        var activeItems = order.InboundOrderItems.Where(i => !i.IsDeleted).ToList();
+        if (!activeItems.Any())
+            return ApiResponse.UnprocessableEntity("Phiếu nhập không có dòng sản phẩm nào.", ApiCodeConstants.Common.UnprocessableEntity);
+
+        foreach (var item in activeItems)
+        {
+            if (item.QuantityReceived <= 0)
+                return ApiResponse.UnprocessableEntity(
+                    $"Sản phẩm ID {item.ProductVariantId} chưa ghi nhận số lượng nhận (QuantityReceived = 0). " +
+                    "Vui lòng gọi API /receive trước.",
+                    ApiCodeConstants.Common.UnprocessableEntity);
+        }
+
+        var now    = DateTimeHelper.VietnamNow();
+        var userId = GetCurrentUserId();
+        decimal totalAssetValue = 0;
+
+        await using var transaction = await _inboundOrderRepository.BeginTransactionAsync();
+        try
+        {
+            // Load PurchaseOrder để tính trạng thái sau nhận
+            var po = order.PurchaseOrder;
+            if (po == null && order.PurchaseOrderId.HasValue)
+                po = await _purchaseOrderRepository.FirstOrDefaultAsync(
+                    x => x.Id == order.PurchaseOrderId.Value && !x.IsDeleted, true,
+                    x => x.PurchaseOrderItems);
+
+            // 4–7. Xử lý từng InboundOrderItem
+            foreach (var item in activeItems)
+            {
+                int? locationId = null;
+
+                // 7. Tạo PaddyLot nếu yêu cầu lưu theo batch
+                int? paddyLotId = null;
+                if (item.QRScanned)
+                {
+                    var defaultLotStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => !x.IsDeleted)
+                        ?? throw new InvalidOperationException("Không tìm thấy LotStatus nào trong hệ thống.");
+
+                    var lotCode = $"LOT-PUR-{now:yyyyMMdd}-{item.Id:D5}";
+                    var lot = new PaddyLot
+                    {
+                        OrganizationId    = order.OrganizationId,
+                        LotCode           = lotCode,
+                        LotType           = LotTypeConstants.PurchasedGood,
+                        ProductVariantId  = item.ProductVariantId!.Value,
+                        StatusId          = defaultLotStatus.Id,
+                        WarehouseId       = order.WarehouseId,
+                        LocationId        = locationId,
+                        InboundDate       = now,
+                        InitialWeightKg   = item.QuantityReceived,
+                        RemainingWeightKg = item.QuantityReceived,
+                        CostPricePerKg    = item.UnitCostPrice,
+                        CreatedBy         = userId,
+                        CreatedDate       = now
+                    };
+
+                    await _paddyLotRepository.CreateAsync(lot);
+                    // Lưu tạm để lấy Id của Lot (chưa commit transaction)
+                    await _inboundOrderRepository.SaveChangesAsync();
+
+                    paddyLotId = lot.Id;
+                    item.PaddyLotId = lot.Id;
+                }
+
+                // Ghi chú C2/M5: KHÔNG tự tạo Inventory row rỗng (QuantityOnHand=0, LocationId=null) và KHÔNG tạo InventoryTransaction tại đây.
+                // Bản ghi Inventory thực tế và giao dịch nhập kho sẽ do PutawaySuggestionService.ConfirmStoreInAsync tự tìm/tạo khi xếp vào vị trí thực tế.
+
+                // Ghi chú C2: KHÔNG tăng inv.QuantityOnHand và KHÔNG tạo InventoryTransaction tại đây.
+                // Việc tăng tồn vật lý và tạo giao dịch nhập kho (Import) sẽ do PutawaySuggestionService.ConfirmStoreInAsync thực hiện.
+
+                totalAssetValue += item.QuantityReceived * item.UnitCostPrice;
+                item.LastModifiedDate = now;
+                item.UpdatedBy        = userId;
+                await _inboundOrderItemRepository.UpdateAsync(item);
+            }
+
+            // 8. Cập nhật InboundOrder → Confirmed
+            var confirmedStatusId          = await GetStatusIdAsync(InboundOrderStatusNames.Confirmed);
+            order.InboundOrderStatusId     = confirmedStatusId;
+            order.TotalAssetValue          = totalAssetValue;
+            order.CompletedDate            = now;
+            order.LastModifiedDate         = now;
+            order.UpdatedBy                = userId;
+            if (dto.Note != null) order.Note = dto.Note;
+            await _inboundOrderRepository.UpdateAsync(order);
+
+            // 9. Cập nhật PurchaseOrder status
+            if (po != null)
+            {
+                // Tính tổng đã nhận theo tất cả InboundOrder liên kết
+                var allInboundOrders = await _inboundOrderRepository
+                    .FindByCondition(x => x.PurchaseOrderId == po.Id && !x.IsDeleted, false, x => x.InboundOrderItems)
+                    .ToListAsync();
+
+                var receivedByPoItem = allInboundOrders
+                    .SelectMany(io => io.InboundOrderItems)
+                    .Where(ii => !ii.IsDeleted && ii.PurchaseOrderItemId.HasValue)
+                    .GroupBy(ii => ii.PurchaseOrderItemId!.Value)
+                    .ToDictionary(g => g.Key, g => g.Sum(ii => ii.QuantityReceived));
+
+                bool allReceived = po.PurchaseOrderItems.Where(i => !i.IsDeleted).All(i =>
+                {
+                    receivedByPoItem.TryGetValue(i.Id, out var received);
+                    return received >= i.QuantityOrdered;
+                });
+
+                var newPoStatusName = allReceived
+                    ? PurchaseOrderStatusNames.Received
+                    : PurchaseOrderStatusNames.PartiallyReceived;
+
+                var poStatus = await _purchaseOrderStatusRepository.FirstOrDefaultAsync(
+                    x => x.Name == newPoStatusName && !x.IsDeleted);
+                if (poStatus != null)
+                {
+                    po.StatusId         = poStatus.Id;
+                    po.LastModifiedDate = now;
+                    po.UpdatedBy        = userId;
+                    await _purchaseOrderRepository.UpdateAsync(po);
+                }
+            }
+
+            // Ghi nhận tất cả thay đổi đồng loạt (C3)
+            await _inboundOrderRepository.SaveChangesAsync();
+            await transaction.CommitAsync();
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync();
+            _logger.LogError(ex, "ConfirmNonPaddyReceiveAsync failed for InboundOrder {Id}", id);
+            return ApiResponse.BadRequest($"Lỗi xử lý: {ex.Message}", ApiCodeConstants.Common.BadRequest);
+        }
+
+        return ApiResponse.Success(
+            new { TotalAssetValue = totalAssetValue },
+            "Xác nhận nhập kho thành công.");
+    }
 }
+

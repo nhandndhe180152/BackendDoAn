@@ -205,4 +205,29 @@ public class InboundOrderController : BaseController
         var result = await _inboundOrderService.GetDeliveryNoteAsync(id);
         return BaseResult(result);
     }
+
+    // ── Non-paddy (PO → InboundOrder) flow ──────────────────────────────────────
+
+    /// <summary>
+    /// Ghi số lượng thực nhận cho từng dòng phiếu nhập (non-paddy / SourceType=PO).
+    /// Có thể gọi nhiều đợt — chỉ cập nhật QuantityReceived, chưa tăng tồn kho.
+    /// </summary>
+    [HttpPost("{id}/non-paddy/receive")]
+    public async Task<IActionResult> ReceiveNonPaddyAsync(int id, [FromBody] Backend.Application.DTOs.InboundOrders.ReceiveNonPaddyDto dto)
+    {
+        var result = await _inboundOrderService.ReceiveNonPaddyAsync(id, dto);
+        return BaseResult(result);
+    }
+
+    /// <summary>
+    /// Xác nhận hoàn tất nhập kho non-paddy trong 1 DB transaction:
+    /// tăng QuantityOnHand, tạo InventoryTransaction per dòng,
+    /// và cập nhật PurchaseOrder → PartiallyReceived / Received.
+    /// </summary>
+    [HttpPost("{id}/non-paddy/confirm")]
+    public async Task<IActionResult> ConfirmNonPaddyReceiveAsync(int id, [FromBody] Backend.Application.DTOs.InboundOrders.ConfirmNonPaddyReceiveDto dto)
+    {
+        var result = await _inboundOrderService.ConfirmNonPaddyReceiveAsync(id, dto);
+        return BaseResult(result);
+    }
 }

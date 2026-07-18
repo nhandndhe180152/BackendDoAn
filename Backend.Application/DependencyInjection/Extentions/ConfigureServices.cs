@@ -61,6 +61,13 @@ public static class ConfigureServices
             .AddScoped<IPartyDebtService, PartyDebtService>()
             .AddScoped<IQualityInspectionService, QualityInspectionService>()
             .AddScoped<IStockTransferService, StockTransferService>()
+            // ── Sales & Outbound flow ─────────────────────────────────────────────────
+            .AddScoped<ISalesOrderService, SalesOrderService>()
+            .AddScoped<IOutboundOrderService, OutboundOrderService>()
+            // ── Purchase & Non-Paddy Inbound flow ─────────────────────────────────────
+            .AddScoped<IPurchaseOrderService, PurchaseOrderService>()
+            // ── Putaway Suggestion engine ─────────────────────────────────────────────
+            .AddScoped<IPutawaySuggestionService, PutawaySuggestionService>()
             // ── Cấu hình rule & cảnh báo (SCR-20/21) ─────────────────────────────────
             .AddScoped<IMillingYieldConfigService, MillingYieldConfigService>()
             .AddScoped<IStockAlertConfigService, StockAlertConfigService>()
