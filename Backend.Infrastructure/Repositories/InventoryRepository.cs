@@ -83,7 +83,7 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
                 // QuantityOnHand lưu kg trực tiếp → TotalWeightKg = QoH, Bags = QoH / trọng lượng mỗi bao
                 TotalWeightKg = x.QuantityOnHand,
                 Bags = x.ProductVariant.Weight > 0
-                    ? (int)Math.Round(x.QuantityOnHand / x.ProductVariant.Weight)
+                    ? (int)Math.Floor((double)x.QuantityOnHand / (double)x.ProductVariant.Weight)
                     : 0,
                 MinStockLevel = x.ProductVariant.MinStockLevel,
                 IsLowStock = x.ProductVariant.MinStockLevel != null &&
@@ -222,18 +222,27 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
 
         var dto = new InventoryStockSummaryAggregate
         {
-            // QuantityOnHand lưu kg trực tiếp → *WeightKg = Sum(QoH), không nhân ProductVariant.Weight
-            TotalOnHand = await query.SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m,
+            // *WeightKg: tổng kg thực tế (QuantityOnHand lưu kg trực tiếp)
             TotalOnHandWeightKg = await query.SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m,
-
-            TotalQuarantine = await quarantineQuery.SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m,
             TotalQuarantineWeightKg = await quarantineQuery.SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m,
-
-            TotalProcessing = await processingQuery.SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m,
             TotalProcessingWeightKg = await processingQuery.SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m,
-
-            TotalReserved = await normalQuery.SumAsync(x => (decimal?)x.QuantityReserved) ?? 0m,
             TotalReservedWeightKg = await normalQuery.SumAsync(x => (decimal?)x.QuantityReserved) ?? 0m,
+
+            // Total* (số lượng đơn vị tồn = số bao): Floor(QoH / Weight/bao) mỗi dòng, sau đó cộng.
+            // Công thức này nhất quán với Bags = Floor(QoH / Weight) ở GetPagedAsync.
+            // Không thể dùng Sum(QoH)/Weight vì mỗi dòng có Weight khác nhau.
+            TotalOnHand = await query
+                .Where(x => x.ProductVariant.Weight > 0)
+                .SumAsync(x => (decimal?)Math.Floor((double)x.QuantityOnHand / (double)x.ProductVariant.Weight)) ?? 0m,
+            TotalQuarantine = await quarantineQuery
+                .Where(x => x.ProductVariant.Weight > 0)
+                .SumAsync(x => (decimal?)Math.Floor((double)x.QuantityOnHand / (double)x.ProductVariant.Weight)) ?? 0m,
+            TotalProcessing = await processingQuery
+                .Where(x => x.ProductVariant.Weight > 0)
+                .SumAsync(x => (decimal?)Math.Floor((double)x.QuantityOnHand / (double)x.ProductVariant.Weight)) ?? 0m,
+            TotalReserved = await normalQuery
+                .Where(x => x.ProductVariant.Weight > 0)
+                .SumAsync(x => (decimal?)Math.Floor((double)x.QuantityReserved / (double)x.ProductVariant.Weight)) ?? 0m,
 
             LineCount = await query.CountAsync(),
             LowStockCount = await query.CountAsync(x =>

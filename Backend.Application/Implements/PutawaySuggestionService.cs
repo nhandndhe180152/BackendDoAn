@@ -479,6 +479,16 @@ public class PutawaySuggestionService : IPutawaySuggestionService
 
         var isPaddy = referenceType.Equals("PADDY_PURCHASE", StringComparison.OrdinalIgnoreCase);
 
+        // BLOCKING-2 guard: Luồng lúa (PADDY_PURCHASE) bắt buộc phải có PaddyLotId để đảm bảo
+        // tồn kho đệm (LocationId=null) được tìm đúng và trừ đúng. Nếu thiếu, ô đệm sẽ không được
+        // trừ và tồn kho sẽ bị nhân đôi.
+        if (isPaddy && !request.PaddyLotId.HasValue)
+        {
+            return ApiResponse.BadRequest(
+                "Luồng thu mua lúa (PADDY_PURCHASE) bắt buộc phải truyền PaddyLotId để định danh lô hàng và trừ tồn kho đệm chính xác.",
+                "PADDY_LOT_ID_REQUIRED");
+        }
+
         // 1. Kiểm soát tranh chấp (Lock/Transaction)
         using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
         try

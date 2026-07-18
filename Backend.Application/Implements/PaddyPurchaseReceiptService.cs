@@ -140,17 +140,39 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {
+        var receipt = await _receiptRepository.GetByIdAsync(id);
+        if (receipt == null) return ApiResponse.NotFound();
+
         var isDeleted = await _receiptRepository.SoftDeleteAsync(id);
         if (!isDeleted) return ApiResponse.BadRequest();
         await _receiptRepository.SaveChangesAsync();
+
+        if (receipt.ScheduleId.HasValue)
+        {
+            await UpdateScheduleStatusAsync(receipt.ScheduleId.Value, receipt.UpdatedBy ?? 1);
+        }
+
         return ApiResponse.Success(isDeleted);
     }
 
     public async Task<ApiResponse> SoftDeleteListAsync(IEnumerable<int> objs)
     {
+        // Lấy danh sách scheduleIds của các phiếu sắp bị xóa để tính toán lại trạng thái sau khi xóa
+        var scheduleIds = await _receiptRepository
+            .FindByCondition(x => objs.Contains(x.Id) && x.ScheduleId != null && !x.IsDeleted)
+            .Select(x => x.ScheduleId!.Value)
+            .Distinct()
+            .ToListAsync();
+
         var isDeleted = await _receiptRepository.SoftDeleteListAsync(objs);
         if (!isDeleted) return ApiResponse.BadRequest();
         await _receiptRepository.SaveChangesAsync();
+
+        foreach (var scheduleId in scheduleIds)
+        {
+            await UpdateScheduleStatusAsync(scheduleId, 1);
+        }
+
         return ApiResponse.Success(isDeleted);
     }
 
@@ -261,23 +283,10 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                 await RecordDebtAsync(receipt, confirmedById, now);
             }
 
-            // 9. Cập nhật trạng thái lịch hẹn sang "Đã nhập kho" (STOCKED) trực tiếp vì hàng đã vào kho
+            // 9. Tự động tính toán lại trạng thái lịch hẹn dựa trên tất cả các phiếu
             if (receipt.ScheduleId.HasValue)
             {
-                var schedule = await _scheduleRepository.GetByIdAsync(receipt.ScheduleId.Value);
-                if (schedule != null && !schedule.IsDeleted)
-                {
-                    var stockedStatusId = _systemLookup.PaddyScheduleStatusId("STOCKED");
-                    // Guard: forward-only (chỉ đẩy lên, không lùi trạng thái nếu đã hủy)
-                    if (schedule.StatusId < stockedStatusId)
-                    {
-                        schedule.StatusId = stockedStatusId;
-                        schedule.UpdatedBy = confirmedById;
-                        schedule.LastModifiedDate = now;
-                        await _scheduleRepository.UpdateAsync(schedule);
-                        await _scheduleRepository.SaveChangesAsync();
-                    }
-                }
+                await UpdateScheduleStatusAsync(receipt.ScheduleId.Value, confirmedById);
             }
 
             await _receiptRepository.EndTransactionAsync();
@@ -454,5 +463,70 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
         await _debtTransactionRepository.CreateAsync(tx);
         await _debtTransactionRepository.SaveChangesAsync();
+    }
+
+    private async Task UpdateScheduleStatusAsync(int scheduleId, int userId)
+    {
+        var schedule = await _scheduleRepository.GetByIdAsync(scheduleId);
+        if (schedule == null || schedule.IsDeleted) return;
+
+        // Quét tất cả các phiếu hoạt động thuộc lịch này
+        var receipts = await _receiptRepository
+            .FindByCondition(x => x.ScheduleId == scheduleId && !x.IsDeleted)
+            .ToListAsync();
+
+        if (receipts.Count == 0)
+        {
+            // Nếu không còn phiếu nào hoạt động dưới lịch, lùi lịch về trạng thái CONFIRMED (Đã xác nhận)
+            var confirmedStatusId = _systemLookup.PaddyScheduleStatusId("CONFIRMED");
+            var cancelledStatusId = _systemLookup.PaddyScheduleStatusId("CANCELLED");
+            if (schedule.StatusId != cancelledStatusId && schedule.StatusId != confirmedStatusId)
+            {
+                schedule.StatusId = confirmedStatusId;
+                schedule.UpdatedBy = userId;
+                schedule.LastModifiedDate = DateTimeHelper.VietnamNow();
+                await _scheduleRepository.UpdateAsync(schedule);
+                await _scheduleRepository.SaveChangesAsync();
+            }
+            return;
+        }
+
+        // Lấy danh sách ID của các phiếu đã chốt (đã sinh lô lúa PaddyLot)
+        var confirmedReceiptIds = await _paddyLotRepository
+            .FindByCondition(x => !x.IsDeleted && x.SourceReceiptId != null)
+            .Select(x => x.SourceReceiptId!.Value)
+            .ToListAsync();
+
+        var confirmedCount = receipts.Count(r => confirmedReceiptIds.Contains(r.Id));
+        var pendingCount = receipts.Count - confirmedCount;
+
+        int targetStatusId;
+
+        if (confirmedCount > 0 && pendingCount > 0)
+        {
+            // Kịch bản 1: Có cả phiếu đã chốt và phiếu nháp -> Nhập kho một phần (PARTIALLY_STOCKED)
+            targetStatusId = _systemLookup.PaddyScheduleStatusId("PARTIALLY_STOCKED");
+        }
+        else if (confirmedCount > 0 && pendingCount == 0)
+        {
+            // Kịch bản 2: Toàn bộ phiếu hoạt động đều đã chốt -> Đã nhập kho (STOCKED)
+            targetStatusId = _systemLookup.PaddyScheduleStatusId("STOCKED");
+        }
+        else
+        {
+            // Kịch bản 3: Chưa chốt phiếu nào -> Đã cân hàng (WEIGHED)
+            targetStatusId = _systemLookup.PaddyScheduleStatusId("WEIGHED");
+        }
+
+        var scheduleCancelledStatusId = _systemLookup.PaddyScheduleStatusId("CANCELLED");
+        // Giữ nguyên trạng thái nếu lịch đã bị hủy, chỉ đổi nếu trạng thái thực tế tính toán khác trạng thái lịch hiện tại
+        if (schedule.StatusId != scheduleCancelledStatusId && schedule.StatusId != targetStatusId)
+        {
+            schedule.StatusId = targetStatusId;
+            schedule.UpdatedBy = userId;
+            schedule.LastModifiedDate = DateTimeHelper.VietnamNow();
+            await _scheduleRepository.UpdateAsync(schedule);
+            await _scheduleRepository.SaveChangesAsync();
+        }
     }
 }

@@ -24,6 +24,7 @@ public class InventoryTransactionServiceTests
     private readonly Mock<IInventoryRepository> _inventoryRepository = new();
     private readonly Mock<IInventoryTransactionRepository> _inventoryTransactionRepository = new();
     private readonly Mock<IProductVariantRepository> _productVariantRepository = new();
+    private readonly Mock<IPaddyLotRepository> _paddyLotRepository = new();
     private readonly Mock<IHttpContextAccessor> _httpContextAccessor = new();
     private readonly InventoryTransactionService _sut;
 
@@ -33,6 +34,7 @@ public class InventoryTransactionServiceTests
             _inventoryRepository.Object,
             _inventoryTransactionRepository.Object,
             _productVariantRepository.Object,
+            _paddyLotRepository.Object,
             _httpContextAccessor.Object
         );
     }

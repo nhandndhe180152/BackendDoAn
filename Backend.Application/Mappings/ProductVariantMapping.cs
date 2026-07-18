@@ -30,7 +30,7 @@ public static class ProductVariantMapping
             CreatedDate = DateTime.Now
         };
     }
- 
+
     public static ProductVariant ToEntity(this UpdateProductVariantDto obj, ProductVariant existData)
     {
         existData.Name = obj.Name;

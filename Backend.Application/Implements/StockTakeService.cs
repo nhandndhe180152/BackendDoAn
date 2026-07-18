@@ -48,8 +48,15 @@ public class StockTakeService : IStockTakeService
         {
             if (item.ProductVariantId.HasValue)
             {
-                var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(item.ProductVariantId.Value, model.WarehouseId, item.LocationId);
-                item.SystemQuantity = inventory?.QuantityOnHand ?? 0;
+                // BLOCKING-1 fix: Dùng Sum tất cả lô theo cùng variant+warehouse+location
+                // thay vì GetByVariantWarehouseLocationAsync (chỉ khớp PaddyLotId=null và trả về 0 cho hàng lú)
+                item.SystemQuantity = await _inventoryRepository
+                    .FindByCondition(x =>
+                        !x.IsDeleted &&
+                        x.ProductVariantId == item.ProductVariantId.Value &&
+                        x.WarehouseId == model.WarehouseId &&
+                        x.LocationId == item.LocationId)
+                    .SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m;
             }
         }
 
@@ -187,8 +194,14 @@ public class StockTakeService : IStockTakeService
             decimal sysQty = 0;
             if (itemDto.ProductVariantId.HasValue)
             {
-                var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(itemDto.ProductVariantId.Value, existData.WarehouseId, itemDto.LocationId);
-                sysQty = inventory?.QuantityOnHand ?? 0;
+                // BLOCKING-1 fix: Dùng Sum tất cả lô theo cùng variant+warehouse+location
+                sysQty = await _inventoryRepository
+                    .FindByCondition(x =>
+                        !x.IsDeleted &&
+                        x.ProductVariantId == itemDto.ProductVariantId.Value &&
+                        x.WarehouseId == existData.WarehouseId &&
+                        x.LocationId == itemDto.LocationId)
+                    .SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m;
             }
 
             newItems.Add(new StockTakeItem

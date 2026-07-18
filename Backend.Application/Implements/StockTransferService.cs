@@ -213,9 +213,12 @@ public class StockTransferService : IStockTransferService
                 if (item.PaddyLotId.HasValue)
                 {
                     lot = await _paddyLotRepository.GetByIdAsync(item.PaddyLotId.Value);
-                    if (lot != null && !lot.IsDeleted)
+                    if (lot == null || lot.IsDeleted)
                     {
-                        costPrice = lot.CostPricePerKg;
+                        throw new InvalidOperationException($"Không tìm thấy lô lúa/gạo hoặc lô hàng đã bị xóa (ID: {item.PaddyLotId.Value}) trong phiếu điều chuyển.");
+                    }
+
+                    costPrice = lot.CostPricePerKg;
 
                         // Cập nhật lô lúa (Nếu chuyển 1 phần thì tách lô để bảo toàn vị trí phần còn lại)
                         if (item.WeightKg < lot.RemainingWeightKg)
@@ -269,7 +272,6 @@ public class StockTransferService : IStockTransferService
 
                             targetLotId = lot.Id;
                         }
-                    }
                 }
                 else
                 {

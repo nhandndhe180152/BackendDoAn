@@ -282,7 +282,8 @@ public class PutawaySuggestionServiceTests
         {
             ProductVariantId = 2,
             SelectedLocationId = 101,
-            WeightKg = 500
+            WeightKg = 500,
+            PaddyLotId = 30
         };
 
         var result = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 999, request, CancellationToken.None);
@@ -300,7 +301,8 @@ public class PutawaySuggestionServiceTests
         {
             ProductVariantId = 2,
             SelectedLocationId = 101,
-            WeightKg = 500
+            WeightKg = 500,
+            PaddyLotId = 30
         };
 
         var result = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 10, request, CancellationToken.None);
@@ -322,7 +324,8 @@ public class PutawaySuggestionServiceTests
             SelectedLocationId = 101,
             SuggestedLocationId = 102, // Different location, implies override!
             WeightKg = 500,
-            OverrideReason = "" // missing!
+            OverrideReason = "", // missing!
+            PaddyLotId = 30
         };
 
         var result = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 10, request, CancellationToken.None);
@@ -347,7 +350,8 @@ public class PutawaySuggestionServiceTests
         {
             ProductVariantId = 2,
             SelectedLocationId = 101,
-            WeightKg = 500
+            WeightKg = 500,
+            PaddyLotId = 30
         };
 
         var result = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 10, request, CancellationToken.None);
@@ -373,7 +377,8 @@ public class PutawaySuggestionServiceTests
             ProductVariantId = 2,
             SelectedLocationId = 101,
             SuggestedLocationId = 101,
-            WeightKg = 500
+            WeightKg = 500,
+            PaddyLotId = 30
         };
 
         var result = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 10, request, CancellationToken.None);
