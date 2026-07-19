@@ -348,7 +348,10 @@ public class InventoryTransactionService : IInventoryTransactionService
 
         await _inventoryRepository.UpdateAsync(inventory);
 
-        // Đồng bộ RemainingWeightKg của PaddyLot khi số lượng tồn của lô hàng bị thay đổi
+        // ĐỒNG BỘ KHỐI LƯỢNG LÔ HÀNG (RemainingWeightKg):
+        // - Khi lượng tồn kho vật lý (QuantityOnHand) bị thay đổi thông qua Điều chỉnh thủ công (Manual Adjust)
+        //   hoặc Cân đối sau kiểm kê (Stock Take Adjust), ta phải cộng/trừ chênh lệch tương ứng (transactionQuantity)
+        //   vào khối lượng còn lại của lô lúa để đảm bảo Dashboard và Giám sát kho đồng nhất.
         if (inventory.PaddyLotId.HasValue && transactionQuantity != 0)
         {
             var lot = await _paddyLotRepository.GetByIdAsync(inventory.PaddyLotId.Value);

@@ -213,6 +213,8 @@ public class StockTransferService : IStockTransferService
                 if (item.PaddyLotId.HasValue)
                 {
                     lot = await _paddyLotRepository.GetByIdAsync(item.PaddyLotId.Value);
+                    
+                    // NGẮT SỚM (Fail-fast): Validate đảm bảo lô hàng tồn tại và không bị xóa
                     if (lot == null || lot.IsDeleted)
                     {
                         throw new InvalidOperationException($"Không tìm thấy lô lúa/gạo hoặc lô hàng đã bị xóa (ID: {item.PaddyLotId.Value}) trong phiếu điều chuyển.");
@@ -220,58 +222,60 @@ public class StockTransferService : IStockTransferService
 
                     costPrice = lot.CostPricePerKg;
 
-                        // Cập nhật lô lúa (Nếu chuyển 1 phần thì tách lô để bảo toàn vị trí phần còn lại)
-                        if (item.WeightKg < lot.RemainingWeightKg)
+                    // CẬP NHẬT TỒN LÔ KHI ĐIỀU CHUYỂN:
+                    if (item.WeightKg < lot.RemainingWeightKg)
+                    {
+                        // TRƯỜNG HỢP 1: Điều chuyển một phần của lô hàng
+                        // -> Ta thực hiện tách thành lô hàng mới ở kho đích để tránh làm sai lệch vị trí của khối lượng còn lại ở kho nguồn.
+                        var datePart = now.ToString("yyyyMMdd");
+                        var lotType = lot.LotType;
+                        var baseCode = $"LOT-{lotType}-{datePart}";
+                        var count = await _paddyLotRepository.FindByCondition(x => x.LotCode.StartsWith(baseCode)).CountAsync();
+                        var newLotCode = $"{baseCode}-{(count + 1):D4}";
+
+                        var newLot = new PaddyLot
                         {
-                            // Tách lô mới ở kho đích
-                            var datePart = now.ToString("yyyyMMdd");
-                            var lotType = lot.LotType;
-                            var baseCode = $"LOT-{lotType}-{datePart}";
-                            var count = await _paddyLotRepository.FindByCondition(x => x.LotCode.StartsWith(baseCode)).CountAsync();
-                            var newLotCode = $"{baseCode}-{(count + 1):D4}";
+                            OrganizationId = lot.OrganizationId,
+                            LotCode = newLotCode,
+                            LotType = lot.LotType,
+                            ProductVariantId = lot.ProductVariantId,
+                            RiceVarietyId = lot.RiceVarietyId,
+                            StatusId = lot.StatusId,
+                            SourceReceiptId = lot.SourceReceiptId,
+                            SourceMillingOrderId = lot.SourceMillingOrderId,
+                            WarehouseId = transfer.ToWarehouseId,
+                            LocationId = item.ToLocationId,
+                            InboundDate = lot.InboundDate,
+                            InitialWeightKg = item.WeightKg,
+                            RemainingWeightKg = item.WeightKg,
+                            CostPricePerKg = lot.CostPricePerKg,
+                            QualityStatus = lot.QualityStatus,
+                            CreatedBy = confirmedById,
+                            CreatedDate = now
+                        };
+                        await _paddyLotRepository.CreateAsync(newLot);
+                        await _paddyLotRepository.SaveChangesAsync();
 
-                            var newLot = new PaddyLot
-                            {
-                                OrganizationId = lot.OrganizationId,
-                                LotCode = newLotCode,
-                                LotType = lot.LotType,
-                                ProductVariantId = lot.ProductVariantId,
-                                RiceVarietyId = lot.RiceVarietyId,
-                                StatusId = lot.StatusId,
-                                SourceReceiptId = lot.SourceReceiptId,
-                                SourceMillingOrderId = lot.SourceMillingOrderId,
-                                WarehouseId = transfer.ToWarehouseId,
-                                LocationId = item.ToLocationId,
-                                InboundDate = lot.InboundDate,
-                                InitialWeightKg = item.WeightKg,
-                                RemainingWeightKg = item.WeightKg,
-                                CostPricePerKg = lot.CostPricePerKg,
-                                QualityStatus = lot.QualityStatus,
-                                CreatedBy = confirmedById,
-                                CreatedDate = now
-                            };
-                            await _paddyLotRepository.CreateAsync(newLot);
-                            await _paddyLotRepository.SaveChangesAsync();
+                        // TRỪ KHỐI LƯỢNG LÔ GỐC: Trừ đi phần khối lượng đã được điều chuyển sang kho khác.
+                        lot.RemainingWeightKg -= item.WeightKg;
+                        lot.LastModifiedDate = now;
+                        await _paddyLotRepository.UpdateAsync(lot);
+                        await _paddyLotRepository.SaveChangesAsync();
 
-                            // Trừ RemainingWeightKg của lô gốc
-                            lot.RemainingWeightKg -= item.WeightKg;
-                            lot.LastModifiedDate = now;
-                            await _paddyLotRepository.UpdateAsync(lot);
-                            await _paddyLotRepository.SaveChangesAsync();
+                        targetLotId = newLot.Id;
+                    }
+                    else
+                    {
+                        // TRƯỜNG HỢP 2: Điều chuyển toàn bộ lô hàng
+                        // -> Ta chỉ việc đổi thông tin WarehouseId và LocationId của lô sang kho nhận.
+                        lot.WarehouseId = transfer.ToWarehouseId;
+                        lot.LocationId = item.ToLocationId;
+                        lot.LastModifiedDate = now;
+                        await _paddyLotRepository.UpdateAsync(lot);
+                        await _paddyLotRepository.SaveChangesAsync();
 
-                            targetLotId = newLot.Id;
-                        }
-                        else
-                        {
-                            // Chuyển toàn bộ lô
-                            lot.WarehouseId = transfer.ToWarehouseId;
-                            lot.LocationId = item.ToLocationId;
-                            lot.LastModifiedDate = now;
-                            await _paddyLotRepository.UpdateAsync(lot);
-                            await _paddyLotRepository.SaveChangesAsync();
-
-                            targetLotId = lot.Id;
-                        }
+                        targetLotId = lot.Id;
+                    }
                 }
                 else
                 {

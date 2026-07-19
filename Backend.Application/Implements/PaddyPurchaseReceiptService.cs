@@ -188,30 +188,33 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
         if (receipt == null) return ApiResponse.NotFound();
 
-        // Kiểm tra đã chốt chưa
+        // 1. Kiểm tra trạng thái chốt phiếu: Nếu đã được chốt (đã tồn tại PaddyLot liên kết) thì không cho chốt lại
         var alreadyConfirmed = await _paddyLotRepository.AnyAsync(x => x.SourceReceiptId == receiptId && !x.IsDeleted);
         if (alreadyConfirmed)
             return ApiResponse.UnprocessableEntity("Phiếu này đã được chốt trước đó.");
 
         var now = DateTimeHelper.VietnamNow();
 
-        // 2. Sinh LotCode
+        // 2. Tự động sinh mã lô hàng (LotCode): LOT-PADDY-YYYYMMDD-XXXX
         var datePart = now.ToString("yyyyMMdd");
         var baseCode = $"LOT-PADDY-{datePart}";
         var count = await _paddyLotRepository.FindByCondition(x => x.LotCode.StartsWith(baseCode)).CountAsync();
         var lotCode = $"{baseCode}-{(count + 1):D4}";
 
-        // 3. Lấy LotStatus mặc định ("Đang lưu kho" hoặc Id=1)
+        // 3. Lấy trạng thái lô mặc định của hệ thống
         var defaultLotStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => !x.IsDeleted) 
             ?? throw new InvalidOperationException("Không tìm thấy LotStatus nào trong hệ thống.");
 
+        // Bọc toàn bộ trong DB Transaction đảm bảo tính nguyên tử (Atomic)
         await using var tx = await _receiptRepository.BeginTransactionAsync();
         try
         {
-            // Lấy ProductVariantId (ném exception rõ ràng nếu lỗi)
+            // Xác định Id của Variant lúa mặc định
             var productVariantId = await GetDefaultPaddyVariantIdAsync(receipt);
 
-            // 4. Tạo PaddyLot
+            // 4. KHỞI TẠO LÔ HÀNG (PaddyLot):
+            // - Đặt RemainingWeightKg (khối lượng còn lại) bằng ActualWeightKg của phiếu cân đầu vào.
+            // - Đây là nguồn dữ liệu gốc của Lô hàng (Dashboard/Reports đọc trực tiếp từ đây).
             var lot = new PaddyLot
             {
                 OrganizationId = receipt.OrganizationId,
@@ -234,7 +237,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             await _paddyLotRepository.CreateAsync(lot);
             await _paddyLotRepository.SaveChangesAsync();
 
-            // 5. Tạo InboundOrder
+            // 5. TẠO PHIẾU NHẬP KHO (InboundOrder) liên kết với receipt
             var inboundStatus = await _inboundOrderStatusRepository
                 .FirstOrDefaultAsync(x => x.Name == InboundOrderStatusNames.Confirmed && !x.IsDeleted)
                 ?? await _inboundOrderStatusRepository.FirstOrDefaultAsync(x => !x.IsDeleted)
@@ -257,7 +260,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             await _inboundOrderRepository.CreateAsync(inboundOrder);
             await _inboundOrderRepository.SaveChangesAsync();
 
-            // 6. InboundOrderItem gắn lô
+            // 6. TẠO CHI TIẾT PHIẾU NHẬP KHO (InboundOrderItem) liên kết chặt chẽ với Lô hàng vừa sinh
             var item = new InboundOrderItem
             {
                 InboundOrderId = inboundOrder.Id,
@@ -274,16 +277,20 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             await _inboundOrderItemRepository.CreateAsync(item);
             await _inboundOrderItemRepository.SaveChangesAsync();
 
-            // 7. Cập nhật tồn kho (upsert Inventory + tạo InventoryTransaction)
+            // 7. CẬP NHẬT TỒN KHO VẬT LÝ (Inventory):
+            // - Hàm UpsertInventoryAsync sẽ chèn/cập nhật dòng tồn kho ở bảng Inventory có PaddyLotId tương ứng.
+            // - Đồng thời ghi nhận giao dịch nhập kho ở bảng InventoryTransaction.
             await UpsertInventoryAsync(lot, receipt, inboundOrder.Id, item.Id, confirmedById, now);
 
-            // 8. Ghi công nợ nếu có
+            // 8. GHI NHẬN CÔNG NỢ (Record Debt) nếu số tiền nợ (DebtAmount) > 0
             if (receipt.DebtAmount > 0)
             {
                 await RecordDebtAsync(receipt, confirmedById, now);
             }
 
-            // 9. Tự động tính toán lại trạng thái lịch hẹn dựa trên tất cả các phiếu
+            // 9. TỰ ĐỘNG CẬP NHẬT TRẠNG THÁI LỊCH HẸN THU MUA (UpdateScheduleStatusAsync):
+            // - Dựa trên số lượng phiếu đã chốt và phiếu nháp thuộc lịch hẹn đó để tính toán trạng thái
+            //   (WEIGHED -> PARTIALLY_STOCKED -> STOCKED).
             if (receipt.ScheduleId.HasValue)
             {
                 await UpdateScheduleStatusAsync(receipt.ScheduleId.Value, confirmedById);

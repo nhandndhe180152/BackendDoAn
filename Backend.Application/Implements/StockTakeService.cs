@@ -48,8 +48,10 @@ public class StockTakeService : IStockTakeService
         {
             if (item.ProductVariantId.HasValue)
             {
-                // BLOCKING-1 fix: Dùng Sum tất cả lô theo cùng variant+warehouse+location
-                // thay vì GetByVariantWarehouseLocationAsync (chỉ khớp PaddyLotId=null và trả về 0 cho hàng lú)
+                // SỬA LỖI BLOCKING-1: Tính tồn hệ thống (SystemQuantity) cho nghiệp vụ kiểm kê
+                // - Thay vì lấy tồn kho dòng đơn bằng GetByVariantWarehouseLocationAsync (chỉ khớp dòng có PaddyLotId = null và trả về 0 cho hàng có lô),
+                //   hệ thống sẽ lấy tổng tồn (Sum) của VARIANT đó ở tất cả các LÔ khác nhau đang nằm tại cùng warehouse + location.
+                // - Việc này đảm bảo tính đúng đắn số lượng tồn thực tế của lúa/gạo khi lập phiếu kiểm kê.
                 item.SystemQuantity = await _inventoryRepository
                     .FindByCondition(x =>
                         !x.IsDeleted &&
@@ -194,7 +196,9 @@ public class StockTakeService : IStockTakeService
             decimal sysQty = 0;
             if (itemDto.ProductVariantId.HasValue)
             {
-                // BLOCKING-1 fix: Dùng Sum tất cả lô theo cùng variant+warehouse+location
+                // SỬA LỖI BLOCKING-1: Tính tồn hệ thống (SystemQuantity) cho dòng kiểm kê mới được thêm vào
+                // - Lấy tổng tồn (Sum) của variant trên tất cả các lô khác nhau để đảm bảo hiển thị đúng số tồn
+                //   cho hàng hóa theo lô lúa/gạo.
                 sysQty = await _inventoryRepository
                     .FindByCondition(x =>
                         !x.IsDeleted &&

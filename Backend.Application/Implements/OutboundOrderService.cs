@@ -423,11 +423,13 @@ public class OutboundOrderService : IOutboundOrderService
 
                     var before = inv.QuantityOnHand;
 
-                    // 5. Giảm QuantityOnHand và QuantityReserved
+                    // 5. GIẢM TỒN KHO VẬT LÝ (Inventory):
+                    // - Trừ số lượng thực xuất (QuantityPicked) khỏi tồn kho vật lý của kệ.
+                    // - Trừ số lượng giữ trước (QuantityAllocated) khỏi hàng đang giữ trước.
                     inv.QuantityOnHand    -= alloc.QuantityPicked;
                     inv.QuantityReserved  -= alloc.QuantityAllocated;
 
-                    // Không để số âm
+                    // Đảm bảo tồn kho vật lý và số lượng giữ trước không bị âm
                     if (inv.QuantityOnHand    < 0) inv.QuantityOnHand    = 0;
                     if (inv.QuantityReserved  < 0) inv.QuantityReserved  = 0;
 
@@ -435,7 +437,10 @@ public class OutboundOrderService : IOutboundOrderService
                     inv.UpdatedBy        = userId;
                     await _inventoryRepository.UpdateAsync(inv);
 
-                    // Đồng bộ RemainingWeightKg của PaddyLot tương ứng khi xuất kho
+                    // ĐỒNG BỘ HÓA TỒN LÔ HÀNG (PaddyLot):
+                    // - Vì lô hàng thực tế đã xuất ra khỏi kho, khối lượng còn lại của lô (RemainingWeightKg)
+                    //   phải được khấu trừ tương ứng với số lượng xuất kho vật lý.
+                    // - Điều này đảm bảo tính đồng nhất giữa Dashboard (đọc từ PaddyLot) và Giám sát kho (đọc từ Inventory).
                     if (alloc.PaddyLotId.HasValue)
                     {
                         var lot = await _paddyLotRepository.GetByIdAsync(alloc.PaddyLotId.Value);
@@ -447,7 +452,8 @@ public class OutboundOrderService : IOutboundOrderService
                         }
                     }
 
-                    // 6. Tạo InventoryTransaction (số âm = xuất)
+                    // 6. GHI NHẬN LỊCH SỬ GIAO DỊCH TỒN KHO (InventoryTransaction)
+                    // - Giao dịch xuất kho được lưu với giá trị lượng xuất âm (Quantity = -alloc.QuantityPicked)
                     var txn = new InventoryTransaction
                     {
                         InventoryId      = inv.Id,
