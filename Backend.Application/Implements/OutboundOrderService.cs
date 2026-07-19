@@ -34,6 +34,7 @@ public class OutboundOrderService : IOutboundOrderService
     private readonly IPartyDebtRepository _partyDebtRepository;
     private readonly IDebtTransactionRepository _debtTransactionRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IPaddyLotRepository _paddyLotRepository;
 
     public OutboundOrderService(
         IOutboundOrderRepository outboundOrderRepository,
@@ -45,7 +46,8 @@ public class OutboundOrderService : IOutboundOrderService
         IRepositoryBase<SalesOrderStatus, int> salesOrderStatusRepository,
         IPartyDebtRepository partyDebtRepository,
         IDebtTransactionRepository debtTransactionRepository,
-        IHttpContextAccessor httpContextAccessor)
+        IHttpContextAccessor httpContextAccessor,
+        IPaddyLotRepository paddyLotRepository)
     {
         _outboundOrderRepository       = outboundOrderRepository;
         _outboundStatusRepository      = outboundStatusRepository;
@@ -57,6 +59,7 @@ public class OutboundOrderService : IOutboundOrderService
         _partyDebtRepository           = partyDebtRepository;
         _debtTransactionRepository     = debtTransactionRepository;
         _httpContextAccessor           = httpContextAccessor;
+        _paddyLotRepository            = paddyLotRepository;
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
@@ -431,6 +434,18 @@ public class OutboundOrderService : IOutboundOrderService
                     inv.LastModifiedDate = now;
                     inv.UpdatedBy        = userId;
                     await _inventoryRepository.UpdateAsync(inv);
+
+                    // Đồng bộ RemainingWeightKg của PaddyLot tương ứng khi xuất kho
+                    if (alloc.PaddyLotId.HasValue)
+                    {
+                        var lot = await _paddyLotRepository.GetByIdAsync(alloc.PaddyLotId.Value);
+                        if (lot != null && !lot.IsDeleted)
+                        {
+                            lot.RemainingWeightKg = Math.Max(0m, lot.RemainingWeightKg - alloc.QuantityPicked);
+                            await _paddyLotRepository.UpdateAsync(lot);
+                            await _paddyLotRepository.SaveChangesAsync();
+                        }
+                    }
 
                     // 6. Tạo InventoryTransaction (số âm = xuất)
                     var txn = new InventoryTransaction
