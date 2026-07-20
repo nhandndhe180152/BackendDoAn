@@ -257,6 +257,41 @@ public class StockTakeService : IStockTakeService
             return ApiResponse.UnprocessableEntity("Chỉ có thể duyệt phiếu kiểm kho ở trạng thái chờ duyệt.", ApiCodeConstants.Common.UnprocessableEntity);
         }
 
+        // --- BƯỚC 1: VALIDATION TRƯỚC KHI MỞ TRANSACTION ---
+        // Kiểm tra toàn bộ các dòng trước khi thực hiện bất kỳ thay đổi nào,
+        // để tránh phải revert entity state thủ công sau khi rollback (N3-1).
+        foreach (var item in existData.StockTakeItems)
+        {
+            if (!item.ActualQuantity.HasValue || item.Difference == 0 || !item.ProductVariantId.HasValue)
+                continue;
+
+            // CHẶN TỒN ẢO NULL-LOT (R2-1):
+            // - Tín hiệu "hàng quản lý theo lô" là sự tồn tại của ít nhất một dòng tồn kho
+            //   có PaddyLotId != null cho variant + warehouse + location tương ứng.
+            // - Không dùng RiceVarietyId vì các variant "chung" (seed 101–103) đều có
+            //   RiceVarietyId = null dù tồn kho thực tế gắn lô → bỏ sót trường hợp phổ biến nhất.
+            // - Nguồn sự thật thực sự là bảng Inventory: nếu hàng đã từng được nhập theo lô
+            //   thì duyệt kiểm kê sẽ tạo ra dòng tồn kho mới PaddyLotId = null (tồn ảo) → chặn.
+            var isLotManaged = await _inventoryRepository
+                .FindByCondition(x => !x.IsDeleted
+                    && x.ProductVariantId == item.ProductVariantId.Value
+                    && x.WarehouseId == existData.WarehouseId
+                    && x.LocationId == item.LocationId
+                    && x.PaddyLotId != null)
+                .AnyAsync();
+
+            if (isLotManaged)
+            {
+                var variantName = item.ProductVariant?.Name ?? $"ProductVariantId={item.ProductVariantId}";
+                return ApiResponse.UnprocessableEntity(
+                    $"Không thể duyệt kiểm kho cho sản phẩm quản lý theo lô: {variantName}. " +
+                    "Vui lòng thực hiện điều chỉnh thủ công (Manual Adjustment) có chỉ định lô hàng cụ thể để xử lý chênh lệch.",
+                    ApiCodeConstants.Common.UnprocessableEntity);
+            }
+        }
+
+        // --- BƯỚC 2: THỰC HIỆN THAY ĐỔI SAU KHI ĐÃ VALIDATION XONG ---
+        // Chỉ mutate existData và mở transaction sau khi toàn bộ dòng đã được xác nhận hợp lệ.
         await using var transaction = await _stockTakeRepository.BeginTransactionAsync();
         try
         {
@@ -267,59 +302,28 @@ public class StockTakeService : IStockTakeService
             existData.LastModifiedDate = DateTimeHelper.VietnamNow();
             existData.UpdatedBy = userId;
 
-            // Thực hiện điều chỉnh tồn kho cho từng mặt hàng sau kiểm kê
             foreach (var item in existData.StockTakeItems)
             {
-                if (item.ActualQuantity.HasValue && item.Difference != 0 && item.ProductVariantId.HasValue)
+                if (!item.ActualQuantity.HasValue || item.Difference == 0 || !item.ProductVariantId.HasValue)
+                    continue;
+
+                var request = new DTOs.InventoryTransactions.StockMovementRequestDto
                 {
-                    // ĐỒNG BỘ/CHẶN TỒN ẢO NULL-LOT (R2-1):
-                    // - Vì phiếu kiểm kê hiện tại chưa hỗ trợ ghi nhận theo lô (PaddyLotId),
-                    //   nếu duyệt chênh lệch cho sản phẩm quản lý theo lô (như Lúa/Gạo có RiceVarietyId),
-                    //   hệ thống sẽ tạo dòng tồn kho mới có PaddyLotId = null (tồn ảo).
-                    // - Chặn duyệt kiểm kê trực tiếp tại đây và yêu cầu người dùng dùng phiếu điều chỉnh thủ công có chọn lô.
-                    if (item.ProductVariant != null && item.ProductVariant.RiceVarietyId.HasValue)
-                    {
-                        await transaction.RollbackAsync();
-                        // Khôi phục lại trạng thái cũ để tránh bị middleware SaveChanges ghi đè vào DB
-                        existData.StockTakeStatusId = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Submitted);
-                        existData.ApprovedByUserId = null;
-                        existData.ApproveNote = null;
-                        existData.CompletedDate = null;
-                        existData.LastModifiedDate = null;
-                        existData.UpdatedBy = null;
+                    ProductVariantId = item.ProductVariantId.Value,
+                    WarehouseId = existData.WarehouseId,
+                    LocationId = item.LocationId,
+                    Quantity = Math.Abs(item.Difference),
+                    ReferenceType = "STOCKTAKE",
+                    ReferenceId = existData.Id,
+                    ReferenceItemId = item.Id,
+                    Note = $"Điều chỉnh kiểm kho {existData.STCode}"
+                };
 
-                        return ApiResponse.UnprocessableEntity(
-                            $"Không thể duyệt kiểm kho cho sản phẩm quản lý theo lô: {item.ProductVariant.Name}. " +
-                            "Vui lòng thực hiện điều chỉnh thủ công (Manual Adjustment) có chỉ định lô hàng cụ thể để xử lý chênh lệch.",
-                            ApiCodeConstants.Common.UnprocessableEntity);
-                    }
-
-                    var request = new DTOs.InventoryTransactions.StockMovementRequestDto
-                    {
-                        ProductVariantId = item.ProductVariantId.Value,
-                        WarehouseId = existData.WarehouseId,
-                        LocationId = item.LocationId,
-                        Quantity = Math.Abs(item.Difference),
-                        ReferenceType = "STOCKTAKE",
-                        ReferenceId = existData.Id,
-                        ReferenceItemId = item.Id,
-                        Note = $"Điều chỉnh kiểm kho {existData.STCode}"
-                    };
-
-                    var result = await _inventoryTransactionService.AdjustStockAsync(request, item.ActualQuantity.Value, true);
-                    if (!result.IsSucceeded)
-                    {
-                        await transaction.RollbackAsync();
-                        // Khôi phục lại trạng thái cũ để tránh bị middleware SaveChanges ghi đè vào DB
-                        existData.StockTakeStatusId = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Submitted);
-                        existData.ApprovedByUserId = null;
-                        existData.ApproveNote = null;
-                        existData.CompletedDate = null;
-                        existData.LastModifiedDate = null;
-                        existData.UpdatedBy = null;
-
-                        return ApiResponse.UnprocessableEntity($"Lỗi điều chỉnh tồn kho: {result.Message}", ApiCodeConstants.Common.UnprocessableEntity);
-                    }
+                var result = await _inventoryTransactionService.AdjustStockAsync(request, item.ActualQuantity.Value, true);
+                if (!result.IsSucceeded)
+                {
+                    await transaction.RollbackAsync();
+                    return ApiResponse.UnprocessableEntity($"Lỗi điều chỉnh tồn kho: {result.Message}", ApiCodeConstants.Common.UnprocessableEntity);
                 }
             }
 

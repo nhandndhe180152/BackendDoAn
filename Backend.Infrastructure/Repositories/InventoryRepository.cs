@@ -228,21 +228,30 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
             TotalProcessingWeightKg = await processingQuery.SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m,
             TotalReservedWeightKg = await normalQuery.SumAsync(x => (decimal?)x.QuantityReserved) ?? 0m,
 
-            // Total* (số lượng đơn vị tồn = số bao): Floor(QoH / Weight/bao) mỗi dòng, sau đó cộng.
-            // Công thức này nhất quán với Bags = Floor(QoH / Weight) ở GetPagedAsync.
-            // Không thể dùng Sum(QoH)/Weight vì mỗi dòng có Weight khác nhau.
-            TotalOnHand = await query
+            // Total* (số bao): Floor(QoH / Weight) từng dòng rồi cộng.
+            // Không dùng Math.Floor bên trong SumAsync vì EF Core / Pomelo không dịch được
+            // Math.Floor sang FLOOR() trong biểu thức tổng hợp → client-evaluation.
+            // Thay bằng ToListAsync chỉ chiếu 2 cột rồi tính Sum ở application layer.
+            TotalOnHand = (decimal)(await query
                 .Where(x => x.ProductVariant.Weight > 0)
-                .SumAsync(x => (decimal?)Math.Floor((double)x.QuantityOnHand / (double)x.ProductVariant.Weight)) ?? 0m,
-            TotalQuarantine = await quarantineQuery
+                .Select(x => new { x.QuantityOnHand, x.ProductVariant.Weight })
+                .ToListAsync())
+                .Sum(x => Math.Floor((double)x.QuantityOnHand / (double)x.Weight)),
+            TotalQuarantine = (decimal)(await quarantineQuery
                 .Where(x => x.ProductVariant.Weight > 0)
-                .SumAsync(x => (decimal?)Math.Floor((double)x.QuantityOnHand / (double)x.ProductVariant.Weight)) ?? 0m,
-            TotalProcessing = await processingQuery
+                .Select(x => new { x.QuantityOnHand, x.ProductVariant.Weight })
+                .ToListAsync())
+                .Sum(x => Math.Floor((double)x.QuantityOnHand / (double)x.Weight)),
+            TotalProcessing = (decimal)(await processingQuery
                 .Where(x => x.ProductVariant.Weight > 0)
-                .SumAsync(x => (decimal?)Math.Floor((double)x.QuantityOnHand / (double)x.ProductVariant.Weight)) ?? 0m,
-            TotalReserved = await normalQuery
+                .Select(x => new { x.QuantityOnHand, x.ProductVariant.Weight })
+                .ToListAsync())
+                .Sum(x => Math.Floor((double)x.QuantityOnHand / (double)x.Weight)),
+            TotalReserved = (decimal)(await normalQuery
                 .Where(x => x.ProductVariant.Weight > 0)
-                .SumAsync(x => (decimal?)Math.Floor((double)x.QuantityReserved / (double)x.ProductVariant.Weight)) ?? 0m,
+                .Select(x => new { x.QuantityReserved, x.ProductVariant.Weight })
+                .ToListAsync())
+                .Sum(x => Math.Floor((double)x.QuantityReserved / (double)x.Weight)),
 
             LineCount = await query.CountAsync(),
             LowStockCount = await query.CountAsync(x =>
