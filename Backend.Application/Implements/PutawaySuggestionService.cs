@@ -491,13 +491,9 @@ public class PutawaySuggestionService : IPutawaySuggestionService
 
         // 1. Kiểm soát tranh chấp (Lock/Transaction)
         IDbContextTransaction? transaction = null;
-        try
+        if (_context.Database.ProviderName != "Microsoft.EntityFrameworkCore.InMemory")
         {
             transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
-        }
-        catch (Exception)
-        {
-            // Bỏ qua nếu database provider không hỗ trợ transaction (ví dụ InMemory)
         }
         try
         {
