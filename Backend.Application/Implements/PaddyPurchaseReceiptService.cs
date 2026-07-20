@@ -10,7 +10,9 @@ using Backend.Domain.Abstractions.Repositories;
 using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
+using Backend.Share.Extensions;
 using Backend.Share.Helpers;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Application.Implements;
@@ -34,6 +36,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
     private readonly IProductVariantRepository _productVariantRepository;
     private readonly IPaddyPurchaseScheduleRepository _scheduleRepository;
     private readonly ISystemLookup _systemLookup;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
     public PaddyPurchaseReceiptService(
         IPaddyPurchaseReceiptRepository receiptRepository,
@@ -48,7 +51,8 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         IRepositoryBase<DebtTransaction, int> debtTransactionRepository,
         IProductVariantRepository productVariantRepository,
         IPaddyPurchaseScheduleRepository scheduleRepository,
-        ISystemLookup systemLookup)
+        ISystemLookup systemLookup,
+        IHttpContextAccessor httpContextAccessor)
     {
         _receiptRepository = receiptRepository;
         _paddyLotRepository = paddyLotRepository;
@@ -63,7 +67,11 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         _productVariantRepository = productVariantRepository;
         _scheduleRepository = scheduleRepository;
         _systemLookup = systemLookup;
+        _httpContextAccessor = httpContextAccessor;
     }
+
+    private int GetCurrentUserId()
+        => _httpContextAccessor.HttpContext?.GetCurrentUserId() ?? 1;
 
     public async Task<ApiResponse> CreateAsync(CreatePaddyPurchaseReceiptDto obj)
     {
@@ -149,7 +157,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
         if (receipt.ScheduleId.HasValue)
         {
-            await UpdateScheduleStatusAsync(receipt.ScheduleId.Value, receipt.UpdatedBy ?? 1);
+            await UpdateScheduleStatusAsync(receipt.ScheduleId.Value, GetCurrentUserId());
         }
 
         return ApiResponse.Success(isDeleted);
@@ -170,7 +178,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
         foreach (var scheduleId in scheduleIds)
         {
-            await UpdateScheduleStatusAsync(scheduleId, 1);
+            await UpdateScheduleStatusAsync(scheduleId, GetCurrentUserId());
         }
 
         return ApiResponse.Success(isDeleted);
@@ -472,7 +480,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         await _debtTransactionRepository.SaveChangesAsync();
     }
 
-    private async Task UpdateScheduleStatusAsync(int scheduleId, int userId)
+    public async Task UpdateScheduleStatusAsync(int scheduleId, int userId)
     {
         var schedule = await _scheduleRepository.GetByIdAsync(scheduleId);
         if (schedule == null || schedule.IsDeleted) return;
@@ -498,9 +506,10 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             return;
         }
 
-        // Lấy danh sách ID của các phiếu đã chốt (đã sinh lô lúa PaddyLot)
+        // Lấy danh sách ID của các phiếu thuộc lịch này đã chốt (đã sinh lô lúa PaddyLot)
+        var receiptIds = receipts.Select(r => r.Id).ToList();
         var confirmedReceiptIds = await _paddyLotRepository
-            .FindByCondition(x => !x.IsDeleted && x.SourceReceiptId != null)
+            .FindByCondition(x => !x.IsDeleted && x.SourceReceiptId != null && receiptIds.Contains(x.SourceReceiptId.Value))
             .Select(x => x.SourceReceiptId!.Value)
             .ToListAsync();
 
