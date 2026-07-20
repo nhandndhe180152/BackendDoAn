@@ -10,4 +10,9 @@ public interface IPaddyPurchaseReceiptService : IServiceBase<int, CreatePaddyPur
     /// Chốt phiếu: sinh PaddyLot, tạo InboundOrder, cập nhật tồn, ghi công nợ nếu có.
     /// </summary>
     Task<ApiResponse> ConfirmReceiptAsync(int receiptId, int confirmedById);
+
+    /// <summary>
+    /// Tính toán và tự động cập nhật trạng thái lịch hẹn dựa trên các phiếu mua thuộc lịch.
+    /// </summary>
+    Task UpdateScheduleStatusAsync(int scheduleId, int userId);
 }

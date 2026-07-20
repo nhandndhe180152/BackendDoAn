@@ -48,8 +48,17 @@ public class StockTakeService : IStockTakeService
         {
             if (item.ProductVariantId.HasValue)
             {
-                var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(item.ProductVariantId.Value, model.WarehouseId, item.LocationId);
-                item.SystemQuantity = inventory?.QuantityOnHand ?? 0;
+                // SỬA LỖI BLOCKING-1: Tính tồn hệ thống (SystemQuantity) cho nghiệp vụ kiểm kê
+                // - Thay vì lấy tồn kho dòng đơn bằng GetByVariantWarehouseLocationAsync (chỉ khớp dòng có PaddyLotId = null và trả về 0 cho hàng có lô),
+                //   hệ thống sẽ lấy tổng tồn (Sum) của VARIANT đó ở tất cả các LÔ khác nhau đang nằm tại cùng warehouse + location.
+                // - Việc này đảm bảo tính đúng đắn số lượng tồn thực tế của lúa/gạo khi lập phiếu kiểm kê.
+                item.SystemQuantity = await _inventoryRepository
+                    .FindByCondition(x =>
+                        !x.IsDeleted &&
+                        x.ProductVariantId == item.ProductVariantId.Value &&
+                        x.WarehouseId == model.WarehouseId &&
+                        x.LocationId == item.LocationId)
+                    .SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m;
             }
         }
 
@@ -187,8 +196,16 @@ public class StockTakeService : IStockTakeService
             decimal sysQty = 0;
             if (itemDto.ProductVariantId.HasValue)
             {
-                var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(itemDto.ProductVariantId.Value, existData.WarehouseId, itemDto.LocationId);
-                sysQty = inventory?.QuantityOnHand ?? 0;
+                // SỬA LỖI BLOCKING-1: Tính tồn hệ thống (SystemQuantity) cho dòng kiểm kê mới được thêm vào
+                // - Lấy tổng tồn (Sum) của variant trên tất cả các lô khác nhau để đảm bảo hiển thị đúng số tồn
+                //   cho hàng hóa theo lô lúa/gạo.
+                sysQty = await _inventoryRepository
+                    .FindByCondition(x =>
+                        !x.IsDeleted &&
+                        x.ProductVariantId == itemDto.ProductVariantId.Value &&
+                        x.WarehouseId == existData.WarehouseId &&
+                        x.LocationId == itemDto.LocationId)
+                    .SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m;
             }
 
             newItems.Add(new StockTakeItem
@@ -230,6 +247,7 @@ public class StockTakeService : IStockTakeService
 
         var existData = await _stockTakeRepository.FindByCondition(x => !x.IsDeleted && x.Id == id)
                                                   .Include(x => x.StockTakeItems)
+                                                      .ThenInclude(i => i.ProductVariant)
                                                   .FirstOrDefaultAsync();
         if (existData == null)
             return ApiResponse.NotFound();
@@ -239,6 +257,41 @@ public class StockTakeService : IStockTakeService
             return ApiResponse.UnprocessableEntity("Chỉ có thể duyệt phiếu kiểm kho ở trạng thái chờ duyệt.", ApiCodeConstants.Common.UnprocessableEntity);
         }
 
+        // --- BƯỚC 1: VALIDATION TRƯỚC KHI MỞ TRANSACTION ---
+        // Kiểm tra toàn bộ các dòng trước khi thực hiện bất kỳ thay đổi nào,
+        // để tránh phải revert entity state thủ công sau khi rollback (N3-1).
+        foreach (var item in existData.StockTakeItems)
+        {
+            if (!item.ActualQuantity.HasValue || item.Difference == 0 || !item.ProductVariantId.HasValue)
+                continue;
+
+            // CHẶN TỒN ẢO NULL-LOT (R2-1):
+            // - Tín hiệu "hàng quản lý theo lô" là sự tồn tại của ít nhất một dòng tồn kho
+            //   có PaddyLotId != null cho variant + warehouse + location tương ứng.
+            // - Không dùng RiceVarietyId vì các variant "chung" (seed 101–103) đều có
+            //   RiceVarietyId = null dù tồn kho thực tế gắn lô → bỏ sót trường hợp phổ biến nhất.
+            // - Nguồn sự thật thực sự là bảng Inventory: nếu hàng đã từng được nhập theo lô
+            //   thì duyệt kiểm kê sẽ tạo ra dòng tồn kho mới PaddyLotId = null (tồn ảo) → chặn.
+            var isLotManaged = await _inventoryRepository
+                .FindByCondition(x => !x.IsDeleted
+                    && x.ProductVariantId == item.ProductVariantId.Value
+                    && x.WarehouseId == existData.WarehouseId
+                    && x.LocationId == item.LocationId
+                    && x.PaddyLotId != null)
+                .AnyAsync();
+
+            if (isLotManaged)
+            {
+                var variantName = item.ProductVariant?.Name ?? $"ProductVariantId={item.ProductVariantId}";
+                return ApiResponse.UnprocessableEntity(
+                    $"Không thể duyệt kiểm kho cho sản phẩm quản lý theo lô: {variantName}. " +
+                    "Vui lòng thực hiện điều chỉnh thủ công (Manual Adjustment) có chỉ định lô hàng cụ thể để xử lý chênh lệch.",
+                    ApiCodeConstants.Common.UnprocessableEntity);
+            }
+        }
+
+        // --- BƯỚC 2: THỰC HIỆN THAY ĐỔI SAU KHI ĐÃ VALIDATION XONG ---
+        // Chỉ mutate existData và mở transaction sau khi toàn bộ dòng đã được xác nhận hợp lệ.
         await using var transaction = await _stockTakeRepository.BeginTransactionAsync();
         try
         {
@@ -249,29 +302,28 @@ public class StockTakeService : IStockTakeService
             existData.LastModifiedDate = DateTimeHelper.VietnamNow();
             existData.UpdatedBy = userId;
 
-            // Perform inventory adjustments
             foreach (var item in existData.StockTakeItems)
             {
-                if (item.ActualQuantity.HasValue && item.Difference != 0 && item.ProductVariantId.HasValue)
-                {
-                    var request = new DTOs.InventoryTransactions.StockMovementRequestDto
-                    {
-                        ProductVariantId = item.ProductVariantId.Value,
-                        WarehouseId = existData.WarehouseId,
-                        LocationId = item.LocationId,
-                        Quantity = Math.Abs(item.Difference),
-                        ReferenceType = "STOCKTAKE",
-                        ReferenceId = existData.Id,
-                        ReferenceItemId = item.Id,
-                        Note = $"Điều chỉnh kiểm kho {existData.STCode}"
-                    };
+                if (!item.ActualQuantity.HasValue || item.Difference == 0 || !item.ProductVariantId.HasValue)
+                    continue;
 
-                    var result = await _inventoryTransactionService.AdjustStockAsync(request, item.ActualQuantity.Value, true);
-                    if (!result.IsSucceeded)
-                    {
-                        await transaction.RollbackAsync();
-                        return ApiResponse.UnprocessableEntity($"Lỗi điều chỉnh tồn kho: {result.Message}", ApiCodeConstants.Common.UnprocessableEntity);
-                    }
+                var request = new DTOs.InventoryTransactions.StockMovementRequestDto
+                {
+                    ProductVariantId = item.ProductVariantId.Value,
+                    WarehouseId = existData.WarehouseId,
+                    LocationId = item.LocationId,
+                    Quantity = Math.Abs(item.Difference),
+                    ReferenceType = "STOCKTAKE",
+                    ReferenceId = existData.Id,
+                    ReferenceItemId = item.Id,
+                    Note = $"Điều chỉnh kiểm kho {existData.STCode}"
+                };
+
+                var result = await _inventoryTransactionService.AdjustStockAsync(request, item.ActualQuantity.Value, true);
+                if (!result.IsSucceeded)
+                {
+                    await transaction.RollbackAsync();
+                    return ApiResponse.UnprocessableEntity($"Lỗi điều chỉnh tồn kho: {result.Message}", ApiCodeConstants.Common.UnprocessableEntity);
                 }
             }
 

@@ -126,6 +126,28 @@ public class PutawaySuggestionService : IPutawaySuggestionService
             return ApiResponse.NotFound("Không tìm thấy loại sản phẩm.", ApiCodeConstants.Common.NotFound);
         }
 
+        // Validate: Khối lượng yêu cầu gợi ý cất kho không được vượt quá số lượng hàng thực tế còn lại ở vị trí đệm (LocationId = null)
+        if (request.PaddyLotId.HasValue)
+        {
+            var bufferInv = await _context.Inventories
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x =>
+                    !x.IsDeleted &&
+                    x.WarehouseId == request.WarehouseId &&
+                    x.LocationId == null &&
+                    x.ProductVariantId == request.ProductVariantId &&
+                    x.PaddyLotId == request.PaddyLotId,
+                    cancellationToken);
+
+            var bufferQty = bufferInv?.QuantityOnHand ?? 0m;
+            if (request.RequiredWeightKg > bufferQty)
+            {
+                return ApiResponse.BadRequest(
+                    $"Khối lượng yêu cầu gợi ý cất kho ({request.RequiredWeightKg:N0} kg) vượt quá khối lượng còn lại trong khu vực đệm ({bufferQty:N0} kg) của lô hàng này.",
+                    "PUTAWAY_WEIGHT_EXCEEDS_BUFFER");
+            }
+        }
+
         // Resolving weights from SystemConfig
         var capacityWeight = await ResolveConfigDecimalAsync(
             CommonConstants.SystemConfig.PUTAWAY_CAPACITY_FIT_WEIGHT_KEY,
@@ -338,7 +360,10 @@ public class PutawaySuggestionService : IPutawaySuggestionService
                 ProductVariantId: request.ProductVariantId,
                 RequiredWeightKg: request.RequiredWeightKg,
                 Suggestions: new List<PutawaySuggestionDto>(),
-                Message: "Kho đã đầy hoặc không đủ sức chứa trống để phân bổ lô hàng này. Hãy giải phóng bớt không gian hoặc phân chia lô thủ công."));
+                Message: $"Kho không đủ sức chứa trống để phân bổ lô hàng {request.RequiredWeightKg:N0} kg này. Tổng sức chứa trống còn lại của tất cả ô kệ cộng lại chỉ là {totalFree:N0} kg. Vui lòng giải phóng bớt không gian hoặc chia nhỏ lô hàng nhỏ hơn mức này.",
+                CanSplit: false,
+                TotalFreeCapacityKg: totalFree,
+                SplitSuggestions: null));
         }
 
         // Phân bổ tối ưu (Greedy theo Score cao giảm dần)
@@ -363,8 +388,9 @@ public class PutawaySuggestionService : IPutawaySuggestionService
             ProductVariantId: request.ProductVariantId,
             RequiredWeightKg: request.RequiredWeightKg,
             Suggestions: new List<PutawaySuggestionDto>(),
-            Message: "Không có ô kệ đơn lẻ nào đủ sức chứa toàn bộ. Đề xuất chia nhỏ lô hàng của bạn như sau:",
+            Message: $"Không có ô kệ đơn lẻ nào đủ sức chứa toàn bộ {request.RequiredWeightKg:N0} kg. Đề xuất chia nhỏ lô hàng của bạn vào các ô kệ như sau (Tổng sức chứa trống khả dụng trong kho: {totalFree:N0} kg):",
             CanSplit: true,
+            TotalFreeCapacityKg: totalFree,
             SplitSuggestions: splitResults));
     }
 
@@ -453,6 +479,16 @@ public class PutawaySuggestionService : IPutawaySuggestionService
 
         var isPaddy = referenceType.Equals("PADDY_PURCHASE", StringComparison.OrdinalIgnoreCase);
 
+        // BLOCKING-2 guard: Luồng lúa (PADDY_PURCHASE) bắt buộc phải có PaddyLotId để đảm bảo
+        // tồn kho đệm (LocationId=null) được tìm đúng và trừ đúng. Nếu thiếu, ô đệm sẽ không được
+        // trừ và tồn kho sẽ bị nhân đôi.
+        if (isPaddy && !request.PaddyLotId.HasValue)
+        {
+            return ApiResponse.BadRequest(
+                "Luồng thu mua lúa (PADDY_PURCHASE) bắt buộc phải truyền PaddyLotId để định danh lô hàng và trừ tồn kho đệm chính xác.",
+                "PADDY_LOT_ID_REQUIRED");
+        }
+
         // 1. Kiểm soát tranh chấp (Lock/Transaction)
         using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
         try
@@ -471,10 +507,13 @@ public class PutawaySuggestionService : IPutawaySuggestionService
                     .Where(x => x.ReferenceType == "PADDY_PURCHASE" && x.ReferenceId == referenceId)
                     .SumAsync(x => x.RequiredWeightKg, cancellationToken);
 
-                if (totalStoredKg >= paddyReceipt.ActualWeightKg)
+                if (totalStoredKg + request.WeightKg > paddyReceipt.ActualWeightKg)
+                {
+                    var remaining = Math.Max(0m, paddyReceipt.ActualWeightKg - totalStoredKg);
                     return ApiResponse.Conflict(
-                        $"Phiếu thu mua lúa này đã nhập kho đủ {totalStoredKg:N0} kg (tổng: {paddyReceipt.ActualWeightKg:N0} kg).",
-                        "DOCUMENT_ALREADY_STORED");
+                        $"Khối lượng cất kho yêu cầu ({request.WeightKg:N0} kg) vượt quá khối lượng còn lại chưa cất của phiếu thu mua này ({remaining:N0} kg / tổng: {paddyReceipt.ActualWeightKg:N0} kg).",
+                        "STORE_IN_WEIGHT_EXCEEDS_REMAINING");
+                }
             }
             else
             {
@@ -494,10 +533,13 @@ public class PutawaySuggestionService : IPutawaySuggestionService
                     .Where(x => x.ReferenceType == referenceType && x.ReferenceId == referenceId)
                     .SumAsync(x => x.RequiredWeightKg, cancellationToken);
 
-                if (totalStoredKg >= totalOrderedQty && totalOrderedQty > 0)
+                if (totalStoredKg + request.WeightKg > totalOrderedQty && totalOrderedQty > 0)
+                {
+                    var remaining = Math.Max(0m, totalOrderedQty - totalStoredKg);
                     return ApiResponse.Conflict(
-                        $"Phiếu nhập kho này đã nhập kho đủ {totalStoredKg:N0} kg (tổng: {totalOrderedQty:N0} kg).",
-                        "DOCUMENT_ALREADY_STORED");
+                        $"Khối lượng cất kho yêu cầu ({request.WeightKg:N0} kg) vượt quá khối lượng còn lại chưa cất của phiếu nhập kho này ({remaining:N0} kg / tổng: {totalOrderedQty:N0} kg).",
+                        "STORE_IN_WEIGHT_EXCEEDS_REMAINING");
+                }
             }
 
             // 3. Khách hàng xếp vị trí khác vị trí đề xuất (Override Check)
@@ -566,6 +608,51 @@ public class PutawaySuggestionService : IPutawaySuggestionService
             inv.UpdatedBy = userId;
 
             _context.Inventories.Update(inv);
+
+            // RC-3 & Putaway fix: Đối với lúa (isPaddy), do lúc chốt phiếu đã tạm ghi nhận tồn tại khu đệm (LocationId = null),
+            // nên khi xếp vào ô kệ thực tế ta cần TRỪ số lượng tương ứng ở khu đệm này để không bị nhân đôi tồn kho.
+            if (isPaddy)
+            {
+                var bufferInv = await _context.Inventories
+                    .FirstOrDefaultAsync(x =>
+                        !x.IsDeleted &&
+                        x.WarehouseId == location.WarehouseId &&
+                        x.LocationId == null &&
+                        x.ProductVariantId == request.ProductVariantId &&
+                        x.PaddyLotId == request.PaddyLotId,
+                        cancellationToken);
+
+                if (bufferInv != null)
+                {
+                    var bufferBeforeQty = bufferInv.QuantityOnHand;
+                    bufferInv.QuantityOnHand -= request.WeightKg;
+                    if (bufferInv.QuantityOnHand < 0) bufferInv.QuantityOnHand = 0; // Đảm bảo không bị âm
+                    bufferInv.LastModifiedDate = now;
+                    bufferInv.UpdatedBy = userId;
+                    _context.Inventories.Update(bufferInv);
+
+                    // Tạo lịch sử giao dịch xuất lúa từ khu vực đệm
+                    var bufferTxn = new InventoryTransaction
+                    {
+                        InventoryId = bufferInv.Id,
+                        WarehouseId = location.WarehouseId,
+                        LocationId = null,
+                        ProductVariantId = request.ProductVariantId,
+                        PaddyLotId = request.PaddyLotId,
+                        TransactionType = InventoryTransactionTypeConstants.Export,
+                        ReferenceType = InventoryReferenceTypeConstants.PaddyPurchase,
+                        ReferenceId = referenceId,
+                        Quantity = request.WeightKg,
+                        BeforeQuantity = bufferBeforeQty,
+                        AfterQuantity = bufferInv.QuantityOnHand,
+                        WeightKg = request.WeightKg,
+                        Note = "Xuất từ khu vực đệm trung chuyển sang ô kệ thực tế",
+                        CreatedBy = userId,
+                        CreatedDate = now
+                    };
+                    _context.InventoryTransactions.Add(bufferTxn);
+                }
+            }
 
             // 7. Tạo InventoryTransaction (Nhật ký giao dịch kho)
             var txn = new InventoryTransaction

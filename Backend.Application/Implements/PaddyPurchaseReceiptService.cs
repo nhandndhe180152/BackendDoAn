@@ -10,7 +10,9 @@ using Backend.Domain.Abstractions.Repositories;
 using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
+using Backend.Share.Extensions;
 using Backend.Share.Helpers;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Application.Implements;
@@ -34,6 +36,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
     private readonly IProductVariantRepository _productVariantRepository;
     private readonly IPaddyPurchaseScheduleRepository _scheduleRepository;
     private readonly ISystemLookup _systemLookup;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
     public PaddyPurchaseReceiptService(
         IPaddyPurchaseReceiptRepository receiptRepository,
@@ -48,7 +51,8 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         IRepositoryBase<DebtTransaction, int> debtTransactionRepository,
         IProductVariantRepository productVariantRepository,
         IPaddyPurchaseScheduleRepository scheduleRepository,
-        ISystemLookup systemLookup)
+        ISystemLookup systemLookup,
+        IHttpContextAccessor httpContextAccessor)
     {
         _receiptRepository = receiptRepository;
         _paddyLotRepository = paddyLotRepository;
@@ -63,7 +67,11 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         _productVariantRepository = productVariantRepository;
         _scheduleRepository = scheduleRepository;
         _systemLookup = systemLookup;
+        _httpContextAccessor = httpContextAccessor;
     }
+
+    private int GetCurrentUserId()
+        => _httpContextAccessor.HttpContext?.GetCurrentUserId() ?? 1;
 
     public async Task<ApiResponse> CreateAsync(CreatePaddyPurchaseReceiptDto obj)
     {
@@ -140,17 +148,39 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {
+        var receipt = await _receiptRepository.GetByIdAsync(id);
+        if (receipt == null) return ApiResponse.NotFound();
+
         var isDeleted = await _receiptRepository.SoftDeleteAsync(id);
         if (!isDeleted) return ApiResponse.BadRequest();
         await _receiptRepository.SaveChangesAsync();
+
+        if (receipt.ScheduleId.HasValue)
+        {
+            await UpdateScheduleStatusAsync(receipt.ScheduleId.Value, GetCurrentUserId());
+        }
+
         return ApiResponse.Success(isDeleted);
     }
 
     public async Task<ApiResponse> SoftDeleteListAsync(IEnumerable<int> objs)
     {
+        // Lấy danh sách scheduleIds của các phiếu sắp bị xóa để tính toán lại trạng thái sau khi xóa
+        var scheduleIds = await _receiptRepository
+            .FindByCondition(x => objs.Contains(x.Id) && x.ScheduleId != null && !x.IsDeleted)
+            .Select(x => x.ScheduleId!.Value)
+            .Distinct()
+            .ToListAsync();
+
         var isDeleted = await _receiptRepository.SoftDeleteListAsync(objs);
         if (!isDeleted) return ApiResponse.BadRequest();
         await _receiptRepository.SaveChangesAsync();
+
+        foreach (var scheduleId in scheduleIds)
+        {
+            await UpdateScheduleStatusAsync(scheduleId, GetCurrentUserId());
+        }
+
         return ApiResponse.Success(isDeleted);
     }
 
@@ -166,30 +196,33 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
         if (receipt == null) return ApiResponse.NotFound();
 
-        // Kiểm tra đã chốt chưa
+        // 1. Kiểm tra trạng thái chốt phiếu: Nếu đã được chốt (đã tồn tại PaddyLot liên kết) thì không cho chốt lại
         var alreadyConfirmed = await _paddyLotRepository.AnyAsync(x => x.SourceReceiptId == receiptId && !x.IsDeleted);
         if (alreadyConfirmed)
             return ApiResponse.UnprocessableEntity("Phiếu này đã được chốt trước đó.");
 
         var now = DateTimeHelper.VietnamNow();
 
-        // 2. Sinh LotCode
+        // 2. Tự động sinh mã lô hàng (LotCode): LOT-PADDY-YYYYMMDD-XXXX
         var datePart = now.ToString("yyyyMMdd");
         var baseCode = $"LOT-PADDY-{datePart}";
         var count = await _paddyLotRepository.FindByCondition(x => x.LotCode.StartsWith(baseCode)).CountAsync();
         var lotCode = $"{baseCode}-{(count + 1):D4}";
 
-        // 3. Lấy LotStatus mặc định ("Đang lưu kho" hoặc Id=1)
+        // 3. Lấy trạng thái lô mặc định của hệ thống
         var defaultLotStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => !x.IsDeleted) 
             ?? throw new InvalidOperationException("Không tìm thấy LotStatus nào trong hệ thống.");
 
+        // Bọc toàn bộ trong DB Transaction đảm bảo tính nguyên tử (Atomic)
         await using var tx = await _receiptRepository.BeginTransactionAsync();
         try
         {
-            // Lấy ProductVariantId (ném exception rõ ràng nếu lỗi)
+            // Xác định Id của Variant lúa mặc định
             var productVariantId = await GetDefaultPaddyVariantIdAsync(receipt);
 
-            // 4. Tạo PaddyLot
+            // 4. KHỞI TẠO LÔ HÀNG (PaddyLot):
+            // - Đặt RemainingWeightKg (khối lượng còn lại) bằng ActualWeightKg của phiếu cân đầu vào.
+            // - Đây là nguồn dữ liệu gốc của Lô hàng (Dashboard/Reports đọc trực tiếp từ đây).
             var lot = new PaddyLot
             {
                 OrganizationId = receipt.OrganizationId,
@@ -212,7 +245,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             await _paddyLotRepository.CreateAsync(lot);
             await _paddyLotRepository.SaveChangesAsync();
 
-            // 5. Tạo InboundOrder
+            // 5. TẠO PHIẾU NHẬP KHO (InboundOrder) liên kết với receipt
             var inboundStatus = await _inboundOrderStatusRepository
                 .FirstOrDefaultAsync(x => x.Name == InboundOrderStatusNames.Confirmed && !x.IsDeleted)
                 ?? await _inboundOrderStatusRepository.FirstOrDefaultAsync(x => !x.IsDeleted)
@@ -235,7 +268,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             await _inboundOrderRepository.CreateAsync(inboundOrder);
             await _inboundOrderRepository.SaveChangesAsync();
 
-            // 6. InboundOrderItem gắn lô
+            // 6. TẠO CHI TIẾT PHIẾU NHẬP KHO (InboundOrderItem) liên kết chặt chẽ với Lô hàng vừa sinh
             var item = new InboundOrderItem
             {
                 InboundOrderId = inboundOrder.Id,
@@ -252,32 +285,23 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             await _inboundOrderItemRepository.CreateAsync(item);
             await _inboundOrderItemRepository.SaveChangesAsync();
 
-            // 7. Cập nhật tồn kho (upsert Inventory + tạo InventoryTransaction)
+            // 7. CẬP NHẬT TỒN KHO VẬT LÝ (Inventory):
+            // - Hàm UpsertInventoryAsync sẽ chèn/cập nhật dòng tồn kho ở bảng Inventory có PaddyLotId tương ứng.
+            // - Đồng thời ghi nhận giao dịch nhập kho ở bảng InventoryTransaction.
             await UpsertInventoryAsync(lot, receipt, inboundOrder.Id, item.Id, confirmedById, now);
 
-            // 8. Ghi công nợ nếu có
+            // 8. GHI NHẬN CÔNG NỢ (Record Debt) nếu số tiền nợ (DebtAmount) > 0
             if (receipt.DebtAmount > 0)
             {
                 await RecordDebtAsync(receipt, confirmedById, now);
             }
 
-            // 9. Cập nhật trạng thái lịch hẹn sang "Đã nhập kho" (STOCKED) trực tiếp vì hàng đã vào kho
+            // 9. TỰ ĐỘNG CẬP NHẬT TRẠNG THÁI LỊCH HẸN THU MUA (UpdateScheduleStatusAsync):
+            // - Dựa trên số lượng phiếu đã chốt và phiếu nháp thuộc lịch hẹn đó để tính toán trạng thái
+            //   (WEIGHED -> PARTIALLY_STOCKED -> STOCKED).
             if (receipt.ScheduleId.HasValue)
             {
-                var schedule = await _scheduleRepository.GetByIdAsync(receipt.ScheduleId.Value);
-                if (schedule != null && !schedule.IsDeleted)
-                {
-                    var stockedStatusId = _systemLookup.PaddyScheduleStatusId("STOCKED");
-                    // Guard: forward-only (chỉ đẩy lên, không lùi trạng thái nếu đã hủy)
-                    if (schedule.StatusId < stockedStatusId)
-                    {
-                        schedule.StatusId = stockedStatusId;
-                        schedule.UpdatedBy = confirmedById;
-                        schedule.LastModifiedDate = now;
-                        await _scheduleRepository.UpdateAsync(schedule);
-                        await _scheduleRepository.SaveChangesAsync();
-                    }
-                }
+                await UpdateScheduleStatusAsync(receipt.ScheduleId.Value, confirmedById);
             }
 
             await _receiptRepository.EndTransactionAsync();
@@ -346,7 +370,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         int inboundOrderId, int inboundItemId, int userId, DateTime now)
     {
         var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
-            lot.ProductVariantId, lot.WarehouseId, lot.LocationId);
+            lot.ProductVariantId, lot.WarehouseId, lot.LocationId, lot.Id);
 
         if (inventory == null)
         {
@@ -355,6 +379,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                 WarehouseId = lot.WarehouseId,
                 LocationId = lot.LocationId,
                 ProductVariantId = lot.ProductVariantId,
+                PaddyLotId = lot.Id,
                 CostPrice = lot.CostPricePerKg,
                 QuantityOnHand = 0,
                 QuantityReserved = 0,
@@ -453,5 +478,71 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
         await _debtTransactionRepository.CreateAsync(tx);
         await _debtTransactionRepository.SaveChangesAsync();
+    }
+
+    public async Task UpdateScheduleStatusAsync(int scheduleId, int userId)
+    {
+        var schedule = await _scheduleRepository.GetByIdAsync(scheduleId);
+        if (schedule == null || schedule.IsDeleted) return;
+
+        // Quét tất cả các phiếu hoạt động thuộc lịch này
+        var receipts = await _receiptRepository
+            .FindByCondition(x => x.ScheduleId == scheduleId && !x.IsDeleted)
+            .ToListAsync();
+
+        if (receipts.Count == 0)
+        {
+            // Nếu không còn phiếu nào hoạt động dưới lịch, lùi lịch về trạng thái CONFIRMED (Đã xác nhận)
+            var confirmedStatusId = _systemLookup.PaddyScheduleStatusId("CONFIRMED");
+            var cancelledStatusId = _systemLookup.PaddyScheduleStatusId("CANCELLED");
+            if (schedule.StatusId != cancelledStatusId && schedule.StatusId != confirmedStatusId)
+            {
+                schedule.StatusId = confirmedStatusId;
+                schedule.UpdatedBy = userId;
+                schedule.LastModifiedDate = DateTimeHelper.VietnamNow();
+                await _scheduleRepository.UpdateAsync(schedule);
+                await _scheduleRepository.SaveChangesAsync();
+            }
+            return;
+        }
+
+        // Lấy danh sách ID của các phiếu thuộc lịch này đã chốt (đã sinh lô lúa PaddyLot)
+        var receiptIds = receipts.Select(r => r.Id).ToList();
+        var confirmedReceiptIds = await _paddyLotRepository
+            .FindByCondition(x => !x.IsDeleted && x.SourceReceiptId != null && receiptIds.Contains(x.SourceReceiptId.Value))
+            .Select(x => x.SourceReceiptId!.Value)
+            .ToListAsync();
+
+        var confirmedCount = receipts.Count(r => confirmedReceiptIds.Contains(r.Id));
+        var pendingCount = receipts.Count - confirmedCount;
+
+        int targetStatusId;
+
+        if (confirmedCount > 0 && pendingCount > 0)
+        {
+            // Kịch bản 1: Có cả phiếu đã chốt và phiếu nháp -> Nhập kho một phần (PARTIALLY_STOCKED)
+            targetStatusId = _systemLookup.PaddyScheduleStatusId("PARTIALLY_STOCKED");
+        }
+        else if (confirmedCount > 0 && pendingCount == 0)
+        {
+            // Kịch bản 2: Toàn bộ phiếu hoạt động đều đã chốt -> Đã nhập kho (STOCKED)
+            targetStatusId = _systemLookup.PaddyScheduleStatusId("STOCKED");
+        }
+        else
+        {
+            // Kịch bản 3: Chưa chốt phiếu nào -> Đã cân hàng (WEIGHED)
+            targetStatusId = _systemLookup.PaddyScheduleStatusId("WEIGHED");
+        }
+
+        var scheduleCancelledStatusId = _systemLookup.PaddyScheduleStatusId("CANCELLED");
+        // Giữ nguyên trạng thái nếu lịch đã bị hủy, chỉ đổi nếu trạng thái thực tế tính toán khác trạng thái lịch hiện tại
+        if (schedule.StatusId != scheduleCancelledStatusId && schedule.StatusId != targetStatusId)
+        {
+            schedule.StatusId = targetStatusId;
+            schedule.UpdatedBy = userId;
+            schedule.LastModifiedDate = DateTimeHelper.VietnamNow();
+            await _scheduleRepository.UpdateAsync(schedule);
+            await _scheduleRepository.SaveChangesAsync();
+        }
     }
 }

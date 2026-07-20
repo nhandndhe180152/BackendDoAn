@@ -296,18 +296,22 @@ public class MillingOrderService : IMillingOrderService
                 var lot = await _paddyLotRepository.GetByIdAsync(input.PaddyLotId);
                 if (lot == null) return ApiResponse.NotFound(message: $"Không tìm thấy lô lúa Id={input.PaddyLotId}.");
 
+                // Validate: Đảm bảo lượng lúa còn lại trong lô hàng lớn hơn hoặc bằng lượng cần tiêu thụ
                 if (lot.RemainingWeightKg < input.ConsumedWeightKg)
                     return ApiResponse.UnprocessableEntity(
                         $"Lô {lot.LotCode}: tồn kho lúa ({lot.RemainingWeightKg} kg) không đủ để xay ({input.ConsumedWeightKg} kg).");
 
                 totalMaterialCost += input.ConsumedWeightKg * lot.CostPricePerKg;
 
-                // Thực hiện trừ lúa đầu vào
+                // TIÊU HAO NGUYÊN LIỆU (PaddyLot):
+                // - Trừ trực tiếp khối lượng tiêu hao vào trường RemainingWeightKg của thực thể lô nguyên liệu.
                 lot.RemainingWeightKg -= input.ConsumedWeightKg;
                 lot.LastModifiedDate = now;
                 await _paddyLotRepository.UpdateAsync(lot);
 
-                // 3. InventoryTransaction EXPORT cho lúa đầu vào (sử dụng input.LocationId để tránh lệch vị trí thực tế của lô)
+                // TIÊU HAO NGUYÊN LIỆU (Inventory & InventoryTransaction):
+                // - Gọi helper ExportLotInventoryAsync để thực hiện trừ QuantityOnHand vật lý trong kho kệ.
+                // - Việc này đảm bảo cả hai bảng đều được giảm đồng thời và khớp số liệu.
                 await ExportLotInventoryAsync(lot, input.LocationId, input.ConsumedWeightKg, orderId, input.Id, completedById, now);
             }
 
@@ -351,6 +355,8 @@ public class MillingOrderService : IMillingOrderService
 
                 var unitCost = output.UnitCost ?? defaultUnitCost;
 
+                // 4. SINH LÔ GẠO THÀNH PHẨM MỚI (PaddyLot):
+                // - Đặt RemainingWeightKg (khối lượng còn lại) bằng khối lượng thành phẩm thu hồi (OutputWeightKg).
                 var newLot = new PaddyLot
                 {
                     OrganizationId = order.OrganizationId,
@@ -377,7 +383,9 @@ public class MillingOrderService : IMillingOrderService
                 output.LastModifiedDate = now;
                 await _outputRepository.UpdateAsync(output);
 
-                // Upsert inventory + InventoryTransaction IMPORT
+                // 5. NHẬP KHO THÀNH PHẨM (Inventory & InventoryTransaction):
+                // - Gọi helper ImportOutputInventoryAsync để chèn mới hoặc cộng tăng QuantityOnHand vật lý.
+                // - Ghi nhận giao dịch nhập kho (IMPORT).
                 await ImportOutputInventoryAsync(newLot, output.OutputWeightKg, orderId, output.Id, completedById, now);
             }
 
@@ -415,7 +423,7 @@ public class MillingOrderService : IMillingOrderService
     {
         var targetLocationId = inputLocationId ?? lot.LocationId;
         var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
-            lot.ProductVariantId, lot.WarehouseId, targetLocationId);
+            lot.ProductVariantId, lot.WarehouseId, targetLocationId, lot.Id);
 
         if (inventory == null || inventory.QuantityOnHand < qty)
         {
@@ -453,7 +461,7 @@ public class MillingOrderService : IMillingOrderService
     private async Task ImportOutputInventoryAsync(PaddyLot lot, decimal qty, int orderId, int outputId, int userId, DateTime now)
     {
         var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
-            lot.ProductVariantId, lot.WarehouseId, lot.LocationId);
+            lot.ProductVariantId, lot.WarehouseId, lot.LocationId, lot.Id);
 
         if (inventory == null)
         {
@@ -462,6 +470,7 @@ public class MillingOrderService : IMillingOrderService
                 WarehouseId = lot.WarehouseId,
                 LocationId = lot.LocationId,
                 ProductVariantId = lot.ProductVariantId,
+                PaddyLotId = lot.Id,
                 CostPrice = lot.CostPricePerKg,
                 QuantityOnHand = 0,
                 QuantityReserved = 0,

@@ -34,6 +34,7 @@ public class OutboundOrderService : IOutboundOrderService
     private readonly IPartyDebtRepository _partyDebtRepository;
     private readonly IDebtTransactionRepository _debtTransactionRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IPaddyLotRepository _paddyLotRepository;
 
     public OutboundOrderService(
         IOutboundOrderRepository outboundOrderRepository,
@@ -45,7 +46,8 @@ public class OutboundOrderService : IOutboundOrderService
         IRepositoryBase<SalesOrderStatus, int> salesOrderStatusRepository,
         IPartyDebtRepository partyDebtRepository,
         IDebtTransactionRepository debtTransactionRepository,
-        IHttpContextAccessor httpContextAccessor)
+        IHttpContextAccessor httpContextAccessor,
+        IPaddyLotRepository paddyLotRepository)
     {
         _outboundOrderRepository       = outboundOrderRepository;
         _outboundStatusRepository      = outboundStatusRepository;
@@ -57,6 +59,7 @@ public class OutboundOrderService : IOutboundOrderService
         _partyDebtRepository           = partyDebtRepository;
         _debtTransactionRepository     = debtTransactionRepository;
         _httpContextAccessor           = httpContextAccessor;
+        _paddyLotRepository            = paddyLotRepository;
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
@@ -420,11 +423,13 @@ public class OutboundOrderService : IOutboundOrderService
 
                     var before = inv.QuantityOnHand;
 
-                    // 5. Giảm QuantityOnHand và QuantityReserved
+                    // 5. GIẢM TỒN KHO VẬT LÝ (Inventory):
+                    // - Trừ số lượng thực xuất (QuantityPicked) khỏi tồn kho vật lý của kệ.
+                    // - Trừ số lượng giữ trước (QuantityAllocated) khỏi hàng đang giữ trước.
                     inv.QuantityOnHand    -= alloc.QuantityPicked;
                     inv.QuantityReserved  -= alloc.QuantityAllocated;
 
-                    // Không để số âm
+                    // Đảm bảo tồn kho vật lý và số lượng giữ trước không bị âm
                     if (inv.QuantityOnHand    < 0) inv.QuantityOnHand    = 0;
                     if (inv.QuantityReserved  < 0) inv.QuantityReserved  = 0;
 
@@ -432,7 +437,23 @@ public class OutboundOrderService : IOutboundOrderService
                     inv.UpdatedBy        = userId;
                     await _inventoryRepository.UpdateAsync(inv);
 
-                    // 6. Tạo InventoryTransaction (số âm = xuất)
+                    // ĐỒNG BỘ HÓA TỒN LÔ HÀNG (PaddyLot):
+                    // - Vì lô hàng thực tế đã xuất ra khỏi kho, khối lượng còn lại của lô (RemainingWeightKg)
+                    //   phải được khấu trừ tương ứng với số lượng xuất kho vật lý.
+                    // - Điều này đảm bảo tính đồng nhất giữa Dashboard (đọc từ PaddyLot) và Giám sát kho (đọc từ Inventory).
+                    if (alloc.PaddyLotId.HasValue)
+                    {
+                        var lot = await _paddyLotRepository.GetByIdAsync(alloc.PaddyLotId.Value);
+                        if (lot != null && !lot.IsDeleted)
+                        {
+                            lot.RemainingWeightKg = Math.Max(0m, lot.RemainingWeightKg - alloc.QuantityPicked);
+                            await _paddyLotRepository.UpdateAsync(lot);
+                            await _paddyLotRepository.SaveChangesAsync();
+                        }
+                    }
+
+                    // 6. GHI NHẬN LỊCH SỬ GIAO DỊCH TỒN KHO (InventoryTransaction)
+                    // - Giao dịch xuất kho được lưu với giá trị lượng xuất âm (Quantity = -alloc.QuantityPicked)
                     var txn = new InventoryTransaction
                     {
                         InventoryId      = inv.Id,

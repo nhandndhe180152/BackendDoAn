@@ -25,6 +25,7 @@ public static class ProductVariantMapping
             ImageId = obj.ImageId,
             IsActive = obj.IsActive,
             MinStockLevel = obj.MinStockLevel,
+            RiceVarietyId = obj.RiceVarietyId, // Map thêm giống lúa
             CreatedBy = obj.CreatedBy,
             CreatedDate = DateTime.Now
         };
@@ -42,6 +43,7 @@ public static class ProductVariantMapping
         existData.ImageId = obj.ImageId;
         existData.IsActive = obj.IsActive;
         existData.MinStockLevel = obj.MinStockLevel;
+        existData.RiceVarietyId = obj.RiceVarietyId; // Map thêm giống lúa khi update
         existData.UpdatedBy = obj.UpdatedBy;
         existData.LastModifiedDate = DateTime.Now;
         return existData;
@@ -108,6 +110,7 @@ public static class ProductVariantMapping
             IsActive = entity.IsActive,
             IsDeleted = entity.IsDeleted,
             MinStockLevel = entity.MinStockLevel,
+            RiceVarietyId = entity.RiceVarietyId, // Trả về RiceVarietyId
             AttributeValuesJson = parsedAttributes,
             LegacyAttributeValues = legacyText,
             EffectiveActiveStatus = entity.IsActive && !entity.IsDeleted && productActive && !productDeleted && !categoryIsDeleted,
