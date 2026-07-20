@@ -29,14 +29,14 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
     private readonly IRepositoryBase<InboundOrderItem, int> _inboundOrderItemRepository;
     private readonly IRepositoryBase<InboundOrderStatus, int> _inboundOrderStatusRepository;
     private readonly IRepositoryBase<LotStatus, int> _lotStatusRepository;
-    private readonly IInventoryRepository _inventoryRepository;
-    private readonly IInventoryTransactionRepository _inventoryTransactionRepository;
     private readonly IRepositoryBase<PartyDebt, int> _partyDebtRepository;
     private readonly IRepositoryBase<DebtTransaction, int> _debtTransactionRepository;
     private readonly IProductVariantRepository _productVariantRepository;
     private readonly IPaddyPurchaseScheduleRepository _scheduleRepository;
     private readonly ISystemLookup _systemLookup;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IInventoryRepository _inventoryRepository;
+    private readonly IInventoryTransactionRepository _inventoryTransactionRepository;
 
     public PaddyPurchaseReceiptService(
         IPaddyPurchaseReceiptRepository receiptRepository,
@@ -45,14 +45,14 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         IRepositoryBase<InboundOrderItem, int> inboundOrderItemRepository,
         IRepositoryBase<InboundOrderStatus, int> inboundOrderStatusRepository,
         IRepositoryBase<LotStatus, int> lotStatusRepository,
-        IInventoryRepository inventoryRepository,
-        IInventoryTransactionRepository inventoryTransactionRepository,
         IRepositoryBase<PartyDebt, int> partyDebtRepository,
         IRepositoryBase<DebtTransaction, int> debtTransactionRepository,
         IProductVariantRepository productVariantRepository,
         IPaddyPurchaseScheduleRepository scheduleRepository,
         ISystemLookup systemLookup,
-        IHttpContextAccessor httpContextAccessor)
+        IHttpContextAccessor httpContextAccessor,
+        IInventoryRepository inventoryRepository,
+        IInventoryTransactionRepository inventoryTransactionRepository)
     {
         _receiptRepository = receiptRepository;
         _paddyLotRepository = paddyLotRepository;
@@ -60,14 +60,14 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         _inboundOrderItemRepository = inboundOrderItemRepository;
         _inboundOrderStatusRepository = inboundOrderStatusRepository;
         _lotStatusRepository = lotStatusRepository;
-        _inventoryRepository = inventoryRepository;
-        _inventoryTransactionRepository = inventoryTransactionRepository;
         _partyDebtRepository = partyDebtRepository;
         _debtTransactionRepository = debtTransactionRepository;
         _productVariantRepository = productVariantRepository;
         _scheduleRepository = scheduleRepository;
         _systemLookup = systemLookup;
         _httpContextAccessor = httpContextAccessor;
+        _inventoryRepository = inventoryRepository;
+        _inventoryTransactionRepository = inventoryTransactionRepository;
     }
 
     private int GetCurrentUserId()
@@ -285,10 +285,10 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             await _inboundOrderItemRepository.CreateAsync(item);
             await _inboundOrderItemRepository.SaveChangesAsync();
 
-            // 7. CẬP NHẬT TỒN KHO VẬT LÝ (Inventory):
-            // - Hàm UpsertInventoryAsync sẽ chèn/cập nhật dòng tồn kho ở bảng Inventory có PaddyLotId tương ứng.
-            // - Đồng thời ghi nhận giao dịch nhập kho ở bảng InventoryTransaction.
-            await UpsertInventoryAsync(lot, receipt, inboundOrder.Id, item.Id, confirmedById, now);
+            // 7. CẬP NHẬT TỒN KHO KHU ĐỆM (Inventory):
+            // Luôn đưa tồn vào khu vực đệm (LocationId = null) với đúng PaddyLotId.
+            // Tồn kho vị trí thật sẽ được cập nhật khi thực hiện store-in.
+            await UpsertInventoryToBufferAsync(lot, receipt, inboundOrder.Id, item.Id, confirmedById, now);
 
             // 8. GHI NHẬN CÔNG NỢ (Record Debt) nếu số tiền nợ (DebtAmount) > 0
             if (receipt.DebtAmount > 0)
@@ -296,13 +296,9 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                 await RecordDebtAsync(receipt, confirmedById, now);
             }
 
-            // 9. TỰ ĐỘNG CẬP NHẬT TRẠNG THÁI LỊCH HẸN THU MUA (UpdateScheduleStatusAsync):
-            // - Dựa trên số lượng phiếu đã chốt và phiếu nháp thuộc lịch hẹn đó để tính toán trạng thái
-            //   (WEIGHED -> PARTIALLY_STOCKED -> STOCKED).
-            if (receipt.ScheduleId.HasValue)
-            {
-                await UpdateScheduleStatusAsync(receipt.ScheduleId.Value, confirmedById);
-            }
+            // 9. Cập nhật trạng thái lịch hẹn khi chốt phiếu: KHÔNG cập nhật lịch sang STOCKED tại đây.
+            // Việc cập nhật lịch hẹn được hoãn lại cho tới khi thực hiện store-in thực tế.
+
 
             await _receiptRepository.EndTransactionAsync();
 
@@ -366,67 +362,6 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         throw new InvalidOperationException("Không tìm thấy biến thể sản phẩm (ProductVariant) nào đại diện cho Lúa thô trong hệ thống để thực hiện chốt phiếu. Vui lòng cấu hình sản phẩm Lúa thô trước.");
     }
 
-    private async Task UpsertInventoryAsync(PaddyLot lot, PaddyPurchaseReceipt receipt,
-        int inboundOrderId, int inboundItemId, int userId, DateTime now)
-    {
-        var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
-            lot.ProductVariantId, lot.WarehouseId, lot.LocationId, lot.Id);
-
-        if (inventory == null)
-        {
-            inventory = new Inventory
-            {
-                WarehouseId = lot.WarehouseId,
-                LocationId = lot.LocationId,
-                ProductVariantId = lot.ProductVariantId,
-                PaddyLotId = lot.Id,
-                CostPrice = lot.CostPricePerKg,
-                QuantityOnHand = 0,
-                QuantityReserved = 0,
-                CreatedDate = now
-            };
-            await _inventoryRepository.CreateAsync(inventory);
-            await _inventoryRepository.SaveChangesAsync();
-        }
-
-        var before = inventory.QuantityOnHand;
-        // Áp dụng bình quân gia quyền cho giá vốn khi nhập thêm hàng
-        if (before > 0 && inventory.CostPrice > 0)
-        {
-            inventory.CostPrice = Math.Round(((before * inventory.CostPrice) + (receipt.ActualWeightKg * lot.CostPricePerKg)) / (before + receipt.ActualWeightKg), 2);
-        }
-        else
-        {
-            inventory.CostPrice = lot.CostPricePerKg;
-        }
-
-        inventory.QuantityOnHand += receipt.ActualWeightKg;
-        inventory.LastModifiedDate = now;
-
-        await _inventoryRepository.UpdateAsync(inventory);
-
-        var tx = new InventoryTransaction
-        {
-            InventoryId = inventory.Id,
-            WarehouseId = lot.WarehouseId,
-            LocationId = lot.LocationId,
-            ProductVariantId = lot.ProductVariantId,
-            TransactionType = InventoryTransactionTypeConstants.Import,
-            ReferenceType = InventoryReferenceTypeConstants.PaddyPurchase,
-            ReferenceId = inboundOrderId,
-            ReferenceItemId = inboundItemId,
-            Quantity = receipt.ActualWeightKg,
-            BeforeQuantity = before,
-            AfterQuantity = inventory.QuantityOnHand,
-            WeightKg = receipt.ActualWeightKg,
-            Note = $"Nhập lúa lô {lot.LotCode}",
-            CreatedDate = now,
-            CreatedBy = userId
-        };
-
-        await _inventoryTransactionRepository.CreateAsync(tx);
-        await _inventoryTransactionRepository.SaveChangesAsync();
-    }
 
     private async Task RecordDebtAsync(PaddyPurchaseReceipt receipt, int userId, DateTime now)
     {
@@ -544,5 +479,70 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             await _scheduleRepository.UpdateAsync(schedule);
             await _scheduleRepository.SaveChangesAsync();
         }
+    }
+
+    private async Task UpsertInventoryToBufferAsync(PaddyLot lot, PaddyPurchaseReceipt receipt,
+        int inboundOrderId, int inboundItemId, int userId, DateTime now)
+    {
+        // Khi chốt phiếu, luôn đưa tồn vào khu vực đệm (LocationId = null)
+        var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
+            lot.ProductVariantId, lot.WarehouseId, null, lot.Id);
+
+        if (inventory == null)
+        {
+            inventory = new Inventory
+            {
+                WarehouseId = lot.WarehouseId,
+                LocationId = null, // khu đệm
+                ProductVariantId = lot.ProductVariantId,
+                PaddyLotId = lot.Id,
+                CostPrice = lot.CostPricePerKg,
+                QuantityOnHand = 0,
+                QuantityReserved = 0,
+                CreatedDate = now,
+                CreatedBy = userId
+            };
+            await _inventoryRepository.CreateAsync(inventory);
+            await _inventoryRepository.SaveChangesAsync();
+        }
+
+        var before = inventory.QuantityOnHand;
+        if (before > 0 && inventory.CostPrice > 0)
+        {
+            inventory.CostPrice = Math.Round(((before * inventory.CostPrice) + (receipt.ActualWeightKg * lot.CostPricePerKg)) / (before + receipt.ActualWeightKg), 2);
+        }
+        else
+        {
+            inventory.CostPrice = lot.CostPricePerKg;
+        }
+
+        inventory.QuantityOnHand += receipt.ActualWeightKg;
+        inventory.LastModifiedDate = now;
+        inventory.UpdatedBy = userId;
+
+        await _inventoryRepository.UpdateAsync(inventory);
+
+        var tx = new InventoryTransaction
+        {
+            InventoryId = inventory.Id,
+            WarehouseId = lot.WarehouseId,
+            LocationId = null, // khu đệm
+            ProductVariantId = lot.ProductVariantId,
+            PaddyLotId = lot.Id,
+            TransactionType = InventoryTransactionTypeConstants.Import,
+            ReferenceType = InventoryReferenceTypeConstants.PaddyPurchase,
+            ReferenceId = inboundOrderId,
+            ReferenceItemId = inboundItemId,
+            Quantity = receipt.ActualWeightKg,
+            BeforeQuantity = before,
+            AfterQuantity = inventory.QuantityOnHand,
+            WeightKg = receipt.ActualWeightKg,
+            Note = $"Nhập lúa vào khu vực đệm lô {lot.LotCode}",
+            CreatedDate = now,
+            CreatedBy = userId
+        };
+
+        await _inventoryTransactionRepository.CreateAsync(tx);
+        await _inventoryTransactionRepository.SaveChangesAsync();
     }
 }
