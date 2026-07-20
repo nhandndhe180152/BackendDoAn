@@ -743,6 +743,9 @@ public class PutawaySuggestionService : IPutawaySuggestionService
             };
             _context.PutawayDecisions.Add(decision);
 
+            // R5-1: Lưu trước các thay đổi để SumAsync ở bước 9 có thể query thấy bản ghi hiện tại trên database thật
+            await _context.SaveChangesAsync(cancellationToken);
+
             // 9. Cập nhật trạng thái lịch hẹn khi và chỉ khi store-in thành công (PADDY_PURCHASE)
             if (isPaddy && paddyReceipt.ScheduleId.HasValue)
             {

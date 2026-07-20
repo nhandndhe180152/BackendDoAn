@@ -37,6 +37,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IInventoryRepository _inventoryRepository;
     private readonly IInventoryTransactionRepository _inventoryTransactionRepository;
+    private readonly IRepositoryBase<PutawayDecision, long> _putawayDecisionRepository;
 
     public PaddyPurchaseReceiptService(
         IPaddyPurchaseReceiptRepository receiptRepository,
@@ -52,7 +53,8 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         ISystemLookup systemLookup,
         IHttpContextAccessor httpContextAccessor,
         IInventoryRepository inventoryRepository,
-        IInventoryTransactionRepository inventoryTransactionRepository)
+        IInventoryTransactionRepository inventoryTransactionRepository,
+        IRepositoryBase<PutawayDecision, long> putawayDecisionRepository)
     {
         _receiptRepository = receiptRepository;
         _paddyLotRepository = paddyLotRepository;
@@ -68,6 +70,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         _httpContextAccessor = httpContextAccessor;
         _inventoryRepository = inventoryRepository;
         _inventoryTransactionRepository = inventoryTransactionRepository;
+        _putawayDecisionRepository = putawayDecisionRepository;
     }
 
     private int GetCurrentUserId()
@@ -296,9 +299,11 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                 await RecordDebtAsync(receipt, confirmedById, now);
             }
 
-            // 9. Cập nhật trạng thái lịch hẹn khi chốt phiếu: KHÔNG cập nhật lịch sang STOCKED tại đây.
-            // Việc cập nhật lịch hẹn được hoãn lại cho tới khi thực hiện store-in thực tế.
-
+            // 9. Cập nhật trạng thái lịch hẹn khi chốt phiếu: Lịch hẹn sẽ tự động chuyển sang WEIGHED (Đã cân)
+            if (receipt.ScheduleId.HasValue)
+            {
+                await UpdateScheduleStatusAsync(receipt.ScheduleId.Value, confirmedById);
+            }
 
             await _receiptRepository.EndTransactionAsync();
 
@@ -441,36 +446,48 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             return;
         }
 
-        // Lấy danh sách ID của các phiếu thuộc lịch này đã chốt (đã sinh lô lúa PaddyLot)
-        var receiptIds = receipts.Select(r => r.Id).ToList();
-        var confirmedReceiptIds = await _paddyLotRepository
-            .FindByCondition(x => !x.IsDeleted && x.SourceReceiptId != null && receiptIds.Contains(x.SourceReceiptId.Value))
-            .Select(x => x.SourceReceiptId!.Value)
-            .ToListAsync();
+        // Tính toán trạng thái dựa trên tổng khối lượng đã store-in của từng phiếu
+        var allReceiptsStoredFully = true;
+        var hasAnyStoreIn = false;
 
-        var confirmedCount = receipts.Count(r => confirmedReceiptIds.Contains(r.Id));
-        var pendingCount = receipts.Count - confirmedCount;
+        foreach (var r in receipts)
+        {
+            // Tìm tổng khối lượng đã cất kho thật của phiếu này
+            var totalStoredWeight = await _putawayDecisionRepository
+                .FindByCondition(x => x.ReferenceType == "PADDY_PURCHASE" && x.ReferenceId == r.Id)
+                .SumAsync(x => x.RequiredWeightKg);
+
+            if (totalStoredWeight > 0)
+            {
+                hasAnyStoreIn = true;
+            }
+
+            if (totalStoredWeight < r.ActualWeightKg)
+            {
+                allReceiptsStoredFully = false;
+            }
+        }
 
         int targetStatusId;
+        var scheduleCancelledStatusId = _systemLookup.PaddyScheduleStatusId("CANCELLED");
+        var stockedStatusId = _systemLookup.PaddyScheduleStatusId("STOCKED");
+        var partiallyStockedStatusId = _systemLookup.PaddyScheduleStatusId("PARTIALLY_STOCKED");
+        var weighedStatusId = _systemLookup.PaddyScheduleStatusId("WEIGHED");
 
-        if (confirmedCount > 0 && pendingCount > 0)
+        if (!hasAnyStoreIn)
         {
-            // Kịch bản 1: Có cả phiếu đã chốt và phiếu nháp -> Nhập kho một phần (PARTIALLY_STOCKED)
-            targetStatusId = _systemLookup.PaddyScheduleStatusId("PARTIALLY_STOCKED");
+            targetStatusId = weighedStatusId;
         }
-        else if (confirmedCount > 0 && pendingCount == 0)
+        else if (allReceiptsStoredFully)
         {
-            // Kịch bản 2: Toàn bộ phiếu hoạt động đều đã chốt -> Đã nhập kho (STOCKED)
-            targetStatusId = _systemLookup.PaddyScheduleStatusId("STOCKED");
+            targetStatusId = stockedStatusId;
         }
         else
         {
-            // Kịch bản 3: Chưa chốt phiếu nào -> Đã cân hàng (WEIGHED)
-            targetStatusId = _systemLookup.PaddyScheduleStatusId("WEIGHED");
+            targetStatusId = partiallyStockedStatusId;
         }
 
-        var scheduleCancelledStatusId = _systemLookup.PaddyScheduleStatusId("CANCELLED");
-        // Giữ nguyên trạng thái nếu lịch đã bị hủy, chỉ đổi nếu trạng thái thực tế tính toán khác trạng thái lịch hiện tại
+        // Chỉ cập nhật nếu không phải trạng thái CANCELLED và trạng thái mới khác trạng thái hiện tại
         if (schedule.StatusId != scheduleCancelledStatusId && schedule.StatusId != targetStatusId)
         {
             schedule.StatusId = targetStatusId;

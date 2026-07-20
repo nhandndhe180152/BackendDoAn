@@ -496,6 +496,20 @@ public class PutawaySuggestionServiceTests
         inventoryRepoMock.Setup(r => r.GetByVariantWarehouseLocationAsync(2, 1, null, It.IsAny<int?>()))
             .ReturnsAsync((Backend.Domain.Entities.Inventory)null);
 
+        var putawayDecisionRepoMock = new Mock<IRepositoryBase<PutawayDecision, long>>();
+        putawayDecisionRepoMock.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<PutawayDecision, bool>>>(), 
+                It.IsAny<bool>()))
+            .Returns(new List<PutawayDecision>().AsQueryable().BuildMock());
+
+        var schedule = new Backend.Domain.Entities.PaddyPurchaseSchedule { Id = 100, StatusId = 1 }; // Mới tạo (1)
+        scheduleRepoMock.Setup(r => r.GetByIdAsync(100)).ReturnsAsync(schedule);
+
+        systemLookupMock.Setup(s => s.PaddyScheduleStatusId("CANCELLED")).Returns(6);
+        systemLookupMock.Setup(s => s.PaddyScheduleStatusId("STOCKED")).Returns(5);
+        systemLookupMock.Setup(s => s.PaddyScheduleStatusId("PARTIALLY_STOCKED")).Returns(7);
+        systemLookupMock.Setup(s => s.PaddyScheduleStatusId("WEIGHED")).Returns(4);
+
         var service = new PaddyPurchaseReceiptService(
             receiptRepoMock.Object,
             paddyLotRepoMock.Object,
@@ -510,7 +524,8 @@ public class PutawaySuggestionServiceTests
             systemLookupMock.Object,
             _httpContextAccessorMock.Object,
             inventoryRepoMock.Object,
-            inventoryTransactionRepoMock.Object
+            inventoryTransactionRepoMock.Object,
+            putawayDecisionRepoMock.Object
         );
 
         var res = await service.ConfirmReceiptAsync(10, 1);
@@ -518,8 +533,8 @@ public class PutawaySuggestionServiceTests
         res.IsSucceeded.Should().BeTrue();
         // Verify buffer inventory was created/saved
         inventoryRepoMock.Verify(r => r.CreateAsync(It.Is<Backend.Domain.Entities.Inventory>(i => i.LocationId == null && i.QuantityOnHand == 1000)), Times.Once);
-        // Verify update schedule status was NOT called (i.e. schedule status is still unchanged)
-        scheduleRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Backend.Domain.Entities.PaddyPurchaseSchedule>()), Times.Never);
+        // Verify update schedule status was called to transition schedule status to WEIGHED (4)
+        scheduleRepoMock.Verify(r => r.UpdateAsync(It.Is<Backend.Domain.Entities.PaddyPurchaseSchedule>(s => s.StatusId == 4)), Times.Once);
     }
 
     [Fact]
