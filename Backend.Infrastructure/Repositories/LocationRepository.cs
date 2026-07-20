@@ -112,6 +112,31 @@ public class LocationRepository : RepositoryBase<Location, int>, ILocationReposi
 
     public async Task<int> UpdateCapacitySafetyAsync(int locationId, int warehouseId, decimal weightKg, int productVariantId, bool isQuarantine, int userId)
     {
+        if (_context.Database.ProviderName == "Microsoft.EntityFrameworkCore.InMemory")
+        {
+            var location = await _context.Locations.FirstOrDefaultAsync(x => x.Id == locationId);
+            if (location == null || !location.IsActive || location.IsDeleted || location.IsQuarantine != isQuarantine)
+            {
+                return 0;
+            }
+            if (location.CurrentProductVariantId != null && location.CurrentProductVariantId != productVariantId)
+            {
+                return 0;
+            }
+            if (location.CurrentOccupancy + weightKg > location.MaxCapacity)
+            {
+                return 0;
+            }
+
+            location.CurrentOccupancy += weightKg;
+            location.CurrentProductVariantId = productVariantId;
+            location.LastModifiedDate = DateTime.UtcNow;
+            location.UpdatedBy = userId;
+            _context.Locations.Update(location);
+            await _context.SaveChangesAsync();
+            return 1;
+        }
+
         var sql = @"
             UPDATE `Location`
             SET

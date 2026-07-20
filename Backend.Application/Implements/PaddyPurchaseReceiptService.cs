@@ -446,10 +446,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             return;
         }
 
-        // Tính toán trạng thái dựa trên tổng khối lượng đã store-in của từng phiếu
-        var allReceiptsStoredFully = true;
-        var hasAnyStoreIn = false;
-
+        var receiptWeights = new List<(decimal StoredWeightKg, decimal ActualWeightKg)>();
         foreach (var r in receipts)
         {
             // Tìm tổng khối lượng đã cất kho thật của phiếu này
@@ -457,35 +454,12 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                 .FindByCondition(x => x.ReferenceType == "PADDY_PURCHASE" && x.ReferenceId == r.Id)
                 .SumAsync(x => x.RequiredWeightKg);
 
-            if (totalStoredWeight > 0)
-            {
-                hasAnyStoreIn = true;
-            }
-
-            if (totalStoredWeight < r.ActualWeightKg)
-            {
-                allReceiptsStoredFully = false;
-            }
+            receiptWeights.Add((totalStoredWeight, r.ActualWeightKg));
         }
 
-        int targetStatusId;
+        var statusCode = PaddyScheduleStatusHelper.DetermineScheduleStatus(receiptWeights);
+        int targetStatusId = _systemLookup.PaddyScheduleStatusId(statusCode);
         var scheduleCancelledStatusId = _systemLookup.PaddyScheduleStatusId("CANCELLED");
-        var stockedStatusId = _systemLookup.PaddyScheduleStatusId("STOCKED");
-        var partiallyStockedStatusId = _systemLookup.PaddyScheduleStatusId("PARTIALLY_STOCKED");
-        var weighedStatusId = _systemLookup.PaddyScheduleStatusId("WEIGHED");
-
-        if (!hasAnyStoreIn)
-        {
-            targetStatusId = weighedStatusId;
-        }
-        else if (allReceiptsStoredFully)
-        {
-            targetStatusId = stockedStatusId;
-        }
-        else
-        {
-            targetStatusId = partiallyStockedStatusId;
-        }
 
         // Chỉ cập nhật nếu không phải trạng thái CANCELLED và trạng thái mới khác trạng thái hiện tại
         if (schedule.StatusId != scheduleCancelledStatusId && schedule.StatusId != targetStatusId)
