@@ -88,9 +88,9 @@ public class AlertService : IAlertService
 
         entity.Status = AlertConstants.Status.Acknowledged;
         entity.AcknowledgedBy = userId;
-        entity.AcknowledgedAt = DateTime.Now;
+        entity.AcknowledgedAt = DateTime.UtcNow;
         entity.UpdatedBy = userId;
-        entity.LastModifiedDate = DateTime.Now;
+        entity.LastModifiedDate = DateTime.UtcNow;
 
         await _alertRepository.UpdateAsync(entity);
         await _alertRepository.SaveChangesAsync();
@@ -108,15 +108,15 @@ public class AlertService : IAlertService
             return ApiResponse.BadRequest("Cảnh báo đã được xử lý trước đó.", ApiCodeConstants.Common.BadRequest);
 
         entity.Status = AlertConstants.Status.Resolved;
-        entity.ResolvedAt = DateTime.Now;
+        entity.ResolvedAt = DateTime.UtcNow;
         entity.DeduplicationKey = null;
         if (entity.AcknowledgedBy == null)
         {
             entity.AcknowledgedBy = userId;
-            entity.AcknowledgedAt = DateTime.Now;
+            entity.AcknowledgedAt = DateTime.UtcNow;
         }
         entity.UpdatedBy = userId;
-        entity.LastModifiedDate = DateTime.Now;
+        entity.LastModifiedDate = DateTime.UtcNow;
 
         await _alertRepository.UpdateAsync(entity);
         await _alertRepository.SaveChangesAsync();
@@ -132,7 +132,7 @@ public class AlertService : IAlertService
 
         entity.IsDeleted = true;
         entity.DeduplicationKey = null;
-        entity.LastModifiedDate = DateTime.Now;
+        entity.LastModifiedDate = DateTime.UtcNow;
 
         await _alertRepository.UpdateAsync(entity);
         await _alertRepository.SaveChangesAsync();
@@ -149,9 +149,9 @@ public class AlertService : IAlertService
         {
             alert.Status = AlertConstants.Status.Acknowledged;
             alert.AcknowledgedBy = userId;
-            alert.AcknowledgedAt = DateTime.Now;
+            alert.AcknowledgedAt = DateTime.UtcNow;
             alert.UpdatedBy = userId;
-            alert.LastModifiedDate = DateTime.Now;
+            alert.LastModifiedDate = DateTime.UtcNow;
             await _alertRepository.UpdateAsync(alert);
         }
 

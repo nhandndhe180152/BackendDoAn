@@ -523,4 +523,64 @@ public class LowStockDetectionServiceTests
         newAlert.Should().NotBeNull();
         newAlert!.DeduplicationKey.Should().Be("LOW_STOCK:1:1");
     }
+
+    [Fact]
+    public async Task DetectLowStockAsync_WhenNoThreshold_ShouldIncrementSkippedCount()
+    {
+        // Arrange
+        using var context = CreateContext();
+        var warehouse = new Backend.Domain.Entities.Warehouse { Id = 1, Code = "WH-01", Name = "Kho 1", IsActive = true };
+        context.Warehouses.Add(warehouse);
+        var product = new Backend.Domain.Entities.Product { Id = 1, Name = "Sản phẩm", IsDeleted = false };
+        context.Products.Add(product);
+        var variant = new ProductVariant
+        {
+            Id = 1,
+            ProductId = 1,
+            UnitOfMeasureId = 1,
+            SKU = "PV-01",
+            Name = "PV-01",
+            IsActive = true,
+            MinStockLevel = null, // No threshold configuration
+            IsDeleted = false
+        };
+        context.ProductVariants.Add(variant);
+        context.Inventories.Add(new Backend.Domain.Entities.Inventory { WarehouseId = 1, ProductVariantId = 1, LocationId = null, QuantityOnHand = 100m, IsDeleted = false });
+        await context.SaveChangesAsync();
+
+        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _loggerFactoryMock.Object);
+
+        // Act
+        var result = await service.DetectLowStockAsync(CancellationToken.None);
+
+        // Assert
+        result.Skipped.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task DetectLowStockAsync_ShouldNotifyBothAdminAndExecutive()
+    {
+        // Arrange
+        using var context = CreateContext();
+        await SeedBaseDataAsync(context);
+
+        context.Inventories.Add(new Backend.Domain.Entities.Inventory { WarehouseId = 1, ProductVariantId = 1, LocationId = 1, QuantityOnHand = 10m, IsDeleted = false });
+        await context.SaveChangesAsync();
+
+        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _loggerFactoryMock.Object);
+
+        // Act
+        await service.DetectLowStockAsync(CancellationToken.None);
+
+        // Assert
+        _dispatcherMock.Verify(d => d.DispatchAsync(
+            NotificationConstants.Code.LowStockAlert,
+            It.Is<NotificationTarget>(t => t.RoleIds.Contains(CommonConstants.Role.ADMIN) && t.RoleIds.Contains(CommonConstants.Role.EXECUTIVE)),
+            It.IsAny<object[]>(),
+            It.IsAny<string>(),
+            It.IsAny<int?>()
+        ), Times.Once);
+    }
 }

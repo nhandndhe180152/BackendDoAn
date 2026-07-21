@@ -6,6 +6,6 @@ namespace Backend.Application.BackgroundJobs.LowStock;
 
 public interface ILowStockQueryService
 {
-    Task<List<LowStockSnapshotDto>> GetLowStockSnapshotsAsync(CancellationToken cancellationToken);
+    Task<(List<LowStockSnapshotDto> Snapshots, int SkippedCount)> GetLowStockSnapshotsAsync(CancellationToken cancellationToken);
     Task<LowStockSnapshotDto?> GetLowStockSnapshotForProductAsync(int warehouseId, int productVariantId, CancellationToken cancellationToken);
 }

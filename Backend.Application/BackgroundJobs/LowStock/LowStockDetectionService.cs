@@ -36,202 +36,201 @@ public class LowStockDetectionService : ILowStockDetectionService
         var stopwatch = Stopwatch.StartNew();
         var result = new LowStockJobResult();
 
-        // 1. Chạy trong transaction phù hợp nếu không phải InMemory
-        using var transaction = _context.Database.ProviderName != "Microsoft.EntityFrameworkCore.InMemory"
-            ? await _context.Database.BeginTransactionAsync(cancellationToken)
-            : null;
-
         try
         {
-            // 2. Lấy toàn bộ snapshots tồn kho khả dụng của các SKU có ngưỡng
-            var snapshots = await _queryService.GetLowStockSnapshotsAsync(cancellationToken);
+            // 1. Lấy toàn bộ snapshots tồn kho khả dụng của các SKU có ngưỡng
+            var (snapshots, skippedCount) = await _queryService.GetLowStockSnapshotsAsync(cancellationToken);
             result.Processed = snapshots.Count;
+            result.Skipped = skippedCount;
 
-            // 3. Load toàn bộ Alert LOW_STOCK đang hoạt động (OPEN hoặc ACKNOWLEDGED)
-            var activeAlerts = await _context.Alerts
-                .Where(a => a.AlertType == AlertConstants.Type.LowStock && !a.IsDeleted && a.Status != AlertConstants.Status.Resolved)
-                .ToListAsync(cancellationToken);
-
-            var activeAlertsMap = activeAlerts
-                .Where(a => a.ProductVariantId.HasValue)
-                .ToDictionary(a => (a.WarehouseId, a.ProductVariantId!.Value), a => a);
-
-            var alertsToInsert = new List<Alert>();
             var notificationsToSend = new List<(LowStockSnapshotDto Snapshot, string Severity)>();
 
+            // 2. Duyệt qua từng record và xử lý cô lập lỗi (per-record error handling)
             foreach (var snapshot in snapshots)
             {
-                activeAlertsMap.TryGetValue((snapshot.WarehouseId, snapshot.ProductVariantId), out var activeAlert);
+                using var transaction = _context.Database.ProviderName != "Microsoft.EntityFrameworkCore.InMemory"
+                    ? await _context.Database.BeginTransactionAsync(cancellationToken)
+                    : null;
 
-                if (snapshot.AvailableKg <= snapshot.ThresholdKg)
+                try
                 {
-                    // Tồn kho thấp -> Xác định Severity
-                    string severity = AlertConstants.Severity.Info;
-                    if (snapshot.AvailableKg <= 0m)
-                    {
-                        severity = AlertConstants.Severity.Critical;
-                    }
-                    else if (snapshot.AvailableKg <= snapshot.ThresholdKg * 0.5m)
-                    {
-                        severity = AlertConstants.Severity.Warning;
-                    }
+                    // Load Alert LOW_STOCK đang hoạt động (OPEN hoặc ACKNOWLEDGED) cho SKU này tại kho này
+                    var activeAlert = await _context.Alerts
+                        .Where(a => a.AlertType == AlertConstants.Type.LowStock && 
+                                    a.WarehouseId == snapshot.WarehouseId && 
+                                    a.ProductVariantId == snapshot.ProductVariantId &&
+                                    !a.IsDeleted && 
+                                    a.Status != AlertConstants.Status.Resolved)
+                        .FirstOrDefaultAsync(cancellationToken);
 
-                    var message = $"SKU \"{snapshot.SKU} - {snapshot.ProductName}\" tại kho \"{snapshot.WarehouseCode}\" chỉ còn {snapshot.AvailableKg:0.##} kg khả dụng (dưới hoặc bằng mức tối thiểu {snapshot.ThresholdKg:0.##} kg).";
-
-                    if (activeAlert == null)
+                    if (snapshot.AvailableKg <= snapshot.ThresholdKg)
                     {
-                        // Chưa có Alert -> Tạo mới
-                        var newAlert = new Alert
+                        var severity = DetermineSeverity(snapshot.AvailableKg, snapshot.ThresholdKg);
+                        var message = BuildAlertMessage(snapshot.SKU, snapshot.ProductName, snapshot.WarehouseCode, snapshot.AvailableKg, snapshot.ThresholdKg);
+
+                        if (activeAlert == null)
                         {
-                            AlertType = AlertConstants.Type.LowStock,
-                            Severity = severity,
-                            WarehouseId = snapshot.WarehouseId,
-                            ProductVariantId = snapshot.ProductVariantId,
-                            RelatedEntityType = "PRODUCT_VARIANT",
-                            RelatedEntityId = snapshot.ProductVariantId,
-                            Status = AlertConstants.Status.Open,
-                            Message = message,
-                            CreatedDate = DateTime.UtcNow,
-                            IsDeleted = false,
-                            DeduplicationKey = $"LOW_STOCK:{snapshot.WarehouseId}:{snapshot.ProductVariantId}"
-                        };
-                        alertsToInsert.Add(newAlert);
-                        result.Created++;
+                            // Chưa có Alert -> Tạo mới
+                            var newAlert = CreateNewAlert(severity, message, snapshot.WarehouseId, snapshot.ProductVariantId);
+                            await _context.Alerts.AddAsync(newAlert, cancellationToken);
+                            await _context.SaveChangesAsync(cancellationToken);
 
-                        // Đăng ký gửi notification
-                        notificationsToSend.Add((snapshot, severity));
-                    }
-                    else
-                    {
-                        // Đã có Alert -> Cập nhật nếu số liệu/severity thay đổi
-                        bool hasChange = false;
-                        var oldSeverity = activeAlert.Severity;
-
-                        if (activeAlert.Severity != severity)
-                        {
-                            activeAlert.Severity = severity;
-                            hasChange = true;
+                            result.Created++;
+                            notificationsToSend.Add((snapshot, severity));
                         }
-
-                        if (activeAlert.Message != message)
+                        else
                         {
-                            activeAlert.Message = message;
-                            hasChange = true;
-                        }
+                            // Đã có Alert -> Cập nhật nếu số liệu/severity thay đổi
+                            bool hasChange = false;
+                            var oldSeverity = activeAlert.Severity;
 
-                        if (hasChange)
-                        {
-                            activeAlert.LastModifiedDate = DateTime.UtcNow;
-                            _context.Alerts.Update(activeAlert);
-                            result.Updated++;
-
-                            // Gửi notification nếu Severity tăng lên
-                            if (GetSeverityPriority(severity) > GetSeverityPriority(oldSeverity))
+                            if (activeAlert.Severity != severity)
                             {
-                                notificationsToSend.Add((snapshot, severity));
+                                activeAlert.Severity = severity;
+                                hasChange = true;
+                            }
+
+                            if (activeAlert.Message != message)
+                            {
+                                activeAlert.Message = message;
+                                hasChange = true;
+                            }
+
+                            if (hasChange)
+                            {
+                                activeAlert.LastModifiedDate = DateTime.UtcNow;
+                                _context.Alerts.Update(activeAlert);
+                                await _context.SaveChangesAsync(cancellationToken);
+
+                                result.Updated++;
+
+                                // Gửi notification nếu Severity tăng lên
+                                if (GetSeverityPriority(severity) > GetSeverityPriority(oldSeverity))
+                                {
+                                    notificationsToSend.Add((snapshot, severity));
+                                }
                             }
                         }
                     }
-                }
-                else
-                {
-                    // Tồn kho đã phục hồi (> Ngưỡng) -> Resolve Alert đang active nếu có
-                    if (activeAlert != null)
-                    {
-                        activeAlert.Status = AlertConstants.Status.Resolved;
-                        activeAlert.ResolvedAt = DateTime.UtcNow;
-                        activeAlert.LastModifiedDate = DateTime.UtcNow;
-                        activeAlert.DeduplicationKey = null;
-                        _context.Alerts.Update(activeAlert);
-                        result.Resolved++;
-                    }
-                }
-            }
-
-            // Lưu các alert tạo mới
-            if (alertsToInsert.Count > 0)
-            {
-                await _context.Alerts.AddRangeAsync(alertsToInsert, cancellationToken);
-            }
-
-            // 4. Lưu thay đổi xuống Database
-            try
-            {
-                await _context.SaveChangesAsync(cancellationToken);
-            }
-            catch (DbUpdateException dbEx) when (IsUniqueConstraintViolation(dbEx))
-            {
-                _logger.LogWarning(dbEx, "[LowStockDetection] Phát hiện xung đột DeduplicationKey khi thêm mới Alert. Thực hiện cập nhật thay vì chèn mới.");
-                
-                if (_context is DbContext dbContext)
-                {
-                    foreach (var entry in dbContext.ChangeTracker.Entries<Alert>().Where(e => e.State == EntityState.Added).ToList())
-                    {
-                        entry.State = EntityState.Detached;
-                    }
-                }
-
-                var latestActiveAlerts = await _context.Alerts
-                    .Where(a => a.AlertType == AlertConstants.Type.LowStock && !a.IsDeleted && a.Status != AlertConstants.Status.Resolved)
-                    .ToListAsync(cancellationToken);
-
-                var latestActiveMap = latestActiveAlerts
-                    .Where(a => a.ProductVariantId.HasValue)
-                    .ToDictionary(a => (a.WarehouseId, a.ProductVariantId!.Value), a => a);
-
-                foreach (var alertToInsert in alertsToInsert)
-                {
-                    if (alertToInsert.ProductVariantId.HasValue &&
-                        latestActiveMap.TryGetValue((alertToInsert.WarehouseId, alertToInsert.ProductVariantId.Value), out var existingAlert))
-                    {
-                        bool hasChange = false;
-                        if (existingAlert.Severity != alertToInsert.Severity)
-                        {
-                            existingAlert.Severity = alertToInsert.Severity;
-                            hasChange = true;
-                        }
-                        if (existingAlert.Message != alertToInsert.Message)
-                        {
-                            existingAlert.Message = alertToInsert.Message;
-                            hasChange = true;
-                        }
-                        if (hasChange)
-                        {
-                            existingAlert.LastModifiedDate = DateTime.UtcNow;
-                            _context.Alerts.Update(existingAlert);
-                            result.Updated++;
-                        }
-                    }
                     else
                     {
-                        var cleanAlert = new Alert
+                        // Tồn kho đã phục hồi (> Ngưỡng) -> Resolve Alert đang active nếu có
+                        if (activeAlert != null)
                         {
-                            AlertType = alertToInsert.AlertType,
-                            Severity = alertToInsert.Severity,
-                            WarehouseId = alertToInsert.WarehouseId,
-                            ProductVariantId = alertToInsert.ProductVariantId,
-                            RelatedEntityType = alertToInsert.RelatedEntityType,
-                            RelatedEntityId = alertToInsert.RelatedEntityId,
-                            Status = alertToInsert.Status,
-                            Message = alertToInsert.Message,
-                            CreatedDate = DateTime.UtcNow,
-                            IsDeleted = false,
-                            DeduplicationKey = alertToInsert.DeduplicationKey
-                        };
-                        await _context.Alerts.AddAsync(cleanAlert, cancellationToken);
-                        result.Created++;
+                            activeAlert.Status = AlertConstants.Status.Resolved;
+                            activeAlert.ResolvedAt = DateTime.UtcNow;
+                            activeAlert.LastModifiedDate = DateTime.UtcNow;
+                            activeAlert.DeduplicationKey = null;
+                            
+                            _context.Alerts.Update(activeAlert);
+                            await _context.SaveChangesAsync(cancellationToken);
+
+                            result.Resolved++;
+                        }
+                    }
+
+                    if (transaction != null)
+                    {
+                        await transaction.CommitAsync(cancellationToken);
                     }
                 }
+                catch (DbUpdateException dbEx) when (IsUniqueConstraintViolation(dbEx))
+                {
+                    // Rollback transaction cục bộ và dọn dẹp tracker
+                    if (transaction != null)
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                    }
 
-                await _context.SaveChangesAsync(cancellationToken);
+                    if (_context is DbContext dbContext)
+                    {
+                        dbContext.ChangeTracker.Clear();
+                    }
+
+                    _logger.LogWarning(dbEx, "[LowStockDetection] Xung đột DeduplicationKey cho SKU {ProductVariantId} tại kho {WarehouseId}. Thử nhánh cập nhật.", 
+                        snapshot.ProductVariantId, snapshot.WarehouseId);
+
+                    // Khởi động giao dịch mới để retry cập nhật
+                    using var retryTransaction = _context.Database.ProviderName != "Microsoft.EntityFrameworkCore.InMemory"
+                        ? await _context.Database.BeginTransactionAsync(cancellationToken)
+                        : null;
+
+                    try
+                    {
+                        var latestActiveAlert = await _context.Alerts
+                            .Where(a => a.AlertType == AlertConstants.Type.LowStock && 
+                                        a.WarehouseId == snapshot.WarehouseId && 
+                                        a.ProductVariantId == snapshot.ProductVariantId &&
+                                        !a.IsDeleted && 
+                                        a.Status != AlertConstants.Status.Resolved)
+                            .FirstOrDefaultAsync(cancellationToken);
+
+                        if (latestActiveAlert != null)
+                        {
+                            var severity = DetermineSeverity(snapshot.AvailableKg, snapshot.ThresholdKg);
+                            var message = BuildAlertMessage(snapshot.SKU, snapshot.ProductName, snapshot.WarehouseCode, snapshot.AvailableKg, snapshot.ThresholdKg);
+                            bool hasChange = false;
+
+                            if (latestActiveAlert.Severity != severity)
+                            {
+                                latestActiveAlert.Severity = severity;
+                                hasChange = true;
+                            }
+                            if (latestActiveAlert.Message != message)
+                            {
+                                latestActiveAlert.Message = message;
+                                hasChange = true;
+                            }
+
+                            if (hasChange)
+                            {
+                                latestActiveAlert.LastModifiedDate = DateTime.UtcNow;
+                                _context.Alerts.Update(latestActiveAlert);
+                                await _context.SaveChangesAsync(cancellationToken);
+
+                                result.Updated++;
+                            }
+                        }
+
+                        if (retryTransaction != null)
+                        {
+                            await retryTransaction.CommitAsync(cancellationToken);
+                        }
+                    }
+                    catch (Exception retryEx)
+                    {
+                        if (retryTransaction != null)
+                        {
+                            await retryTransaction.RollbackAsync(cancellationToken);
+                        }
+                        if (_context is DbContext dbCtx)
+                        {
+                            dbCtx.ChangeTracker.Clear();
+                        }
+                        _logger.LogError(retryEx, "[LowStockDetection] Lỗi khi xử lý nhánh cập nhật dự phòng cho SKU {ProductVariantId} tại kho {WarehouseId}.", 
+                            snapshot.ProductVariantId, snapshot.WarehouseId);
+                        result.Failed++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Lỗi khác: Rollback, dọn dẹp tracker và tiếp tục sang record sau
+                    if (transaction != null)
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                    }
+                    if (_context is DbContext dbContext)
+                    {
+                        dbContext.ChangeTracker.Clear();
+                    }
+
+                    _logger.LogError(ex, "[LowStockDetection] Lỗi khi xử lý tồn kho thấp cho SKU {ProductVariantId} tại kho {WarehouseId}.", 
+                        snapshot.ProductVariantId, snapshot.WarehouseId);
+                    result.Failed++;
+                }
             }
 
-            if (transaction != null)
-            {
-                await transaction.CommitAsync(cancellationToken);
-            }
-
-            // 5. Gửi Notifications ngoài transaction (đảm bảo không làm hỏng dữ liệu DB nếu notification thất bại)
+            // 3. Gửi Notifications ngoài transaction (tránh nghẽn DB và đảm bảo tin nhắn lỗi không rollback DB)
             foreach (var (snap, sev) in notificationsToSend)
             {
                 await SendLowStockNotificationAsync(snap, sev);
@@ -239,11 +238,7 @@ public class LowStockDetectionService : ILowStockDetectionService
         }
         catch (Exception ex)
         {
-            if (transaction != null)
-            {
-                await transaction.RollbackAsync(cancellationToken);
-            }
-            _logger.LogError(ex, "[LowStockDetection] Lỗi khi thực thi phát hiện tồn kho thấp.");
+            _logger.LogError(ex, "[LowStockDetection] Lỗi nghiêm trọng khi thực thi JOB-01.");
             result.Failed++;
         }
 
@@ -254,18 +249,17 @@ public class LowStockDetectionService : ILowStockDetectionService
 
     public async Task DetectLowStockForProductAsync(int warehouseId, int productVariantId, CancellationToken cancellationToken)
     {
-        // 1. Chạy trong transaction phù hợp nếu không phải InMemory
         using var transaction = _context.Database.ProviderName != "Microsoft.EntityFrameworkCore.InMemory"
             ? await _context.Database.BeginTransactionAsync(cancellationToken)
             : null;
 
         try
         {
-            // 2. Lấy snapshot tồn kho khả dụng của SKU cụ thể tại kho cụ thể
+            // 1. Lấy snapshot tồn kho khả dụng của SKU cụ thể tại kho cụ thể
             var snapshot = await _queryService.GetLowStockSnapshotForProductAsync(warehouseId, productVariantId, cancellationToken);
             if (snapshot == null) return;
 
-            // 3. Load Alert LOW_STOCK đang hoạt động cho SKU này
+            // 2. Load Alert LOW_STOCK đang hoạt động cho SKU này
             var activeAlert = await _context.Alerts
                 .FirstOrDefaultAsync(a =>
                     a.AlertType == AlertConstants.Type.LowStock &&
@@ -280,35 +274,14 @@ public class LowStockDetectionService : ILowStockDetectionService
 
             if (snapshot.AvailableKg <= snapshot.ThresholdKg)
             {
-                string severity = AlertConstants.Severity.Info;
-                if (snapshot.AvailableKg <= 0m)
-                {
-                    severity = AlertConstants.Severity.Critical;
-                }
-                else if (snapshot.AvailableKg <= snapshot.ThresholdKg * 0.5m)
-                {
-                    severity = AlertConstants.Severity.Warning;
-                }
-
-                var message = $"SKU \"{snapshot.SKU} - {snapshot.ProductName}\" tại kho \"{snapshot.WarehouseCode}\" chỉ còn {snapshot.AvailableKg:0.##} kg khả dụng (dưới hoặc bằng mức tối thiểu {snapshot.ThresholdKg:0.##} kg).";
+                var severity = DetermineSeverity(snapshot.AvailableKg, snapshot.ThresholdKg);
+                var message = BuildAlertMessage(snapshot.SKU, snapshot.ProductName, snapshot.WarehouseCode, snapshot.AvailableKg, snapshot.ThresholdKg);
 
                 if (activeAlert == null)
                 {
-                    var newAlert = new Alert
-                    {
-                        AlertType = AlertConstants.Type.LowStock,
-                        Severity = severity,
-                        WarehouseId = snapshot.WarehouseId,
-                        ProductVariantId = snapshot.ProductVariantId,
-                        RelatedEntityType = "PRODUCT_VARIANT",
-                        RelatedEntityId = snapshot.ProductVariantId,
-                        Status = AlertConstants.Status.Open,
-                        Message = message,
-                        CreatedDate = DateTime.UtcNow,
-                        IsDeleted = false,
-                        DeduplicationKey = $"LOW_STOCK:{snapshot.WarehouseId}:{snapshot.ProductVariantId}"
-                    };
+                    var newAlert = CreateNewAlert(severity, message, snapshot.WarehouseId, snapshot.ProductVariantId);
                     await _context.Alerts.AddAsync(newAlert, cancellationToken);
+                    
                     shouldSendNotification = true;
                     severityToSend = severity;
                 }
@@ -354,22 +327,37 @@ public class LowStockDetectionService : ILowStockDetectionService
                 }
             }
 
+            await _context.SaveChangesAsync(cancellationToken);
+
+            if (transaction != null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+
+            if (shouldSendNotification)
+            {
+                await SendLowStockNotificationAsync(snapshot, severityToSend);
+            }
+        }
+        catch (DbUpdateException dbEx) when (IsUniqueConstraintViolation(dbEx))
+        {
+            if (transaction != null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+            if (_context is DbContext dbContext)
+            {
+                dbContext.ChangeTracker.Clear();
+            }
+
+            _logger.LogWarning(dbEx, "[LowStockDetection] Phát hiện xung đột DeduplicationKey khi thêm mới Alert cho SKU {ProductVariantId}. Thực hiện cập nhật.", productVariantId);
+
+            using var retryTransaction = _context.Database.ProviderName != "Microsoft.EntityFrameworkCore.InMemory"
+                ? await _context.Database.BeginTransactionAsync(cancellationToken)
+                : null;
+
             try
             {
-                await _context.SaveChangesAsync(cancellationToken);
-            }
-            catch (DbUpdateException dbEx) when (IsUniqueConstraintViolation(dbEx))
-            {
-                _logger.LogWarning(dbEx, "[LowStockDetection] Phát hiện xung đột DeduplicationKey khi thêm mới Alert cho SKU {ProductVariantId}. Thực hiện cập nhật thay vì chèn mới.", productVariantId);
-
-                if (_context is DbContext dbContext)
-                {
-                    foreach (var entry in dbContext.ChangeTracker.Entries<Alert>().Where(e => e.State == EntityState.Added).ToList())
-                    {
-                        entry.State = EntityState.Detached;
-                    }
-                }
-
                 var existingAlert = await _context.Alerts
                     .FirstOrDefaultAsync(a =>
                         a.AlertType == AlertConstants.Type.LowStock &&
@@ -379,19 +367,12 @@ public class LowStockDetectionService : ILowStockDetectionService
                         a.Status != AlertConstants.Status.Resolved,
                         cancellationToken);
 
-                if (existingAlert != null)
-                {
-                    string severity = AlertConstants.Severity.Info;
-                    if (snapshot.AvailableKg <= 0m)
-                    {
-                        severity = AlertConstants.Severity.Critical;
-                    }
-                    else if (snapshot.AvailableKg <= snapshot.ThresholdKg * 0.5m)
-                    {
-                        severity = AlertConstants.Severity.Warning;
-                    }
+                var snapshot = await _queryService.GetLowStockSnapshotForProductAsync(warehouseId, productVariantId, cancellationToken);
 
-                    var message = $"SKU \"{snapshot.SKU} - {snapshot.ProductName}\" tại kho \"{snapshot.WarehouseCode}\" chỉ còn {snapshot.AvailableKg:0.##} kg khả dụng (dưới hoặc bằng mức tối thiểu {snapshot.ThresholdKg:0.##} kg).";
+                if (existingAlert != null && snapshot != null)
+                {
+                    var severity = DetermineSeverity(snapshot.AvailableKg, snapshot.ThresholdKg);
+                    var message = BuildAlertMessage(snapshot.SKU, snapshot.ProductName, snapshot.WarehouseCode, snapshot.AvailableKg, snapshot.ThresholdKg);
 
                     bool hasChange = false;
                     var oldSeverity = existingAlert.Severity;
@@ -410,26 +391,31 @@ public class LowStockDetectionService : ILowStockDetectionService
                     {
                         existingAlert.LastModifiedDate = DateTime.UtcNow;
                         _context.Alerts.Update(existingAlert);
+                        await _context.SaveChangesAsync(cancellationToken);
 
                         if (GetSeverityPriority(severity) > GetSeverityPriority(oldSeverity))
                         {
-                            shouldSendNotification = true;
-                            severityToSend = severity;
+                            await SendLowStockNotificationAsync(snapshot, severity);
                         }
                     }
                 }
 
-                await _context.SaveChangesAsync(cancellationToken);
+                if (retryTransaction != null)
+                {
+                    await retryTransaction.CommitAsync(cancellationToken);
+                }
             }
-
-            if (transaction != null)
+            catch (Exception retryEx)
             {
-                await transaction.CommitAsync(cancellationToken);
-            }
-
-            if (shouldSendNotification)
-            {
-                await SendLowStockNotificationAsync(snapshot, severityToSend);
+                if (retryTransaction != null)
+                {
+                    await retryTransaction.RollbackAsync(cancellationToken);
+                }
+                if (_context is DbContext dbCtx)
+                {
+                    dbCtx.ChangeTracker.Clear();
+                }
+                _logger.LogError(retryEx, "[LowStockDetection] Lỗi khi xử lý nhánh cập nhật dự phòng cho SKU {ProductVariantId} tại kho {WarehouseId}.", productVariantId, warehouseId);
             }
         }
         catch (Exception ex)
@@ -437,6 +423,10 @@ public class LowStockDetectionService : ILowStockDetectionService
             if (transaction != null)
             {
                 await transaction.RollbackAsync(cancellationToken);
+            }
+            if (_context is DbContext dbContext)
+            {
+                dbContext.ChangeTracker.Clear();
             }
             _logger.LogError(ex, "[LowStockDetection] Lỗi khi phát hiện tồn thấp cho SKU {ProductVariantId} tại kho {WarehouseId}.", productVariantId, warehouseId);
         }
@@ -446,9 +436,10 @@ public class LowStockDetectionService : ILowStockDetectionService
     {
         try
         {
+            // M5: Gửi cho cả ADMIN và EXECUTIVE (Warehouse Owner)
             var target = new NotificationTarget
             {
-                RoleIds = new List<int> { CommonConstants.Role.ADMIN }
+                RoleIds = new List<int> { CommonConstants.Role.ADMIN, CommonConstants.Role.EXECUTIVE }
             };
 
             var productNameOrSku = $"{snapshot.SKU} - {snapshot.ProductName}";
@@ -477,14 +468,47 @@ public class LowStockDetectionService : ILowStockDetectionService
         }
     }
 
+    // L2: Tránh lặp code bằng cách dùng các hàm helper
+    private string DetermineSeverity(decimal available, decimal threshold)
+    {
+        if (available <= 0m) return AlertConstants.Severity.Critical;
+        if (available <= threshold * 0.5m) return AlertConstants.Severity.Warning;
+        return AlertConstants.Severity.Info;
+    }
+
+    private string BuildAlertMessage(string sku, string productName, string warehouseCode, decimal available, decimal threshold)
+    {
+        return $"SKU \"{sku} - {productName}\" tại kho \"{warehouseCode}\" chỉ còn {available:0.##} kg khả dụng (dưới hoặc bằng mức tối thiểu {threshold:0.##} kg).";
+    }
+
+    private Alert CreateNewAlert(string severity, string message, int warehouseId, int productVariantId)
+    {
+        return new Alert
+        {
+            AlertType = AlertConstants.Type.LowStock,
+            Severity = severity,
+            WarehouseId = warehouseId,
+            ProductVariantId = productVariantId,
+            RelatedEntityType = "PRODUCT_VARIANT",
+            RelatedEntityId = productVariantId,
+            Status = AlertConstants.Status.Open,
+            Message = message,
+            CreatedDate = DateTime.UtcNow,
+            IsDeleted = false,
+            DeduplicationKey = $"LOW_STOCK:{warehouseId}:{productVariantId}"
+        };
+    }
+
+    // L3: Thu hẹp điều kiện kiểm tra trùng khoá
     private bool IsUniqueConstraintViolation(DbUpdateException ex)
     {
         var inner = ex.InnerException;
         if (inner == null) return false;
-        return inner.Message.Contains("UX_Alert_DeduplicationKey") 
-            || inner.Message.Contains("Duplicate entry") 
-            || inner.Message.Contains("unique constraint")
-            || inner.Message.Contains("constraint");
+        
+        var message = inner.Message;
+        return message.Contains("UX_Alert_DeduplicationKey") 
+            || message.Contains("1062") // MySQL duplicate entry error code
+            || message.Contains("Duplicate entry");
     }
 
     private int GetSeverityPriority(string sev)

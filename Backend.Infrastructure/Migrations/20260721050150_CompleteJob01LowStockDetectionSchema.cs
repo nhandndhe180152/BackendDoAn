@@ -53,7 +53,7 @@ namespace Backend.Infrastructure.Migrations
                 column: "DeduplicationKey",
                 unique: true);
 
-            migrationBuilder.Sql("UPDATE LotStatus SET IsSellable = 0 WHERE Name = 'Cách ly';");
+            migrationBuilder.Sql("UPDATE LotStatus SET IsSellable = 0 WHERE Id = 4;");
         }
 
         /// <inheritdoc />
@@ -93,6 +93,8 @@ namespace Backend.Infrastructure.Migrations
                 oldType: "decimal(18,3)",
                 oldPrecision: 18,
                 oldScale: 3);
+
+            migrationBuilder.Sql("UPDATE LotStatus SET IsSellable = 1 WHERE Id = 4;");
         }
     }
 }
