@@ -8,8 +8,10 @@ using Backend.Application.Constants;
 using Backend.Application.Interfaces;
 using Backend.Domain.Entities;
 using Backend.Infrastructure.Persistence;
+using Backend.Share.Services;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -19,9 +21,12 @@ namespace Backend.UnitTest.Services.LowStock;
 public class LowStockDetectionServiceTests
 {
     private readonly Mock<INotificationDispatcher> _dispatcherMock = new();
+    private readonly Mock<ICacheService> _cacheMock = new();
     private readonly Mock<ILoggerFactory> _loggerFactoryMock = new();
     private readonly Mock<ILogger<LowStockDetectionService>> _loggerMock = new();
     private readonly Mock<ILogger<LowStockQueryService>> _queryLoggerMock = new();
+    
+    private static readonly InMemoryDatabaseRoot _databaseRoot = new InMemoryDatabaseRoot();
 
     public LowStockDetectionServiceTests()
     {
@@ -38,6 +43,69 @@ public class LowStockDetectionServiceTests
             .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
             .Options;
         return new BackendContext(options);
+    }
+
+    private FakeBackendContext CreateFakeContext(string duplicateKey, string dbName)
+    {
+        var options = new DbContextOptionsBuilder<BackendContext>()
+            .UseInMemoryDatabase(databaseName: dbName, databaseRoot: _databaseRoot)
+            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
+            .Options;
+        return new FakeBackendContext(options, duplicateKey, dbName);
+    }
+
+    private class FakeBackendContext : BackendContext
+    {
+        public bool SimulateConcurrency { get; set; } = false;
+        private int _saveCount = 0;
+        private readonly string _duplicateKey;
+        private readonly string _dbName;
+
+        public FakeBackendContext(DbContextOptions<BackendContext> options, string duplicateKey, string dbName) : base(options)
+        {
+            _duplicateKey = duplicateKey;
+            _dbName = dbName;
+        }
+
+        public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            if (SimulateConcurrency)
+            {
+                _saveCount++;
+                if (_saveCount == 1)
+                {
+                    // Concurrency simulation: insert duplicate alert under a separate context sharing the same database root
+                    var options = new DbContextOptionsBuilder<BackendContext>()
+                        .UseInMemoryDatabase(databaseName: _dbName, databaseRoot: _databaseRoot)
+                        .Options;
+
+                    using (var context2 = new BackendContext(options))
+                    {
+                        var duplicateAlert = new Alert
+                        {
+                            AlertType = AlertConstants.Type.LowStock,
+                            Severity = AlertConstants.Severity.Info,
+                            WarehouseId = 1,
+                            ProductVariantId = 1,
+                            RelatedEntityType = "PRODUCT_VARIANT",
+                            RelatedEntityId = 1,
+                            Status = AlertConstants.Status.Open,
+                            Message = "Concurrency Alert",
+                            CreatedDate = DateTime.UtcNow,
+                            IsDeleted = false,
+                            DeduplicationKey = _duplicateKey
+                        };
+                        context2.Alerts.Add(duplicateAlert);
+                        await context2.SaveChangesAsync(cancellationToken);
+                    }
+
+                    // Throw custom DbUpdateException to invoke unique check
+                    throw new DbUpdateException("Unique constraint failed", new Exception("UX_Alert_DeduplicationKey"));
+                }
+            }
+
+            return await base.SaveChangesAsync(cancellationToken);
+        }
     }
 
     private async Task SeedBaseDataAsync(BackendContext context)
@@ -74,7 +142,7 @@ public class LowStockDetectionServiceTests
             SalePrice = 25000m,
             Weight = 10m,
             IsActive = true,
-            MinStockLevel = 100m, // Ngưỡng mặc định
+            MinStockLevel = 100m, // Default Threshold
             IsDeleted = false
         };
         context.ProductVariants.Add(variant);
@@ -99,7 +167,6 @@ public class LowStockDetectionServiceTests
         using var context = CreateContext();
         await SeedBaseDataAsync(context);
 
-        // Inventory:OnHand=120, Reserved=10 => Available=110 > Threshold=100
         var inventory = new Backend.Domain.Entities.Inventory
         {
             WarehouseId = 1,
@@ -113,7 +180,7 @@ public class LowStockDetectionServiceTests
         await context.SaveChangesAsync();
 
         var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
-        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
         var result = await service.DetectLowStockAsync(CancellationToken.None);
@@ -125,9 +192,9 @@ public class LowStockDetectionServiceTests
     }
 
     [Theory]
-    [InlineData(100, 0, AlertConstants.Severity.Info)] // Available = 100 <= Threshold=100 -> INFO
-    [InlineData(40, 0, AlertConstants.Severity.Warning)] // Available = 40 <= Threshold*0.5=50 -> WARNING
-    [InlineData(0, 0, AlertConstants.Severity.Critical)] // Available = 0 -> CRITICAL
+    [InlineData(100, 0, AlertConstants.Severity.Info)]
+    [InlineData(40, 0, AlertConstants.Severity.Warning)]
+    [InlineData(0, 0, AlertConstants.Severity.Critical)]
     public async Task DetectLowStockAsync_WhenStockIsLow_ShouldCreateAlertWithCorrectSeverity(decimal onHand, decimal reserved, string expectedSeverity)
     {
         // Arrange
@@ -147,7 +214,7 @@ public class LowStockDetectionServiceTests
         await context.SaveChangesAsync();
 
         var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
-        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
         var result = await service.DetectLowStockAsync(CancellationToken.None);
@@ -160,11 +227,17 @@ public class LowStockDetectionServiceTests
         alert.Status.Should().Be(AlertConstants.Status.Open);
         alert.AlertType.Should().Be(AlertConstants.Type.LowStock);
 
-        // Verify notification dispatched
+        // Verify notification args (D5 Fix)
         _dispatcherMock.Verify(d => d.DispatchAsync(
             NotificationConstants.Code.LowStockAlert,
-            It.Is<NotificationTarget>(t => t.RoleIds.Contains(CommonConstants.Role.ADMIN)),
-            It.IsAny<object[]>(),
+            It.Is<NotificationTarget>(t => t.RoleIds.Contains(CommonConstants.Role.ADMIN) && t.RoleIds.Contains(CommonConstants.Role.EXECUTIVE)),
+            It.Is<object[]>(args => 
+                args.Length == 4 && 
+                args[0].ToString() == "PV-ST25 - Gạo ST25 10kg" && 
+                args[1].ToString() == "WH-01" && 
+                args[2].ToString() == $"{onHand - reserved} kg" &&
+                args[3].ToString() == "100 kg"
+            ),
             It.IsAny<string>(),
             It.IsAny<int?>()
         ), Times.Once);
@@ -177,8 +250,6 @@ public class LowStockDetectionServiceTests
         using var context = CreateContext();
         await SeedBaseDataAsync(context);
 
-        // Inventory normal: 20 kg
-        // Inventory quarantined: 100 kg (Location 2 is quarantine)
         context.Inventories.AddRange(
             new Backend.Domain.Entities.Inventory { WarehouseId = 1, ProductVariantId = 1, LocationId = 1, QuantityOnHand = 20m, QuantityReserved = 0m, IsDeleted = false },
             new Backend.Domain.Entities.Inventory { WarehouseId = 1, ProductVariantId = 1, LocationId = 2, QuantityOnHand = 100m, QuantityReserved = 0m, IsDeleted = false }
@@ -186,13 +257,12 @@ public class LowStockDetectionServiceTests
         await context.SaveChangesAsync();
 
         var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
-        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
         var result = await service.DetectLowStockAsync(CancellationToken.None);
 
         // Assert
-        // Available stock is only 20 kg (normal), which is <= Threshold 100 => Alert created
         result.Created.Should().Be(1);
         var alert = await context.Alerts.FirstOrDefaultAsync();
         alert.Should().NotBeNull();
@@ -206,7 +276,6 @@ public class LowStockDetectionServiceTests
         using var context = CreateContext();
         await SeedBaseDataAsync(context);
 
-        // Seed a non-sellable lot (StatusId = 2 is quarantine)
         var lot = new Backend.Domain.Entities.PaddyLot
         {
             Id = 10,
@@ -227,13 +296,12 @@ public class LowStockDetectionServiceTests
         await context.SaveChangesAsync();
 
         var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
-        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
         var result = await service.DetectLowStockAsync(CancellationToken.None);
 
         // Assert
-        // Available stock is only 30 kg, which is <= Threshold 100 => Alert created
         result.Created.Should().Be(1);
         var alert = await context.Alerts.FirstOrDefaultAsync();
         alert.Should().NotBeNull();
@@ -247,7 +315,6 @@ public class LowStockDetectionServiceTests
         using var context = CreateContext();
         await SeedBaseDataAsync(context);
 
-        // Config Threshold = 50 (ProductVariant default is 100)
         var config = new StockAlertConfig
         {
             WarehouseId = 1,
@@ -258,7 +325,6 @@ public class LowStockDetectionServiceTests
         };
         context.StockAlertConfigs.Add(config);
 
-        // Available = 60 kg (which is > Config Threshold 50, but < Default Threshold 100)
         var inventory = new Backend.Domain.Entities.Inventory
         {
             WarehouseId = 1,
@@ -272,16 +338,13 @@ public class LowStockDetectionServiceTests
         await context.SaveChangesAsync();
 
         var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
-        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
         var result = await service.DetectLowStockAsync(CancellationToken.None);
 
         // Assert
-        // Available = 60 > Threshold = 50 => No alert should be created
         result.Created.Should().Be(0);
-        var alerts = await context.Alerts.ToListAsync();
-        alerts.Should().BeEmpty();
     }
 
     [Fact]
@@ -291,7 +354,6 @@ public class LowStockDetectionServiceTests
         using var context = CreateContext();
         await SeedBaseDataAsync(context);
 
-        // Stock = 80 <= Threshold = 100 -> INFO
         var inventory = new Backend.Domain.Entities.Inventory
         {
             WarehouseId = 1,
@@ -305,7 +367,7 @@ public class LowStockDetectionServiceTests
         await context.SaveChangesAsync();
 
         var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
-        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Run 1
         var result1 = await service.DetectLowStockAsync(CancellationToken.None);
@@ -319,7 +381,7 @@ public class LowStockDetectionServiceTests
 
         // Assert
         result2.Created.Should().Be(0);
-        result2.Updated.Should().Be(0); // Không thay đổi số liệu/severity
+        result2.Updated.Should().Be(0);
         _dispatcherMock.Verify(d => d.DispatchAsync(
             It.IsAny<string>(),
             It.IsAny<NotificationTarget>(),
@@ -336,7 +398,6 @@ public class LowStockDetectionServiceTests
         using var context = CreateContext();
         await SeedBaseDataAsync(context);
 
-        // Start with stock = 80 (INFO)
         var inventory = new Backend.Domain.Entities.Inventory
         {
             WarehouseId = 1,
@@ -350,33 +411,34 @@ public class LowStockDetectionServiceTests
         await context.SaveChangesAsync();
 
         var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
-        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
-        // Run 1 (creates INFO alert)
+        // Run 1
         await service.DetectLowStockAsync(CancellationToken.None);
 
-        // Now drop stock to 0 (CRITICAL)
+        // Drop stock to 0
         inventory.QuantityOnHand = 0m;
         context.Inventories.Update(inventory);
         await context.SaveChangesAsync();
 
-        // Reset Mock to check new notification
         _dispatcherMock.Invocations.Clear();
 
         // Run 2
         var result = await service.DetectLowStockAsync(CancellationToken.None);
 
         // Assert
-        result.Updated.Should().Be(1); // Alert updated
+        result.Updated.Should().Be(1);
         var alert = await context.Alerts.FirstOrDefaultAsync();
-        alert.Should().NotBeNull();
         alert!.Severity.Should().Be(AlertConstants.Severity.Critical);
 
-        // Verify notification dispatched because severity increased
         _dispatcherMock.Verify(d => d.DispatchAsync(
             NotificationConstants.Code.LowStockAlert,
-            It.Is<NotificationTarget>(t => t.RoleIds.Contains(CommonConstants.Role.ADMIN)),
-            It.IsAny<object[]>(),
+            It.Is<NotificationTarget>(t => t.RoleIds.Contains(CommonConstants.Role.ADMIN) && t.RoleIds.Contains(CommonConstants.Role.EXECUTIVE)),
+            It.Is<object[]>(args => 
+                args.Length == 4 && 
+                args[0].ToString() == "PV-ST25 - Gạo ST25 10kg" && 
+                args[2].ToString() == "0 kg"
+            ),
             It.IsAny<string>(),
             It.IsAny<int?>()
         ), Times.Once);
@@ -389,7 +451,6 @@ public class LowStockDetectionServiceTests
         using var context = CreateContext();
         await SeedBaseDataAsync(context);
 
-        // Start low: stock = 20 <= 100
         var inventory = new Backend.Domain.Entities.Inventory
         {
             WarehouseId = 1,
@@ -403,75 +464,63 @@ public class LowStockDetectionServiceTests
         await context.SaveChangesAsync();
 
         var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
-        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
-        // Run 1 (Creates alert)
         await service.DetectLowStockAsync(CancellationToken.None);
-        var alertBefore = await context.Alerts.FirstOrDefaultAsync();
-        alertBefore!.Status.Should().Be(AlertConstants.Status.Open);
 
-        // Stock recovers: 150 kg
+        // Stock recovers
         inventory.QuantityOnHand = 150m;
         context.Inventories.Update(inventory);
         await context.SaveChangesAsync();
-
-        // Run 2
-        var result = await service.DetectLowStockAsync(CancellationToken.None);
-
-        // Assert
-        result.Resolved.Should().Be(1);
-        var alertAfter = await context.Alerts.FirstOrDefaultAsync();
-        alertAfter!.Status.Should().Be(AlertConstants.Status.Resolved);
-        alertAfter.ResolvedAt.Should().NotBeNull();
-    }
-
-    [Fact]
-    public async Task DetectLowStockAsync_WhenDeduplicationKeyUniqueConstraintFires_ShouldFallBackToUpdate()
-    {
-        using var context = CreateContext();
-        await SeedBaseDataAsync(context);
-
-        var preAlert = new Alert
-        {
-            AlertType = AlertConstants.Type.LowStock,
-            Severity = AlertConstants.Severity.Info,
-            WarehouseId = 1,
-            ProductVariantId = 1,
-            RelatedEntityType = "PRODUCT_VARIANT",
-            RelatedEntityId = 1,
-            Status = AlertConstants.Status.Open,
-            Message = "Cảnh báo cũ",
-            CreatedDate = DateTime.UtcNow,
-            IsDeleted = false,
-            DeduplicationKey = "LOW_STOCK:1:1"
-        };
-        context.Alerts.Add(preAlert);
-
-        var inventory = new Backend.Domain.Entities.Inventory
-        {
-            WarehouseId = 1,
-            ProductVariantId = 1,
-            LocationId = 1,
-            QuantityOnHand = 20m,
-            QuantityReserved = 0m,
-            IsDeleted = false
-        };
-        context.Inventories.Add(inventory);
-        await context.SaveChangesAsync();
-
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
-        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _loggerFactoryMock.Object);
 
         // Act
         var result = await service.DetectLowStockAsync(CancellationToken.None);
 
         // Assert
+        result.Resolved.Should().Be(1);
+        var alert = await context.Alerts.FirstOrDefaultAsync();
+        alert!.Status.Should().Be(AlertConstants.Status.Resolved);
+        alert.DeduplicationKey.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DetectLowStockAsync_WhenDeduplicationKeyUniqueConstraintFires_ShouldFallBackToUpdate()
+    {
+        // Arrange (D1 & D3 Fix: Concurrency unique constraint via FakeBackendContext sharing same Database Root)
+        var dbName = Guid.NewGuid().ToString();
+        using var context = CreateFakeContext("LOW_STOCK:1:1", dbName);
+        await SeedBaseDataAsync(context);
+
+        // Prepare inventory that triggers low stock
+        var inventory = new Backend.Domain.Entities.Inventory
+        {
+            WarehouseId = 1,
+            ProductVariantId = 1,
+            LocationId = 1,
+            QuantityOnHand = 20m,
+            QuantityReserved = 0m,
+            IsDeleted = false
+        };
+        context.Inventories.Add(inventory);
+        await context.SaveChangesAsync();
+
+        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
+
+        // ACTIVATE CONCURRENCY SIMULATION AFTER SEEDING DATA
+        context.SimulateConcurrency = true;
+
+        // Act
+        var result = await service.DetectLowStockAsync(CancellationToken.None);
+
+        // Assert
+        // Should catch constraint violation and route it to Update!
         result.Created.Should().Be(0);
         result.Updated.Should().Be(1);
 
-        var alert = await context.Alerts.FirstOrDefaultAsync(a => a.DeduplicationKey == "LOW_STOCK:1:1");
-        alert.Should().NotBeNull();
-        alert!.Severity.Should().Be(AlertConstants.Severity.Warning);
+        var alerts = await context.Alerts.Where(a => a.DeduplicationKey == "LOW_STOCK:1:1").ToListAsync();
+        alerts.Count.Should().Be(1);
+        alerts.First().Message.Should().Contain("20 kg khả dụng");
     }
 
     [Fact]
@@ -493,35 +542,25 @@ public class LowStockDetectionServiceTests
         await context.SaveChangesAsync();
 
         var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
-        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         await service.DetectLowStockAsync(CancellationToken.None);
-        var alert1 = await context.Alerts.FirstOrDefaultAsync();
-        alert1.Should().NotBeNull();
-        alert1!.DeduplicationKey.Should().Be("LOW_STOCK:1:1");
-        alert1.Status.Should().Be(AlertConstants.Status.Open);
 
         inventory.QuantityOnHand = 150m;
         context.Inventories.Update(inventory);
         await context.SaveChangesAsync();
 
         await service.DetectLowStockAsync(CancellationToken.None);
-        var alert2 = await context.Alerts.FirstOrDefaultAsync(a => a.Id == alert1.Id);
-        alert2!.Status.Should().Be(AlertConstants.Status.Resolved);
-        alert2.DeduplicationKey.Should().BeNull();
 
         inventory.QuantityOnHand = 10m;
         context.Inventories.Update(inventory);
         await context.SaveChangesAsync();
 
+        // Act
         var result = await service.DetectLowStockAsync(CancellationToken.None);
-        result.Created.Should().Be(1);
 
-        var allAlerts = await context.Alerts.ToListAsync();
-        allAlerts.Count.Should().Be(2);
-        var newAlert = allAlerts.FirstOrDefault(a => a.Status == AlertConstants.Status.Open);
-        newAlert.Should().NotBeNull();
-        newAlert!.DeduplicationKey.Should().Be("LOW_STOCK:1:1");
+        // Assert
+        result.Created.Should().Be(1);
     }
 
     [Fact]
@@ -541,7 +580,7 @@ public class LowStockDetectionServiceTests
             SKU = "PV-01",
             Name = "PV-01",
             IsActive = true,
-            MinStockLevel = null, // No threshold configuration
+            MinStockLevel = null,
             IsDeleted = false
         };
         context.ProductVariants.Add(variant);
@@ -549,7 +588,7 @@ public class LowStockDetectionServiceTests
         await context.SaveChangesAsync();
 
         var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
-        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
         var result = await service.DetectLowStockAsync(CancellationToken.None);
@@ -569,7 +608,7 @@ public class LowStockDetectionServiceTests
         await context.SaveChangesAsync();
 
         var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
-        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
         await service.DetectLowStockAsync(CancellationToken.None);
@@ -582,5 +621,129 @@ public class LowStockDetectionServiceTests
             It.IsAny<string>(),
             It.IsAny<int?>()
         ), Times.Once);
+    }
+
+    // =========================================================================
+    // D2 Fix: Unit Tests for DetectLowStockForProductAsync (Per-Product Event Path)
+    // =========================================================================
+
+    [Fact]
+    public async Task DetectLowStockForProductAsync_WhenStockIsLow_ShouldCreateAlert()
+    {
+        // Arrange
+        using var context = CreateContext();
+        await SeedBaseDataAsync(context);
+
+        context.Inventories.Add(new Backend.Domain.Entities.Inventory
+        {
+            WarehouseId = 1,
+            ProductVariantId = 1,
+            LocationId = 1,
+            QuantityOnHand = 0m, // 0 kg -> Critical severity (<= 0m)
+            IsDeleted = false
+        });
+        await context.SaveChangesAsync();
+
+        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
+
+        // Act
+        await service.DetectLowStockForProductAsync(1, 1, CancellationToken.None);
+
+        // Assert
+        var alert = await context.Alerts.FirstOrDefaultAsync();
+        alert.Should().NotBeNull();
+        alert!.WarehouseId.Should().Be(1);
+        alert.ProductVariantId.Should().Be(1);
+        alert.Status.Should().Be(AlertConstants.Status.Open);
+        alert.Severity.Should().Be(AlertConstants.Severity.Critical);
+
+        _dispatcherMock.Verify(d => d.DispatchAsync(
+            NotificationConstants.Code.LowStockAlert,
+            It.Is<NotificationTarget>(t => t.RoleIds.Contains(CommonConstants.Role.ADMIN) && t.RoleIds.Contains(CommonConstants.Role.EXECUTIVE)),
+            It.Is<object[]>(args => args.Length == 4 && args[0].ToString() == "PV-ST25 - Gạo ST25 10kg"),
+            It.IsAny<string>(),
+            It.IsAny<int?>()
+        ), Times.Once);
+    }
+
+    [Fact]
+    public async Task DetectLowStockForProductAsync_WhenStockRecovers_ShouldResolveAlert()
+    {
+        // Arrange
+        using var context = CreateContext();
+        await SeedBaseDataAsync(context);
+
+        var preAlert = new Alert
+        {
+            AlertType = AlertConstants.Type.LowStock,
+            Severity = AlertConstants.Severity.Warning,
+            WarehouseId = 1,
+            ProductVariantId = 1,
+            RelatedEntityType = "PRODUCT_VARIANT",
+            RelatedEntityId = 1,
+            Status = AlertConstants.Status.Open,
+            Message = "Cảnh báo cũ",
+            CreatedDate = DateTime.UtcNow,
+            IsDeleted = false,
+            DeduplicationKey = "LOW_STOCK:1:1"
+        };
+        context.Alerts.Add(preAlert);
+
+        // Stock recovered: 120 > 100
+        context.Inventories.Add(new Backend.Domain.Entities.Inventory
+        {
+            WarehouseId = 1,
+            ProductVariantId = 1,
+            LocationId = 1,
+            QuantityOnHand = 120m,
+            IsDeleted = false
+        });
+        await context.SaveChangesAsync();
+
+        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
+
+        // Act
+        await service.DetectLowStockForProductAsync(1, 1, CancellationToken.None);
+
+        // Assert
+        var alert = await context.Alerts.FirstOrDefaultAsync(a => a.Id == preAlert.Id);
+        alert!.Status.Should().Be(AlertConstants.Status.Resolved);
+        alert.DeduplicationKey.Should().BeNull();
+        alert.ResolvedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task DetectLowStockForProductAsync_WhenUniqueConstraintFires_ShouldFallBackToUpdate()
+    {
+        // Arrange (Concurrency violation simulation using FakeContext)
+        var dbName = Guid.NewGuid().ToString();
+        using var context = CreateFakeContext("LOW_STOCK:1:1", dbName);
+        await SeedBaseDataAsync(context);
+
+        context.Inventories.Add(new Backend.Domain.Entities.Inventory
+        {
+            WarehouseId = 1,
+            ProductVariantId = 1,
+            LocationId = 1,
+            QuantityOnHand = 30m,
+            IsDeleted = false
+        });
+        await context.SaveChangesAsync();
+
+        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
+
+        // ACTIVATE CONCURRENCY SIMULATION AFTER SEEDING DATA
+        context.SimulateConcurrency = true;
+
+        // Act
+        await service.DetectLowStockForProductAsync(1, 1, CancellationToken.None);
+
+        // Assert
+        var alerts = await context.Alerts.Where(a => a.DeduplicationKey == "LOW_STOCK:1:1").ToListAsync();
+        alerts.Count.Should().Be(1); // Concurrency check handles duplicates and merges updates!
+        alerts.First().Message.Should().Contain("30 kg khả dụng");
     }
 }

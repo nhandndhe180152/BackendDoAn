@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Backend.Application.Constants;
 using Backend.Application.Interfaces;
 using Backend.Domain.Entities;
+using Backend.Share.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -17,17 +18,20 @@ public class LowStockDetectionService : ILowStockDetectionService
     private readonly IApplicationDbContext _context;
     private readonly ILowStockQueryService _queryService;
     private readonly INotificationDispatcher _notificationDispatcher;
+    private readonly ICacheService _cacheService;
     private readonly ILogger<LowStockDetectionService> _logger;
 
     public LowStockDetectionService(
         IApplicationDbContext context,
         ILowStockQueryService queryService,
         INotificationDispatcher notificationDispatcher,
+        ICacheService cacheService,
         ILoggerFactory loggerFactory)
     {
         _context = context;
         _queryService = queryService;
         _notificationDispatcher = notificationDispatcher;
+        _cacheService = cacheService;
         _logger = loggerFactory.CreateLogger<LowStockDetectionService>();
     }
 
@@ -35,6 +39,15 @@ public class LowStockDetectionService : ILowStockDetectionService
     {
         var stopwatch = Stopwatch.StartNew();
         var result = new LowStockJobResult();
+        var lockKey = "stocklite:job-01";
+
+        if (await _cacheService.ExistsAsync(lockKey))
+        {
+            _logger.LogWarning("[LowStockDetection] Skip execution. Reason: lock_exists (Job is already running).");
+            return result;
+        }
+
+        await _cacheService.SetAsync(lockKey, "running", TimeSpan.FromMinutes(5));
 
         try
         {
@@ -241,6 +254,10 @@ public class LowStockDetectionService : ILowStockDetectionService
             _logger.LogError(ex, "[LowStockDetection] Lỗi nghiêm trọng khi thực thi JOB-01.");
             result.Failed++;
         }
+        finally
+        {
+            await _cacheService.RemoveAsync(lockKey);
+        }
 
         stopwatch.Stop();
         result.DurationMs = stopwatch.ElapsedMilliseconds;
@@ -249,6 +266,16 @@ public class LowStockDetectionService : ILowStockDetectionService
 
     public async Task DetectLowStockForProductAsync(int warehouseId, int productVariantId, CancellationToken cancellationToken)
     {
+        var lockKey = "stocklite:job-01";
+
+        if (await _cacheService.ExistsAsync(lockKey))
+        {
+            _logger.LogWarning("[LowStockDetection] Skip per-product execution for SKU {ProductVariantId} at warehouse {WarehouseId}. Reason: lock_exists.", productVariantId, warehouseId);
+            return;
+        }
+
+        await _cacheService.SetAsync(lockKey, "running", TimeSpan.FromMinutes(2));
+
         using var transaction = _context.Database.ProviderName != "Microsoft.EntityFrameworkCore.InMemory"
             ? await _context.Database.BeginTransactionAsync(cancellationToken)
             : null;
@@ -429,6 +456,10 @@ public class LowStockDetectionService : ILowStockDetectionService
                 dbContext.ChangeTracker.Clear();
             }
             _logger.LogError(ex, "[LowStockDetection] Lỗi khi phát hiện tồn thấp cho SKU {ProductVariantId} tại kho {WarehouseId}.", productVariantId, warehouseId);
+        }
+        finally
+        {
+            await _cacheService.RemoveAsync(lockKey);
         }
     }
 

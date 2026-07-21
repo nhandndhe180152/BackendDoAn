@@ -8,6 +8,7 @@ using Backend.Application.Constants;
 using Backend.Application.Interfaces;
 using Backend.Domain.Entities;
 using Backend.Infrastructure.Persistence;
+using Backend.Share.Services;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -19,6 +20,7 @@ namespace Backend.UnitTest.Services.LowStock;
 public class LowStockDetectionServiceIntegrationTests
 {
     private readonly Mock<INotificationDispatcher> _dispatcherMock = new();
+    private readonly Mock<ICacheService> _cacheMock = new();
     private readonly Mock<ILoggerFactory> _loggerFactoryMock = new();
     private readonly Mock<ILogger<LowStockDetectionService>> _loggerMock = new();
     private readonly Mock<ILogger<LowStockQueryService>> _queryLoggerMock = new();
@@ -99,7 +101,7 @@ public class LowStockDetectionServiceIntegrationTests
         await context.SaveChangesAsync();
 
         var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
-        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
         var result = await service.DetectLowStockAsync(CancellationToken.None);
@@ -134,7 +136,7 @@ public class LowStockDetectionServiceIntegrationTests
         )).ThrowsAsync(new Exception("Firebase connection timeout"));
 
         var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
-        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
         var result = await service.DetectLowStockAsync(CancellationToken.None);
