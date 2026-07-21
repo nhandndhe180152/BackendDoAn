@@ -63,5 +63,8 @@ public class InventoryConfiguration : IEntityTypeConfiguration<Inventory>
         builder.HasIndex(x => new { x.ProductVariantId, x.WarehouseId, x.LocationId, x.PaddyLotId })
             .IsUnique()
             .HasDatabaseName("UX_Inventory_ProductVariant_Warehouse_Location_Lot");
+
+        builder.HasIndex(x => new { x.WarehouseId, x.ProductVariantId, x.IsDeleted, x.LocationId, x.PaddyLotId })
+            .HasDatabaseName("IX_Inventory_LowStockAggregation");
     }
 }

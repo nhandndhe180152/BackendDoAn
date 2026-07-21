@@ -55,6 +55,12 @@ public class JobRegistrar : IJobRegistrar
             _config.CleanupVerificationTokens.Cron
         );
 
+        RegisterJob<LowStockDetectionJob>(
+            "JOB-01-low-stock-detection",
+            _config.LowStockDetection.Enabled,
+            _config.LowStockDetection.Cron
+        );
+
         // RegisterJob<PingDatabaseJob>(
         // nameof(PingDatabaseJob),
         // _config.PingDatabase.Enabled,

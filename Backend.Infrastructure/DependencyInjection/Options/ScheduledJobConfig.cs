@@ -9,6 +9,7 @@ public class ScheduledJobConfig
     public JobSetting CleanupVerificationTokens { get; set; } = new();
     public JobSetting CreateDriverSalaries { get; set; } = new();
     public JobSetting PingDatabase { get; set; } = new();
+    public JobSetting LowStockDetection { get; set; } = new();
 }
 
 public class JobSetting

@@ -1,6 +1,7 @@
 using System;
 using System.Transactions;
 using Backend.Application.Interfaces;
+using Backend.Application.BackgroundJobs.LowStock;
 using Backend.Domain.Abstractions;
 using Backend.Domain.Abstractions.Repositories;
 using Backend.Domain.Interfaces.Repositories;
@@ -117,6 +118,9 @@ public static class ConfigureServices
         services.AddScoped<IJobRegistrar, JobRegistrar>();
         services.AddScoped<UserSessionCleanupJob>();
         services.AddScoped<VerificationTokenCleanupJob>();
+        services.AddScoped<LowStockDetectionJob>();
+        services.AddScoped<ILowStockQueryService, LowStockQueryService>();
+        services.AddScoped<ILowStockDetectionService, LowStockDetectionService>();
         services.AddScoped<IEmailService<GoogleMailRequest>, GoogleEmailService>();
         services.AddScoped<IImageProcessor, MagickImageProcessor>();
         services.AddScoped<IFireBaseService, FireBaseService>();

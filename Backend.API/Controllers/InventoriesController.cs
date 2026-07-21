@@ -4,6 +4,7 @@ using Backend.Domain.DTParameters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Hangfire;
 
 namespace Backend.API.Controllers
 {
@@ -57,6 +58,15 @@ namespace Backend.API.Controllers
         {
             var result = await _inventoryService.GetLowStockAsync(warehouseId, limit);
             return BaseResult(result);
+        }
+
+        [HttpPost("trigger-low-stock-job")]
+        public IActionResult TriggerLowStockJob([FromServices] Hangfire.IBackgroundJobClient backgroundJobClient)
+        {
+            backgroundJobClient.Enqueue<Backend.Application.BackgroundJobs.LowStock.ILowStockDetectionService>(x => 
+                x.DetectLowStockAsync(System.Threading.CancellationToken.None));
+                
+            return Ok(new { Message = "Đã gửi yêu cầu chạy Job quét Tồn kho thấp vào hàng đợi Hangfire!" });
         }
     }
 }

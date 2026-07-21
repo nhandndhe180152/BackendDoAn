@@ -11,7 +11,7 @@ public class StockAlertConfigAggregate
     public int? ProductVariantId { get; set; }
     public string? ProductVariantSku { get; set; }
     public string? ProductName { get; set; }
-    public int MinThreshold { get; set; }
+    public decimal MinThreshold { get; set; }
     public bool IsActive { get; set; }
     public DateTime CreatedDate { get; set; }
 }

@@ -21,6 +21,7 @@ public class Alert : EntityAuditBase<int>
     public int? AcknowledgedBy { get; set; }
     public DateTime? AcknowledgedAt { get; set; }
     public DateTime? ResolvedAt { get; set; }
+    public string? DeduplicationKey { get; set; }
 
     public virtual Warehouse Warehouse { get; set; } = null!;
     public virtual ProductVariant? ProductVariant { get; set; }

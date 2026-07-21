@@ -109,6 +109,7 @@ public class AlertService : IAlertService
 
         entity.Status = AlertConstants.Status.Resolved;
         entity.ResolvedAt = DateTime.Now;
+        entity.DeduplicationKey = null;
         if (entity.AcknowledgedBy == null)
         {
             entity.AcknowledgedBy = userId;
@@ -125,12 +126,17 @@ public class AlertService : IAlertService
 
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {
-        var isDeleted = await _alertRepository.SoftDeleteAsync(id);
-        if (!isDeleted)
-            return ApiResponse.BadRequest();
+        var entity = await _alertRepository.GetByIdAsync(id);
+        if (entity == null || entity.IsDeleted)
+            return ApiResponse.NotFound();
 
+        entity.IsDeleted = true;
+        entity.DeduplicationKey = null;
+        entity.LastModifiedDate = DateTime.Now;
+
+        await _alertRepository.UpdateAsync(entity);
         await _alertRepository.SaveChangesAsync();
-        return ApiResponse.Success(isDeleted);
+        return ApiResponse.Success(true, "Đã xóa cảnh báo.");
     }
 
     public async Task<ApiResponse> MarkAllReadAsync(int userId)

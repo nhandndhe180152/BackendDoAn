@@ -4,6 +4,7 @@ using Backend.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Backend.Infrastructure.Migrations
 {
     [DbContext(typeof(BackendContext))]
-    partial class BackendContextModelSnapshot : ModelSnapshot
+    [Migration("20260721050150_CompleteJob01LowStockDetectionSchema")]
+    partial class CompleteJob01LowStockDetectionSchema
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2908,6 +2911,15 @@ namespace Backend.Infrastructure.Migrations
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
                             Name = "Hủy"
+                        },
+                        new
+                        {
+                            Id = 7,
+                            Code = "PARTIALLY_STOCKED",
+                            Color = "#06B6D4",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Nhập một phần"
                         });
                 });
 
@@ -3060,6 +3072,38 @@ namespace Backend.Infrastructure.Migrations
                     b.HasIndex("ProductCategoryId");
 
                     b.ToTable("Product", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 101,
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Lúa nguyên liệu đầu vào thu mua từ nông dân",
+                            IsActive = true,
+                            IsDeleted = false,
+                            Name = "Lúa thô",
+                            ProductCategoryId = 101
+                        },
+                        new
+                        {
+                            Id = 102,
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Gạo thành phẩm sau xay xát",
+                            IsActive = true,
+                            IsDeleted = false,
+                            Name = "Gạo",
+                            ProductCategoryId = 102
+                        },
+                        new
+                        {
+                            Id = 103,
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Tấm, cám, trấu sinh ra trong quá trình xay xát",
+                            IsActive = true,
+                            IsDeleted = false,
+                            Name = "Phụ phẩm",
+                            ProductCategoryId = 103
+                        });
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.ProductAttribute", b =>
@@ -3143,6 +3187,38 @@ namespace Backend.Infrastructure.Migrations
                         .HasDatabaseName("IX_ProductCategory_ParentCategoryId");
 
                     b.ToTable("ProductCategory", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 101,
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Lúa nguyên liệu đầu vào",
+                            IsDeleted = false,
+                            Name = "Lúa thô",
+                            SortOrder = 101,
+                            TreeIds = "101"
+                        },
+                        new
+                        {
+                            Id = 102,
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Gạo sau xay xát",
+                            IsDeleted = false,
+                            Name = "Gạo thành phẩm",
+                            SortOrder = 102,
+                            TreeIds = "102"
+                        },
+                        new
+                        {
+                            Id = 103,
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Tấm, cám, trấu từ quá trình xay xát",
+                            IsDeleted = false,
+                            Name = "Phụ phẩm",
+                            SortOrder = 103,
+                            TreeIds = "103"
+                        });
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.ProductVariant", b =>
@@ -3242,6 +3318,53 @@ namespace Backend.Infrastructure.Migrations
                     b.HasIndex("UnitOfMeasureId");
 
                     b.ToTable("ProductVariant", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 101,
+                            CostPrice = 0m,
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsActive = true,
+                            IsByproduct = false,
+                            IsDeleted = false,
+                            Name = "Lúa thô (chung)",
+                            ProductId = 101,
+                            SKU = "PV-LUA-CHUNG",
+                            SalePrice = 0m,
+                            UnitOfMeasureId = 101,
+                            Weight = 50m
+                        },
+                        new
+                        {
+                            Id = 102,
+                            CostPrice = 0m,
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsActive = true,
+                            IsByproduct = false,
+                            IsDeleted = false,
+                            Name = "Gạo (chung)",
+                            ProductId = 102,
+                            SKU = "PV-GAO-CHUNG",
+                            SalePrice = 0m,
+                            UnitOfMeasureId = 101,
+                            Weight = 50m
+                        },
+                        new
+                        {
+                            Id = 103,
+                            CostPrice = 0m,
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsActive = true,
+                            IsByproduct = true,
+                            IsDeleted = false,
+                            Name = "Phụ phẩm (chung)",
+                            ProductId = 103,
+                            SKU = "PV-PHUPHAM-CHUNG",
+                            SalePrice = 0m,
+                            UnitOfMeasureId = 101,
+                            Weight = 50m
+                        });
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.PurchaseOrder", b =>
@@ -4745,6 +4868,32 @@ namespace Backend.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("UnitOfMeasure", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 101,
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Kilogram",
+                            Symbol = "kg"
+                        },
+                        new
+                        {
+                            Id = 102,
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Tấn",
+                            Symbol = "T"
+                        },
+                        new
+                        {
+                            Id = 103,
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Bao (50kg)",
+                            Symbol = "bao"
+                        });
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.User", b =>
