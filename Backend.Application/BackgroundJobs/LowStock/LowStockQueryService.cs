@@ -23,7 +23,8 @@ public class LowStockQueryService : ILowStockQueryService
 
     public async Task<(List<LowStockSnapshotDto> Snapshots, int SkippedCount)> GetLowStockSnapshotsAsync(CancellationToken cancellationToken)
     {
-        // 1. Group & Sum ở database level bằng AsNoTracking (Chỉ group theo ID để tối ưu hoá và tránh lỗi dịch GroupBy trên MySQL)
+        // 1. Lấy aggregation tồn kho từ DB (chỉ các dòng còn tồn tại và hợp lệ)
+        //    Chú ý: đây chỉ là phần "có dòng Inventory" — các SKU hết sạch sẽ KHÔNG có trong dict này (AvailableKg mặc định = 0)
         var rawInventories = await _context.Inventories
             .AsNoTracking()
             .Where(i => !i.IsDeleted)
@@ -31,11 +32,7 @@ public class LowStockQueryService : ILowStockQueryService
             .Where(i => i.ProductVariant.IsActive && !i.ProductVariant.IsDeleted)
             .Where(i => i.Location == null || (i.Location.IsActive && !i.Location.IsDeleted && !i.Location.IsQuarantine))
             .Where(i => i.PaddyLot == null || (i.PaddyLot.Status.IsSellable && !i.PaddyLot.IsDeleted))
-            .GroupBy(i => new
-            {
-                i.WarehouseId,
-                i.ProductVariantId
-            })
+            .GroupBy(i => new { i.WarehouseId, i.ProductVariantId })
             .Select(g => new
             {
                 g.Key.WarehouseId,
@@ -45,13 +42,22 @@ public class LowStockQueryService : ILowStockQueryService
             })
             .ToListAsync(cancellationToken);
 
-        // 2. Load các cấu hình ngưỡng cảnh báo (StockAlertConfig) active
-        var configs = await _context.StockAlertConfigs
+        // Build dictionary (WarehouseId, ProductVariantId) → (onHand, reserved)
+        var inventoryMap = rawInventories.ToDictionary(
+            r => (r.WarehouseId, r.ProductVariantId),
+            r => (r.SellableOnHandKg, r.ReservedKg));
+
+        // 2. Load StockAlertConfig active, chỉ lấy config có ProductVariantId (theo từng SKU + kho cụ thể)
+        //    E2 Fix: Dùng GroupBy+Min thay vì ToDictionaryAsync để an toàn khi có config trùng (tránh ArgumentException)
+        var configs = (await _context.StockAlertConfigs
             .AsNoTracking()
             .Where(c => c.IsActive && !c.IsDeleted && c.ProductVariantId != null)
-            .ToDictionaryAsync(c => (c.WarehouseId, c.ProductVariantId!.Value), c => c.MinThreshold, cancellationToken);
+            .Select(c => new { c.WarehouseId, ProductVariantId = c.ProductVariantId!.Value, c.MinThreshold })
+            .ToListAsync(cancellationToken))
+            .GroupBy(c => (c.WarehouseId, c.ProductVariantId))
+            .ToDictionary(g => g.Key, g => g.Min(x => x.MinThreshold)); // lấy ngưỡng thấp nhất nếu trùng
 
-        // 3. Load active Warehouses thông tin Code
+        // 3. Load active Warehouses
         var warehouses = await _context.Warehouses
             .AsNoTracking()
             .Where(w => w.IsActive && !w.IsDeleted)
@@ -73,26 +79,42 @@ public class LowStockQueryService : ILowStockQueryService
         var result = new List<LowStockSnapshotDto>();
         int skippedCount = 0;
 
+        // 5. E1 Fix: Duyệt qua TẤT CẢ (kho, SKU) có ngưỡng — không chỉ các cặp có dòng Inventory
+        //    Lý do: SKU đã hết sạch (không còn dòng Inventory nào) vẫn phải sinh alert CRITICAL
+        //    Ta lấy union của: (a) các cặp có dòng Inventory, (b) các cặp có StockAlertConfig (kể cả 0 dòng Inventory)
+
+        // Tập hợp tất cả (warehouseId, productVariantId) cần kiểm tra
+        var allPairs = new HashSet<(int WarehouseId, int ProductVariantId)>();
+
+        // Các cặp có dòng inventory
         foreach (var raw in rawInventories)
+            allPairs.Add((raw.WarehouseId, raw.ProductVariantId));
+
+        // Các cặp có StockAlertConfig (SKU hết sạch vẫn cần kiểm tra)
+        foreach (var cfg in configs.Keys)
+            allPairs.Add(cfg);
+
+        // Các cặp (kho active, SKU có MinStockLevel) — SKU hết sạch nhưng vẫn có ngưỡng mặc định
+        foreach (var variant in productVariants.Values.Where(v => v.MinStockLevel != null))
         {
-            if (!warehouses.TryGetValue(raw.WarehouseId, out var warehouseCode))
-                continue; // Kho bị xoá hoặc không hoạt động
+            foreach (var warehouseId in warehouses.Keys)
+                allPairs.Add((warehouseId, variant.Id));
+        }
 
-            if (!productVariants.TryGetValue(raw.ProductVariantId, out var variant))
-                continue; // Biến thể bị xoá hoặc không hoạt động
+        foreach (var (warehouseId, productVariantId) in allPairs)
+        {
+            if (!warehouses.TryGetValue(warehouseId, out var warehouseCode))
+                continue;
 
+            if (!productVariants.TryGetValue(productVariantId, out var variant))
+                continue;
+
+            // Xác định ngưỡng (ưu tiên StockAlertConfig trước, fallback sang MinStockLevel)
             decimal? threshold = null;
-
-            // Ưu tiên 1: StockAlertConfig của Warehouse + ProductVariant
-            if (configs.TryGetValue((raw.WarehouseId, raw.ProductVariantId), out var configThreshold))
-            {
+            if (configs.TryGetValue((warehouseId, productVariantId), out var configThreshold))
                 threshold = configThreshold;
-            }
-            // Ưu tiên 2: ProductVariant.MinStockLevel
             else if (variant.MinStockLevel != null)
-            {
                 threshold = variant.MinStockLevel.Value;
-            }
 
             if (threshold == null)
             {
@@ -101,22 +123,29 @@ public class LowStockQueryService : ILowStockQueryService
                 continue;
             }
 
+            // Lấy tồn kho — nếu không có dòng Inventory nào → 0 kg (E1 Fix)
+            inventoryMap.TryGetValue((warehouseId, productVariantId), out var inv);
+            var sellableOnHand = inv.SellableOnHandKg;
+            var reserved = inv.ReservedKg;
+            var available = Math.Max(0m, sellableOnHand - reserved);
+
             result.Add(new LowStockSnapshotDto
             {
-                WarehouseId = raw.WarehouseId,
+                WarehouseId = warehouseId,
                 WarehouseCode = warehouseCode,
-                ProductVariantId = raw.ProductVariantId,
+                ProductVariantId = productVariantId,
                 SKU = variant.SKU,
                 ProductName = variant.ProductName,
-                SellableOnHandKg = raw.SellableOnHandKg,
-                ReservedKg = raw.ReservedKg,
-                AvailableKg = Math.Max(0m, raw.SellableOnHandKg - raw.ReservedKg),
+                SellableOnHandKg = sellableOnHand,
+                ReservedKg = reserved,
+                AvailableKg = available,
                 ThresholdKg = threshold.Value
             });
         }
 
         return (result, skippedCount);
     }
+
 
     public async Task<LowStockSnapshotDto?> GetLowStockSnapshotForProductAsync(int warehouseId, int productVariantId, CancellationToken cancellationToken)
     {

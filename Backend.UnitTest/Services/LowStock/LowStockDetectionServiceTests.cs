@@ -191,6 +191,59 @@ public class LowStockDetectionServiceTests
         alerts.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task DetectLowStockAsync_WhenSkuHasNoInventoryRows_ShouldCreateCriticalAlert()
+    {
+        // Arrange — E1 Fix regression: SKU có ngưỡng nhưng KHÔNG có dòng Inventory nào
+        using var context = CreateContext();
+        await SeedBaseDataAsync(context);
+        // KHÔNG thêm bất kỳ dòng Inventory nào → tồn kho = 0
+
+        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
+
+        // Act
+        var result = await service.DetectLowStockAsync(CancellationToken.None);
+
+        // Assert — phải sinh CRITICAL vì AvailableKg = 0 <= Threshold = 100
+        result.Created.Should().Be(1);
+        var alert = await context.Alerts.FirstOrDefaultAsync();
+        alert.Should().NotBeNull();
+        alert!.Severity.Should().Be(AlertConstants.Severity.Critical);
+        alert.AlertType.Should().Be(AlertConstants.Type.LowStock);
+        alert.Status.Should().Be(AlertConstants.Status.Open);
+    }
+
+    [Fact]
+    public async Task DetectLowStockAsync_WhenDuplicateStockAlertConfigExists_ShouldNotCrashJob()
+    {
+        // Arrange — E2 Fix regression: 2 config active cùng (WarehouseId, ProductVariantId)
+        using var context = CreateContext();
+        await SeedBaseDataAsync(context);
+
+        // 2 config trùng nhau — trước đây sẽ crash ToDictionaryAsync
+        context.StockAlertConfigs.AddRange(
+            new StockAlertConfig { WarehouseId = 1, ProductVariantId = 1, MinThreshold = 80, IsActive = true, IsDeleted = false },
+            new StockAlertConfig { WarehouseId = 1, ProductVariantId = 1, MinThreshold = 60, IsActive = true, IsDeleted = false }
+        );
+        context.Inventories.Add(new Backend.Domain.Entities.Inventory
+        {
+            WarehouseId = 1, ProductVariantId = 1, LocationId = 1, QuantityOnHand = 50m, IsDeleted = false
+        });
+        await context.SaveChangesAsync();
+
+        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
+
+        // Act — không được ném exception
+        var act = async () => await service.DetectLowStockAsync(CancellationToken.None);
+        await act.Should().NotThrowAsync();
+
+        // Assert — sử dụng ngưỡng thấp nhất (60), tồn 50 < 60 * 0.5 = 30 → INFO (50 > 30) → Warning (50 <= 60)
+        var result = await service.DetectLowStockAsync(CancellationToken.None);
+        result.Failed.Should().Be(0);
+    }
+
     [Theory]
     [InlineData(100, 0, AlertConstants.Severity.Info)]
     [InlineData(40, 0, AlertConstants.Severity.Warning)]
