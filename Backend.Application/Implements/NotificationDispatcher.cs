@@ -80,11 +80,12 @@ public class NotificationDispatcher : INotificationDispatcher
             var notification = new Notification
             {
                 NotificationCategoryId = categoryId,
+                NotificationTypeId = CommonConstants.NotificationType.SYSTEM, // FK bắt buộc — luôn là loại "Hệ thống"
                 Title = title,
                 Content = content,
                 DirectionId = directionId,
                 CreatedBy = createdBy,
-                CreatedDate = DateTime.Now,
+                CreatedDate = DateTime.UtcNow,
             };
             await _notificationRepository.CreateAsync(notification);
             await _notificationRepository.SaveChangesAsync();
@@ -95,10 +96,11 @@ public class NotificationDispatcher : INotificationDispatcher
                 UserId = uid,
                 IsRead = false,
                 CreatedBy = createdBy,
-                CreatedDate = DateTime.Now,
+                CreatedDate = DateTime.UtcNow,
             }).ToList();
             await _userNotificationRepository.CreateListAsync(userNotifications);
             await _userNotificationRepository.SaveChangesAsync();
+
 
             // 2) Push FCM tới các thiết bị của người nhận.
             var tokens = await _userDeviceRepository
@@ -135,7 +137,7 @@ public class NotificationDispatcher : INotificationDispatcher
             Name = name,
             Color = color,
             Description = name,
-            CreatedDate = DateTime.Now,
+            CreatedDate = DateTime.UtcNow,
         };
         await _notificationCategoryRepository.CreateAsync(category);
         await _notificationCategoryRepository.SaveChangesAsync();

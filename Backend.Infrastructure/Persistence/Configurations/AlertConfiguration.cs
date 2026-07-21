@@ -41,10 +41,20 @@ public class AlertConfiguration : IEntityTypeConfiguration<Alert>
             .HasForeignKey(x => x.AcknowledgedBy)
             .OnDelete(DeleteBehavior.SetNull);
 
+        builder.Property(x => x.DeduplicationKey)
+            .HasMaxLength(200);
+
+        builder.HasIndex(x => x.DeduplicationKey)
+            .IsUnique()
+            .HasDatabaseName("UX_Alert_DeduplicationKey");
+
         builder.HasIndex(x => new { x.WarehouseId, x.Status })
             .HasDatabaseName("IX_Alert_WarehouseId_Status");
 
         builder.HasIndex(x => x.AlertType)
             .HasDatabaseName("IX_Alert_AlertType");
+
+        builder.HasIndex(x => new { x.AlertType, x.WarehouseId, x.ProductVariantId, x.Status, x.IsDeleted })
+            .HasDatabaseName("IX_Alert_ActiveLowStockLookup");
     }
 }

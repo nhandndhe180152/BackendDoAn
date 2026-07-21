@@ -13,7 +13,7 @@ public class CreateStockAlertConfigDto
     public int? ProductVariantId { get; set; }
 
     /// <summary>Ngưỡng tồn tối thiểu (đơn vị theo SKU). Tồn khả dụng ≤ ngưỡng sẽ sinh cảnh báo.</summary>
-    public int MinThreshold { get; set; }
+    public decimal MinThreshold { get; set; }
 
     public bool IsActive { get; set; } = true;
 

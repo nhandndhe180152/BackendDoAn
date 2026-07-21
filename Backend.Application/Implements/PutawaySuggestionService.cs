@@ -8,10 +8,12 @@ using System.Threading.Tasks;
 using Backend.Application.Constants;
 using Backend.Application.DTOs.Putaway;
 using Backend.Application.Interfaces;
+using Backend.Application.BackgroundJobs.LowStock;
 using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
 using Backend.Share.Helpers;
+using Backend.Share.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -24,17 +26,20 @@ public class PutawaySuggestionService : IPutawaySuggestionService
     private readonly IApplicationDbContext _context;
     private readonly ILocationRepository _locationRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IScheduledJobService _scheduledJobService;
     private readonly ILogger<PutawaySuggestionService> _logger;
 
     public PutawaySuggestionService(
         IApplicationDbContext context,
         ILocationRepository locationRepository,
         IHttpContextAccessor httpContextAccessor,
+        IScheduledJobService scheduledJobService,
         ILogger<PutawaySuggestionService> logger)
     {
         _context = context;
         _locationRepository = locationRepository;
         _httpContextAccessor = httpContextAccessor;
+        _scheduledJobService = scheduledJobService;
         _logger = logger;
     }
 
@@ -805,6 +810,17 @@ public class PutawaySuggestionService : IPutawaySuggestionService
             {
                 await transaction.CommitAsync(cancellationToken);
                 transaction.Dispose();
+            }
+
+            try
+            {
+                var targetWarehouseId = location.WarehouseId;
+                var targetProductVariantId = request.ProductVariantId;
+                _scheduledJobService.Enqueue<ILowStockDetectionService>(s => s.DetectLowStockForProductAsync(targetWarehouseId, targetProductVariantId, CancellationToken.None));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi enqueue LowStockDetection job sau khi nhập kho thành công.");
             }
 
             return ApiResponse.Success(message: "Xác nhận nhập kho thành công.");

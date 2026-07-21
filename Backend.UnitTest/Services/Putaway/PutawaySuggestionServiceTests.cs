@@ -21,6 +21,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
+using Backend.Share.Services;
 using Moq;
 using Xunit;
 
@@ -31,6 +32,7 @@ public class PutawaySuggestionServiceTests
     private readonly Mock<IApplicationDbContext> _contextMock = new();
     private readonly Mock<ILocationRepository> _locationRepositoryMock = new();
     private readonly Mock<IHttpContextAccessor> _httpContextAccessorMock = new();
+    private readonly Mock<IScheduledJobService> _scheduledJobServiceMock = new();
     private readonly Mock<ILogger<PutawaySuggestionService>> _loggerMock = new();
 
     private readonly List<Location> _locations = new();
@@ -120,6 +122,7 @@ public class PutawaySuggestionServiceTests
             _contextMock.Object,
             _locationRepositoryMock.Object,
             _httpContextAccessorMock.Object,
+            _scheduledJobServiceMock.Object,
             _loggerMock.Object);
     }
 

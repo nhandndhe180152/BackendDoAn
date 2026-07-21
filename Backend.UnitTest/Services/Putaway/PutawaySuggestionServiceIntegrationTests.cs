@@ -10,6 +10,7 @@ using Backend.Domain.Abstractions;
 using Backend.Domain.Entities;
 using Backend.Infrastructure.Persistence;
 using Backend.Infrastructure.Repositories;
+using Backend.Share.Services;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -23,6 +24,7 @@ public class PutawaySuggestionServiceIntegrationTests
 {
     private readonly Mock<ILogger<PutawaySuggestionService>> _loggerMock = new();
     private readonly Mock<IHttpContextAccessor> _httpContextAccessorMock = new();
+    private readonly Mock<IScheduledJobService> _scheduledJobServiceMock = new();
 
     public PutawaySuggestionServiceIntegrationTests()
     {
@@ -135,6 +137,7 @@ public class PutawaySuggestionServiceIntegrationTests
             context,
             locationRepo,
             _httpContextAccessorMock.Object,
+            _scheduledJobServiceMock.Object,
             _loggerMock.Object
         );
 

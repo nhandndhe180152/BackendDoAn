@@ -88,9 +88,9 @@ public class AlertService : IAlertService
 
         entity.Status = AlertConstants.Status.Acknowledged;
         entity.AcknowledgedBy = userId;
-        entity.AcknowledgedAt = DateTime.Now;
+        entity.AcknowledgedAt = DateTime.UtcNow;
         entity.UpdatedBy = userId;
-        entity.LastModifiedDate = DateTime.Now;
+        entity.LastModifiedDate = DateTime.UtcNow;
 
         await _alertRepository.UpdateAsync(entity);
         await _alertRepository.SaveChangesAsync();
@@ -108,14 +108,15 @@ public class AlertService : IAlertService
             return ApiResponse.BadRequest("Cảnh báo đã được xử lý trước đó.", ApiCodeConstants.Common.BadRequest);
 
         entity.Status = AlertConstants.Status.Resolved;
-        entity.ResolvedAt = DateTime.Now;
+        entity.ResolvedAt = DateTime.UtcNow;
+        entity.DeduplicationKey = null;
         if (entity.AcknowledgedBy == null)
         {
             entity.AcknowledgedBy = userId;
-            entity.AcknowledgedAt = DateTime.Now;
+            entity.AcknowledgedAt = DateTime.UtcNow;
         }
         entity.UpdatedBy = userId;
-        entity.LastModifiedDate = DateTime.Now;
+        entity.LastModifiedDate = DateTime.UtcNow;
 
         await _alertRepository.UpdateAsync(entity);
         await _alertRepository.SaveChangesAsync();
@@ -125,12 +126,17 @@ public class AlertService : IAlertService
 
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {
-        var isDeleted = await _alertRepository.SoftDeleteAsync(id);
-        if (!isDeleted)
-            return ApiResponse.BadRequest();
+        var entity = await _alertRepository.GetByIdAsync(id);
+        if (entity == null || entity.IsDeleted)
+            return ApiResponse.NotFound();
 
+        entity.IsDeleted = true;
+        entity.DeduplicationKey = null;
+        entity.LastModifiedDate = DateTime.UtcNow;
+
+        await _alertRepository.UpdateAsync(entity);
         await _alertRepository.SaveChangesAsync();
-        return ApiResponse.Success(isDeleted);
+        return ApiResponse.Success(true, "Đã xóa cảnh báo.");
     }
 
     public async Task<ApiResponse> MarkAllReadAsync(int userId)
@@ -143,9 +149,9 @@ public class AlertService : IAlertService
         {
             alert.Status = AlertConstants.Status.Acknowledged;
             alert.AcknowledgedBy = userId;
-            alert.AcknowledgedAt = DateTime.Now;
+            alert.AcknowledgedAt = DateTime.UtcNow;
             alert.UpdatedBy = userId;
-            alert.LastModifiedDate = DateTime.Now;
+            alert.LastModifiedDate = DateTime.UtcNow;
             await _alertRepository.UpdateAsync(alert);
         }
 
