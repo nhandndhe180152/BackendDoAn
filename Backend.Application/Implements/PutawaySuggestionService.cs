@@ -16,6 +16,7 @@ using Backend.Share.Helpers;
 using Backend.Share.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 
 namespace Backend.Application.Implements;
@@ -129,6 +130,28 @@ public class PutawaySuggestionService : IPutawaySuggestionService
         if (product == null)
         {
             return ApiResponse.NotFound("Không tìm thấy loại sản phẩm.", ApiCodeConstants.Common.NotFound);
+        }
+
+        // Validate: Khối lượng yêu cầu gợi ý cất kho không được vượt quá số lượng hàng thực tế còn lại ở vị trí đệm (LocationId = null)
+        if (request.PaddyLotId.HasValue)
+        {
+            var bufferInv = await _context.Inventories
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x =>
+                    !x.IsDeleted &&
+                    x.WarehouseId == request.WarehouseId &&
+                    x.LocationId == null &&
+                    x.ProductVariantId == request.ProductVariantId &&
+                    x.PaddyLotId == request.PaddyLotId,
+                    cancellationToken);
+
+            var bufferQty = bufferInv?.QuantityOnHand ?? 0m;
+            if (request.RequiredWeightKg > bufferQty)
+            {
+                return ApiResponse.BadRequest(
+                    $"Khối lượng yêu cầu gợi ý cất kho ({request.RequiredWeightKg:N0} kg) vượt quá khối lượng còn lại trong khu vực đệm ({bufferQty:N0} kg) của lô hàng này.",
+                    "PUTAWAY_WEIGHT_EXCEEDS_BUFFER");
+            }
         }
 
         // Resolving weights from SystemConfig
@@ -343,7 +366,10 @@ public class PutawaySuggestionService : IPutawaySuggestionService
                 ProductVariantId: request.ProductVariantId,
                 RequiredWeightKg: request.RequiredWeightKg,
                 Suggestions: new List<PutawaySuggestionDto>(),
-                Message: "Kho đã đầy hoặc không đủ sức chứa trống để phân bổ lô hàng này. Hãy giải phóng bớt không gian hoặc phân chia lô thủ công."));
+                Message: $"Kho không đủ sức chứa trống để phân bổ lô hàng {request.RequiredWeightKg:N0} kg này. Tổng sức chứa trống còn lại của tất cả ô kệ cộng lại chỉ là {totalFree:N0} kg. Vui lòng giải phóng bớt không gian hoặc chia nhỏ lô hàng nhỏ hơn mức này.",
+                CanSplit: false,
+                TotalFreeCapacityKg: totalFree,
+                SplitSuggestions: null));
         }
 
         // Phân bổ tối ưu (Greedy theo Score cao giảm dần)
@@ -368,8 +394,9 @@ public class PutawaySuggestionService : IPutawaySuggestionService
             ProductVariantId: request.ProductVariantId,
             RequiredWeightKg: request.RequiredWeightKg,
             Suggestions: new List<PutawaySuggestionDto>(),
-            Message: "Không có ô kệ đơn lẻ nào đủ sức chứa toàn bộ. Đề xuất chia nhỏ lô hàng của bạn như sau:",
+            Message: $"Không có ô kệ đơn lẻ nào đủ sức chứa toàn bộ {request.RequiredWeightKg:N0} kg. Đề xuất chia nhỏ lô hàng của bạn vào các ô kệ như sau (Tổng sức chứa trống khả dụng trong kho: {totalFree:N0} kg):",
             CanSplit: true,
+            TotalFreeCapacityKg: totalFree,
             SplitSuggestions: splitResults));
     }
 
@@ -458,37 +485,82 @@ public class PutawaySuggestionService : IPutawaySuggestionService
 
         var isPaddy = referenceType.Equals("PADDY_PURCHASE", StringComparison.OrdinalIgnoreCase);
 
+        // BLOCKING-2 guard: Luồng lúa (PADDY_PURCHASE) bắt buộc phải có PaddyLotId để đảm bảo
+        // tồn kho đệm (LocationId=null) được tìm đúng và trừ đúng.
+        if (isPaddy && !request.PaddyLotId.HasValue)
+        {
+            return ApiResponse.BadRequest(
+                "Luồng thu mua lúa (PADDY_PURCHASE) bắt buộc phải truyền PaddyLotId để định danh lô hàng và trừ tồn kho đệm chính xác.",
+                "PADDY_LOT_ID_REQUIRED");
+        }
+
         // 1. Kiểm soát tranh chấp (Lock/Transaction)
-        using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        IDbContextTransaction? transaction = null;
+        if (_context.Database.ProviderName != "Microsoft.EntityFrameworkCore.InMemory")
+        {
+            transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        }
         try
         {
-            // 2. Kiểm tra tài liệu nguồn (Source Document) + M1: cho phép split
+            // 2. Tìm vị trí kệ trước tiên để kiểm tra kho hàng
+            var location = await _context.Locations
+                .FirstOrDefaultAsync(x => x.Id == request.SelectedLocationId && !x.IsDeleted && x.IsActive, cancellationToken);
+
+            if (location == null)
+                return ApiResponse.NotFound("Vị trí kệ không tồn tại hoặc đã bị khóa.", ApiCodeConstants.Common.NotFound);
+
+            // 3. Kiểm tra tài liệu nguồn (Source Document) + M1: cho phép split
+            PaddyPurchaseReceipt paddyReceipt = null;
+            InboundOrder inboundOrder = null;
+            Backend.Domain.Entities.PaddyLot lot = null;
+
             if (isPaddy)
             {
-                var paddyReceipt = await _context.PaddyPurchaseReceipts
+                paddyReceipt = await _context.PaddyPurchaseReceipts
                     .FirstOrDefaultAsync(x => x.Id == referenceId && !x.IsDeleted, cancellationToken);
 
                 if (paddyReceipt == null)
                     return ApiResponse.NotFound("Không tìm thấy phiếu thu mua lúa gốc.", ApiCodeConstants.Common.NotFound);
+
+                lot = await _context.PaddyLots
+                    .FirstOrDefaultAsync(x => x.Id == request.PaddyLotId!.Value && !x.IsDeleted, cancellationToken);
+
+                if (lot == null)
+                    return ApiResponse.Conflict("Lô hàng không tồn tại.", "LOT_NOT_FOUND");
+
+                if (lot.SourceReceiptId != referenceId)
+                    return ApiResponse.Conflict("Lô hàng không thuộc về phiếu thu mua này.", "LOT_NOT_MATCH_RECEIPT");
+
+                if (lot.ProductVariantId != request.ProductVariantId)
+                    return ApiResponse.Conflict("Thông tin biến thể sản phẩm của lô không khớp.", "LOT_VARIANT_MISMATCH");
+
+                if (lot.WarehouseId != location.WarehouseId)
+                    return ApiResponse.Conflict("Vị trí được chọn không thuộc kho hàng của lô lúa.", "WAREHOUSE_MISMATCH");
 
                 // M1: Cho phép split — chỉ block khi đã nhập đủ hoặc vượt quá tổng khối lượng
                 var totalStoredKg = await _context.PutawayDecisions
                     .Where(x => x.ReferenceType == "PADDY_PURCHASE" && x.ReferenceId == referenceId)
                     .SumAsync(x => x.RequiredWeightKg, cancellationToken);
 
-                if (totalStoredKg >= paddyReceipt.ActualWeightKg)
+                if (totalStoredKg + request.WeightKg > paddyReceipt.ActualWeightKg)
+                {
+                    var remaining = Math.Max(0m, paddyReceipt.ActualWeightKg - totalStoredKg);
                     return ApiResponse.Conflict(
-                        $"Phiếu thu mua lúa này đã nhập kho đủ {totalStoredKg:N0} kg (tổng: {paddyReceipt.ActualWeightKg:N0} kg).",
-                        "DOCUMENT_ALREADY_STORED");
+                        $"Khối lượng cất kho yêu cầu ({request.WeightKg:N0} kg) vượt quá khối lượng còn lại chưa cất của phiếu thu mua này ({remaining:N0} kg / tổng: {paddyReceipt.ActualWeightKg:N0} kg).",
+                        "STORE_IN_WEIGHT_EXCEEDS_REMAINING");
+                }
             }
             else
             {
-                var inboundOrder = await _context.InboundOrders
+                inboundOrder = await _context.InboundOrders
                     .Include(x => x.InboundOrderItems)
                     .FirstOrDefaultAsync(x => x.Id == referenceId && !x.IsDeleted, cancellationToken);
 
                 if (inboundOrder == null)
                     return ApiResponse.NotFound("Không tìm thấy phiếu nhập kho nguồn.", ApiCodeConstants.Common.NotFound);
+
+                if (inboundOrder.WarehouseId != location.WarehouseId)
+                    return ApiResponse.Conflict("Vị trí được chọn không thuộc kho hàng của phiếu nhập.", "WAREHOUSE_MISMATCH");
 
                 // M1: Cho phép split — chỉ block khi tổng đã store-in >= tổng số lượng đặt
                 var totalOrderedQty = inboundOrder.InboundOrderItems
@@ -499,25 +571,21 @@ public class PutawaySuggestionService : IPutawaySuggestionService
                     .Where(x => x.ReferenceType == referenceType && x.ReferenceId == referenceId)
                     .SumAsync(x => x.RequiredWeightKg, cancellationToken);
 
-                if (totalStoredKg >= totalOrderedQty && totalOrderedQty > 0)
+                if (totalStoredKg + request.WeightKg > totalOrderedQty && totalOrderedQty > 0)
+                {
+                    var remaining = Math.Max(0m, totalOrderedQty - totalStoredKg);
                     return ApiResponse.Conflict(
-                        $"Phiếu nhập kho này đã nhập kho đủ {totalStoredKg:N0} kg (tổng: {totalOrderedQty:N0} kg).",
-                        "DOCUMENT_ALREADY_STORED");
+                        $"Khối lượng cất kho yêu cầu ({request.WeightKg:N0} kg) vượt quá khối lượng còn lại chưa cất của phiếu nhập kho này ({remaining:N0} kg / tổng: {totalOrderedQty:N0} kg).",
+                        "STORE_IN_WEIGHT_EXCEEDS_REMAINING");
+                }
             }
 
-            // 3. Khách hàng xếp vị trí khác vị trí đề xuất (Override Check)
+            // 4. Khách hàng xếp vị trí khác vị trí đề xuất (Override Check)
             var isOverride = request.SuggestedLocationId.HasValue && request.SuggestedLocationId != request.SelectedLocationId;
             if (isOverride && string.IsNullOrWhiteSpace(request.OverrideReason))
             {
                 return ApiResponse.UnprocessableEntity("Vui lòng nhập lý do thay đổi vị trí so với đề xuất của hệ thống.", "OVERRIDE_REASON_REQUIRED");
             }
-
-            // 4. Tìm vị trí kệ
-            var location = await _context.Locations
-                .FirstOrDefaultAsync(x => x.Id == request.SelectedLocationId && !x.IsDeleted && x.IsActive, cancellationToken);
-
-            if (location == null)
-                return ApiResponse.NotFound("Vị trí kệ không tồn tại hoặc đã bị khóa.", ApiCodeConstants.Common.NotFound);
 
             // 5. Cập nhật sức chứa ô kệ an toàn (Concurrency checks)
             var rowsAffected = await _locationRepository.UpdateCapacitySafetyAsync(
@@ -538,6 +606,64 @@ public class PutawaySuggestionService : IPutawaySuggestionService
             var now = DateTimeHelper.VietnamNow();
             var userId = GetCurrentUserId();
 
+            decimal sourceCostPrice = 0m;
+
+            // RC-3 & Putaway fix: Đối với lúa (isPaddy), do lúc chốt phiếu đã tạm ghi nhận tồn tại khu đệm (LocationId = null),
+            // nên khi xếp vào ô kệ thực tế ta bắt buộc phải TRỪ số lượng tương ứng ở khu đệm này.
+            if (isPaddy)
+            {
+                var bufferInv = await _context.Inventories
+                    .FirstOrDefaultAsync(x =>
+                        !x.IsDeleted &&
+                        x.WarehouseId == location.WarehouseId &&
+                        x.LocationId == null &&
+                        x.ProductVariantId == request.ProductVariantId &&
+                        x.PaddyLotId == request.PaddyLotId,
+                        cancellationToken);
+
+                if (bufferInv == null)
+                {
+                    return ApiResponse.Conflict("Không tìm thấy tồn kho đệm cho lô lúa này.", "BUFFER_INVENTORY_NOT_FOUND");
+                }
+
+                if (bufferInv.QuantityOnHand < request.WeightKg)
+                {
+                    return ApiResponse.Conflict(
+                        $"Số lượng tồn trong khu đệm ({bufferInv.QuantityOnHand:N0} kg) không đủ để chuyển đi ({request.WeightKg:N0} kg).",
+                        "INSUFFICIENT_BUFFER_STOCK");
+                }
+
+                // Bảo toàn giá vốn: Lấy từ khu đệm, fallback là PaddyLot.CostPricePerKg
+                sourceCostPrice = bufferInv.CostPrice > 0 ? bufferInv.CostPrice : (lot?.CostPricePerKg ?? 0m);
+
+                var bufferBeforeQty = bufferInv.QuantityOnHand;
+                bufferInv.QuantityOnHand -= request.WeightKg; // Trừ trực tiếp, không dùng Clamp01 vì đã check đủ
+                bufferInv.LastModifiedDate = now;
+                bufferInv.UpdatedBy = userId;
+                _context.Inventories.Update(bufferInv);
+
+                // Tạo lịch sử giao dịch xuất lúa từ khu vực đệm
+                var bufferTxn = new InventoryTransaction
+                {
+                    InventoryId = bufferInv.Id,
+                    WarehouseId = location.WarehouseId,
+                    LocationId = null,
+                    ProductVariantId = request.ProductVariantId,
+                    PaddyLotId = request.PaddyLotId,
+                    TransactionType = InventoryTransactionTypeConstants.Export,
+                    ReferenceType = InventoryReferenceTypeConstants.PaddyPurchase,
+                    ReferenceId = referenceId,
+                    Quantity = request.WeightKg,
+                    BeforeQuantity = bufferBeforeQty,
+                    AfterQuantity = bufferInv.QuantityOnHand,
+                    WeightKg = request.WeightKg,
+                    Note = "Xuất từ khu vực đệm trung chuyển sang ô kệ thực tế",
+                    CreatedBy = userId,
+                    CreatedDate = now
+                };
+                _context.InventoryTransactions.Add(bufferTxn);
+            }
+
             var inv = await _context.Inventories
                 .FirstOrDefaultAsync(x =>
                     !x.IsDeleted &&
@@ -547,6 +673,8 @@ public class PutawaySuggestionService : IPutawaySuggestionService
                     x.PaddyLotId == request.PaddyLotId,
                     cancellationToken);
 
+            var beforeQty = inv != null ? inv.QuantityOnHand : 0m;
+
             if (inv == null)
             {
                 inv = new Inventory
@@ -555,7 +683,7 @@ public class PutawaySuggestionService : IPutawaySuggestionService
                     LocationId = request.SelectedLocationId,
                     ProductVariantId = request.ProductVariantId,
                     PaddyLotId = request.PaddyLotId,
-                    CostPrice = 0,
+                    CostPrice = isPaddy ? sourceCostPrice : 0m,
                     QuantityOnHand = 0,
                     QuantityReserved = 0,
                     CreatedBy = userId,
@@ -564,12 +692,26 @@ public class PutawaySuggestionService : IPutawaySuggestionService
                 _context.Inventories.Add(inv);
                 await _context.SaveChangesAsync(cancellationToken);
             }
+            else
+            {
+                // Nếu đã có tồn cùng lô thì tính giá vốn bình quân gia quyền đúng
+                if (isPaddy)
+                {
+                    if (beforeQty > 0 && inv.CostPrice > 0)
+                    {
+                        var newCost = ((beforeQty * inv.CostPrice) + (request.WeightKg * sourceCostPrice)) / (beforeQty + request.WeightKg);
+                        inv.CostPrice = Math.Round(newCost, 2);
+                    }
+                    else
+                    {
+                        inv.CostPrice = sourceCostPrice;
+                    }
+                }
+            }
 
-            var beforeQty = inv.QuantityOnHand;
             inv.QuantityOnHand += request.WeightKg;
             inv.LastModifiedDate = now;
             inv.UpdatedBy = userId;
-
             _context.Inventories.Update(inv);
 
             // 7. Tạo InventoryTransaction (Nhật ký giao dịch kho)
@@ -611,8 +753,64 @@ public class PutawaySuggestionService : IPutawaySuggestionService
             };
             _context.PutawayDecisions.Add(decision);
 
+            // R5-1: Lưu trước các thay đổi để SumAsync ở bước 9 có thể query thấy bản ghi hiện tại trên database thật
             await _context.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+
+            // 9. Cập nhật trạng thái lịch hẹn khi và chỉ khi store-in thành công (PADDY_PURCHASE)
+            if (isPaddy && paddyReceipt.ScheduleId.HasValue)
+            {
+                var scheduleId = paddyReceipt.ScheduleId.Value;
+                var schedule = await _context.PaddyPurchaseSchedules
+                    .FirstOrDefaultAsync(x => x.Id == scheduleId && !x.IsDeleted, cancellationToken);
+
+                if (schedule != null)
+                {
+                    var scheduleStatuses = await _context.PaddyPurchaseScheduleStatuses
+                        .Where(x => !x.IsDeleted)
+                        .ToListAsync(cancellationToken);
+
+                    var cancelledStatusId = scheduleStatuses.FirstOrDefault(x => x.Code == "CANCELLED")?.Id ?? 6;
+                    var stockedStatusId = scheduleStatuses.FirstOrDefault(x => x.Code == "STOCKED")?.Id ?? 5;
+                    var partiallyStockedStatusId = scheduleStatuses.FirstOrDefault(x => x.Code == "PARTIALLY_STOCKED")?.Id ?? 7;
+                    var weighedStatusId = scheduleStatuses.FirstOrDefault(x => x.Code == "WEIGHED")?.Id ?? 4;
+
+                    if (schedule.StatusId != cancelledStatusId)
+                    {
+                        var scheduleReceipts = await _context.PaddyPurchaseReceipts
+                            .Where(x => x.ScheduleId == scheduleId && !x.IsDeleted)
+                            .ToListAsync(cancellationToken);
+
+                        var receiptWeights = new List<(decimal StoredWeightKg, decimal ActualWeightKg)>();
+                        foreach (var r in scheduleReceipts)
+                        {
+                            var totalStoredWeight = await _context.PutawayDecisions
+                                .Where(x => x.ReferenceType == "PADDY_PURCHASE" && x.ReferenceId == r.Id)
+                                .SumAsync(x => x.RequiredWeightKg, cancellationToken);
+
+                            receiptWeights.Add((totalStoredWeight, r.ActualWeightKg));
+                        }
+
+                        var statusCode = PaddyScheduleStatusHelper.DetermineScheduleStatus(receiptWeights);
+                        var targetStatusId = scheduleStatuses.FirstOrDefault(x => x.Code == statusCode)?.Id
+                            ?? (statusCode == "WEIGHED" ? weighedStatusId : (statusCode == "STOCKED" ? stockedStatusId : partiallyStockedStatusId));
+
+                        if (schedule.StatusId != targetStatusId)
+                        {
+                            schedule.StatusId = targetStatusId;
+                            schedule.UpdatedBy = userId;
+                            schedule.LastModifiedDate = now;
+                            _context.PaddyPurchaseSchedules.Update(schedule);
+                        }
+                    }
+                }
+            }
+
+            await _context.SaveChangesAsync(cancellationToken);
+            if (transaction != null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                transaction.Dispose();
+            }
 
             try
             {
@@ -629,7 +827,11 @@ public class PutawaySuggestionService : IPutawaySuggestionService
         }
         catch (Exception ex)
         {
-            await transaction.RollbackAsync(cancellationToken);
+            if (transaction != null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                transaction.Dispose();
+            }
             var safeReferenceType = (referenceType ?? string.Empty).Replace("\r", string.Empty).Replace("\n", string.Empty);
             _logger.LogError(ex, "ConfirmStoreInAsync failed. RefType: {RefType}, RefId: {RefId}", safeReferenceType, referenceId);
             return ApiResponse.BadRequest($"Lỗi xác nhận nhập kho: {ex.Message}", ApiCodeConstants.Common.BadRequest);

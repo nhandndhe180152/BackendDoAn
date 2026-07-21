@@ -16,7 +16,7 @@ public interface IInventoryRepository : IRepositoryBase<Inventory, int>
 
     Task<Inventory?> GetByIdDetailAsync(int id);
 
-    Task<Inventory?> GetByVariantWarehouseLocationAsync(int productVariantId, int warehouseId, int? locationId);
+    Task<Inventory?> GetByVariantWarehouseLocationAsync(int productVariantId, int warehouseId, int? locationId, int? paddyLotId = null);
 
     Task<List<Inventory>> GetByProductVariantAsync(int productVariantId);
 

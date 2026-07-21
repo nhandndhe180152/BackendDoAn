@@ -4,6 +4,7 @@ using Backend.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Backend.Infrastructure.Migrations
 {
     [DbContext(typeof(BackendContext))]
-    partial class BackendContextModelSnapshot : ModelSnapshot
+    [Migration("20260720014635_UpdatePartiallyStockedColor")]
+    partial class UpdatePartiallyStockedColor
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -246,10 +249,6 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedDate")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<string>("DeduplicationKey")
-                        .HasMaxLength(200)
-                        .HasColumnType("varchar(200)");
-
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("tinyint(1)");
 
@@ -300,19 +299,12 @@ namespace Backend.Infrastructure.Migrations
                     b.HasIndex("AlertType")
                         .HasDatabaseName("IX_Alert_AlertType");
 
-                    b.HasIndex("DeduplicationKey")
-                        .IsUnique()
-                        .HasDatabaseName("UX_Alert_DeduplicationKey");
-
                     b.HasIndex("LocationId");
 
                     b.HasIndex("ProductVariantId");
 
                     b.HasIndex("WarehouseId", "Status")
                         .HasDatabaseName("IX_Alert_WarehouseId_Status");
-
-                    b.HasIndex("AlertType", "WarehouseId", "ProductVariantId", "Status", "IsDeleted")
-                        .HasDatabaseName("IX_Alert_ActiveLowStockLookup");
 
                     b.ToTable("Alert", (string)null);
                 });
@@ -1290,9 +1282,6 @@ namespace Backend.Infrastructure.Migrations
                     b.HasIndex("ProductVariantId", "WarehouseId", "LocationId", "PaddyLotId")
                         .IsUnique()
                         .HasDatabaseName("UX_Inventory_ProductVariant_Warehouse_Location_Lot");
-
-                    b.HasIndex("WarehouseId", "ProductVariantId", "IsDeleted", "LocationId", "PaddyLotId")
-                        .HasDatabaseName("IX_Inventory_LowStockAggregation");
 
                     b.ToTable("Inventory", (string)null);
                 });
@@ -4290,9 +4279,8 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<DateTime?>("LastModifiedDate")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<decimal>("MinThreshold")
-                        .HasPrecision(18, 3)
-                        .HasColumnType("decimal(18,3)");
+                    b.Property<int>("MinThreshold")
+                        .HasColumnType("int");
 
                     b.Property<int?>("ProductVariantId")
                         .HasColumnType("int");
@@ -4307,8 +4295,7 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasIndex("ProductVariantId");
 
-                    b.HasIndex("WarehouseId", "ProductVariantId", "IsActive", "IsDeleted")
-                        .HasDatabaseName("IX_StockAlertConfig_LowStockLookup");
+                    b.HasIndex("WarehouseId");
 
                     b.ToTable("StockAlertConfig", (string)null);
                 });

@@ -24,6 +24,7 @@ public class InventoryTransactionServiceTests
     private readonly Mock<IInventoryRepository> _inventoryRepository = new();
     private readonly Mock<IInventoryTransactionRepository> _inventoryTransactionRepository = new();
     private readonly Mock<IProductVariantRepository> _productVariantRepository = new();
+    private readonly Mock<IPaddyLotRepository> _paddyLotRepository = new();
     private readonly Mock<IHttpContextAccessor> _httpContextAccessor = new();
     private readonly InventoryTransactionService _sut;
 
@@ -33,6 +34,7 @@ public class InventoryTransactionServiceTests
             _inventoryRepository.Object,
             _inventoryTransactionRepository.Object,
             _productVariantRepository.Object,
+            _paddyLotRepository.Object,
             _httpContextAccessor.Object
         );
     }
@@ -202,7 +204,7 @@ public class InventoryTransactionServiceTests
         };
         var currentInventory = new Backend.Domain.Entities.Inventory { ProductVariantId = 1, WarehouseId = 1, QuantityOnHand = 5 };
         _inventoryRepository
-            .Setup(repo => repo.GetByVariantWarehouseLocationAsync(1, 1, null))
+            .Setup(repo => repo.GetByVariantWarehouseLocationAsync(1, 1, null, It.IsAny<int?>()))
             .ReturnsAsync(currentInventory);
 
         // Act
@@ -235,7 +237,7 @@ public class InventoryTransactionServiceTests
 
         var currentInventory = new Backend.Domain.Entities.Inventory { Id = 100, ProductVariantId = 1, WarehouseId = 1, QuantityOnHand = 5 };
         _inventoryRepository
-            .Setup(repo => repo.GetByVariantWarehouseLocationAsync(1, 1, null))
+            .Setup(repo => repo.GetByVariantWarehouseLocationAsync(1, 1, null, It.IsAny<int?>()))
             .ReturnsAsync(currentInventory);
 
         _inventoryRepository.Setup(repo => repo.UpdateAsync(It.IsAny<Backend.Domain.Entities.Inventory>())).Returns(Task.CompletedTask);
@@ -297,7 +299,7 @@ public class InventoryTransactionServiceTests
         _productVariantRepository.Setup(repo => repo.GetActiveByIdAsync(1)).ReturnsAsync(productVariant);
 
         _inventoryRepository
-            .Setup(repo => repo.GetByVariantWarehouseLocationAsync(1, 1, null))
+            .Setup(repo => repo.GetByVariantWarehouseLocationAsync(1, 1, null, It.IsAny<int?>()))
             .ReturnsAsync((Backend.Domain.Entities.Inventory?)null);
 
         _inventoryRepository.Setup(repo => repo.CreateAsync(It.IsAny<Backend.Domain.Entities.Inventory>())).Returns(Task.CompletedTask);
@@ -333,7 +335,7 @@ public class InventoryTransactionServiceTests
         _productVariantRepository.Setup(repo => repo.GetActiveByIdAsync(1)).ReturnsAsync(productVariant);
 
         _inventoryRepository
-            .Setup(repo => repo.GetByVariantWarehouseLocationAsync(1, 1, null))
+            .Setup(repo => repo.GetByVariantWarehouseLocationAsync(1, 1, null, It.IsAny<int?>()))
             .ReturnsAsync((Backend.Domain.Entities.Inventory?)null);
 
         _inventoryRepository.Setup(repo => repo.RollbackTransactionAsync()).Returns(Task.CompletedTask);
@@ -362,7 +364,7 @@ public class InventoryTransactionServiceTests
 
         var inventory = new Backend.Domain.Entities.Inventory { ProductVariantId = 1, WarehouseId = 1, QuantityOnHand = 5, QuantityReserved = 0 };
         _inventoryRepository
-            .Setup(repo => repo.GetByVariantWarehouseLocationAsync(1, 1, null))
+            .Setup(repo => repo.GetByVariantWarehouseLocationAsync(1, 1, null, It.IsAny<int?>()))
             .ReturnsAsync(inventory);
 
         _inventoryRepository.Setup(repo => repo.RollbackTransactionAsync()).Returns(Task.CompletedTask);
@@ -391,7 +393,7 @@ public class InventoryTransactionServiceTests
 
         var inventory = new Backend.Domain.Entities.Inventory { ProductVariantId = 1, WarehouseId = 1, QuantityOnHand = 10, QuantityReserved = 2 };
         _inventoryRepository
-            .Setup(repo => repo.GetByVariantWarehouseLocationAsync(1, 1, null))
+            .Setup(repo => repo.GetByVariantWarehouseLocationAsync(1, 1, null, It.IsAny<int?>()))
             .ReturnsAsync(inventory);
 
         _inventoryRepository.Setup(repo => repo.UpdateAsync(inventory)).Returns(Task.CompletedTask);
@@ -424,7 +426,7 @@ public class InventoryTransactionServiceTests
 
         var inventory = new Backend.Domain.Entities.Inventory { ProductVariantId = 1, WarehouseId = 1, QuantityOnHand = 10 };
         _inventoryRepository
-            .Setup(repo => repo.GetByVariantWarehouseLocationAsync(1, 1, null))
+            .Setup(repo => repo.GetByVariantWarehouseLocationAsync(1, 1, null, It.IsAny<int?>()))
             .ReturnsAsync(inventory);
 
         _inventoryRepository.Setup(repo => repo.UpdateAsync(inventory)).Returns(Task.CompletedTask);

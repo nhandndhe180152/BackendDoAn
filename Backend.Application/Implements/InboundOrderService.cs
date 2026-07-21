@@ -46,6 +46,7 @@ public class InboundOrderService : IInboundOrderService
     private readonly IRepositoryBase<PurchaseOrderStatus, int> _purchaseOrderStatusRepository;
     private readonly IRepositoryBase<PaddyLot, int> _paddyLotRepository;
     private readonly IRepositoryBase<LotStatus, int> _lotStatusRepository;
+    private readonly IPaddyPurchaseReceiptService _paddyPurchaseReceiptService;
 
     public InboundOrderService(
         IRepositoryBase<InboundOrder, int> inboundOrderRepository,
@@ -70,7 +71,8 @@ public class InboundOrderService : IInboundOrderService
         IRepositoryBase<PurchaseOrder, int> purchaseOrderRepository,
         IRepositoryBase<PurchaseOrderStatus, int> purchaseOrderStatusRepository,
         IRepositoryBase<PaddyLot, int> paddyLotRepository,
-        IRepositoryBase<LotStatus, int> lotStatusRepository)
+        IRepositoryBase<LotStatus, int> lotStatusRepository,
+        IPaddyPurchaseReceiptService paddyPurchaseReceiptService)
     {
         _inboundOrderRepository = inboundOrderRepository;
         _inboundOrderItemRepository = inboundOrderItemRepository;
@@ -95,6 +97,7 @@ public class InboundOrderService : IInboundOrderService
         _purchaseOrderStatusRepository = purchaseOrderStatusRepository;
         _paddyLotRepository            = paddyLotRepository;
         _lotStatusRepository           = lotStatusRepository;
+        _paddyPurchaseReceiptService   = paddyPurchaseReceiptService;
     }
 
     private async Task<int> GetStatusIdAsync(string name)
@@ -1134,10 +1137,13 @@ public class InboundOrderService : IInboundOrderService
                 return ApiResponse.UnprocessableEntity("Vị trí lưu trữ hiện đã hết sức chứa.", ApiCodeConstants.Common.UnprocessableEntity);
 
             // Recheck RowVersion/concurrency: fetch inventory with tracking
+            // RC-3 fix: phải bao gồm PaddyLotId trong điều kiện tìm — khớp unique index (variant, warehouse, location, lot)
+            var paddyLotId = item.PaddyLotId; // nullable, null nếu không phải lô lúa
             var inventory = await _inventoryRepository.FirstOrDefaultAsync(x =>
                 x.WarehouseId == order.WarehouseId &&
                 x.LocationId == loc.Id &&
-                x.ProductVariantId == item.ProductVariantId,
+                x.ProductVariantId == item.ProductVariantId &&
+                x.PaddyLotId == paddyLotId,
                 true
             );
 
@@ -1151,6 +1157,8 @@ public class InboundOrderService : IInboundOrderService
                     WarehouseId = order.WarehouseId,
                     LocationId = loc.Id,
                     ProductVariantId = item.ProductVariantId!.Value,
+                    // RC-3 fix: gán PaddyLotId để tồn kho tách lô đúng theo unique index
+                    PaddyLotId = paddyLotId,
                     QuantityOnHand = 0,
                     QuantityReserved = 0,
                     CostPrice = item.UnitCostPrice,
@@ -1238,25 +1246,13 @@ public class InboundOrderService : IInboundOrderService
 
             order.InboundOrderStatusId = await GetStatusIdAsync(nextDocStatusName);
             await _inboundOrderRepository.UpdateAsync(order);
-            // Cập nhật trạng thái lịch hẹn liên kết sang "Đã nhập kho" (STOCKED)
+            // Cập nhật trạng thái lịch hẹn liên kết tự động bằng hàm dùng chung
             if (order.PaddyPurchaseReceiptId.HasValue)
             {
                 var receipt = await _paddyPurchaseReceiptRepository.GetByIdAsync(order.PaddyPurchaseReceiptId.Value);
                 if (receipt != null && receipt.ScheduleId.HasValue)
                 {
-                    var schedule = await _paddyPurchaseScheduleRepository.GetByIdAsync(receipt.ScheduleId.Value);
-                    if (schedule != null && !schedule.IsDeleted)
-                    {
-                        var stockedStatusId = _systemLookup.PaddyScheduleStatusId("STOCKED");
-                        if (schedule.StatusId < stockedStatusId)
-                        {
-                            schedule.StatusId = stockedStatusId;
-                            schedule.UpdatedBy = GetCurrentUserId();
-                            schedule.LastModifiedDate = DateTimeHelper.VietnamNow();
-                            await _paddyPurchaseScheduleRepository.UpdateAsync(schedule);
-                            await _paddyPurchaseScheduleRepository.SaveChangesAsync();
-                        }
-                    }
+                    await _paddyPurchaseReceiptService.UpdateScheduleStatusAsync(receipt.ScheduleId.Value, GetCurrentUserId());
                 }
             }
 

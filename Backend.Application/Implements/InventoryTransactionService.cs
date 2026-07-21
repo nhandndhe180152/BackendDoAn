@@ -17,17 +17,20 @@ public class InventoryTransactionService : IInventoryTransactionService
     private readonly IInventoryRepository _inventoryRepository;
     private readonly IInventoryTransactionRepository _inventoryTransactionRepository;
     private readonly IProductVariantRepository _productVariantRepository;
+    private readonly IPaddyLotRepository _paddyLotRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
 
     public InventoryTransactionService(
         IInventoryRepository inventoryRepository,
         IInventoryTransactionRepository inventoryTransactionRepository,
         IProductVariantRepository productVariantRepository,
+        IPaddyLotRepository paddyLotRepository,
         IHttpContextAccessor httpContextAccessor)
     {
         _inventoryRepository = inventoryRepository;
         _inventoryTransactionRepository = inventoryTransactionRepository;
         _productVariantRepository = productVariantRepository;
+        _paddyLotRepository = paddyLotRepository;
         _httpContextAccessor = httpContextAccessor;
     }
 
@@ -94,12 +97,14 @@ public class InventoryTransactionService : IInventoryTransactionService
             return ApiResponse.BadRequest();
         }
 
-        // Tìm dòng tồn kho hiện tại theo SKU + warehouse + location.
-        // Đây là tổ hợp quyết định một vị trí tồn kho cụ thể trong StockLite.
+        // Tìm dòng tồn kho hiện tại theo SKU + warehouse + location + paddyLot.
+        // Truyền paddyLotId để khớp đúng dòng theo lot-centric unique index,
+        // tránh tạo nhầm dòng null-lot song song với dòng lô thực.
         var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
             request.ProductVariantId,
             request.WarehouseId,
-            request.LocationId);
+            request.LocationId,
+            request.PaddyLotId);
 
         var currentQuantity = inventory?.QuantityOnHand ?? 0;
 
@@ -116,6 +121,7 @@ public class InventoryTransactionService : IInventoryTransactionService
             ProductVariantId = request.ProductVariantId,
             WarehouseId = request.WarehouseId,
             LocationId = request.LocationId,
+            PaddyLotId = request.PaddyLotId,
             Quantity = Math.Abs(newQuantity - currentQuantity),
             ReferenceType = InventoryReferenceTypeConstants.Manual,
             Note = request.Reason
@@ -251,12 +257,13 @@ public class InventoryTransactionService : IInventoryTransactionService
         var now = DateTime.Now;
         var currentUserId = _httpContextAccessor.HttpContext?.GetCurrentUserId();
 
-        // Tìm dòng tồn kho hiện tại theo SKU + warehouse + location.
-        // Đây là tổ hợp quyết định một vị trí tồn kho cụ thể trong StockLite.
+        // Tìm dòng tồn kho hiện tại theo SKU + warehouse + location + paddyLot.
+        // Truyền paddyLotId để khớp đúng dòng theo lot-centric unique index.
         var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
             request.ProductVariantId,
             request.WarehouseId,
-            request.LocationId);
+            request.LocationId,
+            request.PaddyLotId);
 
         // Nếu chưa có dòng Inventory thì chỉ cho phép tạo mới khi nhập kho/điều chỉnh hợp lệ.
         // Xuất kho từ một dòng tồn kho chưa tồn tại là nghiệp vụ sai.
@@ -272,6 +279,7 @@ public class InventoryTransactionService : IInventoryTransactionService
                 WarehouseId = request.WarehouseId,
                 LocationId = request.LocationId,
                 ProductVariantId = request.ProductVariantId,
+                PaddyLotId = request.PaddyLotId,
                 CostPrice = request.CostPrice ?? productVariant.CostPrice,
                 QuantityOnHand = 0,
                 QuantityReserved = 0,
@@ -339,6 +347,21 @@ public class InventoryTransactionService : IInventoryTransactionService
         }
 
         await _inventoryRepository.UpdateAsync(inventory);
+
+        // ĐỒNG BỘ KHỐI LƯỢNG LÔ HÀNG (RemainingWeightKg):
+        // - Khi lượng tồn kho vật lý (QuantityOnHand) bị thay đổi thông qua Điều chỉnh thủ công (Manual Adjust)
+        //   hoặc Cân đối sau kiểm kê (Stock Take Adjust), ta phải cộng/trừ chênh lệch tương ứng (transactionQuantity)
+        //   vào khối lượng còn lại của lô lúa để đảm bảo Dashboard và Giám sát kho đồng nhất.
+        if (inventory.PaddyLotId.HasValue && transactionQuantity != 0)
+        {
+            var lot = await _paddyLotRepository.GetByIdAsync(inventory.PaddyLotId.Value);
+            if (lot != null && !lot.IsDeleted)
+            {
+                lot.RemainingWeightKg = Math.Max(0m, lot.RemainingWeightKg + transactionQuantity);
+                await _paddyLotRepository.UpdateAsync(lot);
+                await _paddyLotRepository.SaveChangesAsync();
+            }
+        }
 
         // Ghi một dòng lịch sử giao dịch tồn kho sau khi đã tính before/after quantity.
         // Dữ liệu này phục vụ audit trail, báo cáo stock movement và truy vết sai lệch.

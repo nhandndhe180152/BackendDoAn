@@ -208,42 +208,25 @@ public class StockTransferService : IStockTransferService
             {
                 decimal costPrice = 0;
                 PaddyLot? lot = null;
+                int? targetLotId = null;
 
                 if (item.PaddyLotId.HasValue)
                 {
                     lot = await _paddyLotRepository.GetByIdAsync(item.PaddyLotId.Value);
-                    if (lot != null && !lot.IsDeleted)
+                    
+                    // NGẮT SỚM (Fail-fast): Validate đảm bảo lô hàng tồn tại và không bị xóa
+                    if (lot == null || lot.IsDeleted)
                     {
-                        costPrice = lot.CostPricePerKg;
+                        throw new InvalidOperationException($"Không tìm thấy lô lúa/gạo hoặc lô hàng đã bị xóa (ID: {item.PaddyLotId.Value}) trong phiếu điều chuyển.");
                     }
-                }
-                else
-                {
-                    var sourceInventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
-                        item.ProductVariantId, transfer.FromWarehouseId, item.FromLocationId);
-                    costPrice = sourceInventory?.CostPrice ?? 0;
-                }
 
-                // EXPORT từ FromWarehouse (sẽ tự động ném Exception nếu không đủ tồn kho)
-                await MoveInventoryAsync(
-                    item.ProductVariantId, transfer.FromWarehouseId, item.FromLocationId,
-                    item.WeightKg, isExport: true, costPrice,
-                    refId: id, refItemId: item.Id, userId: confirmedById, now,
-                    note: $"Điều chuyển từ kho {transfer.FromWarehouseId} → {transfer.ToWarehouseId}");
+                    costPrice = lot.CostPricePerKg;
 
-                // IMPORT vào ToWarehouse
-                await MoveInventoryAsync(
-                    item.ProductVariantId, transfer.ToWarehouseId, item.ToLocationId,
-                    item.WeightKg, isExport: false, costPrice,
-                    refId: id, refItemId: item.Id, userId: confirmedById, now,
-                    note: $"Nhận hàng điều chuyển từ kho {transfer.FromWarehouseId}");
-
-                // Cập nhật lô lúa (Nếu chuyển 1 phần thì tách lô để bảo toàn vị trí phần còn lại)
-                if (lot != null)
-                {
+                    // CẬP NHẬT TỒN LÔ KHI ĐIỀU CHUYỂN:
                     if (item.WeightKg < lot.RemainingWeightKg)
                     {
-                        // Tách lô mới ở kho đích
+                        // TRƯỜNG HỢP 1: Điều chuyển một phần của lô hàng
+                        // -> Ta thực hiện tách thành lô hàng mới ở kho đích để tránh làm sai lệch vị trí của khối lượng còn lại ở kho nguồn.
                         var datePart = now.ToString("yyyyMMdd");
                         var lotType = lot.LotType;
                         var baseCode = $"LOT-{lotType}-{datePart}";
@@ -273,22 +256,49 @@ public class StockTransferService : IStockTransferService
                         await _paddyLotRepository.CreateAsync(newLot);
                         await _paddyLotRepository.SaveChangesAsync();
 
-                        // Trừ RemainingWeightKg của lô gốc
+                        // TRỪ KHỐI LƯỢNG LÔ GỐC: Trừ đi phần khối lượng đã được điều chuyển sang kho khác.
                         lot.RemainingWeightKg -= item.WeightKg;
                         lot.LastModifiedDate = now;
                         await _paddyLotRepository.UpdateAsync(lot);
                         await _paddyLotRepository.SaveChangesAsync();
+
+                        targetLotId = newLot.Id;
                     }
                     else
                     {
-                        // Chuyển toàn bộ lô
+                        // TRƯỜNG HỢP 2: Điều chuyển toàn bộ lô hàng
+                        // -> Ta chỉ việc đổi thông tin WarehouseId và LocationId của lô sang kho nhận.
                         lot.WarehouseId = transfer.ToWarehouseId;
                         lot.LocationId = item.ToLocationId;
                         lot.LastModifiedDate = now;
                         await _paddyLotRepository.UpdateAsync(lot);
                         await _paddyLotRepository.SaveChangesAsync();
+
+                        targetLotId = lot.Id;
                     }
                 }
+                else
+                {
+                    var sourceInventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
+                        item.ProductVariantId, transfer.FromWarehouseId, item.FromLocationId);
+                    costPrice = sourceInventory?.CostPrice ?? 0;
+                }
+
+                // EXPORT từ FromWarehouse (sẽ tự động ném Exception nếu không đủ tồn kho)
+                await MoveInventoryAsync(
+                    item.ProductVariantId, transfer.FromWarehouseId, item.FromLocationId,
+                    item.WeightKg, isExport: true, costPrice,
+                    refId: id, refItemId: item.Id, userId: confirmedById, now,
+                    note: $"Điều chuyển từ kho {transfer.FromWarehouseId} → {transfer.ToWarehouseId}",
+                    paddyLotId: item.PaddyLotId);
+
+                // IMPORT vào ToWarehouse
+                await MoveInventoryAsync(
+                    item.ProductVariantId, transfer.ToWarehouseId, item.ToLocationId,
+                    item.WeightKg, isExport: false, costPrice,
+                    refId: id, refItemId: item.Id, userId: confirmedById, now,
+                    note: $"Nhận hàng điều chuyển từ kho {transfer.FromWarehouseId}",
+                    paddyLotId: targetLotId);
             }
 
             // Update status
@@ -321,10 +331,11 @@ public class StockTransferService : IStockTransferService
     private async Task MoveInventoryAsync(
         int productVariantId, int warehouseId, int? locationId,
         decimal qty, bool isExport, decimal costPrice,
-        int refId, int refItemId, int userId, DateTime now, string note)
+        int refId, int refItemId, int userId, DateTime now, string note,
+        int? paddyLotId = null)
     {
         var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
-            productVariantId, warehouseId, locationId);
+            productVariantId, warehouseId, locationId, paddyLotId);
 
         if (inventory == null)
         {
@@ -338,6 +349,7 @@ public class StockTransferService : IStockTransferService
                 WarehouseId = warehouseId,
                 LocationId = locationId,
                 ProductVariantId = productVariantId,
+                PaddyLotId = paddyLotId,
                 CostPrice = costPrice,
                 QuantityOnHand = 0,
                 QuantityReserved = 0,
