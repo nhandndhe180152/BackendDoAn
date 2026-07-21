@@ -19,6 +19,9 @@ public class PaddyLotConfiguration : IEntityTypeConfiguration<PaddyLot>
         builder.Property(x => x.RemainingWeightKg).HasColumnType("decimal(18,3)").IsRequired();
         builder.Property(x => x.CostPricePerKg).HasColumnType("decimal(18,2)").IsRequired();
         builder.Property(x => x.QualityStatus).HasMaxLength(100);
+        builder.Property(x => x.QrCode).HasMaxLength(100).IsRequired();
+        builder.Property(x => x.QrImageUrl).HasMaxLength(500);
+        builder.HasIndex(x => x.QrCode).IsUnique().HasDatabaseName("UX_PaddyLot_QrCode");
 
         builder.HasIndex(x => new { x.OrganizationId, x.LotCode })
             .IsUnique()

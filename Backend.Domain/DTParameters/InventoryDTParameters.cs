@@ -24,4 +24,10 @@ public class InventoryDTParameters : DTParameter
 
     /// <summary>true = chỉ lấy tồn còn theo dõi lô (có PaddyLotId).</summary>
     public bool? WithLotOnly { get; set; }
+
+    /// <summary>Lọc theo trạng thái tồn: QUARANTINED | SELLABLE | OTHER_BLOCKED</summary>
+    public string? InventoryState { get; set; }
+
+    /// <summary>Lọc hàng cách ly</summary>
+    public bool? IsQuarantined { get; set; }
 }

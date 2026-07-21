@@ -10,6 +10,7 @@ public class InventoryByLotReportDto
     public string ProductVariant { get; set; } = null!;
     public string Warehouse { get; set; } = null!;
     public string? Location { get; set; }
+    public string? Locations { get; set; }
     public DateTime InboundDate { get; set; }
     public decimal InitialWeightKg { get; set; }
     public decimal RemainingWeightKg { get; set; }
@@ -17,6 +18,8 @@ public class InventoryByLotReportDto
     public decimal ReservedKg { get; set; }
     public decimal QuarantinedKg { get; set; }
     public decimal AvailableKg { get; set; }
+    public bool IsQuarantined { get; set; }
+    public string QuarantineSource { get; set; } = null!;
     public DateTime? LastInspectionAt { get; set; }
     public string LotStatus { get; set; } = null!;
 }
@@ -26,11 +29,32 @@ public class InventoryByWarehouseReportDto
     public int WarehouseId { get; set; }
     public string WarehouseName { get; set; } = null!;
     public decimal OnHandKg { get; set; }
+    public decimal SellableOnHandKg { get; set; }
     public decimal ReservedKg { get; set; }
+    public decimal QuarantinedKg { get; set; }
     public decimal AvailableKg { get; set; }
     public decimal PaddyKg { get; set; }
     public decimal RiceKg { get; set; }
     public decimal ByproductKg { get; set; }
+    public int QuarantinedLotCount { get; set; }
+    public int QuarantineLocationCount { get; set; }
+}
+
+public class InventoryByProductVariantReportDto
+{
+    public int WarehouseId { get; set; }
+    public string WarehouseName { get; set; } = null!;
+    public int ProductVariantId { get; set; }
+    public string SKU { get; set; } = null!;
+    public string ProductVariantName { get; set; } = null!;
+    public string ProductName { get; set; } = null!;
+    public decimal OnHandKg { get; set; }
+    public decimal SellableOnHandKg { get; set; }
+    public decimal ReservedKg { get; set; }
+    public decimal QuarantinedKg { get; set; }
+    public decimal AvailableKg { get; set; }
+    public int QuarantinedLotCount { get; set; }
+    public decimal QuarantineRatio { get; set; }
 }
 
 public class TwoWayDebtReportDto

@@ -23,6 +23,8 @@ public class Location : EntityAuditBase<int>
 
     public int? CurrentProductVariantId { get; set; }
     public bool IsSingleTypeColumn { get; set; } = true;
+    public string QrCode { get; set; } = string.Empty;
+    public string QrImageUrl { get; set; } = string.Empty;
 
     public virtual Warehouse Warehouse { get; set; } = null!;
     public virtual ProductCategory? AllowedCategory { get; set; }

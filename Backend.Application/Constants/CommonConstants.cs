@@ -237,6 +237,7 @@ public static class CommonConstants
             { "User", "Người dùng" },
             { "Warehouse", "Kho" },
             { "Location", "Vị trí lưu trữ" },
+            { "PaddyLot", "Lô hàng" },
             { "Product", "Sản phẩm" },
             { "ProductCategory", "Danh mục sản phẩm" },
             { "ProductVariant", "Biến thể sản phẩm" },

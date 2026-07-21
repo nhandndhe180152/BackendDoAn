@@ -1,11 +1,15 @@
+using System.Threading;
 using System.Threading.Tasks;
 using Asp.Versioning;
 using Backend.API.Utilities;
+using Backend.Application.Constants;
 using Backend.Application.DTOs.PaddyLots;
+using Backend.Application.DTOs.QrCode;
 using Backend.Application.Interfaces;
 using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace Backend.API.Controllers
 {
@@ -19,10 +23,20 @@ namespace Backend.API.Controllers
     public class PaddyLotController : BaseController
     {
         private readonly IPaddyLotService _paddyLotService;
+        private readonly IQRCodeService _qrCodeService;
+        private readonly IQrIdentifierService _qrIdentifierService;
+        private readonly IApplicationDbContext _context;
 
-        public PaddyLotController(IPaddyLotService paddyLotService)
+        public PaddyLotController(
+            IPaddyLotService paddyLotService,
+            IQRCodeService qrCodeService,
+            IQrIdentifierService qrIdentifierService,
+            IApplicationDbContext context)
         {
             _paddyLotService = paddyLotService;
+            _qrCodeService = qrCodeService;
+            _qrIdentifierService = qrIdentifierService;
+            _context = context;
         }
 
         [HttpGet]
@@ -67,6 +81,96 @@ namespace Backend.API.Controllers
         {
             var result = await _paddyLotService.SoftDeleteAsync(id);
             return BaseResult(result);
+        }
+
+        [HttpPost("{id}/qr/ensure")]
+        public async Task<IActionResult> EnsureQrAsync(int id, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var result = await _qrIdentifierService.EnsurePaddyLotQrCodeAsync(id, cancellationToken);
+                return Ok(ApiResponse.Success(result));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ApiResponse.NotFound(message: ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ApiResponse.BadRequest(message: ex.Message));
+            }
+        }
+
+        [HttpPost("{id}/qr/regenerate")]
+        public async Task<IActionResult> RegenerateQrAsync(int id, [FromBody] RegenerateQrRequestDto dto, CancellationToken cancellationToken)
+        {
+            var userId = this.GetLoggedInUserId();
+            var isAdmin = await _context.UserRoles.AnyAsync(ur => !ur.IsDeleted && ur.UserId == userId && ur.RoleId == (int)Backend.Domain.Enums.Enums.Role.ADMIN, cancellationToken);
+            if (!isAdmin)
+            {
+                return BaseResult(ApiResponse.Forbidden(message: "Chỉ quản trị viên hoặc chủ sở hữu mới được phép làm mới mã QR.", code: ApiCodeConstants.Qr.RegenerateForbidden));
+            }
+
+            try
+            {
+                var result = await _qrIdentifierService.RegeneratePaddyLotQrCodeAsync(id, dto.Reason, cancellationToken);
+                return Ok(ApiResponse.Success(result));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ApiResponse.NotFound(message: ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ApiResponse.BadRequest(message: ex.Message));
+            }
+        }
+
+        [HttpGet("{id}/qr/image")]
+        public async Task<IActionResult> GetQrImageAsync(int id, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var qrInfo = await _qrIdentifierService.EnsurePaddyLotQrCodeAsync(id, cancellationToken);
+                return Ok(ApiResponse.Success(new
+                {
+                    entityId = qrInfo.EntityId,
+                    qrCode = qrInfo.QrCode,
+                    qrPayload = qrInfo.QrPayload,
+                    qrImageUrl = qrInfo.QrImageUrl
+                }));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ApiResponse.NotFound(message: ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ApiResponse.BadRequest(message: ex.Message));
+            }
+        }
+
+        [HttpGet("{id}/label")]
+        public async Task<IActionResult> GetLabelPdfAsync(int id, [FromQuery] string template = "MEDIUM", [FromQuery] int copies = 1, CancellationToken cancellationToken = default)
+        {
+            if (copies < 1 || copies > 10)
+            {
+                return BadRequest(ApiResponse.BadRequest(message: "Số lượng bản in (copies) phải nằm trong khoảng từ 1 đến 10."));
+            }
+
+            try
+            {
+                var bytes = await _qrCodeService.GeneratePaddyLotLabelPdfAsync(id, template, copies, cancellationToken);
+                return File(bytes, "application/pdf", $"paddylot-label-{id}.pdf");
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ApiResponse.NotFound(message: ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ApiResponse.BadRequest(message: ex.Message));
+            }
         }
     }
 }

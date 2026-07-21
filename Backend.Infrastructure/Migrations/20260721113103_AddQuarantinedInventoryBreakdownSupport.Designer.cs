@@ -4,6 +4,7 @@ using Backend.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Backend.Infrastructure.Migrations
 {
     [DbContext(typeof(BackendContext))]
-    partial class BackendContextModelSnapshot : ModelSnapshot
+    [Migration("20260721113103_AddQuarantinedInventoryBreakdownSupport")]
+    partial class AddQuarantinedInventoryBreakdownSupport
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1436,16 +1439,6 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<int>("Priority")
                         .HasColumnType("int");
 
-                    b.Property<string>("QrCode")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
-                    b.Property<string>("QrImageUrl")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
-
                     b.Property<string>("ShelfLevel")
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
@@ -1478,10 +1471,6 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasIndex("IsQuarantine")
                         .HasDatabaseName("IX_Location_IsQuarantine");
-
-                    b.HasIndex("QrCode")
-                        .IsUnique()
-                        .HasDatabaseName("UX_Location_QrCode");
 
                     b.HasIndex("WarehouseId", "IsActive", "IsDeleted", "IsQuarantine", "CurrentProductVariantId")
                         .HasDatabaseName("IX_Location_PutawayCandidate");
@@ -2614,16 +2603,6 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<int>("ProductVariantId")
                         .HasColumnType("int");
 
-                    b.Property<string>("QrCode")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
-                    b.Property<string>("QrImageUrl")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
-
                     b.Property<string>("QualityStatus")
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
@@ -2657,10 +2636,6 @@ namespace Backend.Infrastructure.Migrations
                     b.HasIndex("LocationId");
 
                     b.HasIndex("ProductVariantId");
-
-                    b.HasIndex("QrCode")
-                        .IsUnique()
-                        .HasDatabaseName("UX_PaddyLot_QrCode");
 
                     b.HasIndex("RiceVarietyId");
 

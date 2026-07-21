@@ -203,7 +203,10 @@ public class OutboundOrderService : IOutboundOrderService
 
             foreach (var lot in allocItem.Lots)
             {
-                var inv = await _inventoryRepository.GetByIdAsync(lot.InventoryId);
+                var inv = await _inventoryRepository.GetByIdAsync(lot.InventoryId,
+                    x => x.Location,
+                    x => x.PaddyLot,
+                    x => x.PaddyLot.Status);
                 if (inv == null || inv.IsDeleted)
                     return ApiResponse.BadRequest(
                         $"Inventory ID {lot.InventoryId} không tồn tại.",
@@ -214,7 +217,16 @@ public class OutboundOrderService : IOutboundOrderService
                         $"Inventory ID {lot.InventoryId} chưa có vị trí.",
                         ApiCodeConstants.OutboundOrder.InvalidRequest);
 
-                // C1: Kiểm tra tồn khả dụng thực tế của inventory row này
+                // C1: Kiểm tra xem tồn kho có bị cách ly hay không
+                var isQuarantined = (inv.Location != null && inv.Location.IsQuarantine)
+                    || (inv.PaddyLot != null && inv.PaddyLot.Status != null && inv.PaddyLot.Status.Code == LotStatusCodeConstants.Quarantine);
+
+                if (isQuarantined || (inv.PaddyLot != null && inv.PaddyLot.Status != null && !inv.PaddyLot.Status.IsSellable))
+                    return ApiResponse.UnprocessableEntity(
+                        $"Dòng tồn kho ID {lot.InventoryId} nằm ở vị trí cách ly hoặc thuộc lô hàng không hợp lệ để phân bổ.",
+                        ApiCodeConstants.OutboundOrder.LotQuarantined);
+
+                // C2: Kiểm tra tồn khả dụng thực tế của inventory row này
                 var availableQty = inv.QuantityOnHand - inv.QuantityReserved;
                 if (lot.QuantityAllocated > availableQty)
                     return ApiResponse.UnprocessableEntity(
@@ -381,9 +393,12 @@ public class OutboundOrderService : IOutboundOrderService
         {
             foreach (var alloc in item.Allocations)
             {
-                if (alloc.PaddyLot != null && !alloc.PaddyLot.Status.IsSellable)
+                var lotIsQuarantined = (alloc.PaddyLot != null && alloc.PaddyLot.Status?.Code == LotStatusCodeConstants.Quarantine)
+                    || (alloc.Location != null && alloc.Location.IsQuarantine);
+
+                if (lotIsQuarantined || (alloc.PaddyLot != null && (alloc.PaddyLot.Status == null || !alloc.PaddyLot.Status.IsSellable)))
                     return ApiResponse.UnprocessableEntity(
-                        $"Lô {alloc.PaddyLot.LotCode} không còn hợp lệ để xuất bán.",
+                        $"Lô {alloc.PaddyLot?.LotCode ?? "không xác định"} nằm ở vị trí cách ly hoặc có trạng thái không hợp lệ để xuất bán.",
                         ApiCodeConstants.OutboundOrder.LotQuarantined);
             }
         }

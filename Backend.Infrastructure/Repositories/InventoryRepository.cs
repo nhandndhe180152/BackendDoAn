@@ -70,15 +70,29 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
                 QuantityReserved = x.QuantityReserved,
                 QuantityAvailable = x.QuantityOnHand - x.QuantityReserved,
                 QuantityQuarantine =
-                    ((x.PaddyLot != null && x.PaddyLot.Status.Name == LotStatusNameConstants.Quarantine)
+                    ((x.PaddyLot != null && x.PaddyLot.Status.Code == LotStatusCodeConstants.Quarantine)
                         || (x.Location != null && x.Location.IsQuarantine))
                         ? x.QuantityOnHand : 0m,
+                QuarantinedKg =
+                    ((x.PaddyLot != null && x.PaddyLot.Status.Code == LotStatusCodeConstants.Quarantine)
+                        || (x.Location != null && x.Location.IsQuarantine))
+                        ? x.QuantityOnHand : 0m,
+                SellableOnHandKg =
+                    (!((x.PaddyLot != null && x.PaddyLot.Status.Code == LotStatusCodeConstants.Quarantine)
+                        || (x.Location != null && x.Location.IsQuarantine))
+                     && (x.PaddyLotId == null || x.PaddyLot.Status.IsSellable))
+                        ? x.QuantityOnHand : 0m,
+                OtherBlockedKg =
+                    (!((x.PaddyLot != null && x.PaddyLot.Status.Code == LotStatusCodeConstants.Quarantine)
+                        || (x.Location != null && x.Location.IsQuarantine))
+                     && x.PaddyLot != null && !x.PaddyLot.Status.IsSellable)
+                        ? x.QuantityOnHand : 0m,
                 QuantityProcessing =
-                    (!((x.PaddyLot != null && x.PaddyLot.Status.Name == LotStatusNameConstants.Quarantine)
+                    (!((x.PaddyLot != null && x.PaddyLot.Status.Code == LotStatusCodeConstants.Quarantine)
                         || (x.Location != null && x.Location.IsQuarantine))
                         && x.PaddyLot != null
-                        && (x.PaddyLot.Status.Name == LotStatusNameConstants.Processing
-                            || x.PaddyLot.Status.Name == LotStatusNameConstants.Milling))
+                        && (x.PaddyLot.Status.Code == LotStatusCodeConstants.Processing
+                            || x.PaddyLot.Status.Code == LotStatusCodeConstants.Milling))
                         ? x.QuantityOnHand : 0m,
                 // QuantityOnHand lưu kg trực tiếp → TotalWeightKg = QoH, Bags = QoH / trọng lượng mỗi bao
                 TotalWeightKg = x.QuantityOnHand,
@@ -150,6 +164,27 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
             query = query.Where(x => x.PaddyLotId != null);
         }
 
+        if (parameters.IsQuarantined == true || (parameters.InventoryState != null && parameters.InventoryState.Equals("QUARANTINED", StringComparison.OrdinalIgnoreCase)))
+        {
+            query = query.Where(x => x.QuarantinedKg > 0);
+        }
+        else if (parameters.IsQuarantined == false)
+        {
+            query = query.Where(x => x.QuarantinedKg == 0);
+        }
+
+        if (parameters.InventoryState != null)
+        {
+            if (parameters.InventoryState.Equals("SELLABLE", StringComparison.OrdinalIgnoreCase))
+            {
+                query = query.Where(x => x.SellableOnHandKg > 0);
+            }
+            else if (parameters.InventoryState.Equals("OTHER_BLOCKED", StringComparison.OrdinalIgnoreCase))
+            {
+                query = query.Where(x => x.OtherBlockedKg > 0);
+            }
+        }
+
         if (parameters.LowStockOnly == true)
         {
             query = query.Where(x => x.IsLowStock);
@@ -201,24 +236,24 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
 
         // Nhóm CÁCH LY (CL): lô "Cách ly" hoặc vị trí cách ly.
         var quarantineQuery = query.Where(x =>
-            (x.PaddyLot != null && x.PaddyLot.Status.Name == LotStatusNameConstants.Quarantine)
+            (x.PaddyLot != null && x.PaddyLot.Status.Code == LotStatusCodeConstants.Quarantine)
             || (x.Location != null && x.Location.IsQuarantine));
 
         // Nhóm ĐANG XỬ LÝ (XL): lô "Chờ xử lý"/"Đang xay" và KHÔNG thuộc nhóm cách ly.
         var processingQuery = query.Where(x =>
-            !((x.PaddyLot != null && x.PaddyLot.Status.Name == LotStatusNameConstants.Quarantine)
+            !((x.PaddyLot != null && x.PaddyLot.Status.Code == LotStatusCodeConstants.Quarantine)
                 || (x.Location != null && x.Location.IsQuarantine))
             && x.PaddyLot != null
-            && (x.PaddyLot.Status.Name == LotStatusNameConstants.Processing
-                || x.PaddyLot.Status.Name == LotStatusNameConstants.Milling));
+            && (x.PaddyLot.Status.Code == LotStatusCodeConstants.Processing
+                || x.PaddyLot.Status.Code == LotStatusCodeConstants.Milling));
 
         // Phần còn lại (không cách ly, không đang xử lý) — nơi tính "Đã giữ".
         var normalQuery = query.Where(x =>
-            !((x.PaddyLot != null && x.PaddyLot.Status.Name == LotStatusNameConstants.Quarantine)
+            !((x.PaddyLot != null && x.PaddyLot.Status.Code == LotStatusCodeConstants.Quarantine)
                 || (x.Location != null && x.Location.IsQuarantine))
             && !(x.PaddyLot != null
-                && (x.PaddyLot.Status.Name == LotStatusNameConstants.Processing
-                    || x.PaddyLot.Status.Name == LotStatusNameConstants.Milling)));
+                && (x.PaddyLot.Status.Code == LotStatusCodeConstants.Processing
+                    || x.PaddyLot.Status.Code == LotStatusCodeConstants.Milling)));
 
         var dto = new InventoryStockSummaryAggregate
         {
@@ -364,6 +399,9 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
                 x.WarehouseId == warehouseId &&
                 // Tồn khả dụng phải dương
                 (x.QuantityOnHand - x.QuantityReserved) > 0 &&
+                // Không bị cách ly (cả Location cách ly và Lot cách ly)
+                !(x.Location != null && x.Location.IsQuarantine) &&
+                (x.PaddyLotId == null || (x.PaddyLot != null && x.PaddyLot.Status.Code != LotStatusCodeConstants.Quarantine)) &&
                 // Nếu có lô: lô phải IsSellable
                 (x.PaddyLotId == null || (x.PaddyLot != null && x.PaddyLot.Status.IsSellable)))
             // FIFO: lot nhập sớm hơn được chọn trước

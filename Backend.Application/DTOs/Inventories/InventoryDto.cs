@@ -32,6 +32,12 @@ public class InventoryDto
 
     public decimal QuantityAvailable { get; set; }
 
+    public decimal QuarantinedKg { get; set; }
+
+    public decimal SellableOnHandKg { get; set; }
+
+    public decimal OtherBlockedKg { get; set; }
+
     public decimal? MinStockLevel { get; set; }
 
     public bool IsLowStock { get; set; }
@@ -42,4 +48,3 @@ public class InventoryDto
 
     public DateTime? LastModifiedDate { get; set; }
 }
-

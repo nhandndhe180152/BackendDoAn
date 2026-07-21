@@ -2,11 +2,15 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
+using Backend.Application.Constants;
 using Backend.Application.DTOs.ProductVariants;
+using Backend.Application.DTOs.QrCode;
 using Backend.Application.Interfaces;
 using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
+using Backend.Share.Extensions;
 using Backend.Share.Helpers;
 using iText.IO.Font;
 using iText.IO.Image;
@@ -28,15 +32,21 @@ public class QRCodeService : IQRCodeService
     private readonly IProductVariantRepository _productVariantRepository;
     private readonly IStorageService _storageService;
     private readonly IInventoryRepository _inventoryRepository;
+    private readonly IApplicationDbContext _context;
+    private readonly IQrIdentifierService _qrIdentifierService;
 
     public QRCodeService(
         IProductVariantRepository productVariantRepository, 
         IStorageService storageService,
-        IInventoryRepository inventoryRepository)
+        IInventoryRepository inventoryRepository,
+        IApplicationDbContext context,
+        IQrIdentifierService qrIdentifierService)
     {
         _productVariantRepository = productVariantRepository;
         _storageService = storageService;
         _inventoryRepository = inventoryRepository;
+        _context = context;
+        _qrIdentifierService = qrIdentifierService;
     }
 
     public async Task<byte[]> GenerateQRCodeImageAsync(int productVariantId)
@@ -388,5 +398,724 @@ public class QRCodeService : IQRCodeService
         }
 
         return string.Join(" - ", parts);
+    }
+
+    public async Task<byte[]> GeneratePaddyLotQRImageAsync(int id, int size, CancellationToken cancellationToken = default)
+    {
+        var ensureRes = await _qrIdentifierService.EnsurePaddyLotQrCodeAsync(id, cancellationToken);
+        return QRCodeHelper.GenerateQRCodePng(ensureRes.QrPayload, size);
+    }
+
+    public async Task<byte[]> GenerateLocationQRImageAsync(int id, int size, CancellationToken cancellationToken = default)
+    {
+        var ensureRes = await _qrIdentifierService.EnsureLocationQrCodeAsync(id, cancellationToken);
+        return QRCodeHelper.GenerateQRCodePng(ensureRes.QrPayload, size);
+    }
+
+    public async Task<byte[]> GeneratePaddyLotLabelPdfAsync(int id, string templateCode, int copies, CancellationToken cancellationToken = default)
+    {
+        var lot = await _context.PaddyLots
+            .Include(x => x.ProductVariant)
+            .Include(x => x.RiceVariety)
+            .Include(x => x.Warehouse)
+            .Include(x => x.Status)
+            .FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
+
+        if (lot == null)
+        {
+            throw new KeyNotFoundException($"Không tìm thấy lô hàng với ID {id}");
+        }
+
+        await _qrIdentifierService.EnsurePaddyLotQrCodeAsync(id, cancellationToken);
+
+        var (wMm, hMm) = GetDimensionsFromTemplate(templateCode);
+        float widthPt = (wMm / 25.4f) * 72f;
+        float heightPt = (hMm / 25.4f) * 72f;
+
+        using var ms = new MemoryStream();
+        using (var writer = new PdfWriter(ms))
+        {
+            using (var pdf = new PdfDocument(writer))
+            {
+                pdf.SetDefaultPageSize(new PageSize(widthPt, heightPt));
+                var doc = new Document(pdf);
+                doc.SetMargins(2f, 2f, 2f, 2f);
+
+                var font = GetVietnameseFont();
+                if (font != null) doc.SetFont(font);
+
+                for (int i = 0; i < copies; i++)
+                {
+                    if (i > 0) pdf.AddNewPage();
+                    AddPaddyLotLabelContent(doc, lot, widthPt, heightPt, font);
+                }
+                doc.Close();
+            }
+        }
+        return ms.ToArray();
+    }
+
+    public async Task<byte[]> GenerateLocationLabelPdfAsync(int id, string templateCode, int copies, CancellationToken cancellationToken = default)
+    {
+        var loc = await _context.Locations
+            .Include(x => x.Warehouse)
+            .FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
+
+        if (loc == null)
+        {
+            throw new KeyNotFoundException($"Không tìm thấy vị trí với ID {id}");
+        }
+
+        await _qrIdentifierService.EnsureLocationQrCodeAsync(id, cancellationToken);
+
+        var (wMm, hMm) = GetDimensionsFromTemplate(templateCode);
+        float widthPt = (wMm / 25.4f) * 72f;
+        float heightPt = (hMm / 25.4f) * 72f;
+
+        using var ms = new MemoryStream();
+        using (var writer = new PdfWriter(ms))
+        {
+            using (var pdf = new PdfDocument(writer))
+            {
+                pdf.SetDefaultPageSize(new PageSize(widthPt, heightPt));
+                var doc = new Document(pdf);
+                doc.SetMargins(2f, 2f, 2f, 2f);
+
+                var font = GetVietnameseFont();
+                if (font != null) doc.SetFont(font);
+
+                for (int i = 0; i < copies; i++)
+                {
+                    if (i > 0) pdf.AddNewPage();
+                    AddLocationLabelContent(doc, loc, widthPt, heightPt, font);
+                }
+                doc.Close();
+            }
+        }
+        return ms.ToArray();
+    }
+
+    public async Task<byte[]> GenerateBulkPaddyLotLabelsPdfAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken = default)
+    {
+        if (ids == null || !ids.Any())
+        {
+            throw new ArgumentException("Danh sách ID không được rỗng.", nameof(ids));
+        }
+
+        var distinctIds = ids.Distinct().ToList();
+        var lots = await _context.PaddyLots
+            .Include(x => x.ProductVariant)
+            .Include(x => x.RiceVariety)
+            .Include(x => x.Warehouse)
+            .Include(x => x.Status)
+            .Where(x => distinctIds.Contains(x.Id) && !x.IsDeleted)
+            .ToListAsync(cancellationToken);
+
+        if (lots.Count != distinctIds.Count)
+        {
+            throw new KeyNotFoundException("Một hoặc nhiều lô hàng không tồn tại hoặc đã bị xóa.");
+        }
+
+        foreach (var lot in lots)
+        {
+            await _qrIdentifierService.EnsurePaddyLotQrCodeAsync(lot.Id, cancellationToken);
+        }
+
+        var (wMm, hMm) = GetDimensionsFromTemplate(templateCode);
+        float widthPt = (wMm / 25.4f) * 72f;
+        float heightPt = (hMm / 25.4f) * 72f;
+
+        using var ms = new MemoryStream();
+        using (var writer = new PdfWriter(ms))
+        {
+            using (var pdf = new PdfDocument(writer))
+            {
+                pdf.SetDefaultPageSize(new PageSize(widthPt, heightPt));
+                var doc = new Document(pdf);
+                doc.SetMargins(2f, 2f, 2f, 2f);
+
+                var font = GetVietnameseFont();
+                if (font != null) doc.SetFont(font);
+
+                bool isFirst = true;
+                foreach (var lot in lots)
+                {
+                    for (int i = 0; i < copies; i++)
+                    {
+                        if (!isFirst) pdf.AddNewPage();
+                        isFirst = false;
+                        AddPaddyLotLabelContent(doc, lot, widthPt, heightPt, font);
+                    }
+                }
+                doc.Close();
+            }
+        }
+        return ms.ToArray();
+    }
+
+    public async Task<byte[]> GenerateBulkLocationLabelsPdfAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken = default)
+    {
+        if (ids == null || !ids.Any())
+        {
+            throw new ArgumentException("Danh sách ID không được rỗng.", nameof(ids));
+        }
+
+        var distinctIds = ids.Distinct().ToList();
+        var locs = await _context.Locations
+            .Include(x => x.Warehouse)
+            .Where(x => distinctIds.Contains(x.Id) && !x.IsDeleted)
+            .ToListAsync(cancellationToken);
+
+        if (locs.Count != distinctIds.Count)
+        {
+            throw new KeyNotFoundException("Một hoặc nhiều vị trí không tồn tại hoặc đã bị xóa.");
+        }
+
+        foreach (var loc in locs)
+        {
+            await _qrIdentifierService.EnsureLocationQrCodeAsync(loc.Id, cancellationToken);
+        }
+
+        var (wMm, hMm) = GetDimensionsFromTemplate(templateCode);
+        float widthPt = (wMm / 25.4f) * 72f;
+        float heightPt = (hMm / 25.4f) * 72f;
+
+        using var ms = new MemoryStream();
+        using (var writer = new PdfWriter(ms))
+        {
+            using (var pdf = new PdfDocument(writer))
+            {
+                pdf.SetDefaultPageSize(new PageSize(widthPt, heightPt));
+                var doc = new Document(pdf);
+                doc.SetMargins(2f, 2f, 2f, 2f);
+
+                var font = GetVietnameseFont();
+                if (font != null) doc.SetFont(font);
+
+                bool isFirst = true;
+                foreach (var loc in locs)
+                {
+                    for (int i = 0; i < copies; i++)
+                    {
+                        if (!isFirst) pdf.AddNewPage();
+                        isFirst = false;
+                        AddLocationLabelContent(doc, loc, widthPt, heightPt, font);
+                    }
+                }
+                doc.Close();
+            }
+        }
+        return ms.ToArray();
+    }
+
+    private (float WidthMm, float HeightMm) GetDimensionsFromTemplate(string templateCode)
+    {
+        return templateCode?.ToUpper() switch
+        {
+            "SMALL" => (50f, 30f),
+            "LARGE" => (100f, 70f),
+            _ => (70f, 50f) // MEDIUM as default
+        };
+    }
+
+    private void AddPaddyLotLabelContent(Document doc, PaddyLot lot, float widthPt, float heightPt, PdfFont? font)
+    {
+        // Title: LÔ HÀNG hoặc LÔ LÚA/GẠO
+        string titleText = lot.LotType?.ToUpper() switch
+        {
+            "PADDY" => "LÔ LÚA",
+            "RICE" => "LÔ GẠO",
+            _ => "LÔ PHỤ PHẨM"
+        };
+
+        var headerTable = new Table(UnitValue.CreatePercentArray(new float[] { 100f }))
+            .SetWidth(UnitValue.CreatePercentValue(100f));
+        
+        var titleParagraph = new Paragraph(titleText)
+            .SetFontSize(8f)
+            .SetBold()
+            .SetTextAlignment(TextAlignment.CENTER)
+            .SetMarginBottom(1f);
+        
+        headerTable.AddCell(new Cell().Add(titleParagraph).SetBorder(Border.NO_BORDER));
+        doc.Add(headerTable);
+
+        // 2 column layout: Left (QR code), Right (Details)
+        var bodyTable = new Table(UnitValue.CreatePercentArray(new float[] { 35f, 65f }))
+            .SetWidth(UnitValue.CreatePercentValue(100f))
+            .SetMarginTop(1f);
+
+        // QR Code Image
+        var payload = $"STOCKLITE|1|PADDY_LOT|{lot.QrCode}";
+        byte[] qrBytes = QRCodeHelper.GenerateQRCodePng(payload, 5);
+        var qrImage = new Image(ImageDataFactory.Create(qrBytes))
+            .SetAutoScale(true)
+            .SetHorizontalAlignment(HorizontalAlignment.CENTER);
+
+        var qrCell = new Cell().Add(qrImage)
+            .SetBorder(Border.NO_BORDER)
+            .SetVerticalAlignment(VerticalAlignment.MIDDLE)
+            .SetPadding(1f);
+        bodyTable.AddCell(qrCell);
+
+        // Details Column
+        var detailsCell = new Cell()
+            .SetBorder(Border.NO_BORDER)
+            .SetVerticalAlignment(VerticalAlignment.TOP)
+            .SetPaddingLeft(2f);
+
+        // Lot Code
+        detailsCell.Add(new Paragraph($"Mã Lô: {lot.LotCode}")
+            .SetFontSize(5f)
+            .SetBold()
+            .SetMarginBottom(0.5f));
+
+        // SKU / Variant Name
+        detailsCell.Add(new Paragraph($"Sản phẩm: {lot.ProductVariant?.Name ?? "N/A"}")
+            .SetFontSize(4.5f)
+            .SetMultipliedLeading(0.9f)
+            .SetMarginBottom(0.5f));
+
+        // Rice Variety
+        if (lot.RiceVariety != null)
+        {
+            detailsCell.Add(new Paragraph($"Giống: {lot.RiceVariety.Name} ({lot.RiceVariety.Code})")
+                .SetFontSize(4.5f)
+                .SetMarginBottom(0.5f));
+        }
+
+        // Inbound Date
+        detailsCell.Add(new Paragraph($"Ngày nhập: {lot.InboundDate:dd/MM/yyyy}")
+            .SetFontSize(4.5f)
+            .SetMarginBottom(0.5f));
+
+        // Warehouse Info
+        detailsCell.Add(new Paragraph($"Kho: {lot.Warehouse?.Name ?? "N/A"}")
+            .SetFontSize(4.5f)
+            .SetMarginBottom(0.5f));
+
+        // If lot is quarantined at print time
+        if (lot.Status?.Code == LotStatusCodeConstants.Quarantine)
+        {
+            detailsCell.Add(new Paragraph("ĐANG CÁCH LY")
+                .SetFontSize(5f)
+                .SetBold()
+                .SetFontColor(ColorConstants.RED)
+                .SetMarginBottom(0.5f));
+        }
+
+        // Footer / Instruction
+        detailsCell.Add(new Paragraph("Quét mã để xem thông tin hiện tại")
+            .SetFontSize(4f)
+            .SetFontColor(ColorConstants.GRAY)
+            .SetItalic()
+            .SetMarginBottom(0.5f));
+
+        // Printed At
+        detailsCell.Add(new Paragraph($"In lúc: {DateTimeHelper.VietnamNow():dd/MM/yyyy HH:mm}")
+            .SetFontSize(3.5f)
+            .SetFontColor(ColorConstants.GRAY));
+
+        bodyTable.AddCell(detailsCell);
+        doc.Add(bodyTable);
+    }
+
+    private void AddLocationLabelContent(Document doc, Location loc, float widthPt, float heightPt, PdfFont? font)
+    {
+        var headerTable = new Table(UnitValue.CreatePercentArray(new float[] { 100f }))
+            .SetWidth(UnitValue.CreatePercentValue(100f));
+        
+        var titleParagraph = new Paragraph("VỊ TRÍ KHO")
+            .SetFontSize(8f)
+            .SetBold()
+            .SetTextAlignment(TextAlignment.CENTER)
+            .SetMarginBottom(1f);
+        
+        headerTable.AddCell(new Cell().Add(titleParagraph).SetBorder(Border.NO_BORDER));
+        doc.Add(headerTable);
+
+        // 2 column layout: Left (QR code), Right (Details)
+        var bodyTable = new Table(UnitValue.CreatePercentArray(new float[] { 35f, 65f }))
+            .SetWidth(UnitValue.CreatePercentValue(100f))
+            .SetMarginTop(1f);
+
+        // QR Code Image
+        var payload = $"STOCKLITE|1|LOCATION|{loc.QrCode}";
+        byte[] qrBytes = QRCodeHelper.GenerateQRCodePng(payload, 5);
+        var qrImage = new Image(ImageDataFactory.Create(qrBytes))
+            .SetAutoScale(true)
+            .SetHorizontalAlignment(HorizontalAlignment.CENTER);
+
+        var qrCell = new Cell().Add(qrImage)
+            .SetBorder(Border.NO_BORDER)
+            .SetVerticalAlignment(VerticalAlignment.MIDDLE)
+            .SetPadding(1f);
+        bodyTable.AddCell(qrCell);
+
+        // Details Column
+        var detailsCell = new Cell()
+            .SetBorder(Border.NO_BORDER)
+            .SetVerticalAlignment(VerticalAlignment.TOP)
+            .SetPaddingLeft(2f);
+
+        // Warehouse Info
+        detailsCell.Add(new Paragraph($"Kho: {loc.Warehouse?.Name ?? "N/A"}")
+            .SetFontSize(5f)
+            .SetBold()
+            .SetMarginBottom(0.5f));
+
+        // Location coordinates
+        detailsCell.Add(new Paragraph($"Khu vực: {loc.ZoneName ?? "--"}")
+            .SetFontSize(4.5f)
+            .SetMarginBottom(0.5f));
+
+        detailsCell.Add(new Paragraph($"Dãy: {loc.ShelfRow ?? "--"} | Tầng: {loc.ShelfLevel ?? "--"}")
+            .SetFontSize(4.5f)
+            .SetMarginBottom(0.5f));
+
+        detailsCell.Add(new Paragraph($"Ô: {loc.SlotCode ?? "--"}")
+            .SetFontSize(5f)
+            .SetBold()
+            .SetMarginBottom(0.5f));
+
+        // Quarantine check
+        if (loc.IsQuarantine)
+        {
+            detailsCell.Add(new Paragraph("KHU VỰC CÁCH LY")
+                .SetFontSize(5f)
+                .SetBold()
+                .SetFontColor(ColorConstants.RED)
+                .SetMarginBottom(0.5f));
+        }
+
+        // Footer / Instruction
+        detailsCell.Add(new Paragraph("Quét mã để xem vị trí và tồn hiện tại")
+            .SetFontSize(4f)
+            .SetFontColor(ColorConstants.GRAY)
+            .SetItalic()
+            .SetMarginBottom(0.5f));
+
+        // Printed At
+        detailsCell.Add(new Paragraph($"In lúc: {DateTimeHelper.VietnamNow():dd/MM/yyyy HH:mm}")
+            .SetFontSize(3.5f)
+            .SetFontColor(ColorConstants.GRAY));
+
+        bodyTable.AddCell(detailsCell);
+        doc.Add(bodyTable);
+    }
+
+    public async Task<QrResolveResponseDto> ResolveQrAsync(QrResolveRequestDto request, CancellationToken cancellationToken = default)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.Payload))
+        {
+            throw new ArgumentException("Payload quét QR không được để trống.", nameof(request));
+        }
+
+        var parts = request.Payload.Split('|');
+        if (parts.Length != 4 || parts[0] != "STOCKLITE")
+        {
+            throw new ArgumentException("Payload QR không đúng định dạng STOCKLITE.", nameof(request));
+        }
+
+        if (parts[1] != "1")
+        {
+            throw new ArgumentException("Phiên bản mã QR không được hỗ trợ.", nameof(request));
+        }
+
+        var entityType = parts[2].ToUpper();
+        var qrCode = parts[3];
+
+        if (entityType == "PADDY_LOT")
+        {
+            var lot = await _context.PaddyLots
+                .Include(x => x.ProductVariant)
+                .Include(x => x.RiceVariety)
+                .Include(x => x.Warehouse)
+                .Include(x => x.Status)
+                .FirstOrDefaultAsync(x => x.QrCode == qrCode, cancellationToken);
+
+            if (lot == null)
+            {
+                throw new KeyNotFoundException("Không tìm thấy thông tin lô hàng tương ứng với mã QR.");
+            }
+
+            if (lot.IsDeleted)
+            {
+                throw new InvalidOperationException("Lô hàng này đã bị xóa trên hệ thống.");
+            }
+
+            var isQuarantined = lot.Status?.Code == LotStatusCodeConstants.Quarantine;
+
+            var response = new QrResolveResponseDto
+            {
+                EntityType = "PADDY_LOT",
+                EntityId = lot.Id,
+                QrCode = lot.QrCode,
+                DisplayCode = lot.LotCode,
+                LotType = lot.LotType,
+                RemainingWeightKg = lot.RemainingWeightKg,
+                IsQuarantined = isQuarantined,
+                ProductVariant = new QrProductVariantDto
+                {
+                    Id = lot.ProductVariant.Id,
+                    Sku = lot.ProductVariant.SKU,
+                    Name = lot.ProductVariant.Name
+                },
+                RiceVariety = lot.RiceVariety == null ? null : new QrRiceVarietyDto
+                {
+                    Id = lot.RiceVariety.Id,
+                    Code = lot.RiceVariety.Code,
+                    Name = lot.RiceVariety.Name
+                },
+                Warehouse = lot.Warehouse == null ? null : new QrWarehouseDto
+                {
+                    Id = lot.Warehouse.Id,
+                    Code = lot.Warehouse.Code,
+                    Name = lot.Warehouse.Name
+                },
+                Status = lot.Status == null ? null : new QrLotStatusDto
+                {
+                    Id = lot.Status.Id,
+                    Name = lot.Status.Name,
+                    IsSellable = lot.Status.IsSellable
+                },
+                NavigationTarget = new QrNavigationTargetDto
+                {
+                    Type = "PADDY_LOT_DETAIL",
+                    Id = lot.Id
+                }
+            };
+
+            if (request.Context != null)
+            {
+                response.ValidationResult = ValidatePaddyLotContext(lot, request.Context);
+            }
+
+            return response;
+        }
+        else if (entityType == "LOCATION")
+        {
+            var loc = await _context.Locations
+                .Include(x => x.Warehouse)
+                .FirstOrDefaultAsync(x => x.QrCode == qrCode, cancellationToken);
+
+            if (loc == null)
+            {
+                throw new KeyNotFoundException("Không tìm thấy thông tin vị trí tương ứng với mã QR.");
+            }
+
+            if (loc.IsDeleted)
+            {
+                throw new InvalidOperationException("Vị trí lưu kho này đã bị xóa trên hệ thống.");
+            }
+
+            if (!loc.IsActive)
+            {
+                throw new InvalidOperationException("Vị trí lưu kho này đã ngưng hoạt động.");
+            }
+
+            var freeCapacity = loc.MaxCapacity.HasValue ? Math.Max(0m, loc.MaxCapacity.Value - loc.CurrentOccupancy) : (decimal?)null;
+
+            var response = new QrResolveResponseDto
+            {
+                EntityType = "LOCATION",
+                EntityId = loc.Id,
+                QrCode = loc.QrCode,
+                DisplayCode = FormatLocation(loc),
+                ZoneName = loc.ZoneName,
+                ShelfRow = loc.ShelfRow,
+                ShelfLevel = loc.ShelfLevel,
+                SlotCode = loc.SlotCode,
+                MaxCapacityKg = loc.MaxCapacity,
+                CurrentOccupancyKg = loc.CurrentOccupancy,
+                FreeCapacityKg = freeCapacity,
+                IsQuarantine = loc.IsQuarantine,
+                IsActive = loc.IsActive,
+                Warehouse = loc.Warehouse == null ? null : new QrWarehouseDto
+                {
+                    Id = loc.Warehouse.Id,
+                    Code = loc.Warehouse.Code,
+                    Name = loc.Warehouse.Name
+                },
+                NavigationTarget = new QrNavigationTargetDto
+                {
+                    Type = "LOCATION_DETAIL",
+                    Id = loc.Id
+                }
+            };
+
+            if (request.Context != null)
+            {
+                response.ValidationResult = ValidateLocationContext(loc, request.Context);
+            }
+
+            return response;
+        }
+
+        throw new ArgumentException("Kiểu đối tượng trong mã QR không hợp lệ.", nameof(request));
+    }
+
+    private QrContextValidationResultDto ValidatePaddyLotContext(PaddyLot lot, QrContextDto context)
+    {
+        var op = context.Operation?.ToUpper();
+        if (op == "MILLING_INPUT")
+        {
+            if (lot.LotType?.ToUpper() != "PADDY")
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "LOT_PRODUCT_MISMATCH",
+                    ErrorMessage = "Chỉ chấp nhận lô lúa cho hoạt động xay xát."
+                };
+            }
+            if (lot.Status?.Code == LotStatusCodeConstants.Quarantine)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "LOT_QUARANTINED",
+                    ErrorMessage = "Lô lúa đang bị cách ly, không được xay xát."
+                };
+            }
+            if (lot.RemainingWeightKg <= 0)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "LOT_NOT_AVAILABLE",
+                    ErrorMessage = "Lô hàng đã hết hoặc không còn khối lượng."
+                };
+            }
+        }
+        else if (op == "OUTBOUND_PICKING")
+        {
+            if (lot.Status?.Code == LotStatusCodeConstants.Quarantine)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "LOT_QUARANTINED",
+                    ErrorMessage = "Lô hàng đang bị cách ly, không được phép xuất kho."
+                };
+            }
+            if (lot.RemainingWeightKg <= 0)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "LOT_NOT_AVAILABLE",
+                    ErrorMessage = "Lô hàng không còn tồn để xuất kho."
+                };
+            }
+            if (context.ReferenceId.HasValue && lot.ProductVariantId != context.ReferenceId.Value)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "LOT_PRODUCT_MISMATCH",
+                    ErrorMessage = "Biến thể sản phẩm của lô không khớp với biến thể yêu cầu xuất kho."
+                };
+            }
+        }
+        else if (op == "STOCKTAKE")
+        {
+            if (context.WarehouseId.HasValue && lot.WarehouseId != context.WarehouseId.Value)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "QR_CONTEXT_MISMATCH",
+                    ErrorMessage = "Lô lúa này thuộc kho khác với kho đang kiểm kê."
+                };
+            }
+        }
+
+        return new QrContextValidationResultDto { Success = true };
+    }
+
+    private QrContextValidationResultDto ValidateLocationContext(Location loc, QrContextDto context)
+    {
+        var op = context.Operation?.ToUpper();
+        if (op == "STORE_IN")
+        {
+            if (!loc.IsActive)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "QR_ENTITY_INACTIVE",
+                    ErrorMessage = "Vị trí lưu trữ hiện đang ngưng hoạt động."
+                };
+            }
+            if (context.WarehouseId.HasValue && loc.WarehouseId != context.WarehouseId.Value)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "LOCATION_WRONG_WAREHOUSE",
+                    ErrorMessage = "Vị trí đã quét không thuộc về kho chỉ định của phiếu nhập."
+                };
+            }
+            if (context.ReferenceId.HasValue) // representing PaddyLotId
+            {
+                var lot = _context.PaddyLots.Include(x => x.Status).FirstOrDefault(x => x.Id == context.ReferenceId.Value);
+                if (lot != null)
+                {
+                    var lotIsQuarantine = lot.Status?.Code == LotStatusCodeConstants.Quarantine;
+                    if (lotIsQuarantine && !loc.IsQuarantine)
+                    {
+                        return new QrContextValidationResultDto
+                        {
+                            Success = false,
+                            ErrorCode = "LOCATION_QUARANTINE_REQUIRED",
+                            ErrorMessage = "Lô hàng đang bị cách ly. Yêu cầu nhập vào khu vực cách ly."
+                        };
+                    }
+                    if (!lotIsQuarantine && loc.IsQuarantine)
+                    {
+                        return new QrContextValidationResultDto
+                        {
+                            Success = false,
+                            ErrorCode = "LOCATION_NORMAL_REQUIRED",
+                            ErrorMessage = "Lô hàng bình thường. Không được nhập vào khu vực cách ly."
+                        };
+                    }
+
+                    if (loc.MaxCapacity.HasValue && loc.CurrentOccupancy + lot.RemainingWeightKg > loc.MaxCapacity.Value)
+                    {
+                        return new QrContextValidationResultDto
+                        {
+                            Success = false,
+                            ErrorCode = "LOCATION_INSUFFICIENT_CAPACITY",
+                            ErrorMessage = $"Vị trí không đủ sức chứa cho lô hàng này. Còn trống: {Math.Max(0m, loc.MaxCapacity.Value - loc.CurrentOccupancy)} kg."
+                        };
+                    }
+                }
+            }
+        }
+        else if (op == "STOCK_TRANSFER")
+        {
+            if (!loc.IsActive)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "QR_ENTITY_INACTIVE",
+                    ErrorMessage = "Vị trí đích hiện đang ngưng hoạt động."
+                };
+            }
+            if (context.WarehouseId.HasValue && loc.WarehouseId != context.WarehouseId.Value)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "LOCATION_WRONG_WAREHOUSE",
+                    ErrorMessage = "Vị trí đích không nằm trong kho điều chuyển."
+                };
+            }
+        }
+
+        return new QrContextValidationResultDto { Success = true };
     }
 }

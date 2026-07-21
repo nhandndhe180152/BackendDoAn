@@ -34,6 +34,8 @@ public class PaddyLot : EntityAuditBase<int>
     public decimal RemainingWeightKg { get; set; }
     public decimal CostPricePerKg { get; set; }
     public string? QualityStatus { get; set; }
+    public string QrCode { get; set; } = string.Empty;
+    public string QrImageUrl { get; set; } = string.Empty;
 
     // Navigation
     public virtual Organization? Organization { get; set; }
