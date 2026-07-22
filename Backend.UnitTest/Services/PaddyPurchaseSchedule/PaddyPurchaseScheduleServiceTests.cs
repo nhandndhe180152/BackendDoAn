@@ -22,9 +22,10 @@ public class PaddyPurchaseScheduleServiceTests
 {
     private readonly Mock<IPaddyPurchaseScheduleRepository> _repo = new();
     private readonly Mock<ISystemLookup> _lookup = new();
+    private readonly Mock<INotificationDispatcher> _dispatcher = new();
 
     private PaddyPurchaseScheduleService Sut() =>
-        new(_repo.Object, _lookup.Object);
+        new(_repo.Object, _lookup.Object, _dispatcher.Object);
 
     // ── UpdateStatusAsync ────────────────────────────────────────────────────
 

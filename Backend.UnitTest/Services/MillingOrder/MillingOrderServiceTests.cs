@@ -5,6 +5,7 @@ using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Backend.Application.DTOs.MillingOrders;
 using Backend.Application.Implements;
+using Backend.Application.Interfaces;
 using Backend.Domain.Abstractions.Repositories;
 using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
@@ -32,6 +33,7 @@ public class MillingOrderServiceTests
     private readonly Mock<IInventoryRepository>                 _invRepo      = new();
     private readonly Mock<IInventoryTransactionRepository>      _invTxRepo    = new();
     private readonly Mock<ILocationRepository>                  _locationRepo = new();
+    private readonly Mock<INotificationDispatcher>              _dispatcher   = new();
 
     private MillingOrderService Sut() => new(
         _orderRepo.Object,
@@ -42,7 +44,8 @@ public class MillingOrderServiceTests
         _lotStatusRepo.Object,
         _invRepo.Object,
         _invTxRepo.Object,
-        _locationRepo.Object);
+        _locationRepo.Object,
+        _dispatcher.Object);
 
     // ── Common setup helpers ─────────────────────────────────────────────────
 
