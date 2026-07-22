@@ -38,6 +38,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
     private readonly IInventoryRepository _inventoryRepository;
     private readonly IInventoryTransactionRepository _inventoryTransactionRepository;
     private readonly IRepositoryBase<PutawayDecision, long> _putawayDecisionRepository;
+    private readonly INotificationDispatcher _notificationDispatcher;
 
     public PaddyPurchaseReceiptService(
         IPaddyPurchaseReceiptRepository receiptRepository,
@@ -54,7 +55,8 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         IHttpContextAccessor httpContextAccessor,
         IInventoryRepository inventoryRepository,
         IInventoryTransactionRepository inventoryTransactionRepository,
-        IRepositoryBase<PutawayDecision, long> putawayDecisionRepository)
+        IRepositoryBase<PutawayDecision, long> putawayDecisionRepository,
+        INotificationDispatcher notificationDispatcher)
     {
         _receiptRepository = receiptRepository;
         _paddyLotRepository = paddyLotRepository;
@@ -71,6 +73,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         _inventoryRepository = inventoryRepository;
         _inventoryTransactionRepository = inventoryTransactionRepository;
         _putawayDecisionRepository = putawayDecisionRepository;
+        _notificationDispatcher = notificationDispatcher;
     }
 
     private int GetCurrentUserId()
@@ -307,6 +310,14 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             }
 
             await _receiptRepository.EndTransactionAsync();
+
+            // Thông báo cho Chủ kho và Nhân viên kho: phiếu mua lúa đã chốt, đã sinh lô + phiếu nhập.
+            await _notificationDispatcher.DispatchAsync(
+                NotificationConstants.Code.PurchaseReceiptConfirmed,
+                new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.OWNER, CommonConstants.Role.WAREHOUSE } },
+                new object[] { receipt.ReceiptCode },
+                $"/admin/paddy-purchase-receipts/{receipt.Id}",
+                confirmedById);
 
             return ApiResponse.Success(new { LotId = lot.Id, LotCode = lot.LotCode, InboundOrderId = inboundOrder.Id },
                 "Chốt phiếu thành công. Đã sinh lô và phiếu nhập kho.");

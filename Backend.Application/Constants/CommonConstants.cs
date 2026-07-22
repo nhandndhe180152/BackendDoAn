@@ -114,31 +114,61 @@ public static class CommonConstants
     /// Id role được PHÂN GIẢI TỪ CODE ổn định lúc chạy (không còn hard-code Id số).
     /// DB đổi Id/re-seed vẫn đúng. Fallback = Id seed cũ để không vỡ khi role chưa seed/warmup chưa chạy.
     /// </summary>
+    // Vai trò theo tài liệu nghiệp vụ (Report 1 - Vision & Scope, Table 6):
+    // owner, purchasing, warehouse, milling, sales (+ admin kỹ thuật).
+    // Id được phân giải TỪ CODE lúc chạy (không hard-code Id số). Fallback = Id seed dự phòng.
     public static class Role
     {
         public static int ADMIN => Lookup.RoleIdOrDefault(LookupCodes.Role.Admin, 1001);
-        public static int END_USER => Lookup.RoleIdOrDefault(LookupCodes.Role.EndUser, 1002);
-        public static int DRIVER => Lookup.RoleIdOrDefault(LookupCodes.Role.Driver, 1003);
-        public static int DISPATCHER => Lookup.RoleIdOrDefault(LookupCodes.Role.Dispatcher, 1004);
-        public static int EXECUTIVE => Lookup.RoleIdOrDefault(LookupCodes.Role.Executive, 1005);
+        public static int OWNER => Lookup.RoleIdOrDefault(LookupCodes.Role.Owner, 1002);
+        public static int PURCHASING => Lookup.RoleIdOrDefault(LookupCodes.Role.Purchasing, 1007);
+        public static int WAREHOUSE => Lookup.RoleIdOrDefault(LookupCodes.Role.Warehouse, 1008);
+        public static int MILLING => Lookup.RoleIdOrDefault(LookupCodes.Role.Milling, 1009);
+        public static int SALES => Lookup.RoleIdOrDefault(LookupCodes.Role.Sales, 1010);
+
+        /// <summary>
+        /// Các Code role hệ thống mà code backend đang tham chiếu — dùng để bảo vệ khỏi bị xoá.
+        /// Không được xoá các role này vì sẽ làm hỏng gửi thông báo theo role & phân quyền.
+        /// </summary>
+        public static readonly HashSet<string> SystemCodes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            LookupCodes.Role.Admin,
+            LookupCodes.Role.Owner,
+            LookupCodes.Role.Purchasing,
+            LookupCodes.Role.Warehouse,
+            LookupCodes.Role.Milling,
+            LookupCodes.Role.Sales,
+        };
     }
 
+    /// <summary>Các vai trò nghiệp vụ có thể gán khi tạo tài khoản nhân viên (không gồm ADMIN).</summary>
     public static readonly HashSet<int> ListRoleRegister = new()
         {
-            Role.DISPATCHER
+            Role.OWNER,
+            Role.PURCHASING,
+            Role.WAREHOUSE,
+            Role.MILLING,
+            Role.SALES,
         };
 
+    /// <summary>Các vai trò làm việc nội bộ (dùng hệ thống quản lý).</summary>
     public static readonly HashSet<int> ListRoleForOffice = new()
         {
-            Role.DISPATCHER,
+            Role.OWNER,
+            Role.PURCHASING,
+            Role.WAREHOUSE,
+            Role.MILLING,
+            Role.SALES,
         };
 
     public static readonly HashSet<int> ListRoleForUserManagement = new()
         {
             Role.ADMIN,
-            Role.END_USER,
-            Role.DISPATCHER,
-            Role.EXECUTIVE
+            Role.OWNER,
+            Role.PURCHASING,
+            Role.WAREHOUSE,
+            Role.MILLING,
+            Role.SALES,
         };
 
     public static class UserVerificationTokenPurpose

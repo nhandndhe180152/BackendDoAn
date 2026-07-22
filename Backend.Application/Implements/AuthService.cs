@@ -295,7 +295,9 @@ public class AuthService : IAuthService
                 .Select(x => x.Id)
                 .ToList();
 
-            if (!listRoleIds.Any(x => x != CommonConstants.Role.END_USER && x != CommonConstants.Role.DRIVER))
+            // Mọi vai trò nghiệp vụ (Chủ kho/Thu mua/Kho/Xay/Bán hàng + Admin) đều dùng hệ thống quản lý.
+            // Chỉ chặn khi tài khoản chưa được gán vai trò nào.
+            if (!listRoleIds.Any())
                 return ApiResponse.Forbidden(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.RequiredAdminUser), ApiCodeConstants.Auth.RequiredAdminUser);
         }
 
@@ -732,11 +734,11 @@ public class AuthService : IAuthService
             await _userRepository.CreateAsync(model);
             await _userRepository.SaveChangesAsync();
 
-            //Thêm userRole
+            //Thêm userRole — mặc định vai trò Nhân viên kho; admin có thể đổi lại trong quản lý người dùng.
             var userRole = new UserRole()
             {
                 UserId = model.Id,
-                RoleId = CommonConstants.Role.DISPATCHER,
+                RoleId = CommonConstants.Role.WAREHOUSE,
                 CreatedDate = DateTime.Now,
             };
             await _userRoleRepository.CreateAsync(userRole);
@@ -914,11 +916,11 @@ public class AuthService : IAuthService
             await _userRepository.CreateAsync(model);
             await _userRepository.SaveChangesAsync();
 
-            //Thêm userRole
+            //Thêm userRole — mặc định vai trò Nhân viên kho; admin có thể đổi lại trong quản lý người dùng.
             var userRole = new UserRole()
             {
                 UserId = model.Id,
-                RoleId = CommonConstants.Role.END_USER,
+                RoleId = CommonConstants.Role.WAREHOUSE,
                 CreatedDate = DateTime.Now,
             };
             await _userRoleRepository.CreateAsync(userRole);

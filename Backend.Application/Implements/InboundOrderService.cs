@@ -480,6 +480,14 @@ public class InboundOrderService : IInboundOrderService
         await _inboundOrderRepository.UpdateAsync(order);
         await _inboundOrderRepository.SaveChangesAsync();
 
+        // Thông báo + push FCM cho người có quyền duyệt (không gửi lại cho người vừa gửi).
+        await _notificationDispatcher.DispatchAsync(
+            NotificationConstants.Code.InboundSubmitted,
+            BuildInboundApproverTarget(),
+            new object[] { order.POCode },
+            $"/admin/inbound-orders/{order.Id}",
+            GetCurrentUserId());
+
         return ApiResponse.Success();
     }
 
@@ -543,7 +551,7 @@ public class InboundOrderService : IInboundOrderService
         return ApiResponse.Success();
     }
 
-    /// <summary>Người nhận thông báo phiếu nhập: người tạo + vai trò quản lý.</summary>
+    /// <summary>Người nhận thông báo phiếu nhập: người tạo + vai trò quản lý (Chủ kho + Admin).</summary>
     private static NotificationTarget BuildInboundNotifyTarget(int? createdBy)
     {
         return new NotificationTarget
@@ -552,8 +560,20 @@ public class InboundOrderService : IInboundOrderService
             RoleIds = new List<int>
             {
                 CommonConstants.Role.ADMIN,
-                CommonConstants.Role.EXECUTIVE,
-                CommonConstants.Role.DISPATCHER,
+                CommonConstants.Role.OWNER,
+            },
+        };
+    }
+
+    /// <summary>Người nhận thông báo "chờ duyệt": vai trò có quyền phê duyệt phiếu nhập (Chủ kho + Admin).</summary>
+    private static NotificationTarget BuildInboundApproverTarget()
+    {
+        return new NotificationTarget
+        {
+            RoleIds = new List<int>
+            {
+                CommonConstants.Role.ADMIN,
+                CommonConstants.Role.OWNER,
             },
         };
     }
@@ -844,7 +864,9 @@ public class InboundOrderService : IInboundOrderService
                 continue;
 
             var raw = await _systemConfigRepository.GetValueByKey(key);
-            if (!string.IsNullOrWhiteSpace(raw) && decimal.TryParse(raw, out var value))
+            // Config value lưu dạng bất biến (dấu chấm); parse theo InvariantCulture để không lệ thuộc locale máy chủ.
+            if (!string.IsNullOrWhiteSpace(raw) &&
+                decimal.TryParse(raw, NumberStyles.Number, CultureInfo.InvariantCulture, out var value))
                 return value;
         }
 
@@ -936,10 +958,11 @@ public class InboundOrderService : IInboundOrderService
         if (string.IsNullOrEmpty(whOccStr)) whOccStr = await _systemConfigRepository.GetValueByKey("PutawayOccupancyWeight");
         if (string.IsNullOrEmpty(whPriStr)) whPriStr = await _systemConfigRepository.GetValueByKey("PutawayPriorityWeight");
 
-        if (double.TryParse(whCatMatchStr, out var w1)) catMatchW = w1;
-        if (double.TryParse(whCapFitStr, out var w2)) capFitW = w2;
-        if (double.TryParse(whOccStr, out var w3)) occW = w3;
-        if (double.TryParse(whPriStr, out var w4)) priW = w4;
+        // Config value lưu dạng bất biến (dấu chấm); parse theo InvariantCulture để không lệ thuộc locale máy chủ.
+        if (double.TryParse(whCatMatchStr, NumberStyles.Number, CultureInfo.InvariantCulture, out var w1)) catMatchW = w1;
+        if (double.TryParse(whCapFitStr, NumberStyles.Number, CultureInfo.InvariantCulture, out var w2)) capFitW = w2;
+        if (double.TryParse(whOccStr, NumberStyles.Number, CultureInfo.InvariantCulture, out var w3)) occW = w3;
+        if (double.TryParse(whPriStr, NumberStyles.Number, CultureInfo.InvariantCulture, out var w4)) priW = w4;
 
         if (catMatchW < 0 || capFitW < 0 || occW < 0 || priW < 0 || Math.Abs((catMatchW + capFitW + occW + priW) - 1.0) > 0.001)
         {
@@ -1262,6 +1285,17 @@ public class InboundOrderService : IInboundOrderService
 
             // Realtime giờ do AuditSaveChangesInterceptor tự phát khi dữ liệu đổi
             // (InboundOrder nằm trong RealtimeEntityNames), không cần publish thủ công.
+
+            // Thông báo cho Chủ kho và Nhân viên kho khi phiếu nhập đã nhận hàng ĐẦY ĐỦ vào kho.
+            if (nextDocStatusName == InboundOrderStatusNames.Confirmed)
+            {
+                await _notificationDispatcher.DispatchAsync(
+                    NotificationConstants.Code.InboundReceived,
+                    new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.OWNER, CommonConstants.Role.WAREHOUSE } },
+                    new object[] { order.POCode },
+                    $"/admin/inbound-orders/{order.Id}",
+                    GetCurrentUserId());
+            }
 
             return ApiResponse.Success(item.ToDto(), "Xác nhận nhập kho hoàn tất thành công.");
         }
@@ -1624,6 +1658,14 @@ public class InboundOrderService : IInboundOrderService
             _logger.LogError(ex, "ConfirmNonPaddyReceiveAsync failed for InboundOrder {Id}", id);
             return ApiResponse.BadRequest($"Lỗi xử lý: {ex.Message}", ApiCodeConstants.Common.BadRequest);
         }
+
+        // Thông báo cho Chủ kho và Nhân viên kho: phiếu nhập (hàng non-paddy) đã nhận đủ vào kho.
+        await _notificationDispatcher.DispatchAsync(
+            NotificationConstants.Code.InboundReceived,
+            new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.OWNER, CommonConstants.Role.WAREHOUSE } },
+            new object[] { order.POCode },
+            $"/admin/inbound-orders/{order.Id}",
+            userId);
 
         return ApiResponse.Success(
             new { TotalAssetValue = totalAssetValue },

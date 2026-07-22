@@ -21,6 +21,7 @@ public class NotificationDispatcher : INotificationDispatcher
     private readonly INotificationRepository _notificationRepository;
     private readonly IUserNotificationRepository _userNotificationRepository;
     private readonly INotificationCategoryRepository _notificationCategoryRepository;
+    private readonly INotificationTypeRepository _notificationTypeRepository;
     private readonly IUserRoleRepository _userRoleRepository;
     private readonly IUserDeviceRepository _userDeviceRepository;
     private readonly IFireBaseService _fireBaseService;
@@ -30,6 +31,7 @@ public class NotificationDispatcher : INotificationDispatcher
         INotificationRepository notificationRepository,
         IUserNotificationRepository userNotificationRepository,
         INotificationCategoryRepository notificationCategoryRepository,
+        INotificationTypeRepository notificationTypeRepository,
         IUserRoleRepository userRoleRepository,
         IUserDeviceRepository userDeviceRepository,
         IFireBaseService fireBaseService,
@@ -38,6 +40,7 @@ public class NotificationDispatcher : INotificationDispatcher
         _notificationRepository = notificationRepository;
         _userNotificationRepository = userNotificationRepository;
         _notificationCategoryRepository = notificationCategoryRepository;
+        _notificationTypeRepository = notificationTypeRepository;
         _userRoleRepository = userRoleRepository;
         _userDeviceRepository = userDeviceRepository;
         _fireBaseService = fireBaseService;
@@ -74,13 +77,32 @@ public class NotificationDispatcher : INotificationDispatcher
             var title = (args != null && args.Length > 0) ? string.Format(tpl.Title, args) : tpl.Title;
             var content = (args != null && args.Length > 0) ? string.Format(tpl.Content, args) : tpl.Content;
 
-            var categoryId = await EnsureCategoryAsync(tpl.Category, tpl.Color);
+            // LOẠI + DANH MỤC lấy từ dữ liệu đã lưu trong DB (phân giải theo TÊN, không hard-code Id).
+            var typeId = await ResolveTypeIdByNameAsync(NotificationConstants.TypeName.System);
+            if (typeId == null)
+            {
+                _logger.LogWarning(
+                    "[Notify] Chưa có LOẠI thông báo tên '{TypeName}' trong DB. Bỏ qua thông báo {Code}. " +
+                    "Hãy thêm loại này qua trang quản trị.",
+                    NotificationConstants.TypeName.System, code);
+                return;
+            }
+
+            var categoryId = await ResolveCategoryIdByNameAsync(tpl.Category);
+            if (categoryId == null)
+            {
+                _logger.LogWarning(
+                    "[Notify] Chưa có DANH MỤC thông báo tên '{CategoryName}' trong DB. Bỏ qua thông báo {Code}. " +
+                    "Hãy thêm danh mục này qua trang quản trị.",
+                    tpl.Category, code);
+                return;
+            }
 
             // 1) Lưu Notification + UserNotification vào DB.
             var notification = new Notification
             {
-                NotificationCategoryId = categoryId,
-                NotificationTypeId = CommonConstants.NotificationType.SYSTEM, // FK bắt buộc — luôn là loại "Hệ thống"
+                NotificationCategoryId = categoryId.Value,
+                NotificationTypeId = typeId.Value, // FK bắt buộc — luôn là loại "Hệ thống" lấy từ DB
                 Title = title,
                 Content = content,
                 DirectionId = directionId,
@@ -116,7 +138,7 @@ public class NotificationDispatcher : INotificationDispatcher
             if (tokens.Count > 0)
             {
                 await _fireBaseService.SendNotificationAsync(
-                    tokens, title, content, categoryId.ToString(), directionId);
+                    tokens, title, content, categoryId.Value.ToString(), directionId);
             }
         }
         catch (Exception ex)
@@ -125,22 +147,25 @@ public class NotificationDispatcher : INotificationDispatcher
         }
     }
 
-    /// <summary>Lấy danh mục theo tên, tạo mới nếu chưa có.</summary>
-    private async Task<int> EnsureCategoryAsync(string name, string color)
+    /// <summary>
+    /// Phân giải Id LOẠI thông báo theo TÊN từ DB (không tạo mới).
+    /// Trả về null nếu chưa có — admin cần thêm dữ liệu qua trang quản trị.
+    /// </summary>
+    private async Task<int?> ResolveTypeIdByNameAsync(string name)
+    {
+        var existing = await _notificationTypeRepository
+            .FirstOrDefaultAsync(x => x.Name == name && !x.IsDeleted);
+        return existing?.Id;
+    }
+
+    /// <summary>
+    /// Phân giải Id DANH MỤC thông báo theo TÊN từ DB (không tạo mới).
+    /// Trả về null nếu chưa có — admin cần thêm dữ liệu qua trang quản trị.
+    /// </summary>
+    private async Task<int?> ResolveCategoryIdByNameAsync(string name)
     {
         var existing = await _notificationCategoryRepository
             .FirstOrDefaultAsync(x => x.Name == name && !x.IsDeleted);
-        if (existing != null) return existing.Id;
-
-        var category = new NotificationCategory
-        {
-            Name = name,
-            Color = color,
-            Description = name,
-            CreatedDate = DateTime.UtcNow,
-        };
-        await _notificationCategoryRepository.CreateAsync(category);
-        await _notificationCategoryRepository.SaveChangesAsync();
-        return category.Id;
+        return existing?.Id;
     }
 }

@@ -1,8 +1,10 @@
 using System;
 using System.Linq.Expressions;
+using System.Threading.Tasks;
 using Backend.Application.Constants;
 using Backend.Application.DTOs.Roles;
 using Backend.Application.Implements;
+using Backend.Application.Interfaces;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Services;
 using Backend.UnitTest.Common;
@@ -25,11 +27,13 @@ public class RoleServiceTests
     private readonly Mock<IUserRoleRepository> _userRoleRepo = new();
     private readonly Mock<IActionInMenuRepository> _actionInMenuRepo = new();
     private readonly Mock<ICacheService> _cacheService = new();
+    private readonly Mock<ISystemLookup> _systemLookup = new();
 
     private readonly RoleService _sut;
 
     public RoleServiceTests()
     {
+        _systemLookup.Setup(x => x.ReloadAsync()).Returns(Task.CompletedTask);
         _sut = new RoleService(
             _roleRepo.Object,
             _permissionRepo.Object,
@@ -38,7 +42,8 @@ public class RoleServiceTests
             _userRoleRepo.Object,
             _actionInMenuRepo.Object,
             MockHelper.HttpContextAccessor().Object,
-            _cacheService.Object
+            _cacheService.Object,
+            _systemLookup.Object
         );
     }
 

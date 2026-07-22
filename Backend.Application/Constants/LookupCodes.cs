@@ -25,11 +25,14 @@ public static class LookupCodes
 
     public static class Role
     {
-        public const string Admin = "ADMIN";
-        public const string EndUser = "END_USER";
-        public const string Driver = "DRIVER";
-        public const string Dispatcher = "DISPATCHER";
-        public const string Executive = "EXECUTIVE";
+        // Bộ vai trò theo tài liệu nghiệp vụ (Report 1 - Vision & Scope, Table 6):
+        // owner, purchasing, warehouse, milling, sales (+ admin kỹ thuật).
+        public const string Admin = "ADMIN";           // Quản trị viên hệ thống
+        public const string Owner = "OWNER";           // Chủ kho / chủ hộ kinh doanh
+        public const string Purchasing = "PURCHASING"; // Nhân viên thu mua
+        public const string Warehouse = "WAREHOUSE";   // Nhân viên kho
+        public const string Milling = "MILLING";       // Nhân viên xay xát
+        public const string Sales = "SALES";           // Nhân viên bán hàng
     }
 
     public static class Action

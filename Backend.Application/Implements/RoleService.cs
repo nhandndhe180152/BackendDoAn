@@ -24,7 +24,8 @@ public class RoleService : IRoleService
     private readonly IActionInMenuRepository _actionInMenuRepository;
     private readonly ICacheService _cacheService;
     private readonly IHttpContextAccessor _httpContextAccessor;
-    public RoleService(IRoleRepository roleRepository, IPermissionRepository permissionRepository, IActionRepository actionRepository, IMenuRepository menuRepository, IUserRoleRepository userRoleRepository, IActionInMenuRepository actionInMenuRepository, IHttpContextAccessor httpContextAccessor, ICacheService cacheService)
+    private readonly ISystemLookup _systemLookup;
+    public RoleService(IRoleRepository roleRepository, IPermissionRepository permissionRepository, IActionRepository actionRepository, IMenuRepository menuRepository, IUserRoleRepository userRoleRepository, IActionInMenuRepository actionInMenuRepository, IHttpContextAccessor httpContextAccessor, ICacheService cacheService, ISystemLookup systemLookup)
     {
         _roleRepository = roleRepository;
         _permissionRepository = permissionRepository;
@@ -34,6 +35,7 @@ public class RoleService : IRoleService
         _actionInMenuRepository = actionInMenuRepository;
         _httpContextAccessor = httpContextAccessor;
         _cacheService = cacheService;
+        _systemLookup = systemLookup;
     }
 
     public async Task<ApiResponse> CreateAsync(CreateRoleDto obj)
@@ -102,6 +104,10 @@ public class RoleService : IRoleService
                     .GetAllAsync();
                 await _cacheService.SetAsync<List<Permission>>(CommonConstants.Cache.PERMISSIONS_ALL_KEY, permissions);
             }
+
+            // Nạp lại cache Code→Id (ISystemLookup) để role vừa tạo được phân giải đúng Id ngay lập tức —
+            // đảm bảo gửi thông báo theo role và phân quyền chính xác mà không cần khởi động lại server.
+            await _systemLookup.ReloadAsync();
         }
         catch
         {
@@ -271,8 +277,10 @@ public class RoleService : IRoleService
 
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {
-        //Không cho xoá những role mặc định
-        if (id <= CommonConstants.Role.END_USER)
+        // Bảo vệ các role hệ thống mà code backend tham chiếu theo Code
+        // (ADMIN/OWNER/PURCHASING/WAREHOUSE/MILLING/SALES): xoá sẽ làm hỏng gửi thông báo theo role & phân quyền.
+        var role = await _roleRepository.GetByIdAsync(id);
+        if (role != null && !string.IsNullOrEmpty(role.Code) && CommonConstants.Role.SystemCodes.Contains(role.Code))
             return ApiResponse.Forbidden(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.Forbidden), ApiCodeConstants.Common.Forbidden);
 
         var isDeleted = await _roleRepository.SoftDeleteAsync(id);
@@ -280,6 +288,9 @@ public class RoleService : IRoleService
             return ApiResponse.BadRequest();
 
         await _roleRepository.SaveChangesAsync();
+
+        // Nạp lại cache Code→Id sau khi xoá role để đồng bộ với DB.
+        await _systemLookup.ReloadAsync();
 
         return ApiResponse.Success(isDeleted);
     }
@@ -365,6 +376,10 @@ public class RoleService : IRoleService
                     .GetAllAsync();
                 await _cacheService.SetAsync<List<Permission>>(CommonConstants.Cache.PERMISSIONS_ALL_KEY, permissions);
             }
+
+            // Nạp lại cache Code→Id (ISystemLookup) sau khi cập nhật role (đặc biệt khi đổi Code)
+            // để việc gửi thông báo theo role và phân quyền luôn khớp với DB mới nhất.
+            await _systemLookup.ReloadAsync();
         }
         catch
         {
@@ -421,7 +436,7 @@ public class RoleService : IRoleService
     public async Task<ApiResponse> GetListRoleForUserManagementAsync()
     {
         var data = await _roleRepository
-           .FindByCondition(x => x.Id != CommonConstants.Role.DRIVER)
+           .FindByCondition(x => !x.IsDeleted)
            .Select(x => new RoleDetailDto
            {
                Id = x.Id,

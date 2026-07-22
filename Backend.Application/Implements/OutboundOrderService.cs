@@ -35,6 +35,7 @@ public class OutboundOrderService : IOutboundOrderService
     private readonly IDebtTransactionRepository _debtTransactionRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IPaddyLotRepository _paddyLotRepository;
+    private readonly INotificationDispatcher _notificationDispatcher;
 
     public OutboundOrderService(
         IOutboundOrderRepository outboundOrderRepository,
@@ -47,7 +48,8 @@ public class OutboundOrderService : IOutboundOrderService
         IPartyDebtRepository partyDebtRepository,
         IDebtTransactionRepository debtTransactionRepository,
         IHttpContextAccessor httpContextAccessor,
-        IPaddyLotRepository paddyLotRepository)
+        IPaddyLotRepository paddyLotRepository,
+        INotificationDispatcher notificationDispatcher)
     {
         _outboundOrderRepository       = outboundOrderRepository;
         _outboundStatusRepository      = outboundStatusRepository;
@@ -60,6 +62,7 @@ public class OutboundOrderService : IOutboundOrderService
         _debtTransactionRepository     = debtTransactionRepository;
         _httpContextAccessor           = httpContextAccessor;
         _paddyLotRepository            = paddyLotRepository;
+        _notificationDispatcher        = notificationDispatcher;
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
@@ -585,6 +588,24 @@ public class OutboundOrderService : IOutboundOrderService
             await _outboundOrderRepository.RollbackTransactionAsync();
             throw;
         }
+
+        // Thông báo + push FCM sau khi đã commit thành công: gửi cho người tạo phiếu và các vai trò quản lý.
+        var soCode = order.SalesOrder?.SOCode ?? order.Id.ToString();
+        await _notificationDispatcher.DispatchAsync(
+            NotificationConstants.Code.OutboundDispatched,
+            new NotificationTarget
+            {
+                UserIds = order.CreatedBy.HasValue ? new List<int> { order.CreatedBy.Value } : new List<int>(),
+                RoleIds = new List<int>
+                {
+                    CommonConstants.Role.ADMIN,
+                    CommonConstants.Role.OWNER,
+                    CommonConstants.Role.SALES,
+                },
+            },
+            new object[] { soCode },
+            $"/admin/outbound-orders/{order.Id}",
+            userId);
 
         return ApiResponse.Success(
             new { TotalDispatchedValue = totalDispatchedValue },

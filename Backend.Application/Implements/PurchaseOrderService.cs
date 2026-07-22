@@ -32,6 +32,7 @@ public class PurchaseOrderService : IPurchaseOrderService
     private readonly IRepositoryBase<Supplier, int>          _supplierRepository;
     private readonly IRepositoryBase<ProductVariant, int>    _productVariantRepository;
     private readonly IHttpContextAccessor                     _httpContextAccessor;
+    private readonly INotificationDispatcher                   _notificationDispatcher;
 
     public PurchaseOrderService(
         IRepositoryBase<PurchaseOrder, int>      purchaseOrderRepository,
@@ -42,7 +43,8 @@ public class PurchaseOrderService : IPurchaseOrderService
         IRepositoryBase<InboundOrderStatus, int> inboundOrderStatusRepository,
         IRepositoryBase<Supplier, int>           supplierRepository,
         IRepositoryBase<ProductVariant, int>     productVariantRepository,
-        IHttpContextAccessor                      httpContextAccessor)
+        IHttpContextAccessor                      httpContextAccessor,
+        INotificationDispatcher                   notificationDispatcher)
     {
         _purchaseOrderRepository       = purchaseOrderRepository;
         _purchaseOrderItemRepository   = purchaseOrderItemRepository;
@@ -53,6 +55,7 @@ public class PurchaseOrderService : IPurchaseOrderService
         _supplierRepository            = supplierRepository;
         _productVariantRepository      = productVariantRepository;
         _httpContextAccessor           = httpContextAccessor;
+        _notificationDispatcher        = notificationDispatcher;
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
@@ -350,6 +353,15 @@ public class PurchaseOrderService : IPurchaseOrderService
 
         await _purchaseOrderRepository.UpdateAsync(po);
         await _purchaseOrderRepository.SaveChangesAsync();
+
+        // Thông báo cho Nhân viên thu mua, Chủ kho, Nhân viên kho: đơn mua đã xác nhận.
+        await _notificationDispatcher.DispatchAsync(
+            NotificationConstants.Code.PurchaseOrderConfirmed,
+            new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.PURCHASING, CommonConstants.Role.OWNER, CommonConstants.Role.WAREHOUSE } },
+            new object[] { po.POCode },
+            $"/admin/purchase-orders/{po.Id}",
+            GetCurrentUserId());
+
         return ApiResponse.Success(message: "Đơn mua đã được xác nhận.");
     }
 
@@ -474,6 +486,15 @@ public class PurchaseOrderService : IPurchaseOrderService
 
         await _purchaseOrderRepository.UpdateAsync(po);
         await _purchaseOrderRepository.SaveChangesAsync();
+
+        // Thông báo cho Nhân viên thu mua và Chủ kho: đơn mua đã bị hủy.
+        await _notificationDispatcher.DispatchAsync(
+            NotificationConstants.Code.PurchaseOrderCancelled,
+            new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.PURCHASING, CommonConstants.Role.OWNER } },
+            new object[] { po.POCode },
+            $"/admin/purchase-orders/{po.Id}",
+            GetCurrentUserId());
+
         return ApiResponse.Success(message: "Đơn mua đã được hủy.");
     }
 }

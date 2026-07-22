@@ -38,7 +38,7 @@ public class AuditLogRepository : RepositoryBase<AuditLog, int>, IAuditLogReposi
             orderAscendingDirection = false;
         }
 
-        var isGetAll = parameters.RoleIds.Any(x => x == CommonConstants.Role.ADMIN || x == CommonConstants.Role.EXECUTIVE);
+        var isGetAll = parameters.RoleIds.Any(x => x == CommonConstants.Role.ADMIN || x == CommonConstants.Role.OWNER);
 
         var query = from a in _context.AuditLogs
                     join b in _context.Users on a.CreatedBy equals b.Id into groupAB

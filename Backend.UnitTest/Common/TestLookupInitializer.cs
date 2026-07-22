@@ -37,10 +37,11 @@ internal sealed class TestSystemLookup : ISystemLookup
     public int RoleId(string code) => code switch
     {
         "ADMIN" => 1001,
-        "END_USER" => 1002,
-        "DRIVER" => 1003,
-        "DISPATCHER" => 1004,
-        "EXECUTIVE" => 1005,
+        "OWNER" => 1002,
+        "PURCHASING" => 1003,
+        "WAREHOUSE" => 1004,
+        "MILLING" => 1005,
+        "SALES" => 1006,
         _ => 0
     };
 

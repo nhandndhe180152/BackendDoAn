@@ -284,7 +284,7 @@ public class LowStockDetectionServiceTests
         // Verify notification args (D5 Fix)
         _dispatcherMock.Verify(d => d.DispatchAsync(
             NotificationConstants.Code.LowStockAlert,
-            It.Is<NotificationTarget>(t => t.RoleIds.Contains(CommonConstants.Role.ADMIN) && t.RoleIds.Contains(CommonConstants.Role.EXECUTIVE)),
+            It.Is<NotificationTarget>(t => t.RoleIds.Contains(CommonConstants.Role.ADMIN) && t.RoleIds.Contains(CommonConstants.Role.OWNER)),
             It.Is<object[]>(args => 
                 args.Length == 4 && 
                 args[0].ToString() == "PV-ST25 - Gạo ST25 10kg" && 
@@ -487,7 +487,7 @@ public class LowStockDetectionServiceTests
 
         _dispatcherMock.Verify(d => d.DispatchAsync(
             NotificationConstants.Code.LowStockAlert,
-            It.Is<NotificationTarget>(t => t.RoleIds.Contains(CommonConstants.Role.ADMIN) && t.RoleIds.Contains(CommonConstants.Role.EXECUTIVE)),
+            It.Is<NotificationTarget>(t => t.RoleIds.Contains(CommonConstants.Role.ADMIN) && t.RoleIds.Contains(CommonConstants.Role.OWNER)),
             It.Is<object[]>(args => 
                 args.Length == 4 && 
                 args[0].ToString() == "PV-ST25 - Gạo ST25 10kg" && 
@@ -652,7 +652,7 @@ public class LowStockDetectionServiceTests
     }
 
     [Fact]
-    public async Task DetectLowStockAsync_ShouldNotifyBothAdminAndExecutive()
+    public async Task DetectLowStockAsync_ShouldNotifyAdminAndOwner()
     {
         // Arrange
         using var context = CreateContext();
@@ -670,7 +670,7 @@ public class LowStockDetectionServiceTests
         // Assert
         _dispatcherMock.Verify(d => d.DispatchAsync(
             NotificationConstants.Code.LowStockAlert,
-            It.Is<NotificationTarget>(t => t.RoleIds.Contains(CommonConstants.Role.ADMIN) && t.RoleIds.Contains(CommonConstants.Role.EXECUTIVE)),
+            It.Is<NotificationTarget>(t => t.RoleIds.Contains(CommonConstants.Role.ADMIN) && t.RoleIds.Contains(CommonConstants.Role.OWNER)),
             It.IsAny<object[]>(),
             It.IsAny<string>(),
             It.IsAny<int?>()
@@ -714,7 +714,7 @@ public class LowStockDetectionServiceTests
 
         _dispatcherMock.Verify(d => d.DispatchAsync(
             NotificationConstants.Code.LowStockAlert,
-            It.Is<NotificationTarget>(t => t.RoleIds.Contains(CommonConstants.Role.ADMIN) && t.RoleIds.Contains(CommonConstants.Role.EXECUTIVE)),
+            It.Is<NotificationTarget>(t => t.RoleIds.Contains(CommonConstants.Role.ADMIN) && t.RoleIds.Contains(CommonConstants.Role.OWNER)),
             It.Is<object[]>(args => args.Length == 4 && args[0].ToString() == "PV-ST25 - Gạo ST25 10kg"),
             It.IsAny<string>(),
             It.IsAny<int?>()

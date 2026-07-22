@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Backend.Application.Constants;
 using Backend.Application.DTOs.PaddyPurchaseSchedules;
 using Backend.Application.Interfaces;
 using Backend.Application.Mappings;
@@ -19,13 +20,16 @@ public class PaddyPurchaseScheduleService : IPaddyPurchaseScheduleService
 {
     private readonly IPaddyPurchaseScheduleRepository _scheduleRepository;
     private readonly ISystemLookup _systemLookup;
+    private readonly INotificationDispatcher _notificationDispatcher;
 
     public PaddyPurchaseScheduleService(
         IPaddyPurchaseScheduleRepository scheduleRepository,
-        ISystemLookup systemLookup)
+        ISystemLookup systemLookup,
+        INotificationDispatcher notificationDispatcher)
     {
         _scheduleRepository = scheduleRepository;
         _systemLookup = systemLookup;
+        _notificationDispatcher = notificationDispatcher;
     }
 
     public async Task<ApiResponse> CreateAsync(CreatePaddyPurchaseScheduleDto obj)
@@ -38,6 +42,14 @@ public class PaddyPurchaseScheduleService : IPaddyPurchaseScheduleService
         var model = obj.ToEntity(scheduleCode);
         await _scheduleRepository.CreateAsync(model);
         await _scheduleRepository.SaveChangesAsync();
+
+        // Thông báo cho Nhân viên thu mua và Chủ kho về lịch thu mua mới.
+        await _notificationDispatcher.DispatchAsync(
+            NotificationConstants.Code.PurchaseScheduleCreated,
+            new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.PURCHASING, CommonConstants.Role.OWNER } },
+            new object[] { scheduleCode },
+            $"/admin/paddy-purchase-schedules/{model.Id}",
+            model.CreatedBy);
 
         return ApiResponse.Created(model.Id, "Tạo lịch thu mua thành công.");
     }

@@ -26,6 +26,7 @@ public class StockTransferService : IStockTransferService
     private readonly IPaddyLotRepository _paddyLotRepository;
     private readonly IInventoryRepository _inventoryRepository;
     private readonly IInventoryTransactionRepository _inventoryTransactionRepository;
+    private readonly INotificationDispatcher _notificationDispatcher;
 
     public StockTransferService(
         IStockTransferRepository transferRepository,
@@ -33,7 +34,8 @@ public class StockTransferService : IStockTransferService
         IRepositoryBase<StockTransferStatus, int> statusRepository,
         IPaddyLotRepository paddyLotRepository,
         IInventoryRepository inventoryRepository,
-        IInventoryTransactionRepository inventoryTransactionRepository)
+        IInventoryTransactionRepository inventoryTransactionRepository,
+        INotificationDispatcher notificationDispatcher)
     {
         _transferRepository = transferRepository;
         _itemRepository = itemRepository;
@@ -41,6 +43,7 @@ public class StockTransferService : IStockTransferService
         _paddyLotRepository = paddyLotRepository;
         _inventoryRepository = inventoryRepository;
         _inventoryTransactionRepository = inventoryTransactionRepository;
+        _notificationDispatcher = notificationDispatcher;
     }
 
     public async Task<ApiResponse> CreateAsync(CreateStockTransferDto obj)
@@ -312,6 +315,14 @@ public class StockTransferService : IStockTransferService
             await _transferRepository.SaveChangesAsync();
 
             await _transferRepository.EndTransactionAsync();
+
+            // Thông báo cho Nhân viên kho và Chủ kho: phiếu điều chuyển đã xác nhận.
+            await _notificationDispatcher.DispatchAsync(
+                NotificationConstants.Code.StockTransferConfirmed,
+                new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.WAREHOUSE, CommonConstants.Role.OWNER } },
+                new object[] { transfer.TransferCode },
+                $"/admin/stock-transfers/{transfer.Id}",
+                confirmedById);
 
             return ApiResponse.Success(new { TransferId = id }, "Xác nhận điều chuyển thành công. Đã cập nhật tồn kho 2 kho.");
         }

@@ -29,6 +29,7 @@ public class MillingOrderService : IMillingOrderService
     private readonly IInventoryRepository _inventoryRepository;
     private readonly IInventoryTransactionRepository _inventoryTransactionRepository;
     private readonly ILocationRepository _locationRepository;
+    private readonly INotificationDispatcher _notificationDispatcher;
 
     public MillingOrderService(
         IMillingOrderRepository millingOrderRepository,
@@ -39,7 +40,8 @@ public class MillingOrderService : IMillingOrderService
         IRepositoryBase<LotStatus, int> lotStatusRepository,
         IInventoryRepository inventoryRepository,
         IInventoryTransactionRepository inventoryTransactionRepository,
-        ILocationRepository locationRepository)
+        ILocationRepository locationRepository,
+        INotificationDispatcher notificationDispatcher)
     {
         _millingOrderRepository = millingOrderRepository;
         _paddyLotRepository = paddyLotRepository;
@@ -50,6 +52,7 @@ public class MillingOrderService : IMillingOrderService
         _inventoryRepository = inventoryRepository;
         _inventoryTransactionRepository = inventoryTransactionRepository;
         _locationRepository = locationRepository;
+        _notificationDispatcher = notificationDispatcher;
     }
 
     public async Task<ApiResponse> CreateAsync(CreateMillingOrderDto obj)
@@ -155,6 +158,14 @@ public class MillingOrderService : IMillingOrderService
         }
 
         await _millingOrderRepository.SaveChangesAsync();
+
+        // Thông báo cho Nhân viên xay xát và Nhân viên kho: có lệnh xay mới.
+        await _notificationDispatcher.DispatchAsync(
+            NotificationConstants.Code.MillingOrderCreated,
+            new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.MILLING, CommonConstants.Role.WAREHOUSE } },
+            new object[] { millingCode },
+            $"/admin/milling-orders/{order.Id}",
+            obj.CreatedBy);
 
         return ApiResponse.Created(order.Id, "Tạo lệnh xay thành công.");
     }
@@ -403,6 +414,14 @@ public class MillingOrderService : IMillingOrderService
             await _millingOrderRepository.SaveChangesAsync();
 
             await _millingOrderRepository.EndTransactionAsync();
+
+            // Thông báo cho Chủ kho, Nhân viên kho và Nhân viên bán hàng: xay hoàn tất, gạo đã nhập kho.
+            await _notificationDispatcher.DispatchAsync(
+                NotificationConstants.Code.MillingCompleted,
+                new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.OWNER, CommonConstants.Role.WAREHOUSE, CommonConstants.Role.SALES } },
+                new object[] { order.MillingCode },
+                $"/admin/milling-orders/{orderId}",
+                completedById);
 
             return ApiResponse.Success(new { OrderId = orderId }, "Hoàn thành lệnh xay. Đã sinh lô gạo/phụ phẩm và cập nhật tồn kho.");
         }

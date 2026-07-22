@@ -24,19 +24,22 @@ public class StockTakeService : IStockTakeService
     private readonly IInventoryTransactionService _inventoryTransactionService;
     private readonly IInventoryRepository _inventoryRepository;
     private readonly Microsoft.AspNetCore.Http.IHttpContextAccessor _httpContextAccessor;
+    private readonly INotificationDispatcher _notificationDispatcher;
 
     public StockTakeService(
-        IStockTakeRepository stockTakeRepository, 
-        IStockTakeItemRepository stockTakeItemRepository, 
+        IStockTakeRepository stockTakeRepository,
+        IStockTakeItemRepository stockTakeItemRepository,
         IInventoryTransactionService inventoryTransactionService,
         IInventoryRepository inventoryRepository,
-        Microsoft.AspNetCore.Http.IHttpContextAccessor httpContextAccessor)
+        Microsoft.AspNetCore.Http.IHttpContextAccessor httpContextAccessor,
+        INotificationDispatcher notificationDispatcher)
     {
         _stockTakeRepository = stockTakeRepository;
         _stockTakeItemRepository = stockTakeItemRepository;
         _inventoryTransactionService = inventoryTransactionService;
         _inventoryRepository = inventoryRepository;
         _httpContextAccessor = httpContextAccessor;
+        _notificationDispatcher = notificationDispatcher;
     }
 
     public async Task<ApiResponse> CreateAsync(CreateStockTakeDto obj)
@@ -240,7 +243,8 @@ public class StockTakeService : IStockTakeService
     public async Task<ApiResponse> ApproveAsync(int id, string? approveNote, int userId)
     {
         var currentRoleIds = _httpContextAccessor.HttpContext?.GetCurrentRoleIds() ?? new List<int>();
-        if (!currentRoleIds.Contains(CommonConstants.Role.ADMIN))
+        // Quyền duyệt/từ chối kiểm kê: Chủ kho (duyệt điều chỉnh tồn) hoặc Quản trị viên.
+        if (!currentRoleIds.Contains(CommonConstants.Role.ADMIN) && !currentRoleIds.Contains(CommonConstants.Role.OWNER))
         {
             return ApiResponse.Forbidden();
         }
@@ -329,8 +333,20 @@ public class StockTakeService : IStockTakeService
 
             await _stockTakeRepository.UpdateAsync(existData);
             await _stockTakeRepository.SaveChangesAsync();
-            
+
             await transaction.CommitAsync();
+
+            // Thông báo + push FCM cho người lập phiếu kiểm kê.
+            await _notificationDispatcher.DispatchAsync(
+                NotificationConstants.Code.StockTakeApproved,
+                new NotificationTarget
+                {
+                    UserIds = existData.CreatedBy.HasValue ? new List<int> { existData.CreatedBy.Value } : new List<int>(),
+                },
+                new object[] { existData.STCode },
+                $"/admin/stock-takes/{existData.Id}",
+                userId);
+
             return ApiResponse.Success();
         }
         catch
@@ -343,7 +359,8 @@ public class StockTakeService : IStockTakeService
     public async Task<ApiResponse> RejectAsync(int id, string reason, int userId)
     {
         var currentRoleIds = _httpContextAccessor.HttpContext?.GetCurrentRoleIds() ?? new List<int>();
-        if (!currentRoleIds.Contains(CommonConstants.Role.ADMIN))
+        // Quyền duyệt/từ chối kiểm kê: Chủ kho (duyệt điều chỉnh tồn) hoặc Quản trị viên.
+        if (!currentRoleIds.Contains(CommonConstants.Role.ADMIN) && !currentRoleIds.Contains(CommonConstants.Role.OWNER))
         {
             return ApiResponse.Forbidden();
         }
@@ -367,8 +384,20 @@ public class StockTakeService : IStockTakeService
 
             await _stockTakeRepository.UpdateAsync(existData);
             await _stockTakeRepository.SaveChangesAsync();
-            
+
             await transaction.CommitAsync();
+
+            // Thông báo + push FCM cho người lập phiếu kiểm kê.
+            await _notificationDispatcher.DispatchAsync(
+                NotificationConstants.Code.StockTakeRejected,
+                new NotificationTarget
+                {
+                    UserIds = existData.CreatedBy.HasValue ? new List<int> { existData.CreatedBy.Value } : new List<int>(),
+                },
+                new object[] { existData.STCode, reason },
+                $"/admin/stock-takes/{existData.Id}",
+                userId);
+
             return ApiResponse.Success();
         }
         catch

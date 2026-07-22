@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Security.Claims;
@@ -54,7 +55,10 @@ public class PutawaySuggestionService : IPutawaySuggestionService
                 .Select(x => x.ConfigValue)
                 .FirstOrDefaultAsync(cancellationToken);
 
-            if (!string.IsNullOrWhiteSpace(whConfig) && decimal.TryParse(whConfig, out var whValue))
+            // Config value luôn lưu ở dạng bất biến (dấu chấm thập phân). Parse theo InvariantCulture
+            // để không phụ thuộc locale máy chủ (vd vi-VN dùng dấu phẩy sẽ hiểu "0.4" thành 4).
+            if (!string.IsNullOrWhiteSpace(whConfig) &&
+                decimal.TryParse(whConfig, NumberStyles.Number, CultureInfo.InvariantCulture, out var whValue))
             {
                 return whValue;
             }
@@ -66,7 +70,8 @@ public class PutawaySuggestionService : IPutawaySuggestionService
             .Select(x => x.ConfigValue)
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (!string.IsNullOrWhiteSpace(globalConfig) && decimal.TryParse(globalConfig, out var globalValue))
+        if (!string.IsNullOrWhiteSpace(globalConfig) &&
+            decimal.TryParse(globalConfig, NumberStyles.Number, CultureInfo.InvariantCulture, out var globalValue))
         {
             return globalValue;
         }
@@ -464,12 +469,13 @@ public class PutawaySuggestionService : IPutawaySuggestionService
 
         int? warehouseId = id > 0 ? id : null;
 
-        await SaveConfigValueAsync(CommonConstants.SystemConfig.PUTAWAY_CAPACITY_FIT_WEIGHT_KEY, dto.CapacityWeight.ToString("F4"), warehouseId, cancellationToken);
-        await SaveConfigValueAsync(CommonConstants.SystemConfig.PUTAWAY_OCCUPANCY_WEIGHT_KEY, dto.OccupancyWeight.ToString("F4"), warehouseId, cancellationToken);
-        await SaveConfigValueAsync(CommonConstants.SystemConfig.PUTAWAY_CATEGORY_MATCH_WEIGHT_KEY, dto.CategoryWeight.ToString("F4"), warehouseId, cancellationToken);
-        await SaveConfigValueAsync(CommonConstants.SystemConfig.PUTAWAY_PRIORITY_WEIGHT_KEY, dto.PriorityWeight.ToString("F4"), warehouseId, cancellationToken);
-        await SaveConfigValueAsync(CommonConstants.SystemConfig.PUTAWAY_SAME_PRODUCT_SCORE_KEY, dto.SameProductScore.ToString("F4"), warehouseId, cancellationToken);
-        await SaveConfigValueAsync(CommonConstants.SystemConfig.PUTAWAY_EMPTY_COLUMN_SCORE_KEY, dto.EmptyColumnScore.ToString("F4"), warehouseId, cancellationToken);
+        // Lưu ở dạng bất biến (dấu chấm) để đọc lại bằng InvariantCulture không phụ thuộc locale máy chủ.
+        await SaveConfigValueAsync(CommonConstants.SystemConfig.PUTAWAY_CAPACITY_FIT_WEIGHT_KEY, dto.CapacityWeight.ToString("F4", CultureInfo.InvariantCulture), warehouseId, cancellationToken);
+        await SaveConfigValueAsync(CommonConstants.SystemConfig.PUTAWAY_OCCUPANCY_WEIGHT_KEY, dto.OccupancyWeight.ToString("F4", CultureInfo.InvariantCulture), warehouseId, cancellationToken);
+        await SaveConfigValueAsync(CommonConstants.SystemConfig.PUTAWAY_CATEGORY_MATCH_WEIGHT_KEY, dto.CategoryWeight.ToString("F4", CultureInfo.InvariantCulture), warehouseId, cancellationToken);
+        await SaveConfigValueAsync(CommonConstants.SystemConfig.PUTAWAY_PRIORITY_WEIGHT_KEY, dto.PriorityWeight.ToString("F4", CultureInfo.InvariantCulture), warehouseId, cancellationToken);
+        await SaveConfigValueAsync(CommonConstants.SystemConfig.PUTAWAY_SAME_PRODUCT_SCORE_KEY, dto.SameProductScore.ToString("F4", CultureInfo.InvariantCulture), warehouseId, cancellationToken);
+        await SaveConfigValueAsync(CommonConstants.SystemConfig.PUTAWAY_EMPTY_COLUMN_SCORE_KEY, dto.EmptyColumnScore.ToString("F4", CultureInfo.InvariantCulture), warehouseId, cancellationToken);
 
         await _context.SaveChangesAsync(cancellationToken);
 

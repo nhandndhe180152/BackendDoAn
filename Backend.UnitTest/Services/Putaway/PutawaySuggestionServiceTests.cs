@@ -528,7 +528,8 @@ public class PutawaySuggestionServiceTests
             _httpContextAccessorMock.Object,
             inventoryRepoMock.Object,
             inventoryTransactionRepoMock.Object,
-            putawayDecisionRepoMock.Object
+            putawayDecisionRepoMock.Object,
+            new Mock<Backend.Application.Interfaces.INotificationDispatcher>().Object
         );
 
         var res = await service.ConfirmReceiptAsync(10, 1);

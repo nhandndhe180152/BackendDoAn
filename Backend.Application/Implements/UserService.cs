@@ -900,7 +900,7 @@ public class UserService : IUserService
     {
         var data = (from u in _userRepository.GetAll()
                     join ur in _userRoleRepository.GetAll() on u.Id equals ur.UserId
-                    where !u.IsDeleted && !ur.IsDeleted && ur.RoleId == Lookup.RoleId(LookupCodes.Role.EndUser) && u.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Active)
+                    where !u.IsDeleted && !ur.IsDeleted && ur.RoleId != Lookup.RoleId(LookupCodes.Role.Admin) && u.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Active)
                     select new UserListDto
                     {
                         Id = u.Id,
@@ -974,7 +974,7 @@ public class UserService : IUserService
     {
         var data = await (from u in _userRepository.GetAll()
                           join ur in _userRoleRepository.GetAll() on u.Id equals ur.UserId
-                          where !u.IsDeleted && !ur.IsDeleted && ur.RoleId == Lookup.RoleId(LookupCodes.Role.EndUser) && u.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Active)
+                          where !u.IsDeleted && !ur.IsDeleted && ur.RoleId != Lookup.RoleId(LookupCodes.Role.Admin) && u.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Active)
                           select new
                           {
                               Id = u.Id,

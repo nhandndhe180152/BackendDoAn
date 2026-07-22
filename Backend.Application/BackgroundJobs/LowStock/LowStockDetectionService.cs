@@ -467,10 +467,15 @@ public class LowStockDetectionService : ILowStockDetectionService
     {
         try
         {
-            // M5: Gửi cho cả ADMIN và EXECUTIVE (Warehouse Owner)
+            // Cảnh báo tồn kho thấp: gửi cho Admin, Chủ kho (theo dõi tồn) và Nhân viên thu mua (lên kế hoạch bổ sung).
             var target = new NotificationTarget
             {
-                RoleIds = new List<int> { CommonConstants.Role.ADMIN, CommonConstants.Role.EXECUTIVE }
+                RoleIds = new List<int>
+                {
+                    CommonConstants.Role.ADMIN,
+                    CommonConstants.Role.OWNER,
+                    CommonConstants.Role.PURCHASING,
+                }
             };
 
             var productNameOrSku = $"{snapshot.SKU} - {snapshot.ProductName}";

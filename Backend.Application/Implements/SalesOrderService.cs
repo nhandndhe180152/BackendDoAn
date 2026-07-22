@@ -34,6 +34,7 @@ public class SalesOrderService : ISalesOrderService
     private readonly IInventoryRepository _inventoryRepository;
     private readonly IPartyDebtRepository _partyDebtRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly INotificationDispatcher _notificationDispatcher;
 
     public SalesOrderService(
         ISalesOrderRepository salesOrderRepository,
@@ -45,7 +46,8 @@ public class SalesOrderService : ISalesOrderService
         IRepositoryBase<Customer, int> customerRepository,
         IInventoryRepository inventoryRepository,
         IPartyDebtRepository partyDebtRepository,
-        IHttpContextAccessor httpContextAccessor)
+        IHttpContextAccessor httpContextAccessor,
+        INotificationDispatcher notificationDispatcher)
     {
         _salesOrderRepository        = salesOrderRepository;
         _salesOrderItemRepository    = salesOrderItemRepository;
@@ -57,6 +59,7 @@ public class SalesOrderService : ISalesOrderService
         _inventoryRepository         = inventoryRepository;
         _partyDebtRepository         = partyDebtRepository;
         _httpContextAccessor         = httpContextAccessor;
+        _notificationDispatcher      = notificationDispatcher;
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
@@ -243,6 +246,14 @@ public class SalesOrderService : ISalesOrderService
         await _salesOrderRepository.CreateAsync(order);
         await _salesOrderRepository.SaveChangesAsync();
 
+        // Thông báo cho Nhân viên bán hàng và Chủ kho: có đơn bán mới.
+        await _notificationDispatcher.DispatchAsync(
+            NotificationConstants.Code.SalesOrderCreated,
+            new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.SALES, CommonConstants.Role.OWNER } },
+            new object[] { soCode },
+            $"/admin/sales-orders/{order.Id}",
+            userId);
+
         return ApiResponse.Created(new { Id = order.Id, SOCode = soCode, TotalAmount = total },
             "Tạo đơn bán thành công.");
     }
@@ -320,6 +331,15 @@ public class SalesOrderService : ISalesOrderService
 
         await _salesOrderRepository.UpdateAsync(so);
         await _salesOrderRepository.SaveChangesAsync();
+
+        // Thông báo cho Nhân viên bán hàng và Nhân viên kho: đơn bán đã xác nhận, chuẩn bị hàng.
+        await _notificationDispatcher.DispatchAsync(
+            NotificationConstants.Code.SalesOrderConfirmed,
+            new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.SALES, CommonConstants.Role.WAREHOUSE } },
+            new object[] { so.SOCode },
+            $"/admin/sales-orders/{so.Id}",
+            GetCurrentUserId());
+
         return ApiResponse.Success(message: "Đơn bán đã được xác nhận.");
     }
 
@@ -430,6 +450,14 @@ public class SalesOrderService : ISalesOrderService
         await _salesOrderRepository.UpdateAsync(so);
         await _salesOrderRepository.SaveChangesAsync();
 
+        // Thông báo cho Nhân viên bán hàng, Chủ kho và Nhân viên kho: đơn bán đã bị hủy.
+        await _notificationDispatcher.DispatchAsync(
+            NotificationConstants.Code.SalesOrderCancelled,
+            new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.SALES, CommonConstants.Role.OWNER, CommonConstants.Role.WAREHOUSE } },
+            new object[] { so.SOCode },
+            $"/admin/sales-orders/{so.Id}",
+            GetCurrentUserId());
+
         return ApiResponse.Success(message: "Đơn bán đã được hủy.");
     }
 
@@ -525,6 +553,14 @@ public class SalesOrderService : ISalesOrderService
 
         await _salesOrderRepository.UpdateAsync(so);
         await _salesOrderRepository.SaveChangesAsync();
+
+        // Thông báo cho Nhân viên bán hàng và Chủ kho: đơn bán đã giao hàng hoàn tất.
+        await _notificationDispatcher.DispatchAsync(
+            NotificationConstants.Code.DeliveryCompleted,
+            new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.SALES, CommonConstants.Role.OWNER } },
+            new object[] { so.SOCode },
+            $"/admin/sales-orders/{so.Id}",
+            userId);
 
         return ApiResponse.Success(message: $"Đơn bán {so.SOCode} đã hoàn tất.");
     }
