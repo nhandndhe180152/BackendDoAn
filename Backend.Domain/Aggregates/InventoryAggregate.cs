@@ -49,6 +49,12 @@ public class InventoryAggregate
     /// <summary>Tồn đang cách ly (CL) — lô có trạng thái "Cách ly" hoặc nằm ở vị trí cách ly.</summary>
     public decimal QuantityQuarantine { get; set; }
 
+    public decimal QuarantinedKg { get; set; }
+
+    public decimal SellableOnHandKg { get; set; }
+
+    public decimal OtherBlockedKg { get; set; }
+
     /// <summary>Tồn đang xử lý (XL) — lô có trạng thái "Chờ xử lý"/"Đang xay".</summary>
     public decimal QuantityProcessing { get; set; }
 

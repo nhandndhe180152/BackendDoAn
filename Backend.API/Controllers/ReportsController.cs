@@ -35,6 +35,14 @@ public class ReportsController : BaseController
         return BaseResult(result);
     }
 
+    /// <summary>Báo cáo tổng hợp tồn kho theo biến thể sản phẩm.</summary>
+    [HttpGet("inventory-by-product-variant")]
+    public async Task<IActionResult> GetInventoryByProductVariantReportAsync([FromQuery] DashboardQuery query)
+    {
+        var result = await _dashboardService.GetInventoryByProductVariantReportAsync(query);
+        return BaseResult(result);
+    }
+
     /// <summary>Báo cáo công nợ hai chiều nông dân (PAYABLE) và khách hàng (RECEIVABLE).</summary>
     [HttpGet("two-way-debt")]
     public async Task<IActionResult> GetTwoWayDebtReportAsync([FromQuery] DashboardQuery query)

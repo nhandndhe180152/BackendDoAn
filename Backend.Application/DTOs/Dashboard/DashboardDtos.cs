@@ -22,8 +22,10 @@ public class DashboardSummaryDto
 public class InventorySummaryDto
 {
     public decimal OnHandKg { get; set; }
+    public decimal SellableOnHandKg { get; set; }
     public decimal ReservedKg { get; set; }
     public decimal QuarantinedKg { get; set; }
+    public decimal OtherBlockedKg { get; set; }
     public decimal AvailableKg { get; set; }
     public decimal PaddyKg { get; set; }
     public decimal RiceKg { get; set; }

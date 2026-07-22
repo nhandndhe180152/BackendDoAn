@@ -1,5 +1,8 @@
+using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Backend.Application.DTOs.ProductVariants;
+using Backend.Application.DTOs.QrCode;
 
 namespace Backend.Application.Interfaces;
 
@@ -40,4 +43,12 @@ public interface IQRCodeService
     /// </summary>
     /// <returns>The count of synced variants.</returns>
     Task<int> SyncAllQRCodeUrlsAsync();
+
+    Task<byte[]> GeneratePaddyLotQRImageAsync(int id, int size, CancellationToken cancellationToken = default);
+    Task<byte[]> GenerateLocationQRImageAsync(int id, int size, CancellationToken cancellationToken = default);
+    Task<byte[]> GeneratePaddyLotLabelPdfAsync(int id, string templateCode, int copies, CancellationToken cancellationToken = default);
+    Task<byte[]> GenerateLocationLabelPdfAsync(int id, string templateCode, int copies, CancellationToken cancellationToken = default);
+    Task<byte[]> GenerateBulkPaddyLotLabelsPdfAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken = default);
+    Task<byte[]> GenerateBulkLocationLabelsPdfAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken = default);
+    Task<QrResolveResponseDto> ResolveQrAsync(QrResolveRequestDto request, CancellationToken cancellationToken = default);
 }

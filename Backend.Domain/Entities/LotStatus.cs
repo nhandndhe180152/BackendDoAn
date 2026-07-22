@@ -9,6 +9,7 @@ namespace Backend.Domain.Entities;
 public class LotStatus : EntityAuditBase<int>
 {
     public string Name { get; set; } = null!;
+    public string Code { get; set; } = null!;
     public string Color { get; set; } = null!;
     public bool IsSellable { get; set; } = true;
 }

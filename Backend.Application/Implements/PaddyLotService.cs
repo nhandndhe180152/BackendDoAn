@@ -30,6 +30,7 @@ public class PaddyLotService : IPaddyLotService
         var lotCode = await GenerateLotCodeAsync(obj.LotType);
 
         var model = obj.ToEntity(lotCode);
+        model.QrCode = "PL-" + Guid.NewGuid().ToString("N").ToUpper();
 
         await _paddyLotRepository.CreateAsync(model);
         await _paddyLotRepository.SaveChangesAsync();

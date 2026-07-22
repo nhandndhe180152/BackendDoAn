@@ -28,7 +28,8 @@ public static class CommonConstants
             nameof(StockAlertConfig),
             nameof(StockTake),
             nameof(StockTakeItem),
-            nameof(UnitOfMeasure)
+            nameof(UnitOfMeasure),
+            nameof(PaddyLot)
     };
 
     /// <summary>

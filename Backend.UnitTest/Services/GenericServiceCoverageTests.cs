@@ -4,6 +4,7 @@ using Backend.Application.DTOs.Actions;
 using Backend.Application.DTOs.NotificationTypes;
 using Backend.Application.DTOs.UserStatuses;
 using Backend.Application.Implements;
+using Backend.Application.Interfaces;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Domain.Abstractions.Repositories;
 using Backend.Domain.Entities;
@@ -155,6 +156,8 @@ public class SimpleServiceCoverageTests
         var custRepo           = new Mock<IRepositoryBase<Backend.Domain.Entities.Customer, int>>();
         var farmRepo           = new Mock<IRepositoryBase<Backend.Domain.Entities.Farmer, int>>();
 
+        var aggSvc             = new Mock<IInventoryStateAggregationService>();
+
         var svc = new DashboardService(
             invRepo.Object,
             lotRepo.Object,
@@ -166,6 +169,7 @@ public class SimpleServiceCoverageTests
             alertRepo.Object,
             custRepo.Object,
             farmRepo.Object,
+            aggSvc.Object,
             loggerMock.Object,
             httpContext.Object);
 

@@ -109,4 +109,35 @@ public static class ApiCodeConstants
         public const string InvalidRequest        = "PO_400_01";  // INVALID_REQUEST
         public const string InboundNotFound       = "PO_404_02";  // INBOUND_ORDER_NOT_FOUND
     }
+
+    public static class Qr
+    {
+        public const string PayloadInvalid = "QR_400_01";
+        public const string VersionUnsupported = "QR_400_02";
+        public const string EntityTypeInvalid = "QR_400_03";
+        public const string LabelFormatInvalid = "QR_400_04";
+        public const string LabelTemplateInvalid = "QR_400_05";
+        public const string BatchLabelIdsRequired = "QR_400_06";
+        public const string AccessDenied = "QR_403_01";
+        public const string RegenerateForbidden = "QR_403_02";
+        public const string LabelPrintForbidden = "QR_403_03";
+        public const string PaddyLotNotFound = "QR_404_01";
+        public const string LocationNotFound = "QR_404_02";
+        public const string QrCodeNotFound = "QR_404_03";
+        public const string QrCodeAlreadyExists = "QR_409_01";
+        public const string QrRegenerationConflict = "QR_409_02";
+        public const string EntityConcurrencyConflict = "QR_409_03";
+        public const string QrEntityInactive = "QR_422_01";
+        public const string QrEntityDeleted = "QR_422_02";
+        public const string QrContextMismatch = "QR_422_03";
+        public const string LocationWrongWarehouse = "QR_422_04";
+        public const string LocationQuarantineRequired = "QR_422_05";
+        public const string LocationNormalRequired = "QR_422_06";
+        public const string LocationInsufficientCapacity = "QR_422_07";
+        public const string LotQuarantined = "QR_422_08";
+        public const string LotNotAvailable = "QR_422_09";
+        public const string LotProductMismatch = "QR_422_10";
+        public const string LabelGenerationFailed = "QR_500_01";
+        public const string QrImageGenerationFailed = "QR_500_02";
+    }
 }

@@ -20,6 +20,9 @@ public class LocationConfiguration : IEntityTypeConfiguration<Location>
         builder.Property(x => x.ShelfLevel).HasMaxLength(100);
         builder.Property(x => x.SlotCode).HasMaxLength(100);
         builder.Property(x => x.Description).HasMaxLength(500);
+        builder.Property(x => x.QrCode).HasMaxLength(100).IsRequired();
+        builder.Property(x => x.QrImageUrl).HasMaxLength(500);
+        builder.HasIndex(x => x.QrCode).IsUnique().HasDatabaseName("UX_Location_QrCode");
 
         builder.Property(x => x.MaxCapacity).HasColumnType("decimal(18,3)");
         builder.Property(x => x.CurrentOccupancy).HasColumnType("decimal(18,3)").HasDefaultValue(0.000m);

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Backend.Application.BackgroundJobs.LowStock;
 using Backend.Application.Constants;
 using Backend.Application.Interfaces;
+using Backend.Application.Implements;
 using Backend.Domain.Entities;
 using Backend.Infrastructure.Persistence;
 using Backend.Share.Services;
@@ -66,8 +67,8 @@ public class LowStockDetectionServiceIntegrationTests
 
         // Lot Statuses
         context.LotStatuses.AddRange(
-            new LotStatus { Id = 1, Name = "Được bán", Color = "#10B981", IsSellable = true },
-            new LotStatus { Id = 2, Name = "Cách ly", Color = "#EF4444", IsSellable = false }
+            new LotStatus { Id = 1, Name = "Được bán", Code = LotStatusCodeConstants.InStock, Color = "#10B981", IsSellable = true },
+            new LotStatus { Id = 2, Name = "Cách ly", Code = LotStatusCodeConstants.Quarantine, Color = "#EF4444", IsSellable = false }
         );
 
         // Location normal
@@ -100,7 +101,7 @@ public class LowStockDetectionServiceIntegrationTests
         await context.Inventories.AddRangeAsync(inventories);
         await context.SaveChangesAsync();
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
@@ -135,7 +136,7 @@ public class LowStockDetectionServiceIntegrationTests
             It.IsAny<int?>()
         )).ThrowsAsync(new Exception("Firebase connection timeout"));
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act

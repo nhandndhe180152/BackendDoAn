@@ -53,7 +53,7 @@ namespace Backend.Infrastructure.Migrations
                 column: "DeduplicationKey",
                 unique: true);
 
-            migrationBuilder.Sql("UPDATE LotStatus SET IsSellable = 0 WHERE Id = 4;");
+            migrationBuilder.Sql("UPDATE LotStatus SET IsSellable = 0 WHERE Id = (SELECT t.Id FROM (SELECT Id FROM LotStatus WHERE Name = 'Cách ly') AS t);");
         }
 
         /// <inheritdoc />
@@ -94,7 +94,7 @@ namespace Backend.Infrastructure.Migrations
                 oldPrecision: 18,
                 oldScale: 3);
 
-            migrationBuilder.Sql("UPDATE LotStatus SET IsSellable = 1 WHERE Id = 4;");
+            migrationBuilder.Sql("UPDATE LotStatus SET IsSellable = 1 WHERE Id = (SELECT t.Id FROM (SELECT Id FROM LotStatus WHERE Name = 'Cách ly') AS t);");
         }
     }
 }

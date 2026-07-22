@@ -14,7 +14,12 @@ public class LotStatusConfiguration : IEntityTypeConfiguration<LotStatus>
         builder.Property(x => x.Id).ValueGeneratedOnAdd();
 
         builder.Property(x => x.Name).HasMaxLength(100).IsRequired();
+        builder.Property(x => x.Code).HasMaxLength(50).IsRequired();
         builder.Property(x => x.Color).HasMaxLength(50).IsRequired();
         builder.Property(x => x.IsSellable).HasDefaultValue(true).IsRequired();
+
+        builder.HasIndex(x => x.Code)
+            .IsUnique()
+            .HasDatabaseName("UX_LotStatus_Code");
     }
 }

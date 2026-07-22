@@ -28,6 +28,7 @@ public class DashboardService : IDashboardService
     private readonly IRepositoryBase<Alert, int> _alertRepository;
     private readonly IRepositoryBase<Customer, int> _customerRepository;
     private readonly IRepositoryBase<Farmer, int> _farmerRepository;
+    private readonly IInventoryStateAggregationService _aggregationService;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<DashboardService> _logger;
 
@@ -42,6 +43,7 @@ public class DashboardService : IDashboardService
         IRepositoryBase<Alert, int> alertRepository,
         IRepositoryBase<Customer, int> customerRepository,
         IRepositoryBase<Farmer, int> farmerRepository,
+        IInventoryStateAggregationService aggregationService,
         ILogger<DashboardService> logger,
         IHttpContextAccessor httpContextAccessor)
     {
@@ -55,6 +57,7 @@ public class DashboardService : IDashboardService
         _alertRepository = alertRepository;
         _customerRepository = customerRepository;
         _farmerRepository = farmerRepository;
+        _aggregationService = aggregationService;
         _logger = logger;
         _httpContextAccessor = httpContextAccessor;
     }
@@ -89,40 +92,34 @@ public class DashboardService : IDashboardService
         var fromDate = query.FromDate;
         var toDate   = query.ToDate;
 
-        // 1. Inventory Summary
-        var invQuery = _inventoryRepository.FindByCondition(x => !x.IsDeleted, false);
+        // 1. Inventory Summary using the shared query service
+        var aggregates = await _aggregationService.GetAggregatesAsync(query.WarehouseId, null, CancellationToken.None);
 
-        if (query.WarehouseId.HasValue)
-        {
-            invQuery = invQuery.Where(x => x.WarehouseId == query.WarehouseId.Value);
-        }
         if (query.RiceVarietyId.HasValue)
         {
-            invQuery = invQuery.Where(x => x.ProductVariant.RiceVarietyId == query.RiceVarietyId.Value ||
-                                           (x.PaddyLot != null && x.PaddyLot.RiceVarietyId == query.RiceVarietyId.Value));
+            aggregates = aggregates.Where(x => x.RiceVarietyId == query.RiceVarietyId.Value).ToList();
         }
 
-        var invData = await invQuery
-            .Select(x => new
-            {
-                x.QuantityOnHand,
-                x.QuantityReserved,
-                IsQuarantined = x.PaddyLot != null && !x.PaddyLot.Status.IsSellable,
-                LotType = x.PaddyLot != null ? x.PaddyLot.LotType : null,
-                IsVariantByproduct = x.ProductVariant.IsByproduct
-            })
-            .ToListAsync();
+        var onHandKg = aggregates.Sum(x => x.TotalOnHandKg);
+        var sellableOnHandKg = aggregates.Sum(x => x.SellableOnHandKg);
+        var quarantinedKg = aggregates.Sum(x => x.QuarantinedKg);
+        var otherBlockedKg = aggregates.Sum(x => x.OtherBlockedKg);
+        var reservedKg = aggregates.Sum(x => x.ReservedKg);
+        var reservedSellableKg = aggregates.Sum(x => x.ReservedSellableKg);
+        var availableKg = Math.Max(0m, sellableOnHandKg - reservedSellableKg);
 
         var inventorySummary = new InventorySummaryDto
         {
-            OnHandKg      = invData.Sum(x => x.QuantityOnHand),
-            ReservedKg    = invData.Sum(x => x.QuantityReserved),
-            QuarantinedKg = invData.Where(x => x.IsQuarantined).Sum(x => x.QuantityOnHand),
-            PaddyKg       = invData.Where(x => x.LotType == "PADDY").Sum(x => x.QuantityOnHand),
-            RiceKg        = invData.Where(x => x.LotType == "RICE").Sum(x => x.QuantityOnHand),
-            ByproductKg   = invData.Where(x => x.LotType == "BYPRODUCT" || (x.LotType == null && x.IsVariantByproduct)).Sum(x => x.QuantityOnHand)
+            OnHandKg = onHandKg,
+            SellableOnHandKg = sellableOnHandKg,
+            ReservedKg = reservedKg,
+            QuarantinedKg = quarantinedKg,
+            OtherBlockedKg = otherBlockedKg,
+            AvailableKg = availableKg,
+            PaddyKg = aggregates.Where(x => x.LotType == "PADDY").Sum(x => x.TotalOnHandKg),
+            RiceKg = aggregates.Where(x => x.LotType == "RICE").Sum(x => x.TotalOnHandKg),
+            ByproductKg = aggregates.Where(x => x.LotType == "BYPRODUCT" || (x.LotType == null && x.IsVariantByproduct)).Sum(x => x.TotalOnHandKg)
         };
-        inventorySummary.AvailableKg = Math.Max(0, inventorySummary.OnHandKg - inventorySummary.ReservedKg - inventorySummary.QuarantinedKg);
 
         // 2. Debt Summary
         var debts = await _partyDebtRepository
@@ -304,19 +301,20 @@ public class DashboardService : IDashboardService
             baseQuery = baseQuery.Where(x => x.RiceVarietyId == query.RiceVarietyId.Value);
         }
 
-        var rawList = await baseQuery
+        var lots = await baseQuery
             .Select(x => new
             {
+                x.Id,
                 x.LotCode,
                 x.LotType,
                 RiceVarietyName = x.RiceVariety != null ? x.RiceVariety.Name : null,
                 ProductVariantName = x.ProductVariant.Name,
                 WarehouseName = x.Warehouse.Name,
-                LocationCode = x.Location != null ? x.Location.SlotCode : null,
                 x.InboundDate,
                 x.InitialWeightKg,
                 x.RemainingWeightKg,
                 StatusName = x.Status.Name,
+                StatusCode = x.Status.Code,
                 IsSellable = x.Status.IsSellable,
                 LastInspectionAt = x.QualityInspections
                     .Where(q => !q.IsDeleted)
@@ -326,26 +324,100 @@ public class DashboardService : IDashboardService
             })
             .ToListAsync();
 
-        var report = rawList.Select(x =>
+        var lotIds = lots.Select(l => l.Id).ToList();
+
+        // Get all aggregates for these lots
+        var aggregates = await _aggregationService.GetAggregatesAsync(query.WarehouseId, null, CancellationToken.None);
+        var lotAggregates = aggregates.Where(x => x.PaddyLotId.HasValue && lotIds.Contains(x.PaddyLotId.Value)).ToList();
+
+        var aggMap = lotAggregates.GroupBy(x => x.PaddyLotId!.Value).ToDictionary(g => g.Key, g => g.ToList());
+
+        var report = lots.Select(lot =>
         {
-            var isQuarantined = !x.IsSellable;
+            decimal onHandKg = 0m;
+            decimal reservedKg = 0m;
+            decimal quarantinedKg = 0m;
+            decimal availableKg = 0m;
+            var locationCodesList = new List<string>();
+
+            bool lotStatusQuarantine = lot.StatusCode == LotStatusCodeConstants.Quarantine;
+            bool hasQuarantineLocation = false;
+
+            if (aggMap.TryGetValue(lot.Id, out var lotLines))
+            {
+                foreach (var line in lotLines)
+                {
+                    onHandKg += line.TotalOnHandKg;
+                    reservedKg += line.ReservedKg;
+                    quarantinedKg += line.QuarantinedKg;
+                    availableKg += line.AvailableKg;
+
+                    if (!string.IsNullOrEmpty(line.LocationCode))
+                    {
+                        locationCodesList.Add(line.LocationCode);
+                    }
+
+                    // Check if location itself was quarantined (QuarantinedKg > 0 on a non-QUARANTINE lot status)
+                    if (line.QuarantinedKg > 0 && !lotStatusQuarantine)
+                    {
+                        hasQuarantineLocation = true;
+                    }
+                }
+            }
+            else
+            {
+                onHandKg = lot.RemainingWeightKg;
+                if (lotStatusQuarantine)
+                {
+                    quarantinedKg = lot.RemainingWeightKg;
+                    availableKg = 0m;
+                }
+                else
+                {
+                    availableKg = lot.RemainingWeightKg;
+                }
+            }
+
+            var isQuarantined = lotStatusQuarantine || quarantinedKg > 0;
+            
+            string quarantineSource = "NONE";
+            if (lotStatusQuarantine && hasQuarantineLocation)
+            {
+                quarantineSource = "BOTH";
+            }
+            else if (lotStatusQuarantine)
+            {
+                quarantineSource = "LOT_STATUS";
+            }
+            else if (quarantinedKg > 0)
+            {
+                quarantineSource = "LOCATION";
+            }
+
+            var locationsStr = locationCodesList.Count > 0 
+                ? string.Join(", ", locationCodesList.Distinct()) 
+                : null;
+
             return new InventoryByLotReportDto
             {
-                LotCode           = x.LotCode,
-                LotType           = x.LotType,
-                RiceVariety       = x.RiceVarietyName,
-                ProductVariant    = x.ProductVariantName,
-                Warehouse         = x.WarehouseName,
-                Location          = x.LocationCode,
-                InboundDate       = x.InboundDate,
-                InitialWeightKg   = x.InitialWeightKg,
-                RemainingWeightKg = x.RemainingWeightKg,
-                OnHandKg          = x.RemainingWeightKg,
-                ReservedKg        = 0,
-                QuarantinedKg     = isQuarantined ? x.RemainingWeightKg : 0,
-                AvailableKg       = isQuarantined ? 0 : x.RemainingWeightKg,
-                LastInspectionAt  = x.LastInspectionAt,
-                LotStatus         = x.StatusName
+                LotCode = lot.LotCode,
+                LotType = lot.LotType,
+                RiceVariety = lot.RiceVarietyName,
+                ProductVariant = lot.ProductVariantName,
+                Warehouse = lot.WarehouseName,
+                Location = locationsStr,
+                Locations = locationsStr,
+                InboundDate = lot.InboundDate,
+                InitialWeightKg = lot.InitialWeightKg,
+                RemainingWeightKg = lot.RemainingWeightKg,
+                OnHandKg = onHandKg,
+                ReservedKg = reservedKg,
+                QuarantinedKg = quarantinedKg,
+                AvailableKg = availableKg,
+                IsQuarantined = isQuarantined,
+                QuarantineSource = quarantineSource,
+                LastInspectionAt = lot.LastInspectionAt,
+                LotStatus = lot.StatusName
             };
         }).ToList();
 
@@ -354,37 +426,91 @@ public class DashboardService : IDashboardService
 
     public async Task<ApiResponse> GetInventoryByWarehouseReportAsync(DashboardQuery query)
     {
-        var inventories = _inventoryRepository.FindByCondition(x => !x.IsDeleted, false);
+        var aggregates = await _aggregationService.GetAggregatesAsync(query.WarehouseId, null, CancellationToken.None);
 
-        if (query.WarehouseId.HasValue)
-        {
-            inventories = inventories.Where(x => x.WarehouseId == query.WarehouseId.Value);
-        }
-
-        var data = await inventories
-            .Select(x => new
-            {
-                x.WarehouseId,
-                WarehouseName = x.Warehouse.Name,
-                x.QuantityOnHand,
-                x.QuantityReserved,
-                LotType = x.PaddyLot != null ? x.PaddyLot.LotType : null,
-                IsVariantByproduct = x.ProductVariant.IsByproduct
-            })
+        var quarantineLocations = await _inventoryRepository.FindByCondition(x => !x.IsDeleted && x.Location != null && x.Location.IsQuarantine, false)
+            .Select(x => new { x.WarehouseId, LocationId = x.LocationId!.Value })
+            .Distinct()
             .ToListAsync();
 
-        var grouped = data
+        var qLocMap = quarantineLocations.GroupBy(x => x.WarehouseId).ToDictionary(g => g.Key, g => g.Count());
+
+        var grouped = aggregates
             .GroupBy(x => new { x.WarehouseId, x.WarehouseName })
-            .Select(g => new InventoryByWarehouseReportDto
+            .Select(g => {
+                var onHandKg = g.Sum(x => x.TotalOnHandKg);
+                var sellableOnHandKg = g.Sum(x => x.SellableOnHandKg);
+                var reservedKg = g.Sum(x => x.ReservedKg);
+                var quarantinedKg = g.Sum(x => x.QuarantinedKg);
+                var reservedSellableKg = g.Sum(x => x.ReservedSellableKg);
+                var availableKg = Math.Max(0m, sellableOnHandKg - reservedSellableKg);
+
+                var quarantinedLotCount = g.Where(x => x.QuarantinedKg > 0 && x.PaddyLotId.HasValue)
+                    .Select(x => x.PaddyLotId!.Value)
+                    .Distinct()
+                    .Count();
+
+                var quarantineLocCount = qLocMap.GetValueOrDefault(g.Key.WarehouseId, 0);
+
+                return new InventoryByWarehouseReportDto
+                {
+                    WarehouseId = g.Key.WarehouseId,
+                    WarehouseName = g.Key.WarehouseName,
+                    OnHandKg = onHandKg,
+                    SellableOnHandKg = sellableOnHandKg,
+                    ReservedKg = reservedKg,
+                    QuarantinedKg = quarantinedKg,
+                    AvailableKg = availableKg,
+                    PaddyKg = g.Where(x => x.LotType == "PADDY").Sum(x => x.TotalOnHandKg),
+                    RiceKg = g.Where(x => x.LotType == "RICE").Sum(x => x.TotalOnHandKg),
+                    ByproductKg = g.Where(x => x.LotType == "BYPRODUCT" || (x.LotType == null && x.IsVariantByproduct)).Sum(x => x.TotalOnHandKg),
+                    QuarantinedLotCount = quarantinedLotCount,
+                    QuarantineLocationCount = quarantineLocCount
+                };
+            })
+            .ToList();
+
+        return ApiResponse.Success(grouped);
+    }
+
+    public async Task<ApiResponse> GetInventoryByProductVariantReportAsync(DashboardQuery query)
+    {
+        var aggregates = await _aggregationService.GetAggregatesAsync(query.WarehouseId, null, CancellationToken.None);
+
+        var grouped = aggregates
+            .GroupBy(x => new { x.WarehouseId, x.WarehouseName, x.ProductVariantId, x.SKU, x.ProductVariantName, x.ProductName })
+            .Select(g =>
             {
-                WarehouseId   = g.Key.WarehouseId,
-                WarehouseName = g.Key.WarehouseName,
-                OnHandKg      = g.Sum(x => x.QuantityOnHand),
-                ReservedKg    = g.Sum(x => x.QuantityReserved),
-                AvailableKg   = Math.Max(0, g.Sum(x => x.QuantityOnHand) - g.Sum(x => x.QuantityReserved)),
-                PaddyKg       = g.Where(x => x.LotType == "PADDY").Sum(x => x.QuantityOnHand),
-                RiceKg        = g.Where(x => x.LotType == "RICE").Sum(x => x.QuantityOnHand),
-                ByproductKg   = g.Where(x => x.LotType == "BYPRODUCT" || (x.LotType == null && x.IsVariantByproduct)).Sum(x => x.QuantityOnHand)
+                var onHandKg = g.Sum(x => x.TotalOnHandKg);
+                var sellableOnHandKg = g.Sum(x => x.SellableOnHandKg);
+                var reservedKg = g.Sum(x => x.ReservedKg);
+                var quarantinedKg = g.Sum(x => x.QuarantinedKg);
+                var reservedSellableKg = g.Sum(x => x.ReservedSellableKg);
+                var availableKg = Math.Max(0m, sellableOnHandKg - reservedSellableKg);
+
+                var quarantinedLotCount = g.Where(x => x.QuarantinedKg > 0 && x.PaddyLotId.HasValue)
+                    .Select(x => x.PaddyLotId!.Value)
+                    .Distinct()
+                    .Count();
+
+                var quarantineRatio = onHandKg > 0m ? quarantinedKg / onHandKg : 0m;
+
+                return new InventoryByProductVariantReportDto
+                {
+                    WarehouseId = g.Key.WarehouseId,
+                    WarehouseName = g.Key.WarehouseName,
+                    ProductVariantId = g.Key.ProductVariantId,
+                    SKU = g.Key.SKU,
+                    ProductVariantName = g.Key.ProductVariantName,
+                    ProductName = g.Key.ProductName,
+                    OnHandKg = onHandKg,
+                    SellableOnHandKg = sellableOnHandKg,
+                    ReservedKg = reservedKg,
+                    QuarantinedKg = quarantinedKg,
+                    AvailableKg = availableKg,
+                    QuarantinedLotCount = quarantinedLotCount,
+                    QuarantineRatio = quarantineRatio
+                };
             })
             .ToList();
 

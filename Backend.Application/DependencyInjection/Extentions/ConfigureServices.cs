@@ -40,6 +40,7 @@ public static class ConfigureServices
             .AddScoped<IProductService, ProductService>()
             .AddScoped<IProductVariantService, ProductVariantService>()
             .AddScoped<IQRCodeService, QRCodeService>()
+            .AddScoped<IQrIdentifierService, QrIdentifierService>()
             .AddScoped<IProductAttributeService, ProductAttributeService>()
             .AddScoped<IWarehouseService, WarehouseService>()
             .AddScoped<ILocationService, LocationService>()
@@ -71,6 +72,7 @@ public static class ConfigureServices
             // ── Cấu hình rule & cảnh báo (SCR-20/21) ─────────────────────────────────
             .AddScoped<IMillingYieldConfigService, MillingYieldConfigService>()
             .AddScoped<IStockAlertConfigService, StockAlertConfigService>()
+            .AddScoped<IInventoryStateAggregationService, InventoryStateAggregationService>()
             .AddScoped<IAlertService, AlertService>();
 
 

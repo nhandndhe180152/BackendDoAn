@@ -23,6 +23,8 @@ public class QRCodeServiceTests
     private readonly Mock<IProductVariantRepository> _productVariantRepoMock = new();
     private readonly Mock<IStorageService> _storageServiceMock = new();
     private readonly Mock<IInventoryRepository> _inventoryRepoMock = new();
+    private readonly Mock<IApplicationDbContext> _dbContextMock = new();
+    private readonly Mock<IQrIdentifierService> _qrIdentifierServiceMock = new();
     private readonly QRCodeService _sut;
 
     public QRCodeServiceTests()
@@ -30,7 +32,9 @@ public class QRCodeServiceTests
         _sut = new QRCodeService(
             _productVariantRepoMock.Object, 
             _storageServiceMock.Object,
-            _inventoryRepoMock.Object);
+            _inventoryRepoMock.Object,
+            _dbContextMock.Object,
+            _qrIdentifierServiceMock.Object);
     }
 
     [Fact]

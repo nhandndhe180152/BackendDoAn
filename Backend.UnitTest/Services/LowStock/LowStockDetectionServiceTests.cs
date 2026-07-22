@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Backend.Application.BackgroundJobs.LowStock;
 using Backend.Application.Constants;
 using Backend.Application.Interfaces;
+using Backend.Application.Implements;
 using Backend.Domain.Entities;
 using Backend.Infrastructure.Persistence;
 using Backend.Share.Services;
@@ -148,8 +149,8 @@ public class LowStockDetectionServiceTests
         context.ProductVariants.Add(variant);
 
         // Seed LotStatus
-        var sellableStatus = new LotStatus { Id = 1, Name = "Được phép bán", Color = "#10B981", IsSellable = true };
-        var quarantineStatus = new LotStatus { Id = 2, Name = "Cách ly", Color = "#EF4444", IsSellable = false };
+        var sellableStatus = new LotStatus { Id = 1, Name = "Được phép bán", Code = LotStatusCodeConstants.InStock, Color = "#10B981", IsSellable = true };
+        var quarantineStatus = new LotStatus { Id = 2, Name = "Cách ly", Code = LotStatusCodeConstants.Quarantine, Color = "#EF4444", IsSellable = false };
         context.LotStatuses.AddRange(sellableStatus, quarantineStatus);
 
         // Seed Locations
@@ -179,7 +180,7 @@ public class LowStockDetectionServiceTests
         context.Inventories.Add(inventory);
         await context.SaveChangesAsync();
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
@@ -199,7 +200,7 @@ public class LowStockDetectionServiceTests
         await SeedBaseDataAsync(context);
         // KHÔNG thêm bất kỳ dòng Inventory nào → tồn kho = 0
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
@@ -232,7 +233,7 @@ public class LowStockDetectionServiceTests
         });
         await context.SaveChangesAsync();
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act — không được ném exception
@@ -266,7 +267,7 @@ public class LowStockDetectionServiceTests
         context.Inventories.Add(inventory);
         await context.SaveChangesAsync();
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
@@ -309,7 +310,7 @@ public class LowStockDetectionServiceTests
         );
         await context.SaveChangesAsync();
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
@@ -348,7 +349,7 @@ public class LowStockDetectionServiceTests
         );
         await context.SaveChangesAsync();
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
@@ -390,7 +391,7 @@ public class LowStockDetectionServiceTests
         context.Inventories.Add(inventory);
         await context.SaveChangesAsync();
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
@@ -419,7 +420,7 @@ public class LowStockDetectionServiceTests
         context.Inventories.Add(inventory);
         await context.SaveChangesAsync();
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Run 1
@@ -463,7 +464,7 @@ public class LowStockDetectionServiceTests
         context.Inventories.Add(inventory);
         await context.SaveChangesAsync();
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Run 1
@@ -516,7 +517,7 @@ public class LowStockDetectionServiceTests
         context.Inventories.Add(inventory);
         await context.SaveChangesAsync();
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         await service.DetectLowStockAsync(CancellationToken.None);
@@ -557,7 +558,7 @@ public class LowStockDetectionServiceTests
         context.Inventories.Add(inventory);
         await context.SaveChangesAsync();
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // ACTIVATE CONCURRENCY SIMULATION AFTER SEEDING DATA
@@ -594,7 +595,7 @@ public class LowStockDetectionServiceTests
         context.Inventories.Add(inventory);
         await context.SaveChangesAsync();
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         await service.DetectLowStockAsync(CancellationToken.None);
@@ -640,7 +641,7 @@ public class LowStockDetectionServiceTests
         context.Inventories.Add(new Backend.Domain.Entities.Inventory { WarehouseId = 1, ProductVariantId = 1, LocationId = null, QuantityOnHand = 100m, IsDeleted = false });
         await context.SaveChangesAsync();
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
@@ -660,7 +661,7 @@ public class LowStockDetectionServiceTests
         context.Inventories.Add(new Backend.Domain.Entities.Inventory { WarehouseId = 1, ProductVariantId = 1, LocationId = 1, QuantityOnHand = 10m, IsDeleted = false });
         await context.SaveChangesAsync();
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
@@ -697,7 +698,7 @@ public class LowStockDetectionServiceTests
         });
         await context.SaveChangesAsync();
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
@@ -754,7 +755,7 @@ public class LowStockDetectionServiceTests
         });
         await context.SaveChangesAsync();
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // Act
@@ -785,7 +786,7 @@ public class LowStockDetectionServiceTests
         });
         await context.SaveChangesAsync();
 
-        var queryService = new LowStockQueryService(context, _loggerFactoryMock.Object);
+        var queryService = new LowStockQueryService(context, new InventoryStateAggregationService(context, _loggerFactoryMock.Object), _loggerFactoryMock.Object);
         var service = new LowStockDetectionService(context, queryService, _dispatcherMock.Object, _cacheMock.Object, _loggerFactoryMock.Object);
 
         // ACTIVATE CONCURRENCY SIMULATION AFTER SEEDING DATA

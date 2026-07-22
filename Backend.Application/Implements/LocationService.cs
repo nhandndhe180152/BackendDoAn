@@ -42,6 +42,7 @@ public class LocationService : ILocationService
         }
 
         var model = obj.ToEntity();
+        model.QrCode = "LC-" + Guid.NewGuid().ToString("N").ToUpper();
 
         await _locationRepository.CreateAsync(model);
         await _locationRepository.SaveChangesAsync();
@@ -52,6 +53,10 @@ public class LocationService : ILocationService
     public async Task<ApiResponse> CreateListAsync(IEnumerable<CreateLocationDto> objs)
     {
         var models = objs.Select(x => x.ToEntity()).ToList();
+        foreach (var model in models)
+        {
+            model.QrCode = "LC-" + Guid.NewGuid().ToString("N").ToUpper();
+        }
 
         await _locationRepository.CreateListAsync(models);
         await _locationRepository.SaveChangesAsync();
