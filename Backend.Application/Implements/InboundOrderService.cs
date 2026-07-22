@@ -485,7 +485,7 @@ public class InboundOrderService : IInboundOrderService
             NotificationConstants.Code.InboundSubmitted,
             BuildInboundApproverTarget(),
             new object[] { order.POCode },
-            $"/admin/inbound-orders/{order.Id}",
+            "/admin/inbound-orders",
             GetCurrentUserId());
 
         return ApiResponse.Success();
@@ -513,7 +513,7 @@ public class InboundOrderService : IInboundOrderService
             NotificationConstants.Code.InboundApproved,
             BuildInboundNotifyTarget(order.CreatedBy),
             new object[] { order.POCode },
-            $"/admin/inbound-orders/{order.Id}",
+            "/admin/inbound-orders",
             GetCurrentUserId());
 
         return ApiResponse.Success();
@@ -545,7 +545,7 @@ public class InboundOrderService : IInboundOrderService
             NotificationConstants.Code.InboundRejected,
             BuildInboundNotifyTarget(order.CreatedBy),
             new object[] { order.POCode, reason },
-            $"/admin/inbound-orders/{order.Id}",
+            "/admin/inbound-orders",
             GetCurrentUserId());
 
         return ApiResponse.Success();
@@ -1293,7 +1293,7 @@ public class InboundOrderService : IInboundOrderService
                     NotificationConstants.Code.InboundReceived,
                     new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.OWNER, CommonConstants.Role.WAREHOUSE } },
                     new object[] { order.POCode },
-                    $"/admin/inbound-orders/{order.Id}",
+                    "/admin/inbound-orders",
                     GetCurrentUserId());
             }
 
@@ -1664,7 +1664,7 @@ public class InboundOrderService : IInboundOrderService
             NotificationConstants.Code.InboundReceived,
             new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.OWNER, CommonConstants.Role.WAREHOUSE } },
             new object[] { order.POCode },
-            $"/admin/inbound-orders/{order.Id}",
+            "/admin/inbound-orders",
             userId);
 
         return ApiResponse.Success(

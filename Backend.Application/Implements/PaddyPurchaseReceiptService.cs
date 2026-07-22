@@ -316,7 +316,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                 NotificationConstants.Code.PurchaseReceiptConfirmed,
                 new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.OWNER, CommonConstants.Role.WAREHOUSE } },
                 new object[] { receipt.ReceiptCode },
-                $"/admin/paddy-purchase-receipts/{receipt.Id}",
+                "/admin/rice-purchase",
                 confirmedById);
 
             return ApiResponse.Success(new { LotId = lot.Id, LotCode = lot.LotCode, InboundOrderId = inboundOrder.Id },

@@ -251,7 +251,7 @@ public class SalesOrderService : ISalesOrderService
             NotificationConstants.Code.SalesOrderCreated,
             new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.SALES, CommonConstants.Role.OWNER } },
             new object[] { soCode },
-            $"/admin/sales-orders/{order.Id}",
+            "/admin/sales-orders",
             userId);
 
         return ApiResponse.Created(new { Id = order.Id, SOCode = soCode, TotalAmount = total },
@@ -337,7 +337,7 @@ public class SalesOrderService : ISalesOrderService
             NotificationConstants.Code.SalesOrderConfirmed,
             new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.SALES, CommonConstants.Role.WAREHOUSE } },
             new object[] { so.SOCode },
-            $"/admin/sales-orders/{so.Id}",
+            "/admin/sales-orders",
             GetCurrentUserId());
 
         return ApiResponse.Success(message: "Đơn bán đã được xác nhận.");
@@ -455,7 +455,7 @@ public class SalesOrderService : ISalesOrderService
             NotificationConstants.Code.SalesOrderCancelled,
             new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.SALES, CommonConstants.Role.OWNER, CommonConstants.Role.WAREHOUSE } },
             new object[] { so.SOCode },
-            $"/admin/sales-orders/{so.Id}",
+            "/admin/sales-orders",
             GetCurrentUserId());
 
         return ApiResponse.Success(message: "Đơn bán đã được hủy.");
@@ -559,7 +559,7 @@ public class SalesOrderService : ISalesOrderService
             NotificationConstants.Code.DeliveryCompleted,
             new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.SALES, CommonConstants.Role.OWNER } },
             new object[] { so.SOCode },
-            $"/admin/sales-orders/{so.Id}",
+            "/admin/sales-orders",
             userId);
 
         return ApiResponse.Success(message: $"Đơn bán {so.SOCode} đã hoàn tất.");

@@ -494,7 +494,7 @@ public class LowStockDetectionService : ILowStockDetectionService
                 NotificationConstants.Code.LowStockAlert,
                 target,
                 args,
-                directionId: snapshot.ProductVariantId.ToString(),
+                directionId: "/admin/alerts",
                 createdBy: CommonConstants.ADMIN_USER
             );
         }

@@ -344,7 +344,7 @@ public class StockTakeService : IStockTakeService
                     UserIds = existData.CreatedBy.HasValue ? new List<int> { existData.CreatedBy.Value } : new List<int>(),
                 },
                 new object[] { existData.STCode },
-                $"/admin/stock-takes/{existData.Id}",
+                "/admin/stock-takes",
                 userId);
 
             return ApiResponse.Success();
@@ -395,7 +395,7 @@ public class StockTakeService : IStockTakeService
                     UserIds = existData.CreatedBy.HasValue ? new List<int> { existData.CreatedBy.Value } : new List<int>(),
                 },
                 new object[] { existData.STCode, reason },
-                $"/admin/stock-takes/{existData.Id}",
+                "/admin/stock-takes",
                 userId);
 
             return ApiResponse.Success();

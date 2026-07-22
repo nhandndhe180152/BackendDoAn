@@ -164,7 +164,7 @@ public class MillingOrderService : IMillingOrderService
             NotificationConstants.Code.MillingOrderCreated,
             new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.MILLING, CommonConstants.Role.WAREHOUSE } },
             new object[] { millingCode },
-            $"/admin/milling-orders/{order.Id}",
+            "/admin/milling-orders",
             obj.CreatedBy);
 
         return ApiResponse.Created(order.Id, "Tạo lệnh xay thành công.");
@@ -420,7 +420,7 @@ public class MillingOrderService : IMillingOrderService
                 NotificationConstants.Code.MillingCompleted,
                 new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.OWNER, CommonConstants.Role.WAREHOUSE, CommonConstants.Role.SALES } },
                 new object[] { order.MillingCode },
-                $"/admin/milling-orders/{orderId}",
+                "/admin/milling-orders",
                 completedById);
 
             return ApiResponse.Success(new { OrderId = orderId }, "Hoàn thành lệnh xay. Đã sinh lô gạo/phụ phẩm và cập nhật tồn kho.");

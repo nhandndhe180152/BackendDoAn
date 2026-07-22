@@ -321,7 +321,7 @@ public class StockTransferService : IStockTransferService
                 NotificationConstants.Code.StockTransferConfirmed,
                 new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.WAREHOUSE, CommonConstants.Role.OWNER } },
                 new object[] { transfer.TransferCode },
-                $"/admin/stock-transfers/{transfer.Id}",
+                "/admin/stock-transfers",
                 confirmedById);
 
             return ApiResponse.Success(new { TransferId = id }, "Xác nhận điều chuyển thành công. Đã cập nhật tồn kho 2 kho.");

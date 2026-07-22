@@ -48,7 +48,7 @@ public class PaddyPurchaseScheduleService : IPaddyPurchaseScheduleService
             NotificationConstants.Code.PurchaseScheduleCreated,
             new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.PURCHASING, CommonConstants.Role.OWNER } },
             new object[] { scheduleCode },
-            $"/admin/paddy-purchase-schedules/{model.Id}",
+            "/admin/rice-purchase",
             model.CreatedBy);
 
         return ApiResponse.Created(model.Id, "Tạo lịch thu mua thành công.");

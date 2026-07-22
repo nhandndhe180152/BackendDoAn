@@ -604,7 +604,7 @@ public class OutboundOrderService : IOutboundOrderService
                 },
             },
             new object[] { soCode },
-            $"/admin/outbound-orders/{order.Id}",
+            "/admin/outbound-orders",
             userId);
 
         return ApiResponse.Success(

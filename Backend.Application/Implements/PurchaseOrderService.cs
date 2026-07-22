@@ -359,7 +359,7 @@ public class PurchaseOrderService : IPurchaseOrderService
             NotificationConstants.Code.PurchaseOrderConfirmed,
             new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.PURCHASING, CommonConstants.Role.OWNER, CommonConstants.Role.WAREHOUSE } },
             new object[] { po.POCode },
-            $"/admin/purchase-orders/{po.Id}",
+            "/admin/purchase-orders",
             GetCurrentUserId());
 
         return ApiResponse.Success(message: "Đơn mua đã được xác nhận.");
@@ -492,7 +492,7 @@ public class PurchaseOrderService : IPurchaseOrderService
             NotificationConstants.Code.PurchaseOrderCancelled,
             new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.PURCHASING, CommonConstants.Role.OWNER } },
             new object[] { po.POCode },
-            $"/admin/purchase-orders/{po.Id}",
+            "/admin/purchase-orders",
             GetCurrentUserId());
 
         return ApiResponse.Success(message: "Đơn mua đã được hủy.");
