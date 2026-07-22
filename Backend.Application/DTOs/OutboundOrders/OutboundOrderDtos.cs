@@ -136,3 +136,24 @@ public class OutboundOrderPagedQuery
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 20;
 }
+
+public class CompleteDeliveryDto
+{
+    [Required(ErrorMessage = "Tên người nhận không được để trống")]
+    [MaxLength(255)]
+    public string ReceiverName { get; set; } = null!;
+
+    [MaxLength(1000)]
+    public string? DeliveryNote { get; set; }
+
+    [MaxLength(1000)]
+    public string? ProofImageUrl { get; set; }
+}
+
+public class FailDeliveryDto
+{
+    [Required(ErrorMessage = "Lý do thất bại không được để trống")]
+    [MaxLength(1000)]
+    public string Reason { get; set; } = null!;
+}
+

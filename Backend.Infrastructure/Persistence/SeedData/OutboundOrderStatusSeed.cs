@@ -19,6 +19,7 @@ public static class OutboundOrderStatusSeed
             new OutboundOrderStatus { Id = 4,  Name = "DISPATCHED", Color = "#F97316", CreatedDate = new DateTime(2026, 1, 1) },
             new OutboundOrderStatus { Id = 5,  Name = "COMPLETED",  Color = "#10B981", CreatedDate = new DateTime(2026, 1, 1) },
             new OutboundOrderStatus { Id = 6,  Name = "CANCELLED",  Color = "#EF4444", CreatedDate = new DateTime(2026, 1, 1) },
+            new OutboundOrderStatus { Id = 7,  Name = "DELIVERY_FAILED", Color = "#EF4444", CreatedDate = new DateTime(2026, 1, 1) },
         };
     }
 }

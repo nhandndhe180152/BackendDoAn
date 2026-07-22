@@ -32,6 +32,7 @@ public class SalesOrderService : ISalesOrderService
     private readonly IRepositoryBase<OutboundOrderStatus, int> _outboundOrderStatusRepository;
     private readonly IRepositoryBase<Customer, int> _customerRepository;
     private readonly IInventoryRepository _inventoryRepository;
+    private readonly IInventoryTransactionRepository _inventoryTransactionRepository;
     private readonly IPartyDebtRepository _partyDebtRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly INotificationDispatcher _notificationDispatcher;
@@ -45,6 +46,7 @@ public class SalesOrderService : ISalesOrderService
         IRepositoryBase<OutboundOrderStatus, int> outboundOrderStatusRepository,
         IRepositoryBase<Customer, int> customerRepository,
         IInventoryRepository inventoryRepository,
+        IInventoryTransactionRepository inventoryTransactionRepository,
         IPartyDebtRepository partyDebtRepository,
         IHttpContextAccessor httpContextAccessor,
         INotificationDispatcher notificationDispatcher)
@@ -57,6 +59,7 @@ public class SalesOrderService : ISalesOrderService
         _outboundOrderStatusRepository = outboundOrderStatusRepository;
         _customerRepository          = customerRepository;
         _inventoryRepository         = inventoryRepository;
+        _inventoryTransactionRepository = inventoryTransactionRepository;
         _partyDebtRepository         = partyDebtRepository;
         _httpContextAccessor         = httpContextAccessor;
         _notificationDispatcher      = notificationDispatcher;
@@ -347,18 +350,17 @@ public class SalesOrderService : ISalesOrderService
     {
         var so = await _salesOrderRepository.GetByIdDetailAsync(id);
         if (so == null || so.IsDeleted)
-            return ApiResponse.NotFound("Không tìm thấy đơn bán.", ApiCodeConstants.SalesOrder.NotFound);
+            return ApiResponse.Error("Không tìm thấy đơn bán.", 404, ApiCodeConstants.SalesOrder.NotFound);
 
         if (so.Status?.Name != SalesOrderStatusNames.PendingConfirm)
-            return ApiResponse.Conflict(
+            return ApiResponse.Error(
                 $"Đơn đang ở trạng thái '{so.Status?.Name}', chỉ có thể giữ hàng khi ở Chờ xác nhận.",
-                ApiCodeConstants.SalesOrder.InvalidState);
+                409, ApiCodeConstants.SalesOrder.InvalidState);
 
         // 1. Kiểm tra khách hàng còn hoạt động
         var customer = await _customerRepository.GetByIdAsync(so.CustomerId);
         if (customer == null || customer.IsDeleted || !customer.IsActive)
-            return ApiResponse.UnprocessableEntity("Khách hàng không còn hoạt động.",
-                ApiCodeConstants.SalesOrder.InvalidRequest);
+            return ApiResponse.Error("Khách hàng không còn hoạt động.", 422, ApiCodeConstants.SalesOrder.InvalidRequest);
 
         // 2. Kiểm tra hạn mức công nợ
         var existingDebt = await _partyDebtRepository.FirstOrDefaultAsync(x =>
@@ -372,100 +374,215 @@ public class SalesOrderService : ISalesOrderService
         {
             var remainingAfterOrder = existingDebt.CurrentBalance + so.TotalAmount - (so.DepositAmount ?? 0);
             if (remainingAfterOrder > existingDebt.CreditLimit.Value)
-                return ApiResponse.UnprocessableEntity(
+                return ApiResponse.Error(
                     $"Vượt hạn mức công nợ. Hạn mức: {existingDebt.CreditLimit:N0} VNĐ, " +
                     $"Dư nợ sau đơn: {remainingAfterOrder:N0} VNĐ.",
-                    ApiCodeConstants.SalesOrder.CreditLimitExceeded);
+                    422, ApiCodeConstants.SalesOrder.CreditLimitExceeded);
         }
 
-        // 3. Chỉ kiểm tra tồn khả dụng — KHÔNG tăng QuantityReserved tại đây.
-        //    QuantityReserved sẽ được cập nhật đúng row tại bước AllocateAsync,
-        //    khi người dùng chỉ định chính xác inventory row nào sẽ được xuất.
         if (!so.WarehouseId.HasValue)
-            return ApiResponse.BadRequest("Đơn bán chưa có kho xuất.", ApiCodeConstants.SalesOrder.InvalidRequest);
+            return ApiResponse.Error("Đơn bán chưa có kho xuất.", 400, ApiCodeConstants.SalesOrder.InvalidRequest);
 
-        foreach (var item in so.SalesOrderItems.Where(i => !i.IsDeleted))
-        {
-            var available = await _inventoryRepository.GetAvailableForSalesAsync(
-                item.ProductVariantId, so.WarehouseId.Value);
-
-            // Ghi chú M2: repository GetAvailableForSalesAsync đã lọc sẵn lô cách ly,
-            // nên không cần kiểm tra IsSellable thêm ở đây.
-
-            var totalAvail = available.Sum(x => x.QuantityOnHand - x.QuantityReserved);
-
-            if (totalAvail < item.QuantityOrdered)
-                return ApiResponse.UnprocessableEntity(
-                    $"Tồn khả dụng không đủ cho sản phẩm ID {item.ProductVariantId}. " +
-                    $"Cần: {item.QuantityOrdered}, Khả dụng: {totalAvail}.",
-                    ApiCodeConstants.SalesOrder.InsufficientStock);
-        }
-
-        // 4. Chuyển trạng thái sang RESERVED
+        await using var tx = await _salesOrderRepository.BeginTransactionAsync();
         try
         {
+            var now = DateTimeHelper.VietnamNow();
+            var userId = GetCurrentUserId();
+
+            // 3. Khóa tồn vật lý (FIFO)
+            foreach (var item in so.SalesOrderItems.Where(i => !i.IsDeleted))
+            {
+                var availableRows = await _inventoryRepository.GetAvailableForSalesAsync(
+                    item.ProductVariantId, so.WarehouseId.Value);
+
+                var totalAvail = availableRows.Sum(x => x.QuantityOnHand - x.QuantityReserved);
+
+                if (totalAvail < item.QuantityOrdered)
+                    return ApiResponse.Error(
+                        $"Tồn khả dụng không đủ cho sản phẩm ID {item.ProductVariantId}. " +
+                        $"Cần: {item.QuantityOrdered}, Khả dụng: {totalAvail}.",
+                        422, ApiCodeConstants.SalesOrder.InsufficientStock);
+
+                decimal remainingToReserve = item.QuantityOrdered;
+
+                foreach (var inv in availableRows.OrderBy(x => x.CreatedDate))
+                {
+                    if (remainingToReserve <= 0) break;
+
+                    var availInRow = inv.QuantityOnHand - inv.QuantityReserved;
+                    if (availInRow <= 0) continue;
+
+                    var take = Math.Min(availInRow, remainingToReserve);
+
+                    var before = inv.QuantityReserved;
+                    inv.QuantityReserved += take;
+                    inv.LastModifiedDate = now;
+                    await _inventoryRepository.UpdateAsync(inv);
+
+                    // Track reservation using InventoryTransaction
+                    var invTx = new InventoryTransaction
+                    {
+                        InventoryId = inv.Id,
+                        WarehouseId = inv.WarehouseId,
+                        LocationId = inv.LocationId,
+                        ProductVariantId = inv.ProductVariantId,
+                        PaddyLotId = inv.PaddyLotId,
+                        TransactionType = InventoryTransactionTypeConstants.Reserve,
+                        ReferenceType = InventoryReferenceTypeConstants.SalesOrder,
+                        ReferenceId = so.Id,
+                        ReferenceItemId = item.Id,
+                        Quantity = take,
+                        BeforeQuantity = before, // Track reserved quantity before
+                        AfterQuantity = inv.QuantityReserved, // Track reserved quantity after
+                        WeightKg = take,
+                        Note = $"Khóa tồn cho đơn bán {so.SOCode}",
+                        CreatedDate = now,
+                        CreatedBy = userId
+                    };
+                    await _inventoryTransactionRepository.CreateAsync(invTx);
+
+                    remainingToReserve -= take;
+                }
+            }
+
+            // 4. Chuyển trạng thái sang RESERVED
             so.StatusId         = await GetStatusIdAsync(SalesOrderStatusNames.Reserved);
-            so.LastModifiedDate = DateTimeHelper.VietnamNow();
-            so.UpdatedBy        = GetCurrentUserId();
+            so.LastModifiedDate = now;
+            so.UpdatedBy        = userId;
             await _salesOrderRepository.UpdateAsync(so);
+
             await _salesOrderRepository.SaveChangesAsync();
+            await _salesOrderRepository.EndTransactionAsync();
+
+            return ApiResponse.Success(message: "Đã giữ hàng thành công.");
         }
         catch (DbUpdateConcurrencyException)
         {
-            return ApiResponse.Conflict(
+            await _salesOrderRepository.RollbackTransactionAsync();
+            return ApiResponse.Error(
                 "Tồn kho đã thay đổi trong lúc xử lý. Vui lòng thử lại.",
-                ApiCodeConstants.SalesOrder.ConcurrencyConflict);
+                409, ApiCodeConstants.SalesOrder.ConcurrencyConflict);
         }
-
-        return ApiResponse.Success(message: "Đã giữ hàng thành công.");
+        catch
+        {
+            await _salesOrderRepository.RollbackTransactionAsync();
+            throw;
+        }
     }
 
     public async Task<ApiResponse> CancelAsync(int id)
     {
         var so = await _salesOrderRepository.GetByIdDetailAsync(id);
         if (so == null || so.IsDeleted)
-            return ApiResponse.NotFound("Không tìm thấy đơn bán.", ApiCodeConstants.SalesOrder.NotFound);
+            return ApiResponse.Error("Không tìm thấy đơn bán.", 404, ApiCodeConstants.SalesOrder.NotFound);
 
         var allowedStates = new[]
         {
             SalesOrderStatusNames.New,
             SalesOrderStatusNames.PendingConfirm,
-            SalesOrderStatusNames.Reserved
+            SalesOrderStatusNames.Reserved,
+            SalesOrderStatusNames.Preparing
         };
         if (!allowedStates.Contains(so.Status?.Name))
-            return ApiResponse.Conflict(
+            return ApiResponse.Error(
                 $"Không thể hủy đơn ở trạng thái '{so.Status?.Name}'.",
-                ApiCodeConstants.SalesOrder.InvalidState);
+                409, ApiCodeConstants.SalesOrder.InvalidState);
 
-        // Ghi chú C1/M6: ReserveAsync không còn tăng QuantityReserved nữa.
-        // QuantityReserved chỉ được tăng tại AllocateAsync (OutboundOrderService).
-        // Nếu đơn đang ở RESERVED mà chưa có phiếu xuất nào được Allocate,
-        // thì không có QuantityReserved nào cần giải phóng.
-        // Nếu đã có OutboundOrder đang ở PICKING/PACKED, việc giải phóng
-        // QuantityReserved được thực hiện tại OutboundOrderService.CancelAsync.
+        var now = DateTimeHelper.VietnamNow();
+        var userId = GetCurrentUserId();
 
-        so.StatusId         = await GetStatusIdAsync(SalesOrderStatusNames.Cancelled);
-        so.LastModifiedDate = DateTimeHelper.VietnamNow();
-        so.UpdatedBy        = GetCurrentUserId();
-        await _salesOrderRepository.UpdateAsync(so);
-        await _salesOrderRepository.SaveChangesAsync();
+        await using var tx = await _salesOrderRepository.BeginTransactionAsync();
+        try
+        {
+            // Kiểm tra OutboundOrder
+            var outbounds = await _outboundOrderRepository
+                .FindByCondition(x => x.SalesOrderId == id && !x.IsDeleted, false, x => x.OutboundOrderStatus)
+                .ToListAsync();
 
-        // Thông báo cho Nhân viên bán hàng, Chủ kho và Nhân viên kho: đơn bán đã bị hủy.
-        await _notificationDispatcher.DispatchAsync(
-            NotificationConstants.Code.SalesOrderCancelled,
-            new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.SALES, CommonConstants.Role.OWNER, CommonConstants.Role.WAREHOUSE } },
-            new object[] { so.SOCode },
-            "/admin/sales-orders",
-            GetCurrentUserId());
+            if (outbounds.Any(x => x.OutboundOrderStatus?.Name != OutboundOrderStatusNames.Cancelled && x.OutboundOrderStatus?.Name != OutboundOrderStatusNames.Draft))
+                return ApiResponse.Error("Không thể hủy đơn bán vì đã có Phiếu xuất đang xử lý. Vui lòng hủy phiếu xuất trước.", 409, ApiCodeConstants.SalesOrder.InvalidState);
 
-        return ApiResponse.Success(message: "Đơn bán đã được hủy.");
+            // Xóa OutboundOrder DRAFT
+            foreach (var draft in outbounds.Where(x => x.OutboundOrderStatus?.Name == OutboundOrderStatusNames.Draft))
+            {
+                draft.IsDeleted = true;
+                draft.LastModifiedDate = now;
+                draft.UpdatedBy = userId;
+                await _outboundOrderRepository.UpdateAsync(draft);
+            }
+
+            // Giải phóng QuantityReserved nếu đang RESERVED hoặc PREPARING
+            if (so.Status?.Name == SalesOrderStatusNames.Reserved || so.Status?.Name == SalesOrderStatusNames.Preparing)
+            {
+                var reserveTxs = await _inventoryTransactionRepository
+                    .FindByCondition(x => x.ReferenceType == InventoryReferenceTypeConstants.SalesOrder 
+                                       && x.ReferenceId == id 
+                                       && x.TransactionType == InventoryTransactionTypeConstants.Reserve)
+                    .ToListAsync();
+
+                foreach (var rx in reserveTxs)
+                {
+                    var inv = await _inventoryRepository.GetByIdAsync(rx.InventoryId);
+                    if (inv != null)
+                    {
+                        var before = inv.QuantityReserved;
+                        inv.QuantityReserved = Math.Max(0, inv.QuantityReserved - rx.Quantity);
+                        inv.LastModifiedDate = now;
+                        await _inventoryRepository.UpdateAsync(inv);
+
+                        var unreserveTx = new InventoryTransaction
+                        {
+                            InventoryId = inv.Id,
+                            WarehouseId = inv.WarehouseId,
+                            LocationId = inv.LocationId,
+                            ProductVariantId = inv.ProductVariantId,
+                            PaddyLotId = inv.PaddyLotId,
+                            TransactionType = InventoryTransactionTypeConstants.ReleaseReserve,
+                            ReferenceType = InventoryReferenceTypeConstants.SalesOrder,
+                            ReferenceId = so.Id,
+                            ReferenceItemId = rx.ReferenceItemId,
+                            Quantity = -rx.Quantity,
+                            BeforeQuantity = before,
+                            AfterQuantity = inv.QuantityReserved,
+                            WeightKg = -rx.Quantity,
+                            Note = $"Giải phóng tồn do hủy đơn bán {so.SOCode}",
+                            CreatedDate = now,
+                            CreatedBy = userId
+                        };
+                        await _inventoryTransactionRepository.CreateAsync(unreserveTx);
+                    }
+                }
+            }
+
+            so.StatusId         = await GetStatusIdAsync(SalesOrderStatusNames.Cancelled);
+            so.LastModifiedDate = now;
+            so.UpdatedBy        = userId;
+            await _salesOrderRepository.UpdateAsync(so);
+
+            await _salesOrderRepository.SaveChangesAsync();
+            await _salesOrderRepository.EndTransactionAsync();
+
+            await _notificationDispatcher.DispatchAsync(
+                NotificationConstants.Code.SalesOrderCancelled,
+                new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.SALES, CommonConstants.Role.OWNER, CommonConstants.Role.WAREHOUSE } },
+                new object[] { so.SOCode },
+                "/admin/sales-orders",
+                GetCurrentUserId());
+
+            return ApiResponse.Success(message: "Đơn bán đã được hủy.");
+        }
+        catch
+        {
+            await _salesOrderRepository.RollbackTransactionAsync();
+            throw;
+        }
     }
 
-    public async Task<ApiResponse> CreateOutboundAsync(int id)
+    public async Task<ApiResponse> CreateOutboundAsync(int id, CreateOutboundDto dto)
     {
         var so = await _salesOrderRepository.GetByIdDetailAsync(id);
         if (so == null || so.IsDeleted)
-            return ApiResponse.NotFound("Không tìm thấy đơn bán.", ApiCodeConstants.SalesOrder.NotFound);
+            return ApiResponse.Error("Không tìm thấy đơn bán.", 404, ApiCodeConstants.SalesOrder.NotFound);
 
         var allowedStates = new[]
         {
@@ -473,9 +590,9 @@ public class SalesOrderService : ISalesOrderService
             SalesOrderStatusNames.Preparing
         };
         if (!allowedStates.Contains(so.Status?.Name))
-            return ApiResponse.Conflict(
+            return ApiResponse.Error(
                 $"Không thể tạo phiếu xuất từ đơn ở trạng thái '{so.Status?.Name}'.",
-                ApiCodeConstants.SalesOrder.InvalidState);
+                409, ApiCodeConstants.SalesOrder.InvalidState);
 
         var draftStatus = await _outboundOrderStatusRepository.FirstOrDefaultAsync(
             x => x.Name == OutboundOrderStatusNames.Draft && !x.IsDeleted);
@@ -485,48 +602,81 @@ public class SalesOrderService : ISalesOrderService
         var now = DateTimeHelper.VietnamNow();
         var userId = GetCurrentUserId();
 
-        var outbound = new OutboundOrder
+        await using var tx = await _salesOrderRepository.BeginTransactionAsync();
+        try
         {
-            SalesOrderId          = so.Id,
-            WarehouseId           = so.WarehouseId ?? 0,
-            OrganizationId        = so.OrganizationId,
-            OutboundOrderStatusId = draftStatusId,
-            TotalDispatchedValue  = 0,
-            Note                  = $"Tạo từ đơn bán {so.SOCode}",
-            CreatedDate           = now,
-            CreatedBy             = userId
-        };
-
-        // Tạo OutboundOrderItem từ SalesOrderItem
-        foreach (var item in so.SalesOrderItems.Where(i => !i.IsDeleted))
-        {
-            outbound.OutboundOrderItems.Add(new OutboundOrderItem
+            var outbound = new OutboundOrder
             {
-                ProductVariantId = item.ProductVariantId,
-                QuantityOrdered  = item.QuantityOrdered,
-                QuantityPicked   = 0,
-                UnitCostPrice    = 0,    // Sẽ được cập nhật khi allocate
-                SalesOrderItemId = item.Id,
-                CreatedDate      = now,
-                CreatedBy        = userId
-            });
+                SalesOrderId          = so.Id,
+                WarehouseId           = so.WarehouseId ?? 0,
+                OrganizationId        = so.OrganizationId,
+                OutboundOrderStatusId = draftStatusId,
+                TotalDispatchedValue  = 0,
+                Note                  = $"Tạo từ đơn bán {so.SOCode}",
+                CreatedDate           = now,
+                CreatedBy             = userId
+            };
+
+            // Calculate already dispatched or currently drafting quantities
+            var existingOutbounds = await _outboundOrderRepository
+                .FindByCondition(x => x.SalesOrderId == id && !x.IsDeleted && 
+                                      x.OutboundOrderStatus != null && 
+                                      x.OutboundOrderStatus.Name != OutboundOrderStatusNames.Cancelled,
+                                      false, x => x.OutboundOrderItems)
+                .ToListAsync();
+
+            foreach (var itemDto in dto.Items)
+            {
+                var soItem = so.SalesOrderItems.FirstOrDefault(x => x.ProductVariantId == itemDto.ProductVariantId && !x.IsDeleted);
+                if (soItem == null) 
+                    return ApiResponse.Error($"Sản phẩm ID {itemDto.ProductVariantId} không có trong đơn bán.", 400);
+
+                var alreadyAssigned = existingOutbounds.SelectMany(x => x.OutboundOrderItems)
+                                                       .Where(x => x.SalesOrderItemId == soItem.Id)
+                                                       .Sum(x => x.QuantityOrdered);
+
+                if (alreadyAssigned + itemDto.QuantityToDispatch > soItem.QuantityOrdered)
+                    return ApiResponse.Error(
+                        $"Số lượng xuất ({itemDto.QuantityToDispatch}) vượt quá số lượng còn lại " +
+                        $"({soItem.QuantityOrdered - alreadyAssigned}) của sản phẩm ID {itemDto.ProductVariantId}.", 422);
+
+                outbound.OutboundOrderItems.Add(new OutboundOrderItem
+                {
+                    ProductVariantId = itemDto.ProductVariantId,
+                    QuantityOrdered  = itemDto.QuantityToDispatch,
+                    QuantityPicked   = 0,
+                    UnitCostPrice    = 0,
+                    SalesOrderItemId = soItem.Id,
+                    CreatedDate      = now,
+                    CreatedBy        = userId
+                });
+            }
+
+            if (!outbound.OutboundOrderItems.Any())
+                return ApiResponse.Error("Phải có ít nhất 1 sản phẩm để xuất kho.", 400);
+
+            await _outboundOrderRepository.CreateAsync(outbound);
+
+            // Chuyển SalesOrder → PREPARING
+            if (so.Status?.Name == SalesOrderStatusNames.Reserved)
+            {
+                so.StatusId         = await GetStatusIdAsync(SalesOrderStatusNames.Preparing);
+                so.LastModifiedDate = now;
+                so.UpdatedBy        = userId;
+                await _salesOrderRepository.UpdateAsync(so);
+            }
+
+            await _salesOrderRepository.SaveChangesAsync();
+            await _salesOrderRepository.EndTransactionAsync();
+
+            return ApiResponse.Created(new { OutboundOrderId = outbound.Id },
+                "Tạo phiếu xuất kho thành công.");
         }
-
-        await _outboundOrderRepository.CreateAsync(outbound);
-
-        // Chuyển SalesOrder → PREPARING (nếu chưa)
-        if (so.Status?.Name == SalesOrderStatusNames.Reserved)
+        catch
         {
-            so.StatusId         = await GetStatusIdAsync(SalesOrderStatusNames.Preparing);
-            so.LastModifiedDate = now;
-            so.UpdatedBy        = userId;
-            await _salesOrderRepository.UpdateAsync(so);
+            await _salesOrderRepository.RollbackTransactionAsync();
+            throw;
         }
-
-        await _salesOrderRepository.SaveChangesAsync();
-
-        return ApiResponse.Created(new { OutboundOrderId = outbound.Id },
-            "Tạo phiếu xuất kho thành công.");
     }
     /// <summary>
     /// H1: Xác nhận giao hàng hoàn tất (DELIVERING → Hoàn tất).

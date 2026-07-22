@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Backend.Domain.Abstractions;
 
 namespace Backend.Domain.Entities;
@@ -10,9 +11,9 @@ public class CustomerReturnOrderItem : EntityAuditBase<int>
 {
     public int CustomerReturnOrderId { get; set; }
     public int? ProductVariantId { get; set; }
-    public int QuantityReturned { get; set; }
-    public int QuantityGood { get; set; }
-    public int QuantityDamaged { get; set; }
+    public decimal QuantityReturned { get; set; }
+    public decimal QuantityGood { get; set; }
+    public decimal QuantityDamaged { get; set; }
     public string QualityStatus { get; set; } = null!; // GOOD | DAMAGED | EXPIRED
     public string? DamageReason { get; set; }
     public int? RestockLocationId { get; set; }
@@ -24,4 +25,5 @@ public class CustomerReturnOrderItem : EntityAuditBase<int>
     public virtual ProductVariant? ProductVariant { get; set; }
     public virtual Location? RestockLocation { get; set; }
     public virtual Location? QuarantineLocation { get; set; }
+    public virtual ICollection<CustomerReturnOrderItemAllocation> Allocations { get; set; } = new List<CustomerReturnOrderItemAllocation>();
 }

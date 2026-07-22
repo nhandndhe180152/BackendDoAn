@@ -94,9 +94,9 @@ public class SalesOrderController : BaseController
     /// Tạo OutboundOrder từ SalesOrder (RESERVED/PREPARING → PREPARING + OutboundOrder DRAFT).
     /// </summary>
     [HttpPost("{id}/create-outbound")]
-    public async Task<IActionResult> CreateOutboundAsync(int id)
+    public async Task<IActionResult> CreateOutboundAsync(int id, [FromBody] CreateOutboundDto dto)
     {
-        var result = await _salesOrderService.CreateOutboundAsync(id);
+        var result = await _salesOrderService.CreateOutboundAsync(id, dto);
         return BaseResult(result);
     }
 

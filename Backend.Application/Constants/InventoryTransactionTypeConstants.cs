@@ -10,6 +10,8 @@ public static class InventoryTransactionTypeConstants
     public const string ManualAdjust = "MANUAL_ADJUST";
     public const string Reserve = "RESERVE";
     public const string ReleaseReserve = "RELEASE_RESERVE";
+    public const string CustomerReturnRestock = "CUSTOMER_RETURN_RESTOCK";
+    public const string CustomerReturnQuarantine = "CUSTOMER_RETURN_QUARANTINE";
 
     public static readonly string[] All =
     [

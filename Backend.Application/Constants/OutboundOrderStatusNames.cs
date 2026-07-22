@@ -11,4 +11,5 @@ public static class OutboundOrderStatusNames
     public const string Dispatched = "DISPATCHED";
     public const string Completed  = "COMPLETED";
     public const string Cancelled  = "CANCELLED";
+    public const string DeliveryFailed = "DELIVERY_FAILED";
 }

@@ -54,6 +54,7 @@ public interface IApplicationDbContext
     DbSet<CustomerReturnOrder> CustomerReturnOrders { get; }
     DbSet<CustomerReturnOrderItem> CustomerReturnOrderItems { get; }
     DbSet<CustomerReturnOrderStatus> CustomerReturnOrderStatuses { get; }
+    DbSet<CustomerReturnOrderItemAllocation> CustomerReturnOrderItemAllocations { get; }
     DbSet<ReturnToSupplierOrder> ReturnToSupplierOrders { get; }
     DbSet<ReturnToSupplierOrderItem> ReturnToSupplierOrderItems { get; }
     DbSet<ReturnToSupplierOrderStatus> ReturnToSupplierOrderStatuses { get; }

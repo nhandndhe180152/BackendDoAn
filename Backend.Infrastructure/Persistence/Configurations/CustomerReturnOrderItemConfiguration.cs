@@ -19,6 +19,10 @@ public class CustomerReturnOrderItemConfiguration : IEntityTypeConfiguration<Cus
         builder.Property(x => x.DamageReason).HasMaxLength(500);
         builder.Property(x => x.Note).HasMaxLength(1000);
 
+        builder.Property(x => x.QuantityReturned).HasColumnType("decimal(18,3)").IsRequired();
+        builder.Property(x => x.QuantityGood).HasColumnType("decimal(18,3)").IsRequired();
+        builder.Property(x => x.QuantityDamaged).HasColumnType("decimal(18,3)").IsRequired();
+
         builder.HasOne(x => x.CustomerReturnOrder)
             .WithMany(x => x.Items)
             .HasForeignKey(x => x.CustomerReturnOrderId)

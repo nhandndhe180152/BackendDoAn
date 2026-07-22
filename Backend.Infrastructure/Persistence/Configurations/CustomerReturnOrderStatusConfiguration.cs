@@ -16,6 +16,11 @@ public class CustomerReturnOrderStatusConfiguration : IEntityTypeConfiguration<C
             .ValueGeneratedOnAdd();
 
         builder.Property(x => x.Name).HasMaxLength(100);
+        builder.Property(x => x.Code).HasMaxLength(50).IsRequired();
         builder.Property(x => x.Color).HasMaxLength(30);
+
+        builder.HasIndex(x => x.Code)
+            .IsUnique()
+            .HasDatabaseName("UX_CustomerReturnOrderStatus_Code");
     }
 }

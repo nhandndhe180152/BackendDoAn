@@ -9,5 +9,6 @@ namespace Backend.Domain.Entities;
 public class CustomerReturnOrderStatus : EntityAuditBase<int>
 {
     public string Name { get; set; } = null!;
+    public string Code { get; set; } = null!;
     public string Color { get; set; } = null!;
 }

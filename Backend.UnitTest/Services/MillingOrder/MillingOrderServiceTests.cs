@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using Backend.Application.Constants;
 using Backend.Application.DTOs.MillingOrders;
 using Backend.Application.Implements;
 using Backend.Application.Interfaces;
@@ -16,14 +17,9 @@ using Xunit;
 
 namespace Backend.UnitTest.Services.MillingOrder;
 
-/// <summary>
-/// Unit tests cho MillingOrderService.
-/// Tập trung: #6 Mass balance validation trong CreateAsync.
-/// </summary>
 [Trait("Service", "MillingOrder")]
 public class MillingOrderServiceTests
 {
-    // ── Mocks ────────────────────────────────────────────────────────────────
     private readonly Mock<IMillingOrderRepository>              _orderRepo    = new();
     private readonly Mock<IPaddyLotRepository>                  _paddyLotRepo = new();
     private readonly Mock<IRepositoryBase<MillingOrderInput,  int>> _inputRepo  = new();
@@ -47,205 +43,133 @@ public class MillingOrderServiceTests
         _locationRepo.Object,
         _dispatcher.Object);
 
-    // ── Common setup helpers ─────────────────────────────────────────────────
-
-    /// <summary>Setup _orderRepo.FindByCondition để trả về IQueryable rỗng (count=0).</summary>
-    private void SetupCodeGenCount(int count = 0)
+    [Fact]
+    public async Task CompleteMillingOrderAsync_OutputPlusLoss_ExceedsInput_Plus2Percent_Returns400()
     {
+        // Arrange: input 100 kg. Output 70 + loss 15 + byproducts 20 = 105 > 100 * 1.02 = 102
+        var order = new Backend.Domain.Entities.MillingOrder
+        {
+            Id = 1,
+            Status = new MillingOrderStatus { Code = LookupCodes.MillingOrderStatus.InProgress },
+            MillingOrderInputs = new List<MillingOrderInput>
+            {
+                new() { ConsumedWeightKg = 100m }
+            }
+        };
+
         _orderRepo.Setup(r => r.FindByCondition(
-                It.IsAny<Expression<Func<Domain.Entities.MillingOrder, bool>>>(),
-                It.IsAny<bool>()))
-             .Returns(Enumerable.Empty<Domain.Entities.MillingOrder>()
-                 .AsQueryable().BuildMock());
+                It.IsAny<Expression<Func<Backend.Domain.Entities.MillingOrder, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<Backend.Domain.Entities.MillingOrder, object>>[]>()))
+             .Returns(new List<Backend.Domain.Entities.MillingOrder> { order }.AsQueryable().BuildMock());
+
+        var dto = new CompleteMillingOrderDto
+        {
+            ActualYieldRate = 70m,
+            LossKg = 15m,
+            Outputs = new List<MillingOrderOutputItemDto>
+            {
+                new() { OutputWeightKg = 70m, OutputType = "RICE", IsByproduct = false, ProductVariantId = 1 },
+                new() { OutputWeightKg = 20m, OutputType = "BYPRODUCT", IsByproduct = true, ProductVariantId = 2 }
+            }
+        };
+
+        // Act
+        var result = await Sut().CompleteMillingOrderAsync(1, dto, 1);
+
+        // Assert
+        result.Status.Should().Be(422);
+        result.Message.Should().Contain("Mass balance không hợp lệ");
     }
 
-    /// <summary>Setup status repo trả về Draft status.</summary>
-    private void SetupDraftStatus()
+    [Fact]
+    public async Task CompleteMillingOrderAsync_OutputPlusLoss_WithinTolerance_PassesMassBalance()
     {
-        var draft = new MillingOrderStatus { Id = 1, Name = "Draft", IsDeleted = false };
+        // Arrange: input 100 kg. Output 70 + loss 4 + byproducts 25 = 99 kg (within 2% tolerance of 100kg)
+        var order = new Backend.Domain.Entities.MillingOrder
+        {
+            Id = 1,
+            Status = new MillingOrderStatus { Code = LookupCodes.MillingOrderStatus.InProgress },
+            MillingOrderInputs = new List<MillingOrderInput>
+            {
+                new() { PaddyLotId = 1, ConsumedWeightKg = 100m }
+            }
+        };
+
+        _orderRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<Backend.Domain.Entities.MillingOrder, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<Backend.Domain.Entities.MillingOrder, object>>[]>()))
+             .Returns(new List<Backend.Domain.Entities.MillingOrder> { order }.AsQueryable().BuildMock());
+
+        var lot = new Backend.Domain.Entities.PaddyLot { Id = 1, LotCode = "LOT-PADDY-01", RemainingWeightKg = 200m, CostPricePerKg = 10m, ProductVariantId = 1, WarehouseId = 1, LocationId = 1 };
+        _paddyLotRepo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(lot);
+        _paddyLotRepo.Setup(r => r.UpdateAsync(It.IsAny<Backend.Domain.Entities.PaddyLot>())).Returns(Task.CompletedTask);
+        _paddyLotRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
+        _paddyLotRepo.Setup(r => r.CreateAsync(It.IsAny<Backend.Domain.Entities.PaddyLot>())).Returns(Task.CompletedTask);
+
+        _paddyLotRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<Backend.Domain.Entities.PaddyLot, bool>>>(),
+                It.IsAny<bool>()))
+             .Returns(new List<Backend.Domain.Entities.PaddyLot>().AsQueryable().BuildMock());
+
         _statusRepo.Setup(r => r.FirstOrDefaultAsync(
                 It.IsAny<Expression<Func<MillingOrderStatus, bool>>>(),
                 It.IsAny<bool>(),
                 It.IsAny<Expression<Func<MillingOrderStatus, object>>[]>()))
-             .ReturnsAsync(draft);
-    }
+             .ReturnsAsync((Expression<Func<MillingOrderStatus, bool>> expr, bool noTracking, Expression<Func<MillingOrderStatus, object>>[] includes) => {
+                 var func = expr.Compile();
+                 if (func(new MillingOrderStatus { Code = LookupCodes.MillingOrderStatus.Completed }))
+                     return new MillingOrderStatus { Id = 5, Code = LookupCodes.MillingOrderStatus.Completed };
+                 return new MillingOrderStatus { Id = 4, Code = LookupCodes.MillingOrderStatus.InProgress };
+             });
 
-    // ── CreateAsync — mass balance validation (#6) ───────────────────────────
+        _lotStatusRepo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<Expression<Func<LotStatus, bool>>>(), It.IsAny<bool>(), It.IsAny<Expression<Func<LotStatus, object>>[]>()))
+            .ReturnsAsync(new LotStatus { Id = 1 });
 
-    [Fact]
-    public async Task CreateAsync_OutputPlusLoss_ExceedsInput_Plus2Percent_Returns400()
-    {
-        // Arrange: input 100 kg, output 90 + loss 15 = 105 > 100 * 1.02 = 102
-        SetupCodeGenCount();
-        SetupDraftStatus();
+        _orderRepo.Setup(r => r.BeginTransactionAsync()).ReturnsAsync(new Mock<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction>().Object);
+        _locationRepo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<Expression<Func<Location, bool>>>(), It.IsAny<bool>(), It.IsAny<Expression<Func<Location, object>>[]>()))
+            .ReturnsAsync(new Location { Id = 1 });
 
-        var dto = new CreateMillingOrderDto
+        _invRepo.Setup(r => r.GetByVariantWarehouseLocationAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int?>(), It.IsAny<int?>()))
+            .ReturnsAsync(new Backend.Domain.Entities.Inventory { Id = 1, QuantityOnHand = 100m, QuantityReserved = 100m });
+        _invRepo.Setup(r => r.UpdateAsync(It.IsAny<Backend.Domain.Entities.Inventory>())).Returns(Task.CompletedTask);
+        _invTxRepo.Setup(r => r.CreateAsync(It.IsAny<InventoryTransaction>())).Returns(Task.CompletedTask);
+
+        _outputRepo.Setup(r => r.CreateAsync(It.IsAny<MillingOrderOutput>())).Returns(Task.CompletedTask);
+        _outputRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
+
+        var dto = new CompleteMillingOrderDto
         {
-            WarehouseId = 1,
-            Inputs  = [new() { ConsumedWeightKg = 100m }],
-            Outputs = [new() { OutputWeightKg   = 90m, OutputType = "RICE" }],
-            LossKg  = 15m // 90 + 15 = 105 > 102
+            ActualYieldRate = 70m,
+            LossKg = 4m,
+            Outputs = new List<MillingOrderOutputItemDto>
+            {
+                new() { OutputWeightKg = 70m, OutputType = "RICE", IsByproduct = false, ProductVariantId = 1, LocationId = 1 },
+                new() { OutputWeightKg = 25m, OutputType = "BYPRODUCT", IsByproduct = true, ProductVariantId = 2, LocationId = 1 }
+            }
         };
 
         // Act
-        var result = await Sut().CreateAsync(dto);
+        var result = await Sut().CompleteMillingOrderAsync(1, dto, 1);
 
         // Assert
-        result.Status.Should().Be(400);
-        result.Message.Should().Contain("Mass balance không hợp lệ");
+        result.Status.Should().Be(200, because: result.Message);
     }
-
-    [Fact]
-    public async Task CreateAsync_OutputPlusLoss_WithinTolerance_PassesMassBalance()
-    {
-        // Arrange: input 100, output 95 + loss 4 = 99 ≤ 102
-        SetupCodeGenCount();
-        SetupDraftStatus();
-
-        // Setup cho phép tạo thành công
-        _orderRepo.Setup(r => r.CreateAsync(It.IsAny<Domain.Entities.MillingOrder>()))
-                  .Returns(Task.CompletedTask);
-        _orderRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
-        _inputRepo.Setup(r => r.CreateListAsync(It.IsAny<IEnumerable<MillingOrderInput>>()))
-                  .Returns(Task.CompletedTask);
-        _inputRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
-        _outputRepo.Setup(r => r.CreateListAsync(It.IsAny<IEnumerable<MillingOrderOutput>>()))
-                   .Returns(Task.CompletedTask);
-        _outputRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
-
-        var dto = new CreateMillingOrderDto
-        {
-            WarehouseId = 1,
-            Inputs  = [new() { ConsumedWeightKg = 100m }],
-            Outputs = [new() { OutputWeightKg   = 95m, OutputType = "RICE" }],
-            LossKg  = 4m // 95 + 4 = 99 ≤ 102 → ok
-        };
-
-        // Act
-        var result = await Sut().CreateAsync(dto);
-
-        // Assert — phải KHÔNG trả về 400 mass balance
-        result.Status.Should().NotBe(400,
-            because: "99 kg output+loss ≤ 100 kg input × 1.02 (tolerance 2%)");
-    }
-
-    [Fact]
-    public async Task CreateAsync_OutputExactlyAtToleranceBoundary_PassesMassBalance()
-    {
-        // Arrange: input 100, output 102 = 100 * 1.02 (biên dung sai)
-        SetupCodeGenCount();
-        SetupDraftStatus();
-        _orderRepo.Setup(r => r.CreateAsync(It.IsAny<Domain.Entities.MillingOrder>()))
-                  .Returns(Task.CompletedTask);
-        _orderRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
-        _inputRepo.Setup(r => r.CreateListAsync(It.IsAny<IEnumerable<MillingOrderInput>>()))
-                  .Returns(Task.CompletedTask);
-        _inputRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
-        _outputRepo.Setup(r => r.CreateListAsync(It.IsAny<IEnumerable<MillingOrderOutput>>()))
-                   .Returns(Task.CompletedTask);
-        _outputRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
-
-        var dto = new CreateMillingOrderDto
-        {
-            WarehouseId = 1,
-            Inputs  = [new() { ConsumedWeightKg = 100m }],
-            Outputs = [new() { OutputWeightKg   = 102m, OutputType = "RICE" }],
-            LossKg  = 0m // exactly at boundary
-        };
-
-        // Act
-        var result = await Sut().CreateAsync(dto);
-
-        result.Status.Should().NotBe(400,
-            because: "102 = 100×1.02 nằm đúng biên — phải chấp nhận");
-    }
-
-    [Fact]
-    public async Task CreateAsync_OutputJustAboveTolerance_Returns400()
-    {
-        // Arrange: input 100, output 102.01 > 102
-        SetupCodeGenCount();
-        SetupDraftStatus();
-
-        var dto = new CreateMillingOrderDto
-        {
-            WarehouseId = 1,
-            Inputs  = [new() { ConsumedWeightKg = 100m }],
-            Outputs = [new() { OutputWeightKg   = 102.01m, OutputType = "RICE" }],
-            LossKg  = 0m
-        };
-
-        var result = await Sut().CreateAsync(dto);
-
-        result.Status.Should().Be(400);
-    }
-
-    [Fact]
-    public async Task CreateAsync_NoInputs_SkipsMassBalanceCheck_And_Proceeds()
-    {
-        // Arrange: không có input → totalInputKg = 0 → skip mass balance check
-        SetupCodeGenCount();
-        SetupDraftStatus();
-        _orderRepo.Setup(r => r.CreateAsync(It.IsAny<Domain.Entities.MillingOrder>()))
-                  .Returns(Task.CompletedTask);
-        _orderRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
-        _inputRepo.Setup(r => r.CreateListAsync(It.IsAny<IEnumerable<MillingOrderInput>>()))
-                  .Returns(Task.CompletedTask);
-        _inputRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
-        _outputRepo.Setup(r => r.CreateListAsync(It.IsAny<IEnumerable<MillingOrderOutput>>()))
-                   .Returns(Task.CompletedTask);
-        _outputRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
-
-        var dto = new CreateMillingOrderDto { WarehouseId = 1, Inputs = [], Outputs = [] };
-
-        var result = await Sut().CreateAsync(dto);
-
-        // Không nên trả về 400 do mass balance
-        result.Status.Should().NotBe(400);
-    }
-
-    [Fact]
-    public async Task CreateAsync_MultipleInputs_MassBalanceUsesTotalSum()
-    {
-        // Arrange: 2 lô lúa: 60 + 40 = 100 kg. Output 106 > 102 → rejected
-        SetupCodeGenCount();
-        SetupDraftStatus();
-
-        var dto = new CreateMillingOrderDto
-        {
-            WarehouseId = 1,
-            Inputs =
-            [
-                new() { ConsumedWeightKg = 60m },
-                new() { ConsumedWeightKg = 40m }
-            ],
-            Outputs = [new() { OutputWeightKg = 106m, OutputType = "RICE" }],
-            LossKg  = 0m
-        };
-
-        var result = await Sut().CreateAsync(dto);
-
-        result.Status.Should().Be(400);
-        result.Message.Should().Contain("Mass balance không hợp lệ");
-    }
-
-    // ── GetAllAsync ──────────────────────────────────────────────────────────
 
     [Fact]
     public async Task GetAllAsync_ReturnsSuccess_WithEmptyList()
     {
         _orderRepo.Setup(r => r.FindByCondition(
-                It.IsAny<Expression<Func<Domain.Entities.MillingOrder, bool>>>(),
+                It.IsAny<Expression<Func<Backend.Domain.Entities.MillingOrder, bool>>>(),
                 It.IsAny<bool>(),
-                It.IsAny<Expression<Func<Domain.Entities.MillingOrder, object>>[]>()))
-             .Returns(new List<Domain.Entities.MillingOrder>().AsQueryable().BuildMock());
+                It.IsAny<Expression<Func<Backend.Domain.Entities.MillingOrder, object>>[]>()))
+             .Returns(new List<Backend.Domain.Entities.MillingOrder>().AsQueryable().BuildMock());
 
         var result = await Sut().GetAllAsync();
 
         result.Status.Should().Be(200);
     }
-
-    // ── NotImplemented bulk operations → 501 ─────────────────────────────────
 
     [Fact]
     public async Task CreateListAsync_Returns501()

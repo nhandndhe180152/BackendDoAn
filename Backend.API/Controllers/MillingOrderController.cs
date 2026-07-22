@@ -63,11 +63,35 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
-        [HttpPost("{id}/complete")]
-        public async Task<IActionResult> CompleteAsync(int id)
+        [HttpPost("{id}/reserve")]
+        public async Task<IActionResult> ReserveAsync(int id, [FromBody] ReserveMillingOrderDto dto)
         {
             var userId = this.GetLoggedInUserId();
-            var result = await _millingOrderService.CompleteMillingOrderAsync(id, userId);
+            var result = await _millingOrderService.ReserveAsync(id, dto, userId);
+            return BaseResult(result);
+        }
+
+        [HttpPost("{id}/start")]
+        public async Task<IActionResult> StartAsync(int id)
+        {
+            var userId = this.GetLoggedInUserId();
+            var result = await _millingOrderService.StartAsync(id, userId);
+            return BaseResult(result);
+        }
+
+        [HttpPost("{id}/complete")]
+        public async Task<IActionResult> CompleteAsync(int id, [FromBody] CompleteMillingOrderDto dto)
+        {
+            var userId = this.GetLoggedInUserId();
+            var result = await _millingOrderService.CompleteMillingOrderAsync(id, dto, userId);
+            return BaseResult(result);
+        }
+
+        [HttpPost("{id}/cancel")]
+        public async Task<IActionResult> CancelAsync(int id)
+        {
+            var userId = this.GetLoggedInUserId();
+            var result = await _millingOrderService.CancelAsync(id, userId);
             return BaseResult(result);
         }
 

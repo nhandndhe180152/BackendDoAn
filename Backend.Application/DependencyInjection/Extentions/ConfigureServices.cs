@@ -56,6 +56,7 @@ public static class ConfigureServices
             .AddScoped<IUnitOfMeasureService, UnitOfMeasureService>()
             // ── Rice supply chain services ────────────────────────────────────────────
             .AddScoped<IPaddyLotService, PaddyLotService>()
+            .AddScoped<IPaddyLotTraceabilityService, PaddyLotTraceabilityService>()
             .AddScoped<IPaddyPurchaseScheduleService, PaddyPurchaseScheduleService>()
             .AddScoped<IPaddyPurchaseReceiptService, PaddyPurchaseReceiptService>()
             .AddScoped<IMillingOrderService, MillingOrderService>()
@@ -73,7 +74,8 @@ public static class ConfigureServices
             .AddScoped<IMillingYieldConfigService, MillingYieldConfigService>()
             .AddScoped<IStockAlertConfigService, StockAlertConfigService>()
             .AddScoped<IInventoryStateAggregationService, InventoryStateAggregationService>()
-            .AddScoped<IAlertService, AlertService>();
+            .AddScoped<IAlertService, AlertService>()
+            .AddScoped<ICustomerReturnOrderService, CustomerReturnOrderService>();
 
 
         services.AddFluentValidationAutoValidation(options => options.DisableDataAnnotationsValidation = true);

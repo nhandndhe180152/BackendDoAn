@@ -258,10 +258,23 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                 ?? await _inboundOrderStatusRepository.FirstOrDefaultAsync(x => !x.IsDeleted)
                 ?? throw new InvalidOperationException("Không tìm thấy InboundOrderStatus.");
 
+            var inboundBaseCode = $"INB-{datePart}";
+            var cntToday = await _inboundOrderRepository
+                .FindByCondition(x => x.POCode != null && x.POCode.StartsWith(inboundBaseCode))
+                .CountAsync();
+            var inbCode = $"{inboundBaseCode}-{(cntToday + 1):D4}";
+            int attemptsInb = 0;
+            while (await _inboundOrderRepository.AnyAsync(x => x.POCode == inbCode && x.OrganizationId == receipt.OrganizationId) && attemptsInb < 10)
+            {
+                attemptsInb++;
+                inbCode = $"{inboundBaseCode}-{(cntToday + 1 + attemptsInb):D4}";
+            }
+
             var inboundOrder = new InboundOrder
             {
                 WarehouseId = receipt.WarehouseId,
                 InboundOrderStatusId = inboundStatus.Id,
+                POCode = inbCode,
                 PaddyPurchaseReceiptId = receiptId,
                 OrganizationId = receipt.OrganizationId,
                 SourceType = "RECEIPT",

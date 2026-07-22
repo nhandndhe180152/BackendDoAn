@@ -6,8 +6,12 @@ namespace Backend.Application.Interfaces;
 
 public interface IMillingOrderService : IServiceBase<int, CreateMillingOrderDto, UpdateMillingOrderDto, DTParameter>
 {
+    Task<ApiResponse> ReserveAsync(int id, ReserveMillingOrderDto dto, int userId);
+    Task<ApiResponse> StartAsync(int id, int userId);
+    Task<ApiResponse> CancelAsync(int id, int userId);
+
     /// <summary>
     /// Hoàn thành lệnh xay: trừ lúa từ lô đầu vào, sinh lô gạo/phụ phẩm, nhập kho đầu ra.
     /// </summary>
-    Task<ApiResponse> CompleteMillingOrderAsync(int orderId, int completedById);
+    Task<ApiResponse> CompleteMillingOrderAsync(int orderId, CompleteMillingOrderDto dto, int completedById);
 }
