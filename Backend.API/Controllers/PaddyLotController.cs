@@ -105,10 +105,13 @@ namespace Backend.API.Controllers
         public async Task<IActionResult> RegenerateQrAsync(int id, [FromBody] RegenerateQrRequestDto dto, CancellationToken cancellationToken)
         {
             var userId = this.GetLoggedInUserId();
-            var isAdmin = await _context.UserRoles.AnyAsync(ur => !ur.IsDeleted && ur.UserId == userId && ur.RoleId == (int)Backend.Domain.Enums.Enums.Role.ADMIN, cancellationToken);
+            var isAdmin = await _context.UserRoles
+                .AnyAsync(ur => !ur.IsDeleted && ur.UserId == userId &&
+                    _context.Roles.Any(r => r.Id == ur.RoleId && !r.IsDeleted && r.Code == "ADMIN"),
+                    cancellationToken);
             if (!isAdmin)
             {
-                return BaseResult(ApiResponse.Forbidden(message: "Chỉ quản trị viên hoặc chủ sở hữu mới được phép làm mới mã QR.", code: ApiCodeConstants.Qr.RegenerateForbidden));
+                return BaseResult(ApiResponse.Forbidden(message: "Chỉ quản trị viên mới được phép làm mới mã QR.", code: ApiCodeConstants.Qr.RegenerateForbidden));
             }
 
             try
@@ -131,18 +134,21 @@ namespace Backend.API.Controllers
         {
             try
             {
-                var qrInfo = await _qrIdentifierService.EnsurePaddyLotQrCodeAsync(id, cancellationToken);
+                var lot = await _context.PaddyLots
+                    .FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
+                if (lot == null)
+                    return NotFound(ApiResponse.NotFound(message: $"Không tìm thấy lô hàng với ID {id}"));
+
+                if (string.IsNullOrWhiteSpace(lot.QrImageUrl))
+                    return NotFound(ApiResponse.NotFound(message: "Mã QR của lô hàng này chưa được khởi tạo. Vui lòng gọi POST /{id}/qr/ensure trước."));
+
                 return Ok(ApiResponse.Success(new
                 {
-                    entityId = qrInfo.EntityId,
-                    qrCode = qrInfo.QrCode,
-                    qrPayload = qrInfo.QrPayload,
-                    qrImageUrl = qrInfo.QrImageUrl
+                    entityId  = lot.Id,
+                    qrCode    = lot.QrCode,
+                    qrPayload = $"STOCKLITE|1|PADDY_LOT|{lot.QrCode}",
+                    qrImageUrl = lot.QrImageUrl
                 }));
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(ApiResponse.NotFound(message: ex.Message));
             }
             catch (Exception ex)
             {

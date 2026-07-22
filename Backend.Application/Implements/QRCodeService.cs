@@ -516,9 +516,13 @@ public class QRCodeService : IQRCodeService
             throw new KeyNotFoundException("Một hoặc nhiều lô hàng không tồn tại hoặc đã bị xóa.");
         }
 
-        foreach (var lot in lots)
+        // Batch-ensure QrCode (chuỗi định danh) cho các lô chưa có — không upload Cloudinary vì PDF sinh QR tại chỗ bằng QRCodeHelper.
+        var lotsWithoutQr = lots.Where(x => string.IsNullOrWhiteSpace(x.QrCode)).ToList();
+        if (lotsWithoutQr.Count > 0)
         {
-            await _qrIdentifierService.EnsurePaddyLotQrCodeAsync(lot.Id, cancellationToken);
+            foreach (var lot in lotsWithoutQr)
+                lot.QrCode = "PL-" + Guid.NewGuid().ToString("N").ToUpper();
+            await _context.SaveChangesAsync(cancellationToken);
         }
 
         var (wMm, hMm) = GetDimensionsFromTemplate(templateCode);
@@ -571,9 +575,13 @@ public class QRCodeService : IQRCodeService
             throw new KeyNotFoundException("Một hoặc nhiều vị trí không tồn tại hoặc đã bị xóa.");
         }
 
-        foreach (var loc in locs)
+        // Batch-ensure QrCode (chuỗi định danh) cho các vị trí chưa có — không upload Cloudinary vì PDF sinh QR tại chỗ bằng QRCodeHelper.
+        var locsWithoutQr = locs.Where(x => string.IsNullOrWhiteSpace(x.QrCode)).ToList();
+        if (locsWithoutQr.Count > 0)
         {
-            await _qrIdentifierService.EnsureLocationQrCodeAsync(loc.Id, cancellationToken);
+            foreach (var loc in locsWithoutQr)
+                loc.QrCode = "LC-" + Guid.NewGuid().ToString("N").ToUpper();
+            await _context.SaveChangesAsync(cancellationToken);
         }
 
         var (wMm, hMm) = GetDimensionsFromTemplate(templateCode);
@@ -855,7 +863,7 @@ public class QRCodeService : IQRCodeService
                 LotType = lot.LotType,
                 RemainingWeightKg = lot.RemainingWeightKg,
                 IsQuarantined = isQuarantined,
-                ProductVariant = new QrProductVariantDto
+                ProductVariant = lot.ProductVariant == null ? null : new QrProductVariantDto
                 {
                     Id = lot.ProductVariant.Id,
                     Sku = lot.ProductVariant.SKU,

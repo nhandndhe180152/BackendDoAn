@@ -116,10 +116,13 @@ namespace Backend.API.Controllers
         public async Task<IActionResult> RegenerateQrAsync(int id, [FromBody] RegenerateQrRequestDto dto, CancellationToken cancellationToken)
         {
             var userId = this.GetLoggedInUserId();
-            var isAdmin = await _context.UserRoles.AnyAsync(ur => !ur.IsDeleted && ur.UserId == userId && ur.RoleId == (int)Backend.Domain.Enums.Enums.Role.ADMIN, cancellationToken);
+            var isAdmin = await _context.UserRoles
+                .AnyAsync(ur => !ur.IsDeleted && ur.UserId == userId &&
+                    _context.Roles.Any(r => r.Id == ur.RoleId && !r.IsDeleted && r.Code == "ADMIN"),
+                    cancellationToken);
             if (!isAdmin)
             {
-                return BaseResult(ApiResponse.Forbidden(message: "Chỉ quản trị viên hoặc chủ sở hữu mới được phép làm mới mã QR.", code: ApiCodeConstants.Qr.RegenerateForbidden));
+                return BaseResult(ApiResponse.Forbidden(message: "Chỉ quản trị viên mới được phép làm mới mã QR.", code: ApiCodeConstants.Qr.RegenerateForbidden));
             }
 
             try
@@ -142,18 +145,21 @@ namespace Backend.API.Controllers
         {
             try
             {
-                var qrInfo = await _qrIdentifierService.EnsureLocationQrCodeAsync(id, cancellationToken);
+                var loc = await _context.Locations
+                    .FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
+                if (loc == null)
+                    return NotFound(ApiResponse.NotFound(message: $"Không tìm thấy vị trí với ID {id}"));
+
+                if (string.IsNullOrWhiteSpace(loc.QrImageUrl))
+                    return NotFound(ApiResponse.NotFound(message: "Mã QR của vị trí này chưa được khởi tạo. Vui lòng gọi POST /{id}/qr/ensure trước."));
+
                 return Ok(ApiResponse.Success(new
                 {
-                    entityId = qrInfo.EntityId,
-                    qrCode = qrInfo.QrCode,
-                    qrPayload = qrInfo.QrPayload,
-                    qrImageUrl = qrInfo.QrImageUrl
+                    entityId   = loc.Id,
+                    qrCode     = loc.QrCode,
+                    qrPayload  = $"STOCKLITE|1|LOCATION|{loc.QrCode}",
+                    qrImageUrl = loc.QrImageUrl
                 }));
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(ApiResponse.NotFound(message: ex.Message));
             }
             catch (Exception ex)
             {

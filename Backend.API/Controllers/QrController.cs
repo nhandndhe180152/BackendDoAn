@@ -80,8 +80,6 @@ namespace Backend.API.Controllers
                 var bytes = await _qrCodeService.GenerateBulkPaddyLotLabelsPdfAsync(uniqueIds, request.Template, request.CopiesPerLabel, cancellationToken);
                 var filename = $"paddy-lot-labels-{DateTime.UtcNow:yyyyMMdd}.pdf";
                 
-                // Add filename to header for browser downloads
-                Response.Headers.Add("Content-Disposition", $"attachment; filename={filename}");
                 return File(bytes, "application/pdf", filename);
             }
             catch (KeyNotFoundException ex)
@@ -118,7 +116,6 @@ namespace Backend.API.Controllers
                 var bytes = await _qrCodeService.GenerateBulkLocationLabelsPdfAsync(uniqueIds, request.Template, request.CopiesPerLabel, cancellationToken);
                 var filename = $"location-labels-{DateTime.UtcNow:yyyyMMdd}.pdf";
 
-                Response.Headers.Add("Content-Disposition", $"attachment; filename={filename}");
                 return File(bytes, "application/pdf", filename);
             }
             catch (KeyNotFoundException ex)

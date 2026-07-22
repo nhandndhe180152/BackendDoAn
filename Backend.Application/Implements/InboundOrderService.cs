@@ -1544,6 +1544,7 @@ public class InboundOrderService : IInboundOrderService
                         InitialWeightKg   = item.QuantityReceived,
                         RemainingWeightKg = item.QuantityReceived,
                         CostPricePerKg    = item.UnitCostPrice,
+                        QrCode            = "PL-" + Guid.NewGuid().ToString("N").ToUpper(),
                         CreatedBy         = userId,
                         CreatedDate       = now
                     };

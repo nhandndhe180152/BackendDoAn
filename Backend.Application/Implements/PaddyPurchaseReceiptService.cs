@@ -241,6 +241,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                 RemainingWeightKg = receipt.ActualWeightKg,
                 CostPricePerKg = receipt.ActualWeightKg > 0 ? receipt.TotalAmount / receipt.ActualWeightKg : 0,
                 QualityStatus = receipt.QualityJson,
+                QrCode = "PL-" + Guid.NewGuid().ToString("N").ToUpper(),
                 CreatedBy = confirmedById,
                 CreatedDate = now
             };

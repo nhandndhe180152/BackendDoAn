@@ -250,6 +250,7 @@ public class StockTransferService : IStockTransferService
                             RemainingWeightKg = item.WeightKg,
                             CostPricePerKg = lot.CostPricePerKg,
                             QualityStatus = lot.QualityStatus,
+                            QrCode = "PL-" + Guid.NewGuid().ToString("N").ToUpper(),
                             CreatedBy = confirmedById,
                             CreatedDate = now
                         };

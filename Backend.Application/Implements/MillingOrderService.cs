@@ -371,6 +371,7 @@ public class MillingOrderService : IMillingOrderService
                     InitialWeightKg = output.OutputWeightKg,
                     RemainingWeightKg = output.OutputWeightKg,
                     CostPricePerKg = unitCost,
+                    QrCode = "PL-" + Guid.NewGuid().ToString("N").ToUpper(),
                     CreatedBy = completedById,
                     CreatedDate = now
                 };
