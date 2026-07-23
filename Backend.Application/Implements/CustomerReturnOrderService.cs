@@ -936,6 +936,23 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             var partyDebt = await _context.PartyDebts
                 .FirstOrDefaultAsync(d => d.PartyType == "CUSTOMER" && d.PartyId == order.CustomerId && d.Direction == "RECEIVABLE" && d.IsActive && !d.IsDeleted, cancellationToken);
 
+            if (partyDebt == null && order.CustomerId.HasValue)
+            {
+                partyDebt = new PartyDebt
+                {
+                    OrganizationId = order.OrganizationId,
+                    PartyType = "CUSTOMER",
+                    PartyId = order.CustomerId.Value,
+                    Direction = "RECEIVABLE",
+                    OpeningBalance = 0,
+                    CurrentBalance = 0,
+                    IsActive = true,
+                    CreatedDate = now,
+                    CreatedBy = userId
+                };
+                await _context.PartyDebts.AddAsync(partyDebt, cancellationToken);
+            }
+
             decimal debtReduction = 0;
             decimal refundPending = approvedCredit;
 
