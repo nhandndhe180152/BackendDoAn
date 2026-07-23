@@ -101,6 +101,10 @@ public class QualityInspectionService : IQualityInspectionService
 
                 isSplit = true;
 
+                // Lưu phiếu kiểm định trước để có Id gán vào ReferenceId của các giao dịch (C1)
+                await _repo.CreateAsync(entity);
+                await _repo.SaveChangesAsync();
+
                 // 1. Tạo LotCode mới: nối đuôi -Q1, -Q2,... (B3: kiểm tra cả bản ghi đã xoá mềm)
                 string childLotCode = $"{lot.LotCode}-Q1";
                 int quarantineIndex = 1;
@@ -127,11 +131,12 @@ public class QualityInspectionService : IQualityInspectionService
                     WarehouseId = lot.WarehouseId,
                     LocationId = lot.LocationId,
                     InboundDate = lot.InboundDate,
-                    InitialWeightKg = obj.AffectedWeightKg.Value,
+                    InitialWeightKg = 0, // C4: Lô con không tạo ra khối lượng nhập mới hệ thống
                     RemainingWeightKg = obj.AffectedWeightKg.Value,
                     CostPricePerKg = lot.CostPricePerKg,
                     QualityStatus = QualityStatusConstants.Failed,
                     QrCode = "PL-" + Guid.NewGuid().ToString("N").ToUpper(),
+                    QrImageUrl = lot.QrImageUrl, // C6: Copy QrImageUrl
                     ParentLotId = lot.Id,
                     SourceReceiptId = lot.SourceReceiptId,
                     SourceMillingOrderId = lot.SourceMillingOrderId,
@@ -162,6 +167,10 @@ public class QualityInspectionService : IQualityInspectionService
             }
             else
             {
+                // Lưu phiếu kiểm định trước để có Id gán vào ReferenceId của các giao dịch (C1)
+                await _repo.CreateAsync(entity);
+                await _repo.SaveChangesAsync();
+
                 // Luồng All-or-nothing cũ
                 lot.QualityStatus = obj.PassedInspection ? QualityStatusConstants.Passed : QualityStatusConstants.Failed;
 
@@ -195,7 +204,7 @@ public class QualityInspectionService : IQualityInspectionService
                             TransactionType = InventoryTransactionTypeConstants.ManualAdjust,
                             ReferenceType = InventoryReferenceTypeConstants.QualityInspectionQuarantine,
                             ReferenceId = entity.Id,
-                            Quantity = inv.QuantityOnHand,
+                            Quantity = 0, // C5: Bản ghi đánh dấu, không làm thay đổi số lượng
                             BeforeQuantity = inv.QuantityOnHand,
                             AfterQuantity = inv.QuantityOnHand,
                             Note = "Toàn bộ lô hàng chuyển sang trạng thái CÁCH LY do kiểm định không đạt",
@@ -212,10 +221,6 @@ public class QualityInspectionService : IQualityInspectionService
                 await _paddyLotRepository.UpdateAsync(lot);
                 await _paddyLotRepository.SaveChangesAsync();
             }
-
-            // Tạo phiếu kiểm định
-            await _repo.CreateAsync(entity);
-            await _repo.SaveChangesAsync();
 
             // 6. Xử lý Tồn kho (Inventory) và Giao dịch tồn kho (InventoryTransaction) nếu xảy ra Tách lô
             if (isSplit && childLot != null)
@@ -403,13 +408,17 @@ public class QualityInspectionService : IQualityInspectionService
         await _repo.SaveChangesAsync();
 
         // Đồng bộ QualityStatus về lô lúa/gạo (#14: giữ nhất quán khi phiếu bị cập nhật)
-        var lot = await _paddyLotRepository.GetByIdAsync(obj.PaddyLotId);
-        if (lot != null && !lot.IsDeleted)
+        // C2: Nếu phiếu đã tách lô cách ly (wasSplit = true), BỎ QUA việc ghi đè trạng thái lô gốc.
+        if (!wasSplit)
         {
-            lot.QualityStatus = obj.PassedInspection ? "PASSED" : "FAILED";
-            lot.LastModifiedDate = entity.LastModifiedDate;
-            await _paddyLotRepository.UpdateAsync(lot);
-            await _paddyLotRepository.SaveChangesAsync();
+            var lot = await _paddyLotRepository.GetByIdAsync(obj.PaddyLotId);
+            if (lot != null && !lot.IsDeleted)
+            {
+                lot.QualityStatus = obj.PassedInspection ? QualityStatusConstants.Passed : QualityStatusConstants.Failed;
+                lot.LastModifiedDate = entity.LastModifiedDate;
+                await _paddyLotRepository.UpdateAsync(lot);
+                await _paddyLotRepository.SaveChangesAsync();
+            }
         }
 
         return ApiResponse.Success(entity.Id, "Cập nhật phiếu kiểm tra thành công.");

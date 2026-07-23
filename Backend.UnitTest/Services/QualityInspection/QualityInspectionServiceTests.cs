@@ -359,7 +359,7 @@ public class QualityInspectionServiceTests
         _lotRepo.Verify(r => r.CreateAsync(It.Is<PaddyLotEntity>(c => 
             c.LotCode == "LOT-5-Q1" &&
             c.ParentLotId == 5 &&
-            c.InitialWeightKg == 3000 &&
+            c.InitialWeightKg == 0 &&
             c.RemainingWeightKg == 3000 &&
             c.StatusId == 2 && // QUARANTINE
             c.QualityStatus == QualityStatusConstants.Failed
@@ -521,6 +521,10 @@ public class QualityInspectionServiceTests
             InspectedAt = DateTime.UtcNow
         };
 
+        _repo.Setup(r => r.CreateAsync(It.IsAny<Domain.Entities.QualityInspection>()))
+             .Callback<Domain.Entities.QualityInspection>(e => e.Id = 99)
+             .Returns(Task.CompletedTask);
+
         // Act
         var result = await Sut().CreateAsync(dto);
 
@@ -529,7 +533,9 @@ public class QualityInspectionServiceTests
         _inventoryTxRepo.Verify(r => r.CreateAsync(It.Is<InventoryTransaction>(t => 
             t.PaddyLotId == 5 && 
             t.TransactionType == InventoryTransactionTypeConstants.ManualAdjust && 
-            t.ReferenceType == InventoryReferenceTypeConstants.QualityInspectionQuarantine
+            t.ReferenceType == InventoryReferenceTypeConstants.QualityInspectionQuarantine &&
+            t.Quantity == 0 &&
+            t.ReferenceId == 99
         )), Times.Once);
     }
 
@@ -557,6 +563,31 @@ public class QualityInspectionServiceTests
         // Assert
         result.Status.Should().Be(400);
         result.Message.Should().Contain("Không thể thay đổi Lô lúa/gạo, Kết quả kiểm định hoặc Khối lượng ảnh hưởng");
+    }
+
+    [Fact]
+    public async Task UpdateAsync_SplitInspection_AllowsEditingMinorFields_AndDoesNotChangeLotStatus()
+    {
+        // Arrange (C2: Cho phép sửa Note, không lật QualityStatus của lô gốc)
+        var existing = new Domain.Entities.QualityInspection 
+        { 
+            Id = 1, PaddyLotId = 5, PassedInspection = false, AffectedWeightKg = 3000, Note = "Old" 
+        };
+        _repo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(existing);
+
+        var dto = new UpdateQualityInspectionDto
+        {
+            Id = 1, PaddyLotId = 5, PassedInspection = false, AffectedWeightKg = 3000, Note = "New"
+        };
+
+        // Act
+        var result = await Sut().UpdateAsync(dto);
+
+        // Assert
+        result.Status.Should().Be(200);
+        _repo.Verify(r => r.UpdateAsync(It.Is<Domain.Entities.QualityInspection>(q => q.Note == "New")), Times.Once);
+        // C2: Đảm bảo lô gốc KHÔNG bị cập nhật trạng thái
+        _lotRepo.Verify(r => r.UpdateAsync(It.IsAny<PaddyLotEntity>()), Times.Never);
     }
 
     [Fact]
