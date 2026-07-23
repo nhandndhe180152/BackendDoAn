@@ -97,6 +97,7 @@ public class OutboundOrderService : IOutboundOrderService
             WarehouseId          = o.WarehouseId,
             WarehouseName        = o.Warehouse?.Name ?? "",
             TotalDispatchedValue = o.TotalDispatchedValue,
+            TotalDispatchedSaleValue = o.TotalDispatchedSaleValue,
             CompletedDate        = o.CompletedDate,
             Note                 = o.Note,
             CreatedDate          = o.CreatedDate,
@@ -147,6 +148,7 @@ public class OutboundOrderService : IOutboundOrderService
             WarehouseId          = o.WarehouseId,
             WarehouseName        = o.Warehouse?.Name,
             TotalDispatchedValue = o.TotalDispatchedValue,
+            TotalDispatchedSaleValue = o.TotalDispatchedSaleValue,
             CompletedDate        = o.CompletedDate,
             Note                 = o.Note,
             CreatedDate          = o.CreatedDate
@@ -502,6 +504,7 @@ public class OutboundOrderService : IOutboundOrderService
         var now    = DateTimeHelper.VietnamNow();
         var userId = GetCurrentUserId();
         decimal totalDispatchedValue = 0;
+        decimal totalDispatchedSaleValue = 0;
 
         // Bọc toàn bộ trong 1 DB transaction thật — đảm bảo nguyên tử
         await using var tx = await _outboundOrderRepository.BeginTransactionAsync();
@@ -515,7 +518,7 @@ public class OutboundOrderService : IOutboundOrderService
                     var inv = alloc.Inventory;
                     if (inv == null || inv.IsDeleted)
                     {
-                        await _outboundOrderRepository.RollbackTransactionAsync();
+                        await tx.RollbackAsync();
                         return ApiResponse.BadRequest(
                             $"Inventory ID {alloc.InventoryId} không còn tồn tại.",
                             ApiCodeConstants.OutboundOrder.InvalidRequest);
@@ -532,7 +535,7 @@ public class OutboundOrderService : IOutboundOrderService
                     // Không ép tồn âm, chặn và báo lỗi
                     if (inv.QuantityOnHand < 0) 
                     {
-                        await _outboundOrderRepository.RollbackTransactionAsync();
+                        await tx.RollbackAsync();
                         return ApiResponse.UnprocessableEntity($"Tồn kho ID {inv.Id} không đủ để xuất.", ApiCodeConstants.OutboundOrder.InsufficientStock);
                     }
                     if (inv.QuantityReserved  < 0) inv.QuantityReserved  = 0;
@@ -579,6 +582,11 @@ public class OutboundOrderService : IOutboundOrderService
                     await _inventoryTransactionRepository.CreateAsync(txn);
 
                     totalDispatchedValue += alloc.QuantityPicked * alloc.UnitCostPrice;
+                    
+                    var unitSalePrice = item.SalesOrderItem != null && item.SalesOrderItem.QuantityOrdered > 0
+                        ? (item.SalesOrderItem.LineAmount / item.SalesOrderItem.QuantityOrdered)
+                        : (item.SalesOrderItem?.UnitSalePrice ?? 0);
+                    totalDispatchedSaleValue += alloc.QuantityPicked * unitSalePrice;
                 }
 
                 // 7. Cập nhật OutboundOrderItem.QuantityPicked
@@ -590,6 +598,7 @@ public class OutboundOrderService : IOutboundOrderService
             // 8. Cập nhật OutboundOrder → DISPATCHED
             order.OutboundOrderStatusId = await GetOutboundStatusIdAsync(OutboundOrderStatusNames.Dispatched);
             order.TotalDispatchedValue  = totalDispatchedValue;
+            order.TotalDispatchedSaleValue = totalDispatchedSaleValue;
             order.CompletedDate         = now;
             order.LastModifiedDate      = now;
             order.UpdatedBy             = userId;
@@ -606,7 +615,7 @@ public class OutboundOrderService : IOutboundOrderService
                 await _salesOrderRepository.UpdateAsync(salesOrder);
 
                 // 10. Tạo công nợ phải thu dựa trên giá trị xuất kho của phiếu này
-                var amountToCharge = order.TotalDispatchedValue;
+                var amountToCharge = order.TotalDispatchedSaleValue;
                 if (amountToCharge > 0)
                 {
                     var existingCharge = await _debtTransactionRepository.FirstOrDefaultAsync(x => 
@@ -665,18 +674,18 @@ public class OutboundOrderService : IOutboundOrderService
 
             // Ghi toàn bộ thay đổi vào DB rồi commit trong 1 transaction
             await _outboundOrderRepository.SaveChangesAsync();
-            await _outboundOrderRepository.EndTransactionAsync();
+            await tx.CommitAsync();
         }
         catch (DbUpdateConcurrencyException)
         {
-            await _outboundOrderRepository.RollbackTransactionAsync();
+            await tx.RollbackAsync();
             return ApiResponse.Conflict(
                 "Tồn kho đã thay đổi trong lúc xử lý. Vui lòng tải lại và thử lại.",
                 ApiCodeConstants.OutboundOrder.ConcurrencyConflict);
         }
         catch (Exception)
         {
-            await _outboundOrderRepository.RollbackTransactionAsync();
+            await tx.RollbackAsync();
             throw;
         }
 
@@ -728,6 +737,7 @@ public class OutboundOrderService : IOutboundOrderService
             order.LastModifiedDate = now;
             order.UpdatedBy = userId;
             await _outboundOrderRepository.UpdateAsync(order);
+            await _outboundOrderRepository.SaveChangesAsync();
 
             // Kiểm tra xem tất cả các OutboundOrder của SalesOrder đã hoàn tất chưa
             var outboundOrders = await _outboundOrderRepository
@@ -763,13 +773,13 @@ public class OutboundOrderService : IOutboundOrderService
             }
 
             await _outboundOrderRepository.SaveChangesAsync();
-            await _outboundOrderRepository.EndTransactionAsync();
+            await tx.CommitAsync();
 
             return ApiResponse.Success(message: "Xác nhận giao hàng thành công.");
         }
         catch (Exception)
         {
-            await _outboundOrderRepository.RollbackTransactionAsync();
+            await tx.RollbackAsync();
             throw;
         }
     }
@@ -851,7 +861,7 @@ public class OutboundOrderService : IOutboundOrderService
             var salesOrder = await _salesOrderRepository.GetByIdDetailAsync(order.SalesOrderId);
             if (salesOrder != null && !salesOrder.IsDeleted)
             {
-                var amountToCharge = order.TotalDispatchedValue;
+                var amountToCharge = order.TotalDispatchedSaleValue;
                 if (amountToCharge > 0)
                 {
                     // Kiểm tra xem đã có giao dịch CHARGE cho phiếu xuất này chưa
@@ -869,7 +879,7 @@ public class OutboundOrderService : IOutboundOrderService
 
                         if (partyDebt != null)
                         {
-                            partyDebt.CurrentBalance = Math.Max(0, partyDebt.CurrentBalance - amountToCharge);
+                            partyDebt.CurrentBalance -= amountToCharge;
                             partyDebt.LastModifiedDate = now;
                             partyDebt.UpdatedBy = userId;
                             await _partyDebtRepository.UpdateAsync(partyDebt);
@@ -914,13 +924,13 @@ public class OutboundOrderService : IOutboundOrderService
             }
 
             await _outboundOrderRepository.SaveChangesAsync();
-            await _outboundOrderRepository.EndTransactionAsync();
+            await tx.CommitAsync();
 
             return ApiResponse.Success(message: "Xác nhận giao hàng thất bại thành công.");
         }
         catch (Exception)
         {
-            await _outboundOrderRepository.RollbackTransactionAsync();
+            await tx.RollbackAsync();
             throw;
         }
     }

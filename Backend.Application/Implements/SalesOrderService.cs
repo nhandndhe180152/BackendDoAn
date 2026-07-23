@@ -125,6 +125,7 @@ public class SalesOrderService : ISalesOrderService
                 OutboundStatusId     = o.OutboundOrderStatusId,
                 OutboundStatusName   = o.OutboundOrderStatus?.Name ?? "",
                 TotalDispatchedValue = o.TotalDispatchedValue,
+                TotalDispatchedSaleValue = o.TotalDispatchedSaleValue,
                 CompletedDate        = o.CompletedDate
             }).ToList()
         };
@@ -612,6 +613,7 @@ public class SalesOrderService : ISalesOrderService
                 OrganizationId        = so.OrganizationId,
                 OutboundOrderStatusId = draftStatusId,
                 TotalDispatchedValue  = 0,
+                TotalDispatchedSaleValue = 0,
                 Note                  = $"Tạo từ đơn bán {so.SOCode}",
                 CreatedDate           = now,
                 CreatedBy             = userId
@@ -677,41 +679,5 @@ public class SalesOrderService : ISalesOrderService
             await _salesOrderRepository.RollbackTransactionAsync();
             throw;
         }
-    }
-    /// <summary>
-    /// H1: Xác nhận giao hàng hoàn tất (DELIVERING → Hoàn tất).
-    /// Sau bước này Dashboard mới tính doanh thu và Dashboard mới hiển thị đúng.
-    /// </summary>
-    public async Task<ApiResponse> CompleteDeliveryAsync(int id)
-    {
-        var so = await _salesOrderRepository.GetByIdDetailAsync(id);
-        if (so == null || so.IsDeleted)
-            return ApiResponse.NotFound("Đơn bán không tồn tại.", ApiCodeConstants.SalesOrder.NotFound);
-
-        if (so.Status?.Name != SalesOrderStatusNames.Delivering)
-            return ApiResponse.Conflict(
-                $"Đơn phải ở trạng thái 'Đang giao' để xác nhận hoàn tất. "
-                + $"Trạng thái hiện tại: '{so.Status?.Name}'.",
-                ApiCodeConstants.SalesOrder.InvalidState);
-
-        var now    = DateTimeHelper.VietnamNow();
-        var userId = GetCurrentUserId();
-
-        so.StatusId         = await GetStatusIdAsync(SalesOrderStatusNames.Completed);
-        so.LastModifiedDate = now;
-        so.UpdatedBy        = userId;
-
-        await _salesOrderRepository.UpdateAsync(so);
-        await _salesOrderRepository.SaveChangesAsync();
-
-        // Thông báo cho Nhân viên bán hàng và Chủ kho: đơn bán đã giao hàng hoàn tất.
-        await _notificationDispatcher.DispatchAsync(
-            NotificationConstants.Code.DeliveryCompleted,
-            new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.SALES, CommonConstants.Role.OWNER } },
-            new object[] { so.SOCode },
-            "/admin/sales-orders",
-            userId);
-
-        return ApiResponse.Success(message: $"Đơn bán {so.SOCode} đã hoàn tất.");
     }
 }

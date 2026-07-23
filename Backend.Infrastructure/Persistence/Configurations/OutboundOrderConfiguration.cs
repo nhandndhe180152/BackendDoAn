@@ -17,6 +17,9 @@ public class OutboundOrderConfiguration : IEntityTypeConfiguration<OutboundOrder
         builder.Property(x => x.TotalDispatchedValue)
             .HasColumnType("decimal(18,2)");
 
+        builder.Property(x => x.TotalDispatchedSaleValue)
+            .HasColumnType("decimal(18,2)");
+
         builder.Property(x => x.Note).HasMaxLength(1000);
         builder.Property(x => x.ReceiverName).HasMaxLength(255);
         builder.Property(x => x.DeliveryNote).HasMaxLength(1000);

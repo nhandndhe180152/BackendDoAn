@@ -11,6 +11,7 @@ using Backend.Application.Interfaces;
 using Backend.Domain.Entities;
 using Backend.Share.Constants;
 using Backend.Share.Entities;
+using Backend.Share.Helpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -120,13 +121,8 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
     private ApiResponse? CheckOrganizationAccess(PaddyLot requestedLot)
     {
         var user = _httpContextAccessor.HttpContext?.User;
-        if (user == null) return null;
-
-        var officeIdStr = user.FindFirst(ClaimNames.OFFICE_ID)?.Value;
-        if (!int.TryParse(officeIdStr, out var userOrgId))
-        {
-            return null;
-        }
+        if (user == null)
+            return ApiResponse.Forbidden("Chưa xác thực người dùng.", "UNAUTHORIZED");
 
         var roleIdsStr = user.FindFirst(Backend.Share.Constants.ClaimNames.ROLE_IDS)?.Value;
         bool isAdmin = false;
@@ -136,7 +132,15 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
             isAdmin = roleIds.Contains(Constants.CommonConstants.Role.ADMIN);
         }
 
-        if (requestedLot.OrganizationId.HasValue && requestedLot.OrganizationId.Value != userOrgId && !isAdmin)
+        if (isAdmin) return null; // Admin has full access
+
+        var officeIdStr = user.FindFirst(ClaimNames.OFFICE_ID)?.Value;
+        if (!int.TryParse(officeIdStr, out var userOrgId))
+        {
+            return ApiResponse.Forbidden("Tài khoản không được liên kết với tổ chức hợp lệ.", "ORGANIZATION_ACCESS_DENIED");
+        }
+
+        if (requestedLot.OrganizationId.HasValue && requestedLot.OrganizationId.Value != userOrgId)
         {
             return ApiResponse.Forbidden(message: "Bạn không có quyền truy cập lô của tổ chức này.", code: "ORGANIZATION_ACCESS_DENIED");
         }
@@ -605,7 +609,7 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
                 {
                     timeline.Add(new TraceabilityEventDto
                     {
-                        EventAt = DateTime.UtcNow,
+                        EventAt = DateTimeHelper.VietnamNow(),
                         EventType = "MILLING",
                         ReferenceType = "MILLING_ORDER",
                         ReferenceId = m.MillingOrderId,
@@ -647,7 +651,7 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
                 {
                     timeline.Add(new TraceabilityEventDto
                     {
-                        EventAt = ob.SalesOrderDate ?? DateTime.UtcNow,
+                        EventAt = ob.SalesOrderDate ?? DateTimeHelper.VietnamNow(),
                         EventType = "OUTBOUND_ALLOCATED",
                         ReferenceType = "OUTBOUND_ORDER",
                         ReferenceId = ob.OutboundOrderId,

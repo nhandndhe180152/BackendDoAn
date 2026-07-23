@@ -17,6 +17,7 @@ public class OutboundOrder : EntityAuditBase<int>
 
     public string? Note { get; set; }
     public decimal TotalDispatchedValue { get; set; }
+    public decimal TotalDispatchedSaleValue { get; set; }
     public DateTime? CompletedDate { get; set; }
     public int? AssignedUserId { get; set; }
 

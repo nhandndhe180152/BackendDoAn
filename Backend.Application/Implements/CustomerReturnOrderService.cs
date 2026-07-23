@@ -51,19 +51,19 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             .Select(x => x.Role.Code)
             .ToListAsync(cancellationToken);
 
-        if (roles.Contains(LookupCodes.Role.Admin) || roles.Contains("Admin")) return true;
+        if (roles.Contains(LookupCodes.Role.Admin)) return true;
 
         if (action == LookupCodes.Action.Approve || action == LookupCodes.Action.Confirm || action == LookupCodes.Action.Cancel || action == LookupCodes.Action.Preview)
         {
-            return roles.Contains(LookupCodes.Role.WarehouseOwner) || roles.Contains("Warehouse Owner");
+            return roles.Contains(LookupCodes.Role.WarehouseOwner);
         }
         if (action == LookupCodes.Action.Inspect)
         {
-            return roles.Contains(LookupCodes.Role.WarehouseStaff) || roles.Contains("Warehouse Staff");
+            return roles.Contains(LookupCodes.Role.WarehouseStaff);
         }
         if (action == LookupCodes.Action.Create || action == LookupCodes.Action.Update)
         {
-            return roles.Contains(LookupCodes.Role.SalesStaff) || roles.Contains("Sales Staff") || roles.Contains(LookupCodes.Role.WarehouseOwner) || roles.Contains("Warehouse Owner");
+            return roles.Contains(LookupCodes.Role.SalesStaff) || roles.Contains(LookupCodes.Role.WarehouseOwner);
         }
 
         if (roles.Contains(LookupCodes.Role.EndUser)) return true;
@@ -168,7 +168,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     var returnAlloc = new CustomerReturnOrderItemAllocation
                     {
                         OutboundOrderItemAllocationId = allocDto.OutboundOrderItemAllocationId,
-                        PaddyLotId = outboundAlloc.PaddyLotId.Value,
+                        PaddyLotId = outboundAlloc.PaddyLotId.GetValueOrDefault(),
                         ProductVariantId = itemDto.ProductVariantId,
                         OriginalLocationId = outboundAlloc.LocationId,
                         QuantityReturned = allocDto.QuantityReturned,
@@ -281,7 +281,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 var returnAlloc = new CustomerReturnOrderItemAllocation
                 {
                     OutboundOrderItemAllocationId = allocDto.OutboundOrderItemAllocationId,
-                    PaddyLotId = outboundAlloc.PaddyLotId.Value,
+                    PaddyLotId = outboundAlloc.PaddyLotId.GetValueOrDefault(),
                     ProductVariantId = itemDto.ProductVariantId,
                     OriginalLocationId = outboundAlloc.LocationId,
                     QuantityReturned = allocDto.QuantityReturned,
@@ -700,6 +700,9 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             .Include(o => o.CustomerReturnOrderStatus)
             .Include(o => o.Items.Where(i => !i.IsDeleted))
                 .ThenInclude(i => i.Allocations.Where(a => !a.IsDeleted))
+                    .ThenInclude(a => a.OutboundOrderItemAllocation)
+            .Include(o => o.Items.Where(i => !i.IsDeleted))
+                .ThenInclude(i => i.Allocations.Where(a => !a.IsDeleted))
                     .ThenInclude(a => a.PaddyLot)
             .FirstOrDefaultAsync(o => o.Id == id && !o.IsDeleted, cancellationToken);
 
@@ -733,9 +736,30 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             var now = DateTimeHelper.VietnamNow();
 
             // Set bypass for automatic interceptor
-            _httpContextAccessor.HttpContext?.Items.Add("BypassLocationOccupancyInterceptor", true);
+            if (_httpContextAccessor.HttpContext != null)
+            {
+                _httpContextAccessor.HttpContext.Items["BypassLocationOccupancyInterceptor"] = true;
+            }
 
             var allocations = order.Items.SelectMany(i => i.Allocations).ToList();
+
+            // Re-verify returned quantity limits against original picking limits to prevent race condition
+            foreach (var alloc in allocations)
+            {
+                var alreadyReturned = await _context.CustomerReturnOrderItemAllocations
+                    .Where(x => x.OutboundOrderItemAllocationId == alloc.OutboundOrderItemAllocationId 
+                             && x.CustomerReturnOrderItem.CustomerReturnOrder.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Confirmed
+                             && !x.IsDeleted
+                             && !x.CustomerReturnOrderItem.IsDeleted
+                             && !x.CustomerReturnOrderItem.CustomerReturnOrder.IsDeleted)
+                    .SumAsync(x => x.QuantityReturned, cancellationToken);
+
+                var maxReturnable = alloc.OutboundOrderItemAllocation.QuantityPicked - alreadyReturned;
+                if (alloc.QuantityReturned > maxReturnable)
+                {
+                    throw new Exception("RETURN_QUANTITY_EXCEEDED");
+                }
+            }
 
             // 1. Process Restock (Good) allocations
             var goodAllocations = allocations.Where(a => a.QuantityGood > 0).ToList();
@@ -746,7 +770,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 // Atomic UPDATE location with capacity limit check
                 var affected = await _context.Database.ExecuteSqlRawAsync(
                     "UPDATE Location SET CurrentOccupancy = CurrentOccupancy + {0}, CurrentProductVariantId = {1}, LastModifiedDate = {2}, UpdatedBy = {3} " +
-                    "WHERE Id = {4} AND WarehouseId = {5} AND IsActive = 1 AND IsDeleted = 0 AND CurrentOccupancy + {0} <= MaxCapacity AND IsQuarantine = 0",
+                    "WHERE Id = {4} AND WarehouseId = {5} AND IsActive = 1 AND IsDeleted = 0 AND (MaxCapacity IS NULL OR CurrentOccupancy + {0} <= MaxCapacity) AND IsQuarantine = 0",
                     alloc.QuantityGood, alloc.ProductVariantId, now, userId, locationId, order.WarehouseId);
 
                 if (affected == 0)
@@ -814,7 +838,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 // Atomic UPDATE location with capacity limit check
                 var affected = await _context.Database.ExecuteSqlRawAsync(
                     "UPDATE Location SET CurrentOccupancy = CurrentOccupancy + {0}, CurrentProductVariantId = {1}, LastModifiedDate = {2}, UpdatedBy = {3} " +
-                    "WHERE Id = {4} AND WarehouseId = {5} AND IsActive = 1 AND IsDeleted = 0 AND CurrentOccupancy + {0} <= MaxCapacity AND IsQuarantine = 1",
+                    "WHERE Id = {4} AND WarehouseId = {5} AND IsActive = 1 AND IsDeleted = 0 AND (MaxCapacity IS NULL OR CurrentOccupancy + {0} <= MaxCapacity) AND IsQuarantine = 1",
                     alloc.QuantityDamaged, alloc.ProductVariantId, now, userId, locationId, order.WarehouseId);
 
                 if (affected == 0)
@@ -943,6 +967,29 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     };
                     await _context.DebtTransactions.AddAsync(debtTx, cancellationToken);
                 }
+
+                if (refundPending > 0)
+                {
+                    partyDebt.CurrentBalance -= refundPending;
+                    partyDebt.UpdatedBy = userId;
+                    partyDebt.LastModifiedDate = now;
+
+                    var refundTx = new DebtTransaction
+                    {
+                        PartyDebtId = partyDebt.Id,
+                        TransactionType = "REFUND_PAYABLE",
+                        Amount = refundPending,
+                        BalanceAfter = partyDebt.CurrentBalance,
+                        RefType = "CUSTOMER_RETURN_ORDER",
+                        RefId = order.Id,
+                        TransactionDate = now,
+                        Note = $"Ghi nhận khoản phải hoàn trả (Refund Payable) vượt dư nợ của đơn trả hàng {order.ReturnCode}",
+                        DeduplicationKey = deduplicationKey + "-REFUND",
+                        CreatedBy = userId,
+                        CreatedDate = now
+                    };
+                    await _context.DebtTransactions.AddAsync(refundTx, cancellationToken);
+                }
             }
 
             // 5. Update order state
@@ -975,6 +1022,10 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             if (ex.Message == "LOT_REMAINING_WEIGHT_EXCEEDED")
             {
                 return ApiResponse.BadRequest(message: "Trọng lượng lúa nhập lại vượt quá trọng lượng ban đầu của lô.", code: "LOT_REMAINING_WEIGHT_EXCEEDED");
+            }
+            if (ex.Message == "RETURN_QUANTITY_EXCEEDED")
+            {
+                return ApiResponse.BadRequest(message: "Số lượng trả hàng vượt quá số lượng đã xuất bán thực tế.", code: "RETURN_QUANTITY_EXCEEDED");
             }
 
             throw;

@@ -204,7 +204,7 @@ public class MillingOrderService : IMillingOrderService
             foreach (var inputDto in dto.Inputs)
             {
                 var lot = await _paddyLotRepository.GetByIdAsync(inputDto.PaddyLotId);
-                if (lot == null) return ApiResponse.Error("Không tìm thấy lô lúa {inputDto.PaddyLotId}", 404);
+                if (lot == null) return ApiResponse.Error($"Không tìm thấy lô lúa {inputDto.PaddyLotId}", 404);
 
                 if (lot.RemainingWeightKg < inputDto.ConsumedWeightKg)
                     return ApiResponse.UnprocessableEntity($"Lô {lot.LotCode} không đủ lúa (còn {lot.RemainingWeightKg} kg, yêu cầu {inputDto.ConsumedWeightKg} kg).");
@@ -242,13 +242,13 @@ public class MillingOrderService : IMillingOrderService
             await _millingOrderRepository.UpdateAsync(order);
 
             await _millingOrderRepository.SaveChangesAsync();
-            await _millingOrderRepository.EndTransactionAsync();
+            await tx.CommitAsync();
 
             return ApiResponse.Success(order.Id, "Giữ lúa thành công.");
         }
         catch
         {
-            await _millingOrderRepository.RollbackTransactionAsync();
+            await tx.RollbackAsync();
             throw;
         }
     }
@@ -325,13 +325,13 @@ public class MillingOrderService : IMillingOrderService
             await _millingOrderRepository.UpdateAsync(order);
 
             await _millingOrderRepository.SaveChangesAsync();
-            await _millingOrderRepository.EndTransactionAsync();
+            await tx.CommitAsync();
 
             return ApiResponse.Success(order.Id, "Hủy lệnh xay thành công.");
         }
         catch
         {
-            await _millingOrderRepository.RollbackTransactionAsync();
+            await tx.RollbackAsync();
             throw;
         }
     }
@@ -377,7 +377,7 @@ public class MillingOrderService : IMillingOrderService
             foreach (var input in order.MillingOrderInputs)
             {
                 var lot = await _paddyLotRepository.GetByIdAsync(input.PaddyLotId);
-                if (lot == null) return ApiResponse.Error("Không tìm thấy lô lúa Id={input.PaddyLotId}.", 404);
+                if (lot == null) return ApiResponse.Error($"Không tìm thấy lô lúa Id={input.PaddyLotId}.", 404);
 
                 if (lot.RemainingWeightKg < input.ConsumedWeightKg)
                     return ApiResponse.UnprocessableEntity(
@@ -432,8 +432,8 @@ public class MillingOrderService : IMillingOrderService
             decimal remainingCost = Math.Max(0, totalCostToAllocate - explicitlyAssignedCost);
             decimal defaultUnitCost = remainingWeightToAllocate > 0 ? remainingCost / remainingWeightToAllocate : 0;
 
-            var defaultLotStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => !x.IsDeleted)
-                ?? throw new InvalidOperationException("Không tìm thấy LotStatus.");
+            var defaultLotStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.InStock && !x.IsDeleted)
+                ?? throw new InvalidOperationException("Không tìm thấy LotStatus 'IN_STOCK'.");
 
             var datePart = now.ToString("yyyyMMdd");
             decimal totalActualRice = 0;
@@ -505,7 +505,7 @@ public class MillingOrderService : IMillingOrderService
             await _millingOrderRepository.UpdateAsync(order);
             await _millingOrderRepository.SaveChangesAsync();
 
-            await _millingOrderRepository.EndTransactionAsync();
+            await tx.CommitAsync();
 
             await _notificationDispatcher.DispatchAsync(
                 NotificationConstants.Code.MillingCompleted,
@@ -518,56 +518,17 @@ public class MillingOrderService : IMillingOrderService
         }
         catch (InvalidOperationException ex)
         {
-            await _millingOrderRepository.RollbackTransactionAsync();
+            await tx.RollbackAsync();
             return ApiResponse.UnprocessableEntity(ex.Message);
         }
         catch
         {
-            await _millingOrderRepository.RollbackTransactionAsync();
+            await tx.RollbackAsync();
             throw;
         }
     }
 
     // ── Private helpers ─────────────────────────────────────────────────────
-
-    private async Task ExportLotInventoryAsync(PaddyLot lot, int? inputLocationId, decimal qty, int orderId, int inputId, int userId, DateTime now)
-    {
-        var targetLocationId = inputLocationId ?? lot.LocationId;
-        var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
-            lot.ProductVariantId, lot.WarehouseId, targetLocationId, lot.Id);
-
-        if (inventory == null || inventory.QuantityOnHand < qty)
-        {
-            throw new InvalidOperationException($"Lô lúa {lot.LotCode} không đủ tồn kho vật lý tại kho {lot.WarehouseId} và ô kệ {targetLocationId} (chỉ còn {inventory?.QuantityOnHand ?? 0} kg) để thực hiện xuất {qty} kg.");
-        }
-
-        var before = inventory.QuantityOnHand;
-        inventory.QuantityOnHand = Math.Max(0, inventory.QuantityOnHand - qty);
-        inventory.LastModifiedDate = now;
-        await _inventoryRepository.UpdateAsync(inventory);
-
-        var tx = new InventoryTransaction
-        {
-            InventoryId = inventory.Id,
-            WarehouseId = lot.WarehouseId,
-            LocationId = targetLocationId,
-            ProductVariantId = lot.ProductVariantId,
-            TransactionType = InventoryTransactionTypeConstants.Export,
-            ReferenceType = InventoryReferenceTypeConstants.MillingOrder,
-            ReferenceId = orderId,
-            ReferenceItemId = inputId,
-            Quantity = -qty,
-            BeforeQuantity = before,
-            AfterQuantity = inventory.QuantityOnHand,
-            WeightKg = qty,
-            Note = $"Xay lúa lô {lot.LotCode}",
-            CreatedDate = now,
-            CreatedBy = userId
-        };
-
-        await _inventoryTransactionRepository.CreateAsync(tx);
-        await _inventoryTransactionRepository.SaveChangesAsync();
-    }
 
     private async Task ImportOutputInventoryAsync(PaddyLot lot, decimal qty, int orderId, int outputId, int userId, DateTime now)
     {

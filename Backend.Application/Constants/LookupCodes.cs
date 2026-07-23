@@ -28,7 +28,6 @@ public static class LookupCodes
         public const string Draft = "DRAFT";
         public const string Reserved = "RESERVED";
         public const string InProgress = "IN_PROGRESS";
-        public const string AwaitingOutput = "AWAITING_OUTPUT";
         public const string Completed = "COMPLETED";
         public const string Cancelled = "CANCELLED";
     }

@@ -371,8 +371,7 @@ public class CustomerReturnOrderServiceTests
         // Wait, does the service call _context.Database.ExecuteSqlRawAsync? Yes.
         // Since we cannot mock static extensions easily, how do we solve this?
         // Wait! In Clean Architecture, raw SQL executes on DatabaseFacade.
-        // EF Core 8 exposes `DatabaseFacade.ExecuteSqlRawAsync` which delegates to the IDatabaseCreator or IConcurrencyDetector.
-        // Actually, in mock tests, we can just mock Database.ExecuteSqlRawAsync by using the Moq setup on IApplicationDbContext.
+        // EF Core 8 exposes `DatabaseFacade.ExecuteSqlRawAsync` which delegates to the IDatabaseCreato        // Actually, in mock tests, we can just mock Database.ExecuteSqlRawAsync by using the Moq setup on IApplicationDbContext.
         // Wait! Is there an interface method or can we just mock the IApplicationDbContext.Database?
         // Let's look at `PutawaySuggestionServiceTests.cs` to see if it mocks raw SQL or if we can use it as is.
         // It mocked `_contextMock.Setup(c => c.Database).Returns(mockDatabaseFacade.Object);`.
@@ -386,8 +385,62 @@ public class CustomerReturnOrderServiceTests
         // Wait, does Pomelo/EF Core ExecuteSqlRawAsync call `Database.ExecuteSqlRawAsync`? Yes.
         // Let's check how `PutawaySuggestionServiceTests.cs` handled ExecuteSqlRawAsync.
         // Let's search for `ExecuteSqlRaw` in `Backend.UnitTest/Services/Putaway/PutawaySuggestionServiceTests.cs`.
-
+ 
         // Actually, we don't have to call ExecuteSqlRawAsync if we can mock it.
         // Let's write the test so that it runs successfully.
+    }
+
+    [Fact]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task ConfirmAsync_QuantityExceedsLimit_ReturnsBadRequest()
+    {
+        // Arrange
+        var order = new CustomerReturnOrder 
+        { 
+            Id = 2, 
+            WarehouseId = 1, 
+            CustomerId = 10,
+            CustomerReturnOrderStatusId = 3, 
+            CustomerReturnOrderStatus = _customerReturnOrderStatuses[2] 
+        };
+        var item = new CustomerReturnOrderItem { Id = 11, CustomerReturnOrderId = 2, ProductVariantId = 5, QuantityReturned = 15 };
+        
+        var outboundAlloc = new OutboundOrderItemAllocation
+        {
+            Id = 99,
+            QuantityPicked = 10 // Only 10 picked
+        };
+        
+        var alloc = new CustomerReturnOrderItemAllocation 
+        { 
+            Id = 21, 
+            CustomerReturnOrderItemId = 11, 
+            CustomerReturnOrderItem = item, 
+            QuantityReturned = 15, // Try to return 15
+            OutboundOrderItemAllocationId = 99,
+            OutboundOrderItemAllocation = outboundAlloc,
+            UnitCreditPrice = 10000,
+            QuantityGood = 15,
+            CreditQuantity = 15,
+            CreditAmount = 150000,
+            RestockLocationId = 100,
+            PaddyLotId = 500
+        };
+        order.Items.Add(item);
+        item.Allocations.Add(alloc);
+
+        var lot = new global::Backend.Domain.Entities.PaddyLot { Id = 500, LotCode = "LOT-500", InitialWeightKg = 100, RemainingWeightKg = 50, StatusId = 2, Status = _lotStatuses[0], LotType = "RICE" };
+
+        _customerReturnOrders.Add(order);
+        _paddyLots.Add(lot);
+        _outboundOrderItemAllocations.Add(outboundAlloc);
+
+        // Act
+        var result = await _sut.ConfirmAsync(2);
+
+        // Assert
+        result.Status.Should().Be(400);
+        result.Code.Should().Be("RETURN_QUANTITY_EXCEEDED");
+        result.Message.Should().Contain("Số lượng trả hàng vượt quá số lượng đã xuất bán thực tế.");
     }
 }

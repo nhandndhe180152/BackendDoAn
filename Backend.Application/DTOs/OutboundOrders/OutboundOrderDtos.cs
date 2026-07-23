@@ -18,6 +18,7 @@ public class OutboundOrderListDto
     public int? WarehouseId { get; set; }
     public string? WarehouseName { get; set; }
     public decimal TotalDispatchedValue { get; set; }
+    public decimal TotalDispatchedSaleValue { get; set; }
     public DateTime? CompletedDate { get; set; }
     public string? Note { get; set; }
     public DateTime? CreatedDate { get; set; }
@@ -36,6 +37,7 @@ public class OutboundOrderDetailDto
     public int WarehouseId { get; set; }
     public string WarehouseName { get; set; } = null!;
     public decimal TotalDispatchedValue { get; set; }
+    public decimal TotalDispatchedSaleValue { get; set; }
     public DateTime? CompletedDate { get; set; }
     public string? Note { get; set; }
     public DateTime? CreatedDate { get; set; }
