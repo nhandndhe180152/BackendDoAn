@@ -86,7 +86,7 @@ public class QualityInspectionService : IQualityInspectionService
                 }
 
                 // 2. Tìm trạng thái QUARANTINE cho lô mới
-                var quarantineStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == "QUARANTINE" && !x.IsDeleted);
+                var quarantineStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.Quarantine && !x.IsDeleted);
                 if (quarantineStatus == null)
                     throw new InvalidOperationException("Không tìm thấy trạng thái LotStatus 'QUARANTINE' trong hệ thống.");
 
@@ -121,7 +121,7 @@ public class QualityInspectionService : IQualityInspectionService
                 lot.QualityStatus = "PASSED"; // Lô gốc phần còn lại là Đạt chất lượng
 
                 // Nếu lô gốc đã được kiểm định đạt, chuyển trạng thái của nó sang IN_STOCK nếu đang là PENDING_INBOUND
-                var inStockStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == "IN_STOCK" && !x.IsDeleted);
+                var inStockStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.InStock && !x.IsDeleted);
                 if (inStockStatus != null && lot.StatusId != inStockStatus.Id)
                 {
                     lot.StatusId = inStockStatus.Id;
@@ -144,7 +144,7 @@ public class QualityInspectionService : IQualityInspectionService
                 // Nếu PassedInspection = true, tự động chuyển status sang IN_STOCK
                 if (obj.PassedInspection)
                 {
-                    var inStockStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == "IN_STOCK" && !x.IsDeleted);
+                    var inStockStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.InStock && !x.IsDeleted);
                     if (inStockStatus != null)
                     {
                         lot.StatusId = inStockStatus.Id;
@@ -152,7 +152,7 @@ public class QualityInspectionService : IQualityInspectionService
                 }
                 else
                 {
-                    var quarantineStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == "QUARANTINE" && !x.IsDeleted);
+                    var quarantineStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.Quarantine && !x.IsDeleted);
                     if (quarantineStatus != null)
                     {
                         lot.StatusId = quarantineStatus.Id;
