@@ -13,8 +13,9 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Moq;
 using Xunit;
 
-// Dùng alias rõ ràng cho thực thể để tránh xung đột với namespace Backend.UnitTest.Services.PaddyLot
 using PaddyLotEntity = Backend.Domain.Entities.PaddyLot;
+using InventoryEntity = Backend.Domain.Entities.Inventory;
+using Backend.Domain.Abstractions.Repositories;
 
 namespace Backend.UnitTest.Services.QualityInspection;
 
@@ -27,9 +28,12 @@ public class QualityInspectionServiceTests
 {
     private readonly Mock<IQualityInspectionRepository> _repo = new();
     private readonly Mock<IPaddyLotRepository> _lotRepo = new();
+    private readonly Mock<IInventoryRepository> _inventoryRepo = new();
+    private readonly Mock<IInventoryTransactionRepository> _inventoryTxRepo = new();
+    private readonly Mock<IRepositoryBase<LotStatus, int>> _lotStatusRepo = new();
 
     private QualityInspectionService Sut() =>
-        new(_repo.Object, _lotRepo.Object);
+        new(_repo.Object, _lotRepo.Object, _inventoryRepo.Object, _inventoryTxRepo.Object, _lotStatusRepo.Object);
 
     // ── Helper: setup mock DB transaction ────────────────────────────────────
 
@@ -245,5 +249,126 @@ public class QualityInspectionServiceTests
         var result = await Sut().SoftDeleteAsync(999);
 
         result.Status.Should().Be(400);
+    }
+
+    [Fact]
+    public async Task CreateAsync_FailedInspectionWithPartialAffectedWeight_SplitsLotAndAdjustsInventory()
+    {
+        // Arrange
+        var parentLot = new PaddyLotEntity 
+        { 
+            Id = 5, 
+            LotCode = "LOT-5", 
+            InitialWeightKg = 10000, 
+            RemainingWeightKg = 10000, 
+            LotType = "PADDY", 
+            ProductVariantId = 1,
+            WarehouseId = 2,
+            LocationId = 3,
+            InboundDate = DateTime.UtcNow,
+            CostPricePerKg = 12000,
+            StatusId = 1
+        };
+        _lotRepo.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(parentLot);
+        SetupTransaction(_repo);
+
+        _lotRepo.Setup(r => r.AnyAsync(It.IsAny<Expression<Func<PaddyLotEntity, bool>>>()))
+            .ReturnsAsync(false); // No existing -Q1 lot
+
+        var quarantineStatus = new LotStatus { Id = 2, Code = "QUARANTINE" };
+        var inStockStatus = new LotStatus { Id = 3, Code = "IN_STOCK" };
+
+        _lotStatusRepo.Setup(r => r.FirstOrDefaultAsync(
+            It.IsAny<Expression<Func<LotStatus, bool>>>(),
+            It.IsAny<bool>(),
+            It.IsAny<Expression<Func<LotStatus, object>>[]>()))
+            .ReturnsAsync((Expression<Func<LotStatus, bool>> predicate, bool trackChanges, Expression<Func<LotStatus, object>>[] includes) => {
+                var str = predicate.ToString();
+                if (str.Contains("QUARANTINE")) return quarantineStatus;
+                if (str.Contains("IN_STOCK")) return inStockStatus;
+                return null;
+            });
+
+        var parentInv = new InventoryEntity 
+        { 
+            Id = 10, 
+            PaddyLotId = 5, 
+            QuantityOnHand = 10000, 
+            CostPrice = 12000,
+            WarehouseId = 2,
+            LocationId = 3,
+            ProductVariantId = 1
+        };
+        var inventories = new List<InventoryEntity> { parentInv };
+        
+        _inventoryRepo.Setup(r => r.FindByCondition(
+            It.IsAny<Expression<Func<InventoryEntity, bool>>>(),
+            It.IsAny<bool>()))
+            .Returns(inventories.AsQueryable().BuildMock());
+
+        _repo.Setup(r => r.CreateAsync(It.IsAny<Domain.Entities.QualityInspection>()))
+            .Returns(Task.CompletedTask);
+        _repo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
+        _lotRepo.Setup(r => r.CreateAsync(It.IsAny<PaddyLotEntity>()))
+            .Callback<PaddyLotEntity>(child => child.Id = 6) // assign ID
+            .Returns(Task.CompletedTask);
+        _lotRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
+        _lotRepo.Setup(r => r.UpdateAsync(parentLot)).Returns(Task.CompletedTask);
+        _inventoryRepo.Setup(r => r.UpdateAsync(parentInv)).Returns(Task.CompletedTask);
+        _inventoryRepo.Setup(r => r.CreateAsync(It.IsAny<InventoryEntity>())).Returns(Task.CompletedTask);
+        _inventoryRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
+        _inventoryTxRepo.Setup(r => r.CreateAsync(It.IsAny<InventoryTransaction>())).Returns(Task.CompletedTask);
+        _inventoryTxRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
+
+        var dto = new CreateQualityInspectionDto
+        {
+            PaddyLotId = 5,
+            PassedInspection = false,
+            AffectedWeightKg = 3000,
+            InspectedAt = DateTime.UtcNow
+        };
+
+        // Act
+        var result = await Sut().CreateAsync(dto);
+
+        // Assert
+        result.Status.Should().BeOneOf(200, 201);
+        
+        // Parent lot checks
+        parentLot.RemainingWeightKg.Should().Be(7000);
+        parentLot.InitialWeightKg.Should().Be(7000);
+        parentLot.QualityStatus.Should().Be("PASSED");
+        parentLot.StatusId.Should().Be(3); // IN_STOCK
+
+        // Parent inventory checks
+        parentInv.QuantityOnHand.Should().Be(7000);
+
+        // Verify child lot created
+        _lotRepo.Verify(r => r.CreateAsync(It.Is<PaddyLotEntity>(c => 
+            c.LotCode == "LOT-5-Q1" &&
+            c.ParentLotId == 5 &&
+            c.InitialWeightKg == 3000 &&
+            c.RemainingWeightKg == 3000 &&
+            c.StatusId == 2 && // QUARANTINE
+            c.QualityStatus == "FAILED"
+        )), Times.Once);
+
+        // Verify child inventory created
+        _inventoryRepo.Verify(r => r.CreateAsync(It.Is<InventoryEntity>(i => 
+            i.PaddyLotId == 6 &&
+            i.QuantityOnHand == 3000
+        )), Times.Once);
+
+        // Verify transactions created
+        _inventoryTxRepo.Verify(r => r.CreateAsync(It.Is<InventoryTransaction>(t => 
+            t.PaddyLotId == 5 && 
+            t.TransactionType == "EXPORT" && 
+            t.Quantity == 3000
+        )), Times.Once);
+        _inventoryTxRepo.Verify(r => r.CreateAsync(It.Is<InventoryTransaction>(t => 
+            t.PaddyLotId == 6 && 
+            t.TransactionType == "IMPORT" && 
+            t.Quantity == 3000
+        )), Times.Once);
     }
 }

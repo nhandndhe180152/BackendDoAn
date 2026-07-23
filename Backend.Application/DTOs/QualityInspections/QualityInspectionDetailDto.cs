@@ -18,6 +18,7 @@ public class QualityInspectionDetailDto
     public bool PassedInspection { get; set; }
     public string? Handling { get; set; }
     public string? Note { get; set; }
+    public decimal? AffectedWeightKg { get; set; }
     public DateTime CreatedDate { get; set; }
     public DateTime? LastModifiedDate { get; set; }
 }
