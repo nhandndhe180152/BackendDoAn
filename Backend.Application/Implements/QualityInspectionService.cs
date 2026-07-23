@@ -24,19 +24,22 @@ public class QualityInspectionService : IQualityInspectionService
     private readonly IInventoryRepository _inventoryRepository;
     private readonly IInventoryTransactionRepository _inventoryTransactionRepository;
     private readonly IRepositoryBase<LotStatus, int> _lotStatusRepository;
+    private readonly IApplicationDbContext _context;
 
     public QualityInspectionService(
         IQualityInspectionRepository repo,
         IPaddyLotRepository paddyLotRepository,
         IInventoryRepository inventoryRepository,
         IInventoryTransactionRepository inventoryTransactionRepository,
-        IRepositoryBase<LotStatus, int> lotStatusRepository)
+        IRepositoryBase<LotStatus, int> lotStatusRepository,
+        IApplicationDbContext context)
     {
         _repo = repo;
         _paddyLotRepository = paddyLotRepository;
         _inventoryRepository = inventoryRepository;
         _inventoryTransactionRepository = inventoryTransactionRepository;
         _lotStatusRepository = lotStatusRepository;
+        _context = context;
     }
 
     public async Task<ApiResponse> CreateAsync(CreateQualityInspectionDto obj)
@@ -44,6 +47,17 @@ public class QualityInspectionService : IQualityInspectionService
         var lot = await _paddyLotRepository.GetByIdAsync(obj.PaddyLotId);
         if (lot == null || lot.IsDeleted)
             return ApiResponse.NotFound(message: "Không tìm thấy lô lúa/gạo.");
+
+        // B8. Validate đầu vào AffectedWeightKg
+        if (obj.AffectedWeightKg.HasValue)
+        {
+            if (obj.AffectedWeightKg.Value < 0)
+                return ApiResponse.BadRequest(message: "Khối lượng bị ảnh hưởng không được nhỏ hơn 0.");
+            if (obj.AffectedWeightKg.Value == 0)
+                return ApiResponse.BadRequest(message: "Khối lượng bị ảnh hưởng phải lớn hơn 0.");
+            if (obj.AffectedWeightKg.Value >= lot.RemainingWeightKg)
+                return ApiResponse.BadRequest(message: $"Khối lượng bị ảnh hưởng ({obj.AffectedWeightKg.Value} kg) phải nhỏ hơn khối lượng còn lại của lô hàng ({lot.RemainingWeightKg} kg).");
+        }
 
         var now = DateTimeHelper.VietnamNow();
         var entity = new QualityInspection
@@ -71,15 +85,26 @@ public class QualityInspectionService : IQualityInspectionService
         await using var tx = await _repo.BeginTransactionAsync();
         try
         {
+            var parentInventories = await _inventoryRepository
+                .FindByCondition(x => x.PaddyLotId == lot.Id && !x.IsDeleted)
+                .ToListAsync();
+
             // Nếu đánh giá không đạt (PassedInspection == false) và số lượng bị ảnh hưởng hợp lệ (0 < AffectedWeightKg < RemainingWeightKg)
             if (!obj.PassedInspection && obj.AffectedWeightKg.HasValue && obj.AffectedWeightKg.Value > 0 && obj.AffectedWeightKg.Value < lot.RemainingWeightKg)
             {
+                // B1. Kiểm tra tổng tồn kho khả dụng trước khi tách
+                decimal totalAvailable = parentInventories.Sum(x => Math.Max(0, x.QuantityOnHand - x.QuantityReserved));
+                if (totalAvailable < obj.AffectedWeightKg.Value)
+                {
+                    return ApiResponse.BadRequest(message: $"Không đủ tồn kho khả dụng để thực hiện tách lô cách ly (Tồn kho khả dụng: {totalAvailable} kg, Cần tách: {obj.AffectedWeightKg.Value} kg).");
+                }
+
                 isSplit = true;
 
-                // 1. Tạo LotCode mới: nối đuôi -Q1, -Q2,...
+                // 1. Tạo LotCode mới: nối đuôi -Q1, -Q2,... (B3: kiểm tra cả bản ghi đã xoá mềm)
                 string childLotCode = $"{lot.LotCode}-Q1";
                 int quarantineIndex = 1;
-                while (await _paddyLotRepository.AnyAsync(x => x.LotCode == childLotCode && x.OrganizationId == lot.OrganizationId))
+                while (await _context.PaddyLots.AnyAsync(x => x.LotCode == childLotCode && x.OrganizationId == lot.OrganizationId))
                 {
                     quarantineIndex++;
                     childLotCode = $"{lot.LotCode}-Q{quarantineIndex}";
@@ -90,7 +115,7 @@ public class QualityInspectionService : IQualityInspectionService
                 if (quarantineStatus == null)
                     throw new InvalidOperationException("Không tìm thấy trạng thái LotStatus 'QUARANTINE' trong hệ thống.");
 
-                // 3. Khởi tạo lô con (childLot)
+                // 3. Khởi tạo lô con (childLot) và copy các trường truy xuất nguồn gốc (B9)
                 childLot = new PaddyLot
                 {
                     OrganizationId = lot.OrganizationId,
@@ -105,9 +130,11 @@ public class QualityInspectionService : IQualityInspectionService
                     InitialWeightKg = obj.AffectedWeightKg.Value,
                     RemainingWeightKg = obj.AffectedWeightKg.Value,
                     CostPricePerKg = lot.CostPricePerKg,
-                    QualityStatus = "FAILED",
+                    QualityStatus = QualityStatusConstants.Failed,
                     QrCode = "PL-" + Guid.NewGuid().ToString("N").ToUpper(),
                     ParentLotId = lot.Id,
+                    SourceReceiptId = lot.SourceReceiptId,
+                    SourceMillingOrderId = lot.SourceMillingOrderId,
                     CreatedBy = obj.CreatedBy,
                     CreatedDate = now
                 };
@@ -115,10 +142,9 @@ public class QualityInspectionService : IQualityInspectionService
                 await _paddyLotRepository.CreateAsync(childLot);
                 await _paddyLotRepository.SaveChangesAsync();
 
-                // 4. Trừ số lượng ở lô gốc
+                // 4. Trừ số lượng ở lô gốc (B4: Giữ nguyên InitialWeightKg để lưu vết lịch sử)
                 lot.RemainingWeightKg -= obj.AffectedWeightKg.Value;
-                lot.InitialWeightKg -= obj.AffectedWeightKg.Value;
-                lot.QualityStatus = "PASSED"; // Lô gốc phần còn lại là Đạt chất lượng
+                lot.QualityStatus = QualityStatusConstants.Passed; // Lô gốc phần còn lại là Đạt chất lượng
 
                 // Nếu lô gốc đã được kiểm định đạt, chuyển trạng thái của nó sang IN_STOCK nếu đang là PENDING_INBOUND
                 var inStockStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.InStock && !x.IsDeleted);
@@ -132,14 +158,12 @@ public class QualityInspectionService : IQualityInspectionService
                 await _paddyLotRepository.UpdateAsync(lot);
                 await _paddyLotRepository.SaveChangesAsync();
 
-                // 5. Gắn phiếu kiểm định vào lô con
-                entity.PaddyLotId = childLot.Id;
-                entity.PassedInspection = false; // Phiếu kiểm định cho lô con này là Không đạt
+                // B6: Giữ phiếu ở lô gốc (entity.PaddyLotId giữ nguyên là lot.Id)
             }
             else
             {
                 // Luồng All-or-nothing cũ
-                lot.QualityStatus = obj.PassedInspection ? "PASSED" : "FAILED";
+                lot.QualityStatus = obj.PassedInspection ? QualityStatusConstants.Passed : QualityStatusConstants.Failed;
 
                 // Nếu PassedInspection = true, tự động chuyển status sang IN_STOCK
                 if (obj.PassedInspection)
@@ -157,6 +181,30 @@ public class QualityInspectionService : IQualityInspectionService
                     {
                         lot.StatusId = quarantineStatus.Id;
                     }
+
+                    // B10: Ghi nhận giao dịch điều chỉnh khi cả lô fail -> QUARANTINE để nhất quán tồn kho
+                    foreach (var inv in parentInventories)
+                    {
+                        var txQuarantine = new InventoryTransaction
+                        {
+                            InventoryId = inv.Id,
+                            WarehouseId = inv.WarehouseId,
+                            LocationId = inv.LocationId,
+                            ProductVariantId = inv.ProductVariantId,
+                            PaddyLotId = lot.Id,
+                            TransactionType = InventoryTransactionTypeConstants.ManualAdjust,
+                            ReferenceType = InventoryReferenceTypeConstants.QualityInspectionQuarantine,
+                            ReferenceId = entity.Id,
+                            Quantity = inv.QuantityOnHand,
+                            BeforeQuantity = inv.QuantityOnHand,
+                            AfterQuantity = inv.QuantityOnHand,
+                            Note = "Toàn bộ lô hàng chuyển sang trạng thái CÁCH LY do kiểm định không đạt",
+                            CreatedBy = obj.CreatedBy,
+                            CreatedDate = now
+                        };
+                        await _inventoryTransactionRepository.CreateAsync(txQuarantine);
+                    }
+                    await _inventoryTransactionRepository.SaveChangesAsync();
                 }
 
                 lot.LastModifiedDate = now;
@@ -172,17 +220,15 @@ public class QualityInspectionService : IQualityInspectionService
             // 6. Xử lý Tồn kho (Inventory) và Giao dịch tồn kho (InventoryTransaction) nếu xảy ra Tách lô
             if (isSplit && childLot != null)
             {
-                var parentInventories = await _inventoryRepository
-                    .FindByCondition(x => x.PaddyLotId == lot.Id && !x.IsDeleted)
-                    .ToListAsync();
-
                 decimal remainingToDeduct = obj.AffectedWeightKg!.Value;
 
-                foreach (var parentInv in parentInventories.OrderByDescending(x => x.QuantityOnHand))
+                // B2. Sắp xếp trừ trên phần khả dụng (QuantityOnHand - QuantityReserved)
+                foreach (var parentInv in parentInventories.OrderByDescending(x => x.QuantityOnHand - x.QuantityReserved))
                 {
                     if (remainingToDeduct <= 0) break;
 
-                    decimal deductQty = Math.Min(parentInv.QuantityOnHand, remainingToDeduct);
+                    decimal parentAvailable = Math.Max(0, parentInv.QuantityOnHand - parentInv.QuantityReserved);
+                    decimal deductQty = Math.Min(parentAvailable, remainingToDeduct);
                     if (deductQty <= 0) continue;
 
                     parentInv.QuantityOnHand -= deductQty;
@@ -190,25 +236,40 @@ public class QualityInspectionService : IQualityInspectionService
                     parentInv.UpdatedBy = obj.CreatedBy;
                     await _inventoryRepository.UpdateAsync(parentInv);
 
-                    // Tạo tồn kho cho lô con ở cùng vị trí
-                    var childInv = new Inventory
+                    // Kiểm tra tồn tại tồn kho của lô con tại cùng vị trí để tránh trùng lắp dòng
+                    var childInv = await _inventoryRepository.FirstOrDefaultAsync(x => x.PaddyLotId == childLot.Id 
+                        && x.WarehouseId == parentInv.WarehouseId 
+                        && x.LocationId == parentInv.LocationId 
+                        && !x.IsDeleted);
+
+                    if (childInv != null)
                     {
-                        WarehouseId = parentInv.WarehouseId,
-                        LocationId = parentInv.LocationId,
-                        ProductVariantId = parentInv.ProductVariantId,
-                        PaddyLotId = childLot.Id,
-                        CostPrice = parentInv.CostPrice,
-                        QuantityOnHand = deductQty,
-                        QuantityReserved = 0,
-                        CreatedDate = now,
-                        CreatedBy = obj.CreatedBy
-                    };
-                    await _inventoryRepository.CreateAsync(childInv);
+                        childInv.QuantityOnHand += deductQty;
+                        childInv.LastModifiedDate = now;
+                        childInv.UpdatedBy = obj.CreatedBy;
+                        await _inventoryRepository.UpdateAsync(childInv);
+                    }
+                    else
+                    {
+                        childInv = new Inventory
+                        {
+                            WarehouseId = parentInv.WarehouseId,
+                            LocationId = parentInv.LocationId,
+                            ProductVariantId = parentInv.ProductVariantId,
+                            PaddyLotId = childLot.Id,
+                            CostPrice = parentInv.CostPrice,
+                            QuantityOnHand = deductQty,
+                            QuantityReserved = 0,
+                            CreatedDate = now,
+                            CreatedBy = obj.CreatedBy
+                        };
+                        await _inventoryRepository.CreateAsync(childInv);
+                    }
                     await _inventoryRepository.SaveChangesAsync();
 
                     remainingToDeduct -= deductQty;
 
-                    // Ghi nhận giao dịch điều chỉnh tồn kho cho lô gốc (XUẤT điều chỉnh)
+                    // Ghi nhận giao dịch điều chỉnh tồn kho cho lô gốc (Dùng MANUAL_ADJUST - B5)
                     var txOut = new InventoryTransaction
                     {
                         InventoryId = parentInv.Id,
@@ -216,8 +277,8 @@ public class QualityInspectionService : IQualityInspectionService
                         LocationId = parentInv.LocationId,
                         ProductVariantId = parentInv.ProductVariantId,
                         PaddyLotId = lot.Id,
-                        TransactionType = InventoryTransactionTypeConstants.Export,
-                        ReferenceType = "QUALITY_INSPECTION_SPLIT",
+                        TransactionType = InventoryTransactionTypeConstants.ManualAdjust,
+                        ReferenceType = InventoryReferenceTypeConstants.QualityInspectionSplit,
                         ReferenceId = entity.Id,
                         Quantity = deductQty,
                         BeforeQuantity = parentInv.QuantityOnHand + deductQty,
@@ -228,20 +289,20 @@ public class QualityInspectionService : IQualityInspectionService
                     };
                     await _inventoryTransactionRepository.CreateAsync(txOut);
 
-                    // Ghi nhận giao dịch điều chỉnh tồn kho cho lô con (NHẬP điều chỉnh)
+                    // Ghi nhận giao dịch điều chỉnh tồn kho cho lô con (Dùng MANUAL_ADJUST - B5)
                     var txIn = new InventoryTransaction
                     {
                         InventoryId = childInv.Id,
                         WarehouseId = childInv.WarehouseId,
                         LocationId = childInv.LocationId,
-                        ProductVariantId = childInv.ProductVariantId,
+                        ProductVariantId = parentInv.ProductVariantId,
                         PaddyLotId = childLot.Id,
-                        TransactionType = InventoryTransactionTypeConstants.Import,
-                        ReferenceType = "QUALITY_INSPECTION_SPLIT",
+                        TransactionType = InventoryTransactionTypeConstants.ManualAdjust,
+                        ReferenceType = InventoryReferenceTypeConstants.QualityInspectionSplit,
                         ReferenceId = entity.Id,
                         Quantity = deductQty,
-                        BeforeQuantity = 0,
-                        AfterQuantity = deductQty,
+                        BeforeQuantity = childInv.QuantityOnHand - deductQty,
+                        AfterQuantity = childInv.QuantityOnHand,
                         Note = $"Nhập tồn do tách lô cách ly từ lô gốc {lot.LotCode}",
                         CreatedBy = obj.CreatedBy,
                         CreatedDate = now
@@ -312,6 +373,18 @@ public class QualityInspectionService : IQualityInspectionService
         var entity = await _repo.GetByIdAsync(obj.Id);
         if (entity == null || entity.IsDeleted) return ApiResponse.NotFound();
 
+        // B7. Khóa không cho phép sửa kết quả hoặc khối lượng của phiếu đã tách lô cách ly
+        bool wasSplit = !entity.PassedInspection && entity.AffectedWeightKg.HasValue && entity.AffectedWeightKg.Value > 0;
+        if (wasSplit)
+        {
+            if (entity.PaddyLotId != obj.PaddyLotId ||
+                entity.PassedInspection != obj.PassedInspection ||
+                entity.AffectedWeightKg != obj.AffectedWeightKg)
+            {
+                return ApiResponse.BadRequest(message: "Không thể thay đổi Lô lúa/gạo, Kết quả kiểm định hoặc Khối lượng ảnh hưởng của phiếu kiểm định đã thực hiện tách lô cách ly.");
+            }
+        }
+
         entity.PaddyLotId = obj.PaddyLotId;
         entity.InspectorId = obj.InspectorId;
         entity.InspectedAt = obj.InspectedAt;
@@ -347,6 +420,16 @@ public class QualityInspectionService : IQualityInspectionService
 
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {
+        var entity = await _repo.GetByIdAsync(id);
+        if (entity == null || entity.IsDeleted) return ApiResponse.NotFound();
+
+        // B7. Khóa không cho xóa phiếu đã tách lô cách ly
+        bool wasSplit = !entity.PassedInspection && entity.AffectedWeightKg.HasValue && entity.AffectedWeightKg.Value > 0;
+        if (wasSplit)
+        {
+            return ApiResponse.BadRequest(message: "Không thể xóa phiếu kiểm định đã thực hiện tách lô cách ly.");
+        }
+
         var isDeleted = await _repo.SoftDeleteAsync(id);
         if (!isDeleted) return ApiResponse.BadRequest();
         await _repo.SaveChangesAsync();
@@ -355,6 +438,19 @@ public class QualityInspectionService : IQualityInspectionService
 
     public async Task<ApiResponse> SoftDeleteListAsync(IEnumerable<int> objs)
     {
+        foreach (var id in objs)
+        {
+            var entity = await _repo.GetByIdAsync(id);
+            if (entity != null)
+            {
+                bool wasSplit = !entity.PassedInspection && entity.AffectedWeightKg.HasValue && entity.AffectedWeightKg.Value > 0;
+                if (wasSplit)
+                {
+                    return ApiResponse.BadRequest(message: $"Không thể xóa phiếu kiểm định (ID: {id}) đã thực hiện tách lô cách ly.");
+                }
+            }
+        }
+
         var isDeleted = await _repo.SoftDeleteListAsync(objs);
         if (!isDeleted) return ApiResponse.BadRequest();
         await _repo.SaveChangesAsync();
