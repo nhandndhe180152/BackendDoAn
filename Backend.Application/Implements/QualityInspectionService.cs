@@ -131,7 +131,7 @@ public class QualityInspectionService : IQualityInspectionService
                     WarehouseId = lot.WarehouseId,
                     LocationId = lot.LocationId,
                     InboundDate = lot.InboundDate,
-                    InitialWeightKg = 0, // C4: Lô con không tạo ra khối lượng nhập mới hệ thống
+                    InitialWeightKg = obj.AffectedWeightKg.Value, // R1: Giữ bằng AffectedWeight để tránh lỗi chia 0 (% còn lại) và vi phạm bất biến Remaining > Initial. Reports sẽ lọc ParentLotId IS NULL để tránh tính trùng.
                     RemainingWeightKg = obj.AffectedWeightKg.Value,
                     CostPricePerKg = lot.CostPricePerKg,
                     QualityStatus = QualityStatusConstants.Failed,

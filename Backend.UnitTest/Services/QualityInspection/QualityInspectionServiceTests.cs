@@ -359,7 +359,7 @@ public class QualityInspectionServiceTests
         _lotRepo.Verify(r => r.CreateAsync(It.Is<PaddyLotEntity>(c => 
             c.LotCode == "LOT-5-Q1" &&
             c.ParentLotId == 5 &&
-            c.InitialWeightKg == 0 &&
+            c.InitialWeightKg == 3000 &&
             c.RemainingWeightKg == 3000 &&
             c.StatusId == 2 && // QUARANTINE
             c.QualityStatus == QualityStatusConstants.Failed
