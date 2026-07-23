@@ -654,7 +654,7 @@ public class QRCodeService : IQRCodeService
             .SetMarginTop(1f);
 
         // QR Code Image
-        var payload = $"STOCKLITE|1|PADDY_LOT|{lot.QrCode}";
+        var payload = $"STOCKLITE|{lot.WarehouseId}|PADDY_LOT|{lot.QrCode}";
         byte[] qrBytes = QRCodeHelper.GenerateQRCodePng(payload, 5);
         var qrImage = new Image(ImageDataFactory.Create(qrBytes))
             .SetAutoScale(true)
@@ -748,7 +748,7 @@ public class QRCodeService : IQRCodeService
             .SetMarginTop(1f);
 
         // QR Code Image
-        var payload = $"STOCKLITE|1|LOCATION|{loc.QrCode}";
+        var payload = $"STOCKLITE|{loc.WarehouseId}|LOCATION|{loc.QrCode}";
         byte[] qrBytes = QRCodeHelper.GenerateQRCodePng(payload, 5);
         var qrImage = new Image(ImageDataFactory.Create(qrBytes))
             .SetAutoScale(true)

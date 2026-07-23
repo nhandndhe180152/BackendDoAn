@@ -23,6 +23,7 @@ public class DebtTransaction : EntityAuditBase<int>
     public DateTime TransactionDate { get; set; }
     public DateTime? DueDate { get; set; }
     public string? Note { get; set; }
+    public string? DeduplicationKey { get; set; }
 
     // Navigation
     public virtual PartyDebt PartyDebt { get; set; } = null!;

@@ -157,7 +157,7 @@ namespace Backend.API.Controllers
                 {
                     entityId   = loc.Id,
                     qrCode     = loc.QrCode,
-                    qrPayload  = $"STOCKLITE|1|LOCATION|{loc.QrCode}",
+                    qrPayload  = $"STOCKLITE|{loc.WarehouseId}|LOCATION|{loc.QrCode}",
                     qrImageUrl = loc.QrImageUrl
                 }));
             }

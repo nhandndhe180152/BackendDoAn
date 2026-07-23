@@ -100,4 +100,5 @@ public static class TableNames
     public const string OutboundOrderItemAllocation = nameof(OutboundOrderItemAllocation);
     public const string PutawayRuleConfig = nameof(PutawayRuleConfig);
     public const string PutawayDecision = nameof(PutawayDecision);
+    public const string CustomerReturnOrderItemAllocation = nameof(CustomerReturnOrderItemAllocation);
 }

@@ -60,43 +60,15 @@ public class MillingOrderService : IMillingOrderService
         var now = DateTimeHelper.VietnamNow();
         var datePart = now.ToString("yyyyMMdd");
         var baseCode = $"MO-{datePart}";
-        // #10: Đếm tất cả (kể cả IsDeleted) để tránh trùng suffix. Unique index là safety net.
         var count = await _millingOrderRepository
             .FindByCondition(x => x.MillingCode.StartsWith(baseCode))
             .CountAsync();
         var millingCode = $"{baseCode}-{(count + 1):D4}";
 
-        // Lấy status DRAFT hoặc đầu tiên
-        var draftStatus = await _statusRepository.FirstOrDefaultAsync(x => x.Name == "Draft" && !x.IsDeleted)
-            ?? await _statusRepository.FirstOrDefaultAsync(x => !x.IsDeleted)
-            ?? throw new InvalidOperationException("Không tìm thấy MillingOrderStatus.");
+        var draftStatus = await _statusRepository.FirstOrDefaultAsync(x => x.Code == LookupCodes.MillingOrderStatus.Draft && !x.IsDeleted)
+            ?? throw new InvalidOperationException("Không tìm thấy MillingOrderStatus DRAFT.");
 
-        var computedPaddyKg = obj.YieldRateUsed > 0 ? obj.TotalRiceOutputKg / obj.YieldRateUsed : 0;
-
-        // Validate output locations belong to order warehouse
-        foreach (var outputDto in obj.Outputs)
-        {
-            if (outputDto.LocationId.HasValue)
-            {
-                var loc = await _locationRepository.GetByIdAsync(outputDto.LocationId.Value);
-                if (loc == null || loc.IsDeleted || loc.WarehouseId != obj.WarehouseId)
-                {
-                    return ApiResponse.BadRequest(message: $"Vị trí (LocationId={outputDto.LocationId.Value}) không tồn tại hoặc không thuộc kho (WarehouseId={obj.WarehouseId}).");
-                }
-            }
-        }
-
-        // Validate cân bằng khối lượng (mass balance): tổng đầu ra + hao hụt ≤ tổng lúa đầu vào (dung sai 2%)
-        var totalInputKg = obj.Inputs.Sum(i => i.ConsumedWeightKg);
-        var totalOutputKg = obj.Outputs.Sum(o => o.OutputWeightKg);
-        var totalLossKg = obj.LossKg ?? 0;
-        var tolerance = totalInputKg * 0.02m; // dung sai 2%
-        if (totalInputKg > 0 && (totalOutputKg + totalLossKg) > (totalInputKg + tolerance))
-        {
-            return ApiResponse.BadRequest(message:
-                $"Mass balance không hợp lệ: Tổng đầu ra ({totalOutputKg} kg) + Hao hụt ({totalLossKg} kg) " +
-                $"vượt quá Tổng lúa đầu vào ({totalInputKg} kg) ± 2% dung sai.");
-        }
+        var computedPaddyKg = obj.ExpectedYield > 0 ? obj.TargetRiceKg / obj.ExpectedYield : 0;
 
         var order = new MillingOrder
         {
@@ -106,57 +78,14 @@ public class MillingOrderService : IMillingOrderService
             WarehouseId = obj.WarehouseId,
             Reason = obj.Reason?.Trim(),
             SalesOrderId = obj.SalesOrderId,
-            YieldRateUsed = obj.YieldRateUsed,
-            TotalRiceOutputKg = obj.TotalRiceOutputKg,
+            YieldRateUsed = obj.ExpectedYield,
+            TotalRiceOutputKg = obj.TargetRiceKg,
             ComputedPaddyKg = computedPaddyKg,
-            ByproductKg = obj.ByproductKg,
-            LossKg = obj.LossKg,
-            MachineRef = obj.MachineRef?.Trim(),
-            OperatorId = obj.OperatorId,
-            StartedAt = obj.StartedAt,
             CreatedBy = obj.CreatedBy,
             CreatedDate = now
         };
 
         await _millingOrderRepository.CreateAsync(order);
-        await _millingOrderRepository.SaveChangesAsync();
-
-        // Tạo inputs
-        foreach (var inputDto in obj.Inputs)
-        {
-            var input = new MillingOrderInput
-            {
-                MillingOrderId = order.Id,
-                PaddyLotId = inputDto.PaddyLotId,
-                LocationId = inputDto.LocationId,
-                ConsumedWeightKg = inputDto.ConsumedWeightKg,
-                ReservedWeightKg = inputDto.ReservedWeightKg,
-                Note = inputDto.Note?.Trim(),
-                CreatedBy = obj.CreatedBy,
-                CreatedDate = now
-            };
-            await _inputRepository.CreateAsync(input);
-        }
-
-        // Tạo outputs
-        foreach (var outputDto in obj.Outputs)
-        {
-            var output = new MillingOrderOutput
-            {
-                MillingOrderId = order.Id,
-                ProductVariantId = outputDto.ProductVariantId,
-                LocationId = outputDto.LocationId,
-                OutputType = outputDto.OutputType.Trim().ToUpper(),
-                OutputWeightKg = outputDto.OutputWeightKg,
-                BagCount = outputDto.BagCount,
-                IsByproduct = outputDto.IsByproduct,
-                UnitCost = outputDto.UnitCost,
-                CreatedBy = obj.CreatedBy,
-                CreatedDate = now
-            };
-            await _outputRepository.CreateAsync(output);
-        }
-
         await _millingOrderRepository.SaveChangesAsync();
 
         // Thông báo cho Nhân viên xay xát và Nhân viên kho: có lệnh xay mới.
@@ -211,25 +140,21 @@ public class MillingOrderService : IMillingOrderService
 
     public async Task<ApiResponse> UpdateAsync(UpdateMillingOrderDto obj)
     {
-        var existData = await _millingOrderRepository.GetByIdAsync(obj.Id);
-        if (existData == null || existData.IsDeleted) return ApiResponse.NotFound();
+        var existData = await _millingOrderRepository
+            .FindByCondition(x => x.Id == obj.Id && !x.IsDeleted, false, x => x.Status)
+            .FirstOrDefaultAsync();
+        if (existData == null) return ApiResponse.NotFound();
 
-        var completedStatus = await _statusRepository.FirstOrDefaultAsync(x => x.Name == "Completed" && !x.IsDeleted);
-        if (completedStatus != null && existData.StatusId == completedStatus.Id)
-            return ApiResponse.UnprocessableEntity("Lệnh xay đã hoàn thành, không thể chỉnh sửa.");
+        if (existData.Status?.Code != LookupCodes.MillingOrderStatus.Draft)
+            return ApiResponse.UnprocessableEntity("Chỉ có thể chỉnh sửa lệnh xay ở trạng thái Nháp.");
 
         existData.OrganizationId = obj.OrganizationId;
         existData.WarehouseId = obj.WarehouseId;
         existData.Reason = obj.Reason?.Trim();
         existData.SalesOrderId = obj.SalesOrderId;
-        existData.YieldRateUsed = obj.YieldRateUsed;
-        existData.TotalRiceOutputKg = obj.TotalRiceOutputKg;
-        existData.ComputedPaddyKg = obj.YieldRateUsed > 0 ? obj.TotalRiceOutputKg / obj.YieldRateUsed : 0;
-        existData.ByproductKg = obj.ByproductKg;
-        existData.LossKg = obj.LossKg;
-        existData.MachineRef = obj.MachineRef?.Trim();
-        existData.OperatorId = obj.OperatorId;
-        existData.StartedAt = obj.StartedAt;
+        existData.YieldRateUsed = obj.ExpectedYield;
+        existData.TotalRiceOutputKg = obj.TargetRiceKg;
+        existData.ComputedPaddyKg = obj.ExpectedYield > 0 ? obj.TargetRiceKg / obj.ExpectedYield : 0;
         existData.UpdatedBy = obj.UpdatedBy;
         existData.LastModifiedDate = DateTimeHelper.VietnamNow();
 
@@ -258,129 +183,285 @@ public class MillingOrderService : IMillingOrderService
         return ApiResponse.Success(isDeleted);
     }
 
+    public async Task<ApiResponse> ReserveAsync(int id, ReserveMillingOrderDto dto, int userId)
+    {
+        var order = await _millingOrderRepository
+            .FindByCondition(x => x.Id == id && !x.IsDeleted, false, x => x.Status)
+            .FirstOrDefaultAsync();
+
+        if (order == null) return ApiResponse.Error("Không tìm thấy lệnh xay.", 404);
+        if (order.Status?.Code != LookupCodes.MillingOrderStatus.Draft)
+            return ApiResponse.UnprocessableEntity("Chỉ có thể giữ lúa cho lệnh xay ở trạng thái Nháp.");
+
+        var reservedStatus = await _statusRepository.FirstOrDefaultAsync(x => x.Code == LookupCodes.MillingOrderStatus.Reserved && !x.IsDeleted)
+            ?? throw new InvalidOperationException("Không tìm thấy trạng thái RESERVED.");
+
+        var now = DateTimeHelper.VietnamNow();
+
+        await using var tx = await _millingOrderRepository.BeginTransactionAsync();
+        try
+        {
+            foreach (var inputDto in dto.Inputs)
+            {
+                var lot = await _paddyLotRepository.GetByIdAsync(inputDto.PaddyLotId);
+                if (lot == null) return ApiResponse.Error($"Không tìm thấy lô lúa {inputDto.PaddyLotId}", 404);
+
+                if (lot.RemainingWeightKg < inputDto.ConsumedWeightKg)
+                    return ApiResponse.UnprocessableEntity($"Lô {lot.LotCode} không đủ lúa (còn {lot.RemainingWeightKg} kg, yêu cầu {inputDto.ConsumedWeightKg} kg).");
+
+                var targetLocationId = inputDto.LocationId ?? lot.LocationId;
+                var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
+                    lot.ProductVariantId, lot.WarehouseId, targetLocationId, lot.Id);
+
+                if (inventory == null || inventory.QuantityOnHand - inventory.QuantityReserved < inputDto.ConsumedWeightKg)
+                    return ApiResponse.UnprocessableEntity($"Lô {lot.LotCode} không đủ tồn kho khả dụng để giữ.");
+
+                // Hold inventory
+                inventory.QuantityReserved += inputDto.ConsumedWeightKg;
+                inventory.LastModifiedDate = now;
+                await _inventoryRepository.UpdateAsync(inventory);
+
+                // Create MillingOrderInput
+                var input = new MillingOrderInput
+                {
+                    MillingOrderId = order.Id,
+                    PaddyLotId = inputDto.PaddyLotId,
+                    LocationId = inputDto.LocationId,
+                    ConsumedWeightKg = inputDto.ConsumedWeightKg,
+                    ReservedWeightKg = inputDto.ConsumedWeightKg, // Same for reserve
+                    Note = inputDto.Note?.Trim(),
+                    CreatedBy = userId,
+                    CreatedDate = now
+                };
+                await _inputRepository.CreateAsync(input);
+            }
+
+            order.StatusId = reservedStatus.Id;
+            order.UpdatedBy = userId;
+            order.LastModifiedDate = now;
+            await _millingOrderRepository.UpdateAsync(order);
+
+            await _millingOrderRepository.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            return ApiResponse.Success(order.Id, "Giữ lúa thành công.");
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+    }
+
+    public async Task<ApiResponse> StartAsync(int id, int userId)
+    {
+        var order = await _millingOrderRepository
+            .FindByCondition(x => x.Id == id && !x.IsDeleted, false, x => x.Status)
+            .FirstOrDefaultAsync();
+
+        if (order == null) return ApiResponse.Error("Không tìm thấy lệnh xay.", 404);
+        if (order.Status?.Code != LookupCodes.MillingOrderStatus.Reserved)
+            return ApiResponse.UnprocessableEntity("Chỉ có thể bắt đầu lệnh xay đã được Giữ lúa.");
+
+        var inProgressStatus = await _statusRepository.FirstOrDefaultAsync(x => x.Code == LookupCodes.MillingOrderStatus.InProgress && !x.IsDeleted)
+            ?? throw new InvalidOperationException("Không tìm thấy trạng thái IN_PROGRESS.");
+
+        order.StatusId = inProgressStatus.Id;
+        order.StartedAt = DateTimeHelper.VietnamNow();
+        order.UpdatedBy = userId;
+        order.LastModifiedDate = DateTimeHelper.VietnamNow();
+
+        await _millingOrderRepository.UpdateAsync(order);
+        await _millingOrderRepository.SaveChangesAsync();
+
+        return ApiResponse.Success(order.Id, "Đã bắt đầu lệnh xay.");
+    }
+
+    public async Task<ApiResponse> CancelAsync(int id, int userId)
+    {
+        var order = await _millingOrderRepository
+            .FindByCondition(x => x.Id == id && !x.IsDeleted, false, x => x.Status, x => x.MillingOrderInputs)
+            .FirstOrDefaultAsync();
+
+        if (order == null) return ApiResponse.Error("Không tìm thấy lệnh xay.", 404);
+        
+        var currentCode = order.Status?.Code;
+        if (currentCode == LookupCodes.MillingOrderStatus.Completed || currentCode == LookupCodes.MillingOrderStatus.Cancelled)
+            return ApiResponse.UnprocessableEntity($"Không thể hủy lệnh xay ở trạng thái {currentCode}.");
+
+        var cancelStatus = await _statusRepository.FirstOrDefaultAsync(x => x.Code == LookupCodes.MillingOrderStatus.Cancelled && !x.IsDeleted)
+            ?? throw new InvalidOperationException("Không tìm thấy trạng thái CANCELLED.");
+
+        var now = DateTimeHelper.VietnamNow();
+
+        await using var tx = await _millingOrderRepository.BeginTransactionAsync();
+        try
+        {
+            // If Reserved or InProgress, we need to release QuantityReserved
+            if (currentCode == LookupCodes.MillingOrderStatus.Reserved || currentCode == LookupCodes.MillingOrderStatus.InProgress)
+            {
+                foreach (var input in order.MillingOrderInputs)
+                {
+                    var lot = await _paddyLotRepository.GetByIdAsync(input.PaddyLotId);
+                    if (lot != null)
+                    {
+                        var targetLocationId = input.LocationId ?? lot.LocationId;
+                        var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
+                            lot.ProductVariantId, lot.WarehouseId, targetLocationId, lot.Id);
+
+                        if (inventory != null)
+                        {
+                            inventory.QuantityReserved = Math.Max(0, inventory.QuantityReserved - input.ReservedWeightKg.GetValueOrDefault());
+                            inventory.LastModifiedDate = now;
+                            await _inventoryRepository.UpdateAsync(inventory);
+                        }
+                    }
+                }
+            }
+
+            order.StatusId = cancelStatus.Id;
+            order.UpdatedBy = userId;
+            order.LastModifiedDate = now;
+            await _millingOrderRepository.UpdateAsync(order);
+
+            await _millingOrderRepository.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            return ApiResponse.Success(order.Id, "Hủy lệnh xay thành công.");
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+    }
+
     /// <summary>
     /// Hoàn thành lệnh xay:
-    /// 1. Validate tồn lúa đủ cho từng input
-    /// 2. Trừ RemainingWeightKg của từng PaddyLot input
-    /// 3. Tạo InventoryTransaction EXPORT cho từng lô lúa đầu vào
-    /// 4. Sinh PaddyLot mới (RICE/BYPRODUCT) cho từng output
-    /// 5. Upsert Inventory + InventoryTransaction IMPORT cho đầu ra
-    /// 6. Cập nhật MillingOrder status = Completed
     /// </summary>
-    public async Task<ApiResponse> CompleteMillingOrderAsync(int orderId, int completedById)
+    public async Task<ApiResponse> CompleteMillingOrderAsync(int orderId, CompleteMillingOrderDto dto, int completedById)
     {
         var order = await _millingOrderRepository
             .FindByCondition(x => x.Id == orderId && !x.IsDeleted,
                 false,
+                x => x.Status,
                 x => x.MillingOrderInputs,
                 x => x.MillingOrderOutputs)
             .FirstOrDefaultAsync();
 
         if (order == null) return ApiResponse.NotFound();
 
-        var completedStatus = await _statusRepository.FirstOrDefaultAsync(x => x.Name == "Completed" && !x.IsDeleted);
-        if (completedStatus != null && order.StatusId == completedStatus.Id)
-            return ApiResponse.UnprocessableEntity("Lệnh xay đã hoàn thành trước đó.");
+        if (order.Status?.Code != LookupCodes.MillingOrderStatus.InProgress && order.Status?.Code != LookupCodes.MillingOrderStatus.Reserved)
+            return ApiResponse.UnprocessableEntity("Chỉ hoàn thành lệnh xay khi đang Xay hoặc Đã giữ lúa.");
+
+        var completedStatus = await _statusRepository.FirstOrDefaultAsync(x => x.Code == LookupCodes.MillingOrderStatus.Completed && !x.IsDeleted);
 
         var now = DateTimeHelper.VietnamNow();
 
-        // Kiểm tra cân bằng khối lượng (mass balance) trước khi chốt — dung sai 2%
         var totalConsumedKg = order.MillingOrderInputs.Sum(i => i.ConsumedWeightKg);
-        var totalProducedKg = order.MillingOrderOutputs.Sum(o => o.OutputWeightKg);
-        var lossKg = order.LossKg ?? 0;
+        var totalProducedKg = dto.Outputs.Sum(o => o.OutputWeightKg);
+        var lossKg = dto.LossKg ?? 0;
         var massBalanceTolerance = totalConsumedKg * 0.02m;
+        
         if (totalConsumedKg > 0 && (totalProducedKg + lossKg) > (totalConsumedKg + massBalanceTolerance))
         {
             return ApiResponse.UnprocessableEntity(
                 $"Mass balance không hợp lệ: Tổng đầu ra ({totalProducedKg} kg) + Hao hụt ({lossKg} kg) " +
-                $"vượt quá tổng lúa đầu vào ({totalConsumedKg} kg) ± 2% dung sai. " +
-                "Vui lòng kiểm tra lại số liệu trước khi hoàn thành lệnh xay.");
+                $"vượt quá tổng lúa đầu vào ({totalConsumedKg} kg) ± 2% dung sai.");
         }
 
         await using var tx = await _millingOrderRepository.BeginTransactionAsync();
         try
         {
-            // 1. Tính toán giá vật liệu đầu vào (lúa thô) và validate
             decimal totalMaterialCost = 0;
             foreach (var input in order.MillingOrderInputs)
             {
                 var lot = await _paddyLotRepository.GetByIdAsync(input.PaddyLotId);
-                if (lot == null) return ApiResponse.NotFound(message: $"Không tìm thấy lô lúa Id={input.PaddyLotId}.");
+                if (lot == null) return ApiResponse.Error($"Không tìm thấy lô lúa Id={input.PaddyLotId}.", 404);
 
-                // Validate: Đảm bảo lượng lúa còn lại trong lô hàng lớn hơn hoặc bằng lượng cần tiêu thụ
                 if (lot.RemainingWeightKg < input.ConsumedWeightKg)
                     return ApiResponse.UnprocessableEntity(
                         $"Lô {lot.LotCode}: tồn kho lúa ({lot.RemainingWeightKg} kg) không đủ để xay ({input.ConsumedWeightKg} kg).");
 
                 totalMaterialCost += input.ConsumedWeightKg * lot.CostPricePerKg;
 
-                // TIÊU HAO NGUYÊN LIỆU (PaddyLot):
-                // - Trừ trực tiếp khối lượng tiêu hao vào trường RemainingWeightKg của thực thể lô nguyên liệu.
                 lot.RemainingWeightKg -= input.ConsumedWeightKg;
                 lot.LastModifiedDate = now;
                 await _paddyLotRepository.UpdateAsync(lot);
 
-                // TIÊU HAO NGUYÊN LIỆU (Inventory & InventoryTransaction):
-                // - Gọi helper ExportLotInventoryAsync để thực hiện trừ QuantityOnHand vật lý trong kho kệ.
-                // - Việc này đảm bảo cả hai bảng đều được giảm đồng thời và khớp số liệu.
-                await ExportLotInventoryAsync(lot, input.LocationId, input.ConsumedWeightKg, orderId, input.Id, completedById, now);
+                // Export physical inventory AND release reservation
+                var targetLocationId = input.LocationId ?? lot.LocationId;
+                var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
+                    lot.ProductVariantId, lot.WarehouseId, targetLocationId, lot.Id);
+
+                if (inventory == null || inventory.QuantityOnHand < input.ConsumedWeightKg)
+                    throw new InvalidOperationException($"Không đủ tồn kho vật lý lô {lot.LotCode}");
+
+                var before = inventory.QuantityOnHand;
+                inventory.QuantityOnHand -= input.ConsumedWeightKg;
+                inventory.QuantityReserved = Math.Max(0, inventory.QuantityReserved - input.ReservedWeightKg.GetValueOrDefault());
+                inventory.LastModifiedDate = now;
+                await _inventoryRepository.UpdateAsync(inventory);
+
+                var invTx = new InventoryTransaction
+                {
+                    InventoryId = inventory.Id,
+                    WarehouseId = lot.WarehouseId,
+                    LocationId = targetLocationId,
+                    ProductVariantId = lot.ProductVariantId,
+                    TransactionType = InventoryTransactionTypeConstants.Export,
+                    ReferenceType = InventoryReferenceTypeConstants.MillingOrder,
+                    ReferenceId = orderId,
+                    ReferenceItemId = input.Id,
+                    Quantity = -input.ConsumedWeightKg,
+                    BeforeQuantity = before,
+                    AfterQuantity = inventory.QuantityOnHand,
+                    WeightKg = input.ConsumedWeightKg,
+                    Note = $"Xay lúa lô {lot.LotCode}",
+                    CreatedDate = now,
+                    CreatedBy = completedById
+                };
+                await _inventoryTransactionRepository.CreateAsync(invTx);
             }
 
             await _paddyLotRepository.SaveChangesAsync();
 
-            // Tính toán giá vốn phân bổ đầu ra theo nguyên tắc kế toán:
-            // Tổng giá trị cần phân bổ = Tổng giá vốn lúa thô + Chi phí gia công (order.TotalCost)
             decimal totalCostToAllocate = totalMaterialCost + (order.TotalCost ?? 0);
-
-            decimal explicitlyAssignedCost = 0;
-            decimal remainingWeightToAllocate = 0;
-            foreach (var output in order.MillingOrderOutputs)
-            {
-                if (output.UnitCost.HasValue)
-                {
-                    explicitlyAssignedCost += output.OutputWeightKg * output.UnitCost.Value;
-                }
-                else
-                {
-                    remainingWeightToAllocate += output.OutputWeightKg;
-                }
-            }
-
+            decimal explicitlyAssignedCost = dto.Outputs.Where(x => x.UnitCost.HasValue).Sum(x => x.OutputWeightKg * x.UnitCost.Value);
+            decimal remainingWeightToAllocate = dto.Outputs.Where(x => !x.UnitCost.HasValue).Sum(x => x.OutputWeightKg);
             decimal remainingCost = Math.Max(0, totalCostToAllocate - explicitlyAssignedCost);
             decimal defaultUnitCost = remainingWeightToAllocate > 0 ? remainingCost / remainingWeightToAllocate : 0;
 
-            // 4 & 5 — Sinh lô mới và nhập kho cho từng output
-            var defaultLotStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => !x.IsDeleted)
-                ?? throw new InvalidOperationException("Không tìm thấy LotStatus.");
+            var defaultLotStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.InStock && !x.IsDeleted)
+                ?? throw new InvalidOperationException("Không tìm thấy LotStatus 'IN_STOCK'.");
 
             var datePart = now.ToString("yyyyMMdd");
+            decimal totalActualRice = 0;
 
-            foreach (var output in order.MillingOrderOutputs)
+            foreach (var outputDto in dto.Outputs)
             {
-                var lotType = output.IsByproduct ? "BYPRODUCT" : "RICE";
+                if (!outputDto.IsByproduct) totalActualRice += outputDto.OutputWeightKg;
+
+                var lotType = outputDto.IsByproduct ? "BYPRODUCT" : "RICE";
                 var baseCode = $"LOT-{lotType}-{datePart}";
-                var count = await _paddyLotRepository
-                    .FindByCondition(x => x.LotCode.StartsWith(baseCode))
-                    .CountAsync();
+                var count = await _paddyLotRepository.FindByCondition(x => x.LotCode.StartsWith(baseCode)).CountAsync();
                 var lotCode = $"{baseCode}-{(count + 1):D4}";
 
-                var unitCost = output.UnitCost ?? defaultUnitCost;
+                var unitCost = outputDto.UnitCost ?? defaultUnitCost;
 
-                // 4. SINH LÔ GẠO THÀNH PHẨM MỚI (PaddyLot):
-                // - Đặt RemainingWeightKg (khối lượng còn lại) bằng khối lượng thành phẩm thu hồi (OutputWeightKg).
                 var newLot = new PaddyLot
                 {
                     OrganizationId = order.OrganizationId,
                     LotCode = lotCode,
                     LotType = lotType,
-                    ProductVariantId = output.ProductVariantId,
+                    ProductVariantId = outputDto.ProductVariantId,
                     StatusId = defaultLotStatus.Id,
                     SourceMillingOrderId = orderId,
                     WarehouseId = order.WarehouseId,
-                    LocationId = output.LocationId, // Gán vị trí ô kệ nếu có
+                    LocationId = outputDto.LocationId,
                     InboundDate = now,
-                    InitialWeightKg = output.OutputWeightKg,
-                    RemainingWeightKg = output.OutputWeightKg,
+                    InitialWeightKg = outputDto.OutputWeightKg,
+                    RemainingWeightKg = outputDto.OutputWeightKg,
                     CostPricePerKg = unitCost,
                     QrCode = "PL-" + Guid.NewGuid().ToString("N").ToUpper(),
                     CreatedBy = completedById,
@@ -390,22 +471,33 @@ public class MillingOrderService : IMillingOrderService
                 await _paddyLotRepository.CreateAsync(newLot);
                 await _paddyLotRepository.SaveChangesAsync();
 
-                // Liên kết OutputLotId vào MillingOrderOutput
-                output.OutputLotId = newLot.Id;
-                output.LastModifiedDate = now;
-                await _outputRepository.UpdateAsync(output);
+                var output = new MillingOrderOutput
+                {
+                    MillingOrderId = order.Id,
+                    ProductVariantId = outputDto.ProductVariantId,
+                    OutputLotId = newLot.Id,
+                    LocationId = outputDto.LocationId,
+                    OutputType = outputDto.OutputType.Trim().ToUpper(),
+                    OutputWeightKg = outputDto.OutputWeightKg,
+                    BagCount = outputDto.BagCount,
+                    IsByproduct = outputDto.IsByproduct,
+                    UnitCost = outputDto.UnitCost,
+                    CreatedBy = completedById,
+                    CreatedDate = now
+                };
+                await _outputRepository.CreateAsync(output);
+                await _outputRepository.SaveChangesAsync();
 
-                // 5. NHẬP KHO THÀNH PHẨM (Inventory & InventoryTransaction):
-                // - Gọi helper ImportOutputInventoryAsync để chèn mới hoặc cộng tăng QuantityOnHand vật lý.
-                // - Ghi nhận giao dịch nhập kho (IMPORT).
                 await ImportOutputInventoryAsync(newLot, output.OutputWeightKg, orderId, output.Id, completedById, now);
             }
 
-            // 6 — Cập nhật status lệnh xay
-            if (completedStatus != null)
-            {
-                order.StatusId = completedStatus.Id;
-            }
+            if (completedStatus != null) order.StatusId = completedStatus.Id;
+            order.YieldRateUsed = dto.ActualYieldRate > 0 ? dto.ActualYieldRate : (totalConsumedKg > 0 ? totalActualRice / totalConsumedKg : 0);
+            order.TotalRiceOutputKg = totalActualRice;
+            order.ByproductKg = dto.ByproductKg;
+            order.LossKg = dto.LossKg;
+            order.MachineRef = dto.MachineRef;
+            order.OperatorId = dto.OperatorId;
             order.CompletedAt = now;
             order.UpdatedBy = completedById;
             order.LastModifiedDate = now;
@@ -413,9 +505,8 @@ public class MillingOrderService : IMillingOrderService
             await _millingOrderRepository.UpdateAsync(order);
             await _millingOrderRepository.SaveChangesAsync();
 
-            await _millingOrderRepository.EndTransactionAsync();
+            await tx.CommitAsync();
 
-            // Thông báo cho Chủ kho, Nhân viên kho và Nhân viên bán hàng: xay hoàn tất, gạo đã nhập kho.
             await _notificationDispatcher.DispatchAsync(
                 NotificationConstants.Code.MillingCompleted,
                 new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.OWNER, CommonConstants.Role.WAREHOUSE, CommonConstants.Role.SALES } },
@@ -423,60 +514,21 @@ public class MillingOrderService : IMillingOrderService
                 "/admin/milling-orders",
                 completedById);
 
-            return ApiResponse.Success(new { OrderId = orderId }, "Hoàn thành lệnh xay. Đã sinh lô gạo/phụ phẩm và cập nhật tồn kho.");
+            return ApiResponse.Success(new { OrderId = orderId }, "Hoàn thành lệnh xay.");
         }
         catch (InvalidOperationException ex)
         {
-            await _millingOrderRepository.RollbackTransactionAsync();
+            await tx.RollbackAsync();
             return ApiResponse.UnprocessableEntity(ex.Message);
         }
         catch
         {
-            await _millingOrderRepository.RollbackTransactionAsync();
+            await tx.RollbackAsync();
             throw;
         }
     }
 
     // ── Private helpers ─────────────────────────────────────────────────────
-
-    private async Task ExportLotInventoryAsync(PaddyLot lot, int? inputLocationId, decimal qty, int orderId, int inputId, int userId, DateTime now)
-    {
-        var targetLocationId = inputLocationId ?? lot.LocationId;
-        var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
-            lot.ProductVariantId, lot.WarehouseId, targetLocationId, lot.Id);
-
-        if (inventory == null || inventory.QuantityOnHand < qty)
-        {
-            throw new InvalidOperationException($"Lô lúa {lot.LotCode} không đủ tồn kho vật lý tại kho {lot.WarehouseId} và ô kệ {targetLocationId} (chỉ còn {inventory?.QuantityOnHand ?? 0} kg) để thực hiện xuất {qty} kg.");
-        }
-
-        var before = inventory.QuantityOnHand;
-        inventory.QuantityOnHand = Math.Max(0, inventory.QuantityOnHand - qty);
-        inventory.LastModifiedDate = now;
-        await _inventoryRepository.UpdateAsync(inventory);
-
-        var tx = new InventoryTransaction
-        {
-            InventoryId = inventory.Id,
-            WarehouseId = lot.WarehouseId,
-            LocationId = targetLocationId,
-            ProductVariantId = lot.ProductVariantId,
-            TransactionType = InventoryTransactionTypeConstants.Export,
-            ReferenceType = InventoryReferenceTypeConstants.MillingOrder,
-            ReferenceId = orderId,
-            ReferenceItemId = inputId,
-            Quantity = -qty,
-            BeforeQuantity = before,
-            AfterQuantity = inventory.QuantityOnHand,
-            WeightKg = qty,
-            Note = $"Xay lúa lô {lot.LotCode}",
-            CreatedDate = now,
-            CreatedBy = userId
-        };
-
-        await _inventoryTransactionRepository.CreateAsync(tx);
-        await _inventoryTransactionRepository.SaveChangesAsync();
-    }
 
     private async Task ImportOutputInventoryAsync(PaddyLot lot, decimal qty, int orderId, int outputId, int userId, DateTime now)
     {

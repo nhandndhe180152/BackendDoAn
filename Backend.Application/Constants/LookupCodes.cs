@@ -23,6 +23,15 @@ public static class LookupCodes
         public const string Rejected = "Rejected";
     }
 
+    public static class MillingOrderStatus
+    {
+        public const string Draft = "DRAFT";
+        public const string Reserved = "RESERVED";
+        public const string InProgress = "IN_PROGRESS";
+        public const string Completed = "COMPLETED";
+        public const string Cancelled = "CANCELLED";
+    }
+
     public static class Role
     {
         // Bộ vai trò theo tài liệu nghiệp vụ (Report 1 - Vision & Scope, Table 6):
@@ -33,6 +42,15 @@ public static class LookupCodes
         public const string Warehouse = "WAREHOUSE";   // Nhân viên kho
         public const string Milling = "MILLING";       // Nhân viên xay xát
         public const string Sales = "SALES";           // Nhân viên bán hàng
+
+        // Legacy roles (from stashed changes)
+        public const string EndUser = "END_USER";
+        public const string Driver = "DRIVER";
+        public const string Dispatcher = "DISPATCHER";
+        public const string Executive = "EXECUTIVE";
+        public const string WarehouseOwner = "WAREHOUSE_OWNER";
+        public const string WarehouseStaff = "WAREHOUSE_STAFF";
+        public const string SalesStaff = "SALES_STAFF";
     }
 
     public static class Action
@@ -43,5 +61,30 @@ public static class LookupCodes
         public const string Delete = "DELETE";
         public const string Export = "EXPORT";
         public const string Approve = "APPROVE";
+        public const string Confirm = "CONFIRM";
+        public const string Cancel = "CANCEL";
+        public const string Preview = "PREVIEW";
+        public const string Inspect = "INSPECT";
+    }
+
+    public static class PartyType
+    {
+        public const string Customer = "CUSTOMER";
+        public const string Supplier = "SUPPLIER";
+        public const string Farmer = "FARMER";
+    }
+
+    public static class DebtDirection
+    {
+        public const string Receivable = "RECEIVABLE";
+        public const string Payable = "PAYABLE";
+    }
+
+    public static class DebtTransactionType
+    {
+        public const string ReturnCredit = "RETURN_CREDIT";
+        public const string RefundPayable = "REFUND_PAYABLE";
+        public const string SaleCharge = "SALE_CHARGE";
+        public const string Payment = "PAYMENT";
     }
 }

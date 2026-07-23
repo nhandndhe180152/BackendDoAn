@@ -21,8 +21,5 @@ public interface ISalesOrderService
     Task<ApiResponse> CancelAsync(int id);
 
     /// <summary>Tạo OutboundOrder từ SalesOrder (RESERVED/PREPARING → PREPARING + OutboundOrder DRAFT)</summary>
-    Task<ApiResponse> CreateOutboundAsync(int id);
-
-    /// <summary>H1: Xác nhận giao hàng hoàn tất — DELIVERING → Hoàn tất. Cho phép Dashboard dịch vụ ghi nhận doanh thu.</summary>
-    Task<ApiResponse> CompleteDeliveryAsync(int id);
+    Task<ApiResponse> CreateOutboundAsync(int id, CreateOutboundDto dto);
 }

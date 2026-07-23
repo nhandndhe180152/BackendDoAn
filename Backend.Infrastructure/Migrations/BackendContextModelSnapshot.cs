@@ -463,11 +463,22 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<int?>("ApprovedBy")
                         .HasColumnType("int");
 
+                    b.Property<decimal>("ApprovedCreditAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("decimal(18,2)")
+                        .HasDefaultValue(0m);
+
                     b.Property<DateTime?>("ApprovedDate")
                         .HasColumnType("datetime(6)");
 
                     b.Property<DateTime?>("CompletedDate")
                         .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("ConfirmedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("ConfirmedByUserId")
+                        .HasColumnType("int");
 
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
@@ -481,6 +492,11 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<int>("CustomerReturnOrderStatusId")
                         .HasColumnType("int");
 
+                    b.Property<decimal>("DebtReductionAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("decimal(18,2)")
+                        .HasDefaultValue(0m);
+
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("tinyint(1)");
 
@@ -491,8 +507,16 @@ namespace Backend.Infrastructure.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("varchar(1000)");
 
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("int");
+
                     b.Property<int?>("OutboundOrderId")
                         .HasColumnType("int");
+
+                    b.Property<decimal>("RefundPendingAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("decimal(18,2)")
+                        .HasDefaultValue(0m);
 
                     b.Property<string>("ReturnCode")
                         .IsRequired()
@@ -513,9 +537,13 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasIndex("ApprovedBy");
 
+                    b.HasIndex("ConfirmedByUserId");
+
                     b.HasIndex("CustomerId");
 
                     b.HasIndex("CustomerReturnOrderStatusId");
+
+                    b.HasIndex("OrganizationId");
 
                     b.HasIndex("OutboundOrderId");
 
@@ -570,14 +598,14 @@ namespace Backend.Infrastructure.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("varchar(30)");
 
-                    b.Property<int>("QuantityDamaged")
-                        .HasColumnType("int");
+                    b.Property<decimal>("QuantityDamaged")
+                        .HasColumnType("decimal(18,3)");
 
-                    b.Property<int>("QuantityGood")
-                        .HasColumnType("int");
+                    b.Property<decimal>("QuantityGood")
+                        .HasColumnType("decimal(18,3)");
 
-                    b.Property<int>("QuantityReturned")
-                        .HasColumnType("int");
+                    b.Property<decimal>("QuantityReturned")
+                        .HasColumnType("decimal(18,3)");
 
                     b.Property<int?>("QuarantineLocationId")
                         .HasColumnType("int");
@@ -601,6 +629,97 @@ namespace Backend.Infrastructure.Migrations
                     b.ToTable("CustomerReturnOrderItem", (string)null);
                 });
 
+            modelBuilder.Entity("Backend.Domain.Entities.CustomerReturnOrderItemAllocation", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<decimal>("CreditAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("CreditQuantity")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<int>("CustomerReturnOrderItemId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<int?>("OriginalLocationId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("OutboundOrderItemAllocationId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PaddyLotId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ProductVariantId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("QuantityDamaged")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<decimal>("QuantityGood")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<decimal>("QuantityRejected")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<decimal>("QuantityReturned")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<int?>("QuarantineLocationId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("RestockLocationId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("UnitCreditPrice")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerReturnOrderItemId")
+                        .HasDatabaseName("IX_CustomerReturnAllocation_ReturnItem");
+
+                    b.HasIndex("OriginalLocationId");
+
+                    b.HasIndex("OutboundOrderItemAllocationId")
+                        .HasDatabaseName("IX_CustomerReturnAllocation_OutboundAllocation");
+
+                    b.HasIndex("PaddyLotId")
+                        .HasDatabaseName("IX_CustomerReturnAllocation_PaddyLot");
+
+                    b.HasIndex("ProductVariantId");
+
+                    b.HasIndex("QuarantineLocationId");
+
+                    b.HasIndex("RestockLocationId");
+
+                    b.ToTable("CustomerReturnOrderItemAllocation", (string)null);
+                });
+
             modelBuilder.Entity("Backend.Domain.Entities.CustomerReturnOrderStatus", b =>
                 {
                     b.Property<int>("Id")
@@ -608,6 +727,11 @@ namespace Backend.Infrastructure.Migrations
                         .HasColumnType("int");
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
 
                     b.Property<string>("Color")
                         .IsRequired()
@@ -636,7 +760,58 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("UX_CustomerReturnOrderStatus_Code");
+
                     b.ToTable("CustomerReturnOrderStatus", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Code = "DRAFT",
+                            Color = "#6B7280",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Nháp"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Code = "APPROVED",
+                            Color = "#3B82F6",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Đã duyệt"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Code = "INSPECTED",
+                            Color = "#F59E0B",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Đã kiểm định"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Code = "CONFIRMED",
+                            Color = "#10B981",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Đã nhận lại hàng"
+                        },
+                        new
+                        {
+                            Id = 5,
+                            Code = "CANCELLED",
+                            Color = "#EF4444",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "Đã hủy"
+                        });
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.DebtTransaction", b =>
@@ -658,6 +833,10 @@ namespace Backend.Infrastructure.Migrations
 
                     b.Property<DateTime>("CreatedDate")
                         .HasColumnType("datetime(6)");
+
+                    b.Property<string>("DeduplicationKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)");
 
                     b.Property<DateTime?>("DueDate")
                         .HasColumnType("datetime(6)");
@@ -694,6 +873,10 @@ namespace Backend.Infrastructure.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DeduplicationKey")
+                        .IsUnique()
+                        .HasDatabaseName("UX_DebtTransaction_DeduplicationKey");
 
                     b.HasIndex("PartyDebtId")
                         .HasDatabaseName("IX_DebtTransaction_PartyDebtId");
@@ -1905,6 +2088,11 @@ namespace Backend.Infrastructure.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
                     b.Property<string>("Color")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -1938,6 +2126,7 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 1,
+                            Code = "DRAFT",
                             Color = "#6B7280",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -1946,6 +2135,7 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 2,
+                            Code = "RESERVED",
                             Color = "#3B82F6",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -1954,6 +2144,7 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 3,
+                            Code = "IN_PROGRESS",
                             Color = "#F59E0B",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -1961,15 +2152,8 @@ namespace Backend.Infrastructure.Migrations
                         },
                         new
                         {
-                            Id = 4,
-                            Color = "#8B5CF6",
-                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
-                            IsDeleted = false,
-                            Name = "Chờ nhập thành phẩm"
-                        },
-                        new
-                        {
                             Id = 5,
+                            Code = "COMPLETED",
                             Color = "#10B981",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -1978,6 +2162,7 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 6,
+                            Code = "CANCELLED",
                             Color = "#EF4444",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -2304,6 +2489,10 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedDate")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<string>("DeliveryNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("tinyint(1)");
 
@@ -2320,8 +2509,19 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<int>("OutboundOrderStatusId")
                         .HasColumnType("int");
 
+                    b.Property<string>("ProofImageUrl")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<string>("ReceiverName")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
                     b.Property<int>("SalesOrderId")
                         .HasColumnType("int");
+
+                    b.Property<decimal>("TotalDispatchedSaleValue")
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<decimal>("TotalDispatchedValue")
                         .HasColumnType("decimal(18,2)");
@@ -2563,6 +2763,14 @@ namespace Backend.Infrastructure.Migrations
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
                             Name = "CANCELLED"
+                        },
+                        new
+                        {
+                            Id = 7,
+                            Color = "#EF4444",
+                            CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsDeleted = false,
+                            Name = "DELIVERY_FAILED"
                         });
                 });
 
@@ -5556,6 +5764,11 @@ namespace Backend.Infrastructure.Migrations
                         .HasForeignKey("ApprovedBy")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("Backend.Domain.Entities.User", "ConfirmedByUser")
+                        .WithMany()
+                        .HasForeignKey("ConfirmedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Backend.Domain.Entities.Customer", "Customer")
                         .WithMany()
                         .HasForeignKey("CustomerId")
@@ -5566,6 +5779,11 @@ namespace Backend.Infrastructure.Migrations
                         .HasForeignKey("CustomerReturnOrderStatusId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Backend.Domain.Entities.OutboundOrder", "OutboundOrder")
                         .WithMany()
@@ -5580,9 +5798,13 @@ namespace Backend.Infrastructure.Migrations
 
                     b.Navigation("ApprovedByUser");
 
+                    b.Navigation("ConfirmedByUser");
+
                     b.Navigation("Customer");
 
                     b.Navigation("CustomerReturnOrderStatus");
+
+                    b.Navigation("Organization");
 
                     b.Navigation("OutboundOrder");
 
@@ -5613,6 +5835,62 @@ namespace Backend.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("CustomerReturnOrder");
+
+                    b.Navigation("ProductVariant");
+
+                    b.Navigation("QuarantineLocation");
+
+                    b.Navigation("RestockLocation");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.CustomerReturnOrderItemAllocation", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.CustomerReturnOrderItem", "CustomerReturnOrderItem")
+                        .WithMany("Allocations")
+                        .HasForeignKey("CustomerReturnOrderItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Location", "OriginalLocation")
+                        .WithMany()
+                        .HasForeignKey("OriginalLocationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Domain.Entities.OutboundOrderItemAllocation", "OutboundOrderItemAllocation")
+                        .WithMany()
+                        .HasForeignKey("OutboundOrderItemAllocationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.PaddyLot", "PaddyLot")
+                        .WithMany()
+                        .HasForeignKey("PaddyLotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
+                        .WithMany()
+                        .HasForeignKey("ProductVariantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Location", "QuarantineLocation")
+                        .WithMany()
+                        .HasForeignKey("QuarantineLocationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Domain.Entities.Location", "RestockLocation")
+                        .WithMany()
+                        .HasForeignKey("RestockLocationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CustomerReturnOrderItem");
+
+                    b.Navigation("OriginalLocation");
+
+                    b.Navigation("OutboundOrderItemAllocation");
+
+                    b.Navigation("PaddyLot");
 
                     b.Navigation("ProductVariant");
 
@@ -6833,6 +7111,11 @@ namespace Backend.Infrastructure.Migrations
             modelBuilder.Entity("Backend.Domain.Entities.CustomerReturnOrder", b =>
                 {
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.CustomerReturnOrderItem", b =>
+                {
+                    b.Navigation("Allocations");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.DeliveryNote", b =>

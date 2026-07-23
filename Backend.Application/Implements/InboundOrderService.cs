@@ -119,8 +119,9 @@ public class InboundOrderService : IInboundOrderService
 
     public async Task<ApiResponse> GetPagedAsync(SearchQuery query)
     {
-        var data = _inboundOrderRepository
-            .FindByCondition(x => !x.IsDeleted, false, x => x.Warehouse, x => x.Supplier, x => x.InboundOrderStatus);
+        IQueryable<InboundOrder> data = _inboundOrderRepository
+            .FindByCondition(x => !x.IsDeleted, false, x => x.Warehouse, x => x.Supplier, x => x.InboundOrderStatus)
+            .Include(x => x.PaddyPurchaseReceipt).ThenInclude(r => r.Farmer);
 
         if (!string.IsNullOrEmpty(query.Keyword))
         {
@@ -169,6 +170,10 @@ public class InboundOrderService : IInboundOrderService
 
         var query = _inboundOrderRepository
             .FindByCondition(x => !x.IsDeleted, false)
+            .Include(x => x.Supplier)
+            .Include(x => x.Warehouse)
+            .Include(x => x.InboundOrderStatus)
+            .Include(x => x.PaddyPurchaseReceipt).ThenInclude(r => r.Farmer)
             .Select(x => new InboundOrderListDto
             {
                 Id = x.Id,
@@ -176,7 +181,7 @@ public class InboundOrderService : IInboundOrderService
                 WarehouseId = x.WarehouseId,
                 WarehouseName = x.Warehouse.Name,
                 SupplierId = x.SupplierId,
-                SupplierName = x.Supplier != null ? x.Supplier.Name : null,
+                SupplierName = x.SourceType == "RECEIPT" && x.PaddyPurchaseReceipt != null && x.PaddyPurchaseReceipt.Farmer != null ? x.PaddyPurchaseReceipt.Farmer.Name : (x.Supplier != null ? x.Supplier.Name : null),
                 InboundOrderStatusId = x.InboundOrderStatusId,
                 InboundOrderStatusName = x.InboundOrderStatus.Name,
                 TotalAssetValue = x.TotalAssetValue,
@@ -296,14 +301,16 @@ public class InboundOrderService : IInboundOrderService
 
     public async Task<ApiResponse> GetByIdAsync(int id)
     {
-        var order = await _inboundOrderRepository.FirstOrDefaultAsync(
+        var order = await _inboundOrderRepository.FindByCondition(
             x => x.Id == id && !x.IsDeleted,
             false,
             x => x.Warehouse,
             x => x.Supplier,
             x => x.InboundOrderStatus,
             x => x.InboundOrderItems
-        );
+        )
+        .Include(x => x.PaddyPurchaseReceipt).ThenInclude(r => r.Farmer)
+        .FirstOrDefaultAsync();
 
         if (order == null)
             return ApiResponse.NotFound("Không tìm thấy InboundOrder.", ApiCodeConstants.Common.NotFound);

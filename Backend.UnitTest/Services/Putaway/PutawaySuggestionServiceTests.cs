@@ -454,6 +454,11 @@ public class PutawaySuggestionServiceTests
                 It.IsAny<Expression<Func<PaddyPurchaseReceipt, object>>[]>()))
             .Returns(new List<PaddyPurchaseReceipt> { receipt }.AsQueryable().BuildMock());
 
+        inboundOrderRepoMock.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<Backend.Domain.Entities.InboundOrder, bool>>>(), 
+                It.IsAny<bool>()))
+            .Returns(new List<Backend.Domain.Entities.InboundOrder>().AsQueryable().BuildMock());
+
         paddyLotRepoMock.Setup(r => r.AnyAsync(It.IsAny<Expression<Func<Backend.Domain.Entities.PaddyLot, bool>>>()))
             .ReturnsAsync(false);
 
@@ -534,7 +539,7 @@ public class PutawaySuggestionServiceTests
 
         var res = await service.ConfirmReceiptAsync(10, 1);
 
-        res.IsSucceeded.Should().BeTrue();
+        res.IsSucceeded.Should().BeTrue(res.Message);
         // Verify buffer inventory was created/saved
         inventoryRepoMock.Verify(r => r.CreateAsync(It.Is<Backend.Domain.Entities.Inventory>(i => i.LocationId == null && i.QuantityOnHand == 1000)), Times.Once);
         // Verify update schedule status was called to transition schedule status to WEIGHED (4)

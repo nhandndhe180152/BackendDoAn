@@ -155,6 +155,7 @@ public class SalesOrderOutboundSummaryDto
     public int OutboundStatusId { get; set; }
     public string OutboundStatusName { get; set; } = null!;
     public decimal TotalDispatchedValue { get; set; }
+    public decimal TotalDispatchedSaleValue { get; set; }
     public DateTime? CompletedDate { get; set; }
 }
 

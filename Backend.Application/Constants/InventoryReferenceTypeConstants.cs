@@ -17,6 +17,7 @@ public static class InventoryReferenceTypeConstants
     public const string SalesOrder     = "SALES_ORDER";      // đối chiếu tồn theo đơn bán
     public const string PurchaseOrder  = "PURCHASE_ORDER";   // đối chiếu tồn theo đơn mua (non-paddy)
     public const string StockTransfer  = "STOCK_TRANSFER";   // điều chuyển nội bộ giữa kho
+    public const string CustomerReturnOrder = "CUSTOMER_RETURN_ORDER"; // nhập lại kho do trả hàng
 
     public static readonly string[] All =
     [

@@ -54,6 +54,7 @@ public interface IApplicationDbContext
     DbSet<CustomerReturnOrder> CustomerReturnOrders { get; }
     DbSet<CustomerReturnOrderItem> CustomerReturnOrderItems { get; }
     DbSet<CustomerReturnOrderStatus> CustomerReturnOrderStatuses { get; }
+    DbSet<CustomerReturnOrderItemAllocation> CustomerReturnOrderItemAllocations { get; }
     DbSet<ReturnToSupplierOrder> ReturnToSupplierOrders { get; }
     DbSet<ReturnToSupplierOrderItem> ReturnToSupplierOrderItems { get; }
     DbSet<ReturnToSupplierOrderStatus> ReturnToSupplierOrderStatuses { get; }
@@ -94,4 +95,5 @@ public interface IApplicationDbContext
     DatabaseFacade Database { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+    Task<int> ExecuteSqlRawAsync(string sql, object[] parameters, CancellationToken cancellationToken = default);
 }

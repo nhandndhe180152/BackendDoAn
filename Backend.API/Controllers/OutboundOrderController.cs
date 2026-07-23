@@ -61,9 +61,9 @@ public class OutboundOrderController : BaseController
     /// Xác nhận đóng gói xong → PACKED. Validate tất cả items đã pick đủ.
     /// </summary>
     [HttpPost("{id}/confirm-packing")]
-    public async Task<IActionResult> ConfirmPackingAsync(int id)
+    public async Task<IActionResult> ConfirmPackingAsync(int id, [FromBody] Backend.Application.DTOs.OutboundOrders.ConfirmPackingDto dto)
     {
-        var result = await _outboundOrderService.ConfirmPackingAsync(id);
+        var result = await _outboundOrderService.ConfirmPackingAsync(id, dto);
         return BaseResult(result);
     }
 
@@ -76,6 +76,26 @@ public class OutboundOrderController : BaseController
     public async Task<IActionResult> ConfirmDispatchAsync(int id, [FromBody] ConfirmDispatchDto dto)
     {
         var result = await _outboundOrderService.ConfirmDispatchAsync(id, dto);
+        return BaseResult(result);
+    }
+
+    /// <summary>
+    /// Xác nhận giao hàng thành công (DISPATCHED → COMPLETED).
+    /// </summary>
+    [HttpPost("{id}/complete-delivery")]
+    public async Task<IActionResult> CompleteDeliveryAsync(int id, [FromBody] CompleteDeliveryDto dto)
+    {
+        var result = await _outboundOrderService.CompleteDeliveryAsync(id, dto);
+        return BaseResult(result);
+    }
+
+    /// <summary>
+    /// Xác nhận giao hàng thất bại (DISPATCHED → DELIVERY_FAILED).
+    /// </summary>
+    [HttpPost("{id}/fail-delivery")]
+    public async Task<IActionResult> FailDeliveryAsync(int id, [FromBody] FailDeliveryDto dto)
+    {
+        var result = await _outboundOrderService.FailDeliveryAsync(id, dto);
         return BaseResult(result);
     }
 

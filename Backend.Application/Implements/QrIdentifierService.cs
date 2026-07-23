@@ -71,7 +71,7 @@ public class QrIdentifierService : IQrIdentifierService
 
         if (string.IsNullOrWhiteSpace(lot.QrImageUrl))
         {
-            var payload = $"STOCKLITE|1|PADDY_LOT|{lot.QrCode}";
+            var payload = $"STOCKLITE|{lot.WarehouseId}|PADDY_LOT|{lot.QrCode}";
             lot.QrImageUrl = await UploadQrCodeToCloudinaryAsync(payload, $"paddylot-qr-{lot.Id}.png", cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
         }
@@ -82,7 +82,7 @@ public class QrIdentifierService : IQrIdentifierService
             EntityId = lot.Id,
             DisplayCode = lot.LotCode,
             QrCode = lot.QrCode,
-            QrPayload = $"STOCKLITE|1|PADDY_LOT|{lot.QrCode}",
+            QrPayload = $"STOCKLITE|{lot.WarehouseId}|PADDY_LOT|{lot.QrCode}",
             Created = created,
             QrImageUrl = lot.QrImageUrl,
             LabelUrl = $"/api/v1/paddy-lots/{lot.Id}/label"
@@ -130,7 +130,7 @@ public class QrIdentifierService : IQrIdentifierService
 
         if (string.IsNullOrWhiteSpace(loc.QrImageUrl))
         {
-            var payload = $"STOCKLITE|1|LOCATION|{loc.QrCode}";
+            var payload = $"STOCKLITE|{loc.WarehouseId}|LOCATION|{loc.QrCode}";
             loc.QrImageUrl = await UploadQrCodeToCloudinaryAsync(payload, $"location-qr-{loc.Id}.png", cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
         }
@@ -141,7 +141,7 @@ public class QrIdentifierService : IQrIdentifierService
             EntityId = loc.Id,
             DisplayCode = FormatLocationCode(loc),
             QrCode = loc.QrCode,
-            QrPayload = $"STOCKLITE|1|LOCATION|{loc.QrCode}",
+            QrPayload = $"STOCKLITE|{loc.WarehouseId}|LOCATION|{loc.QrCode}",
             Created = created,
             QrImageUrl = loc.QrImageUrl,
             LabelUrl = $"/api/v1/location/{loc.Id}/label"
@@ -191,7 +191,7 @@ public class QrIdentifierService : IQrIdentifierService
         }
 
         // Generate and upload the new QR image to Cloudinary
-        var newPayload = $"STOCKLITE|1|PADDY_LOT|{newCode}";
+        var newPayload = $"STOCKLITE|{lot.WarehouseId}|PADDY_LOT|{newCode}";
         lot.QrImageUrl = await UploadQrCodeToCloudinaryAsync(newPayload, $"paddylot-qr-{lot.Id}.png", cancellationToken);
 
         // Manual audit logging for QR Code regeneration details
@@ -217,7 +217,7 @@ public class QrIdentifierService : IQrIdentifierService
             EntityId = lot.Id,
             DisplayCode = lot.LotCode,
             QrCode = lot.QrCode,
-            QrPayload = $"STOCKLITE|1|PADDY_LOT|{lot.QrCode}",
+            QrPayload = $"STOCKLITE|{lot.WarehouseId}|PADDY_LOT|{lot.QrCode}",
             Created = true,
             QrImageUrl = lot.QrImageUrl,
             LabelUrl = $"/api/v1/paddy-lots/{lot.Id}/label"
@@ -267,7 +267,7 @@ public class QrIdentifierService : IQrIdentifierService
         }
 
         // Generate and upload the new QR image to Cloudinary
-        var newPayload = $"STOCKLITE|1|LOCATION|{newCode}";
+        var newPayload = $"STOCKLITE|{loc.WarehouseId}|LOCATION|{newCode}";
         loc.QrImageUrl = await UploadQrCodeToCloudinaryAsync(newPayload, $"location-qr-{loc.Id}.png", cancellationToken);
 
         // Manual audit logging for QR Code regeneration details
@@ -293,7 +293,7 @@ public class QrIdentifierService : IQrIdentifierService
             EntityId = loc.Id,
             DisplayCode = FormatLocationCode(loc),
             QrCode = loc.QrCode,
-            QrPayload = $"STOCKLITE|1|LOCATION|{loc.QrCode}",
+            QrPayload = $"STOCKLITE|{loc.WarehouseId}|LOCATION|{loc.QrCode}",
             Created = true,
             QrImageUrl = loc.QrImageUrl,
             LabelUrl = $"/api/v1/location/{loc.Id}/label"

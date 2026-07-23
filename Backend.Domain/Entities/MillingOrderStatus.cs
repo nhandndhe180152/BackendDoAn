@@ -7,6 +7,7 @@ namespace Backend.Domain.Entities;
 /// </summary>
 public class MillingOrderStatus : EntityAuditBase<int>
 {
+    public string Code { get; set; } = null!;
     public string Name { get; set; } = null!;
     public string Color { get; set; } = null!;
 }

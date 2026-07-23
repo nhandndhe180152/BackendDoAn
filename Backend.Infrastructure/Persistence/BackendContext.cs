@@ -68,6 +68,7 @@ public class BackendContext : DbContext, IApplicationDbContext
     public virtual DbSet<CustomerReturnOrder> CustomerReturnOrders { get; set; }
     public virtual DbSet<CustomerReturnOrderItem> CustomerReturnOrderItems { get; set; }
     public virtual DbSet<CustomerReturnOrderStatus> CustomerReturnOrderStatuses { get; set; }
+    public virtual DbSet<CustomerReturnOrderItemAllocation> CustomerReturnOrderItemAllocations { get; set; }
     public virtual DbSet<ReturnToSupplierOrder> ReturnToSupplierOrders { get; set; }
     public virtual DbSet<ReturnToSupplierOrderItem> ReturnToSupplierOrderItems { get; set; }
     public virtual DbSet<ReturnToSupplierOrderStatus> ReturnToSupplierOrderStatuses { get; set; }
@@ -190,6 +191,7 @@ public class BackendContext : DbContext, IApplicationDbContext
         modelBuilder.Entity<PurchaseOrderStatus>().HasData(PurchaseOrderStatusSeed.GetStatuses());
         modelBuilder.Entity<StockTransferStatus>().HasData(StockTransferStatusSeed.GetStatuses());
         modelBuilder.Entity<OutboundOrderStatus>().HasData(OutboundOrderStatusSeed.GetStatuses());
+        modelBuilder.Entity<CustomerReturnOrderStatus>().HasData(CustomerReturnOrderStatusSeed.GetStatuses());
         // ── RC-2 fix: Seed Product/Variant đại diện lúa/gạo/phụ phẩm ────────
         // Thứ tự quan trọng: UoM → Category → Product → Variant (theo FK chain)
         modelBuilder.Entity<UnitOfMeasure>().HasData(UnitOfMeasureSeed.GetUnits());
@@ -283,5 +285,10 @@ public class BackendContext : DbContext, IApplicationDbContext
                 loc.CurrentProductVariantId = productVariantId;
             }
         }
+    }
+
+    public async Task<int> ExecuteSqlRawAsync(string sql, object[] parameters, CancellationToken cancellationToken = default)
+    {
+        return await Database.ExecuteSqlRawAsync(sql, parameters, cancellationToken);
     }
 }

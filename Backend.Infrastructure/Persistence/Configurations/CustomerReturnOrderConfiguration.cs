@@ -47,5 +47,19 @@ public class CustomerReturnOrderConfiguration : IEntityTypeConfiguration<Custome
             .WithMany()
             .HasForeignKey(x => x.CustomerId)
             .OnDelete(DeleteBehavior.SetNull);
+
+        builder.Property(x => x.ApprovedCreditAmount).HasColumnType("decimal(18,2)").HasDefaultValue(0);
+        builder.Property(x => x.DebtReductionAmount).HasColumnType("decimal(18,2)").HasDefaultValue(0);
+        builder.Property(x => x.RefundPendingAmount).HasColumnType("decimal(18,2)").HasDefaultValue(0);
+
+        builder.HasOne(x => x.Organization)
+            .WithMany()
+            .HasForeignKey(x => x.OrganizationId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(x => x.ConfirmedByUser)
+            .WithMany()
+            .HasForeignKey(x => x.ConfirmedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

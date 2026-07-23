@@ -23,17 +23,20 @@ namespace Backend.API.Controllers
     public class PaddyLotController : BaseController
     {
         private readonly IPaddyLotService _paddyLotService;
+        private readonly IPaddyLotTraceabilityService _traceabilityService;
         private readonly IQRCodeService _qrCodeService;
         private readonly IQrIdentifierService _qrIdentifierService;
         private readonly IApplicationDbContext _context;
 
         public PaddyLotController(
             IPaddyLotService paddyLotService,
+            IPaddyLotTraceabilityService traceabilityService,
             IQRCodeService qrCodeService,
             IQrIdentifierService qrIdentifierService,
             IApplicationDbContext context)
         {
             _paddyLotService = paddyLotService;
+            _traceabilityService = traceabilityService;
             _qrCodeService = qrCodeService;
             _qrIdentifierService = qrIdentifierService;
             _context = context;
@@ -146,7 +149,7 @@ namespace Backend.API.Controllers
                 {
                     entityId  = lot.Id,
                     qrCode    = lot.QrCode,
-                    qrPayload = $"STOCKLITE|1|PADDY_LOT|{lot.QrCode}",
+                    qrPayload = $"STOCKLITE|{lot.WarehouseId}|PADDY_LOT|{lot.QrCode}",
                     qrImageUrl = lot.QrImageUrl
                 }));
             }
@@ -177,6 +180,50 @@ namespace Backend.API.Controllers
             {
                 return BadRequest(ApiResponse.BadRequest(message: ex.Message));
             }
+        }
+
+        [HttpGet("{id:int}/traceability")]
+        public async Task<IActionResult> GetTraceabilityByIdAsync(
+            int id,
+            [FromQuery] bool includeTimeline = true,
+            [FromQuery] bool includeQuality = true,
+            [FromQuery] bool includeMilling = true,
+            [FromQuery] bool includeOutbound = true,
+            [FromQuery] int maxDepth = 10,
+            CancellationToken cancellationToken = default)
+        {
+            var result = await _traceabilityService.GetByLotIdAsync(
+                id,
+                includeTimeline,
+                includeQuality,
+                includeMilling,
+                includeOutbound,
+                maxDepth,
+                cancellationToken);
+
+            return BaseResult(result);
+        }
+
+        [HttpGet("code/{lotCode}/traceability")]
+        public async Task<IActionResult> GetTraceabilityByCodeAsync(
+            string lotCode,
+            [FromQuery] bool includeTimeline = true,
+            [FromQuery] bool includeQuality = true,
+            [FromQuery] bool includeMilling = true,
+            [FromQuery] bool includeOutbound = true,
+            [FromQuery] int maxDepth = 10,
+            CancellationToken cancellationToken = default)
+        {
+            var result = await _traceabilityService.GetByLotCodeAsync(
+                lotCode,
+                includeTimeline,
+                includeQuality,
+                includeMilling,
+                includeOutbound,
+                maxDepth,
+                cancellationToken);
+
+            return BaseResult(result);
         }
     }
 }

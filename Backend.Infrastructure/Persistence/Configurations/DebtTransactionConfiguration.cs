@@ -27,5 +27,10 @@ public class DebtTransactionConfiguration : IEntityTypeConfiguration<DebtTransac
         builder.HasIndex(x => x.PartyDebtId).HasDatabaseName("IX_DebtTransaction_PartyDebtId");
         builder.HasIndex(x => x.TransactionDate).HasDatabaseName("IX_DebtTransaction_TransactionDate");
         builder.HasIndex(x => new { x.RefType, x.RefId }).HasDatabaseName("IX_DebtTransaction_RefType_RefId");
+
+        builder.Property(x => x.DeduplicationKey).HasMaxLength(200);
+        builder.HasIndex(x => x.DeduplicationKey)
+            .IsUnique()
+            .HasDatabaseName("UX_DebtTransaction_DeduplicationKey");
     }
 }

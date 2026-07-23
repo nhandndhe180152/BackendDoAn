@@ -94,20 +94,9 @@ public class SalesOrderController : BaseController
     /// Tạo OutboundOrder từ SalesOrder (RESERVED/PREPARING → PREPARING + OutboundOrder DRAFT).
     /// </summary>
     [HttpPost("{id}/create-outbound")]
-    public async Task<IActionResult> CreateOutboundAsync(int id)
+    public async Task<IActionResult> CreateOutboundAsync(int id, [FromBody] CreateOutboundDto dto)
     {
-        var result = await _salesOrderService.CreateOutboundAsync(id);
-        return BaseResult(result);
-    }
-
-    /// <summary>
-    /// H1: Xác nhận giao hàng hoàn tất (DELIVERING → Hoàn tất).
-    /// Sau bước này Dashboard mới tính đúng doanh thu.
-    /// </summary>
-    [HttpPost("{id}/complete")]
-    public async Task<IActionResult> CompleteDeliveryAsync(int id)
-    {
-        var result = await _salesOrderService.CompleteDeliveryAsync(id);
+        var result = await _salesOrderService.CreateOutboundAsync(id, dto);
         return BaseResult(result);
     }
 }
