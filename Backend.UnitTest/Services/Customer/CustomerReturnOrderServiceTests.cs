@@ -93,6 +93,7 @@ public class CustomerReturnOrderServiceTests
             .Setup(d => d.BeginTransactionAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(mockTransaction.Object);
         _contextMock.Setup(c => c.Database).Returns(mockDatabaseFacade.Object);
+        _contextMock.Setup(c => c.ExecuteSqlRawAsync(It.IsAny<string>(), It.IsAny<object[]>(), It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
         // Initialize Service Under Test
         _sut = new CustomerReturnOrderService(_contextMock.Object, _httpContextAccessorMock.Object, _loggerMock.Object);
@@ -442,5 +443,67 @@ public class CustomerReturnOrderServiceTests
         result.Status.Should().Be(400);
         result.Code.Should().Be("RETURN_QUANTITY_EXCEEDED");
         result.Message.Should().Contain("Số lượng trả hàng vượt quá số lượng đã xuất bán thực tế.");
+    }
+
+    [Fact]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task ConfirmAsync_CustomerHasNoPartyDebt_CreatesPartyDebtAndRefundPayableTx()
+    {
+        // Arrange
+        _partyDebts.Clear();
+        _debtTransactions.Clear();
+
+        var order = new CustomerReturnOrder 
+        { 
+            Id = 3, 
+            WarehouseId = 1, 
+            CustomerId = 12, 
+            CustomerReturnOrderStatusId = 3, 
+            CustomerReturnOrderStatus = _customerReturnOrderStatuses[2] 
+        };
+        var item = new CustomerReturnOrderItem { Id = 12, CustomerReturnOrderId = 3, ProductVariantId = 5, QuantityReturned = 5 };
+        var alloc = new CustomerReturnOrderItemAllocation 
+        { 
+            Id = 22, 
+            CustomerReturnOrderItemId = 12, 
+            CustomerReturnOrderItem = item, 
+            QuantityReturned = 5, 
+            UnitCreditPrice = 10000,
+            QuantityGood = 5,
+            CreditQuantity = 5,
+            CreditAmount = 50000,
+            RestockLocationId = 100,
+            PaddyLotId = 500,
+            OutboundOrderItemAllocationId = 98,
+            OutboundOrderItemAllocation = new OutboundOrderItemAllocation
+            {
+                Id = 98,
+                QuantityPicked = 10
+            }
+        };
+        order.Items.Add(item);
+        item.Allocations.Add(alloc);
+
+        var lot = new global::Backend.Domain.Entities.PaddyLot { Id = 500, LotCode = "LOT-500", InitialWeightKg = 100, RemainingWeightKg = 50, StatusId = 2, Status = _lotStatuses[0], LotType = "RICE" };
+
+        _customerReturnOrders.Add(order);
+        _paddyLots.Add(lot);
+
+        // Act
+        var result = await _sut.ConfirmAsync(3);
+
+        // Assert
+        result.Status.Should().Be(200);
+        _partyDebts.Should().HaveCount(1);
+        var createdPartyDebt = _partyDebts.First();
+        createdPartyDebt.PartyId.Should().Be(12);
+        createdPartyDebt.CurrentBalance.Should().Be(-50000);
+
+        _debtTransactions.Should().HaveCount(1);
+        var createdTx = _debtTransactions.First();
+        createdTx.TransactionType.Should().Be("REFUND_PAYABLE");
+        createdTx.Amount.Should().Be(50000);
+        createdTx.BalanceAfter.Should().Be(-50000);
+        createdTx.PartyDebt.Should().Be(createdPartyDebt);
     }
 }

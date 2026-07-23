@@ -66,4 +66,25 @@ public static class LookupCodes
         public const string Preview = "PREVIEW";
         public const string Inspect = "INSPECT";
     }
+
+    public static class PartyType
+    {
+        public const string Customer = "CUSTOMER";
+        public const string Supplier = "SUPPLIER";
+        public const string Farmer = "FARMER";
+    }
+
+    public static class DebtDirection
+    {
+        public const string Receivable = "RECEIVABLE";
+        public const string Payable = "PAYABLE";
+    }
+
+    public static class DebtTransactionType
+    {
+        public const string ReturnCredit = "RETURN_CREDIT";
+        public const string RefundPayable = "REFUND_PAYABLE";
+        public const string SaleCharge = "SALE_CHARGE";
+        public const string Payment = "PAYMENT";
+    }
 }

@@ -149,6 +149,9 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     if (outboundAlloc == null || outboundAlloc.OutboundOrderItemId != itemDto.OutboundOrderItemId)
                         return ApiResponse.BadRequest(message: "Phân bổ chi tiết xuất không hợp lệ.");
 
+                    if (outboundAlloc.PaddyLotId == null)
+                        return ApiResponse.BadRequest(message: "Lỗi dữ liệu: Phân bổ chi tiết xuất kho không được gắn với lô gạo nào.");
+
                     // Check return limit
                     var previousReturnedQty = await _context.CustomerReturnOrderItemAllocations
                         .Where(x => x.OutboundOrderItemAllocationId == allocDto.OutboundOrderItemAllocationId
@@ -261,6 +264,9 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     .FirstOrDefaultAsync(a => a.Id == allocDto.OutboundOrderItemAllocationId && !a.IsDeleted, cancellationToken);
                 if (outboundAlloc == null || outboundAlloc.OutboundOrderItemId != itemDto.OutboundOrderItemId)
                     return ApiResponse.BadRequest(message: "Phân bổ chi tiết xuất không hợp lệ.");
+
+                if (outboundAlloc.PaddyLotId == null)
+                    return ApiResponse.BadRequest(message: "Lỗi dữ liệu: Phân bổ chi tiết xuất kho không được gắn với lô gạo nào.");
 
                 var previousReturnedQty = await _context.CustomerReturnOrderItemAllocations
                     .Where(x => x.OutboundOrderItemAllocationId == allocDto.OutboundOrderItemAllocationId
@@ -489,8 +495,11 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             {
                 var outboundAlloc = await _context.OutboundOrderItemAllocations
                     .FirstOrDefaultAsync(a => a.Id == alloc.OutboundOrderItemAllocationId && !a.IsDeleted, cancellationToken);
-                if (outboundAlloc == null)
-                    return ApiResponse.BadRequest(message: "Một phân bổ xuất trong đơn hàng không còn hợp lệ.");
+                    if (outboundAlloc == null)
+                        return ApiResponse.BadRequest(message: $"Không tìm thấy chi tiết xuất kho ID {alloc.OutboundOrderItemAllocationId} để trả hàng.");
+
+                    if (outboundAlloc.PaddyLotId == null)
+                        return ApiResponse.BadRequest(message: $"Lỗi dữ liệu: Chi tiết xuất kho ID {alloc.OutboundOrderItemAllocationId} không được gắn với lô gạo nào.");
 
                 var previousReturnedQty = await _context.CustomerReturnOrderItemAllocations
                     .Where(x => x.OutboundOrderItemAllocationId == alloc.OutboundOrderItemAllocationId
@@ -647,7 +656,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         var approvedCreditAmount = order.Items.SelectMany(i => i.Allocations).Sum(a => a.CreditAmount);
 
         var partyDebt = await _context.PartyDebts
-            .FirstOrDefaultAsync(d => d.PartyType == "CUSTOMER" && d.PartyId == order.CustomerId && d.Direction == "RECEIVABLE" && d.IsActive && !d.IsDeleted, cancellationToken);
+            .FirstOrDefaultAsync(d => d.PartyType == LookupCodes.PartyType.Customer && d.PartyId == order.CustomerId && d.Direction == LookupCodes.DebtDirection.Receivable && d.IsActive && !d.IsDeleted, cancellationToken);
 
         decimal currentReceivableBalance = partyDebt?.CurrentBalance ?? 0;
         decimal debtReductionAmount = Math.Min(currentReceivableBalance, approvedCreditAmount);
@@ -768,10 +777,10 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 var locationId = alloc.RestockLocationId!.Value;
 
                 // Atomic UPDATE location with capacity limit check
-                var affected = await _context.Database.ExecuteSqlRawAsync(
+                var affected = await _context.ExecuteSqlRawAsync(
                     "UPDATE Location SET CurrentOccupancy = CurrentOccupancy + {0}, CurrentProductVariantId = {1}, LastModifiedDate = {2}, UpdatedBy = {3} " +
                     "WHERE Id = {4} AND WarehouseId = {5} AND IsActive = 1 AND IsDeleted = 0 AND (MaxCapacity IS NULL OR CurrentOccupancy + {0} <= MaxCapacity) AND IsQuarantine = 0",
-                    alloc.QuantityGood, alloc.ProductVariantId, now, userId, locationId, order.WarehouseId);
+                    new object[] { alloc.QuantityGood, alloc.ProductVariantId, now, userId, locationId, order.WarehouseId }, cancellationToken);
 
                 if (affected == 0)
                 {
@@ -836,10 +845,10 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 var locationId = alloc.QuarantineLocationId!.Value;
 
                 // Atomic UPDATE location with capacity limit check
-                var affected = await _context.Database.ExecuteSqlRawAsync(
+                var affected = await _context.ExecuteSqlRawAsync(
                     "UPDATE Location SET CurrentOccupancy = CurrentOccupancy + {0}, CurrentProductVariantId = {1}, LastModifiedDate = {2}, UpdatedBy = {3} " +
                     "WHERE Id = {4} AND WarehouseId = {5} AND IsActive = 1 AND IsDeleted = 0 AND (MaxCapacity IS NULL OR CurrentOccupancy + {0} <= MaxCapacity) AND IsQuarantine = 1",
-                    alloc.QuantityDamaged, alloc.ProductVariantId, now, userId, locationId, order.WarehouseId);
+                    new object[] { alloc.QuantityDamaged, alloc.ProductVariantId, now, userId, locationId, order.WarehouseId }, cancellationToken);
 
                 if (affected == 0)
                 {
@@ -934,16 +943,16 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             var approvedCredit = allocations.Sum(a => a.CreditAmount);
 
             var partyDebt = await _context.PartyDebts
-                .FirstOrDefaultAsync(d => d.PartyType == "CUSTOMER" && d.PartyId == order.CustomerId && d.Direction == "RECEIVABLE" && d.IsActive && !d.IsDeleted, cancellationToken);
+                .FirstOrDefaultAsync(d => d.PartyType == LookupCodes.PartyType.Customer && d.PartyId == order.CustomerId && d.Direction == LookupCodes.DebtDirection.Receivable && d.IsActive && !d.IsDeleted, cancellationToken);
 
             if (partyDebt == null && order.CustomerId.HasValue)
             {
                 partyDebt = new PartyDebt
                 {
                     OrganizationId = order.OrganizationId,
-                    PartyType = "CUSTOMER",
+                    PartyType = LookupCodes.PartyType.Customer,
                     PartyId = order.CustomerId.Value,
-                    Direction = "RECEIVABLE",
+                    Direction = LookupCodes.DebtDirection.Receivable,
                     OpeningBalance = 0,
                     CurrentBalance = 0,
                     IsActive = true,
@@ -970,11 +979,11 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
                     var debtTx = new DebtTransaction
                     {
-                        PartyDebtId = partyDebt.Id,
-                        TransactionType = "RETURN_CREDIT",
+                        PartyDebt = partyDebt,
+                        TransactionType = LookupCodes.DebtTransactionType.ReturnCredit,
                         Amount = debtReduction,
                         BalanceAfter = partyDebt.CurrentBalance,
-                        RefType = "CUSTOMER_RETURN_ORDER",
+                        RefType = InventoryReferenceTypeConstants.CustomerReturnOrder,
                         RefId = order.Id,
                         TransactionDate = now,
                         Note = $"Khấu trừ công nợ từ đơn trả hàng {order.ReturnCode}",
@@ -993,11 +1002,11 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
                     var refundTx = new DebtTransaction
                     {
-                        PartyDebtId = partyDebt.Id,
-                        TransactionType = "REFUND_PAYABLE",
+                        PartyDebt = partyDebt,
+                        TransactionType = LookupCodes.DebtTransactionType.RefundPayable,
                         Amount = refundPending,
                         BalanceAfter = partyDebt.CurrentBalance,
-                        RefType = "CUSTOMER_RETURN_ORDER",
+                        RefType = InventoryReferenceTypeConstants.CustomerReturnOrder,
                         RefId = order.Id,
                         TransactionDate = now,
                         Note = $"Ghi nhận khoản phải hoàn trả (Refund Payable) vượt dư nợ của đơn trả hàng {order.ReturnCode}",

@@ -286,4 +286,9 @@ public class BackendContext : DbContext, IApplicationDbContext
             }
         }
     }
+
+    public async Task<int> ExecuteSqlRawAsync(string sql, object[] parameters, CancellationToken cancellationToken = default)
+    {
+        return await Database.ExecuteSqlRawAsync(sql, parameters, cancellationToken);
+    }
 }
