@@ -141,7 +141,10 @@ public class QualityInspectionService : IQualityInspectionService
                     QrCode = "PL-" + Guid.NewGuid().ToString("N").ToUpper(),
                     QrImageUrl = lot.QrImageUrl, // C6: Copy QrImageUrl
                     ParentLotId = lot.Id,
-                    SourceReceiptId = lot.SourceReceiptId,
+                    // SourceReceipt là quan hệ 1-1 (unique index IX_PaddyLot_SourceReceiptId):
+                    // lô cha đã giữ FK này nên lô con tách cách ly KHÔNG copy để tránh trùng khóa.
+                    // Truy vết nguồn gốc của lô con đi qua ParentLotId -> lô cha -> SourceReceiptId.
+                    SourceReceiptId = null,
                     SourceMillingOrderId = lot.SourceMillingOrderId,
                     CreatedBy = obj.CreatedBy,
                     CreatedDate = now

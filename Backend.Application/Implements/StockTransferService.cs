@@ -244,7 +244,9 @@ public class StockTransferService : IStockTransferService
                             ProductVariantId = lot.ProductVariantId,
                             RiceVarietyId = lot.RiceVarietyId,
                             StatusId = lot.StatusId,
-                            SourceReceiptId = lot.SourceReceiptId,
+                            // SourceReceipt là quan hệ 1-1 (unique index IX_PaddyLot_SourceReceiptId):
+                            // lô nguồn đã giữ FK này nên lô tách khi điều chuyển KHÔNG copy để tránh trùng khóa.
+                            SourceReceiptId = null,
                             SourceMillingOrderId = lot.SourceMillingOrderId,
                             WarehouseId = transfer.ToWarehouseId,
                             LocationId = item.ToLocationId,
