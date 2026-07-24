@@ -35,6 +35,7 @@ public class QualityInspectionServiceTests
     private readonly Mock<IInventoryTransactionRepository> _inventoryTxRepo = new();
     private readonly Mock<IRepositoryBase<LotStatus, int>> _lotStatusRepo = new();
     private readonly Mock<IApplicationDbContext> _context = new();
+    private readonly Mock<INotificationDispatcher> _notificationDispatcher = new();
     private readonly List<PaddyLotEntity> _paddyLots = new();
 
     public QualityInspectionServiceTests()
@@ -45,7 +46,7 @@ public class QualityInspectionServiceTests
     }
 
     private QualityInspectionService Sut() =>
-        new(_repo.Object, _lotRepo.Object, _inventoryRepo.Object, _inventoryTxRepo.Object, _lotStatusRepo.Object, _context.Object);
+        new(_repo.Object, _lotRepo.Object, _inventoryRepo.Object, _inventoryTxRepo.Object, _lotStatusRepo.Object, _context.Object, _notificationDispatcher.Object);
 
     // ── Helper: setup mock DB transaction ────────────────────────────────────
 
