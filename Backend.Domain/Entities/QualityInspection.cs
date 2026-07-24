@@ -32,6 +32,7 @@ public class QualityInspection : EntityAuditBase<int>
     public bool PassedInspection { get; set; }
 
     public string? Note { get; set; }
+    public decimal? AffectedWeightKg { get; set; }
 
     // Navigation
     public virtual PaddyLot PaddyLot { get; set; } = null!;

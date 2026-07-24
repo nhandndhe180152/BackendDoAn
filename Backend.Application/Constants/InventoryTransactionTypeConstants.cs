@@ -20,7 +20,9 @@ public static class InventoryTransactionTypeConstants
         StockTakeAdjust,
         ManualAdjust,
         Reserve,
-        ReleaseReserve
+        ReleaseReserve,
+        CustomerReturnRestock,
+        CustomerReturnQuarantine
     ];
 
     public static string Normalize(string? type)

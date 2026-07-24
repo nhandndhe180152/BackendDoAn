@@ -36,9 +36,11 @@ public class PaddyLot : EntityAuditBase<int>
     public string? QualityStatus { get; set; }
     public string QrCode { get; set; } = string.Empty;
     public string QrImageUrl { get; set; } = string.Empty;
+    public int? ParentLotId { get; set; }
 
     // Navigation
     public virtual Organization? Organization { get; set; }
+    public virtual PaddyLot? ParentLot { get; set; }
     public virtual ProductVariant ProductVariant { get; set; } = null!;
     public virtual RiceVariety? RiceVariety { get; set; }
     public virtual LotStatus Status { get; set; } = null!;
