@@ -85,6 +85,17 @@ public class FcmFailureClassifier : IFcmFailureClassifier
         return FcmNotificationRetryConstants.Outcome.Unknown;
     }
 
+    public string? GetErrorCode(Exception exception)
+    {
+        if (exception is FirebaseMessagingException fcmEx)
+            return fcmEx.MessagingErrorCode?.ToString();
+
+        if (exception?.InnerException is FirebaseMessagingException innerFcmEx)
+            return innerFcmEx.MessagingErrorCode?.ToString();
+
+        return null;
+    }
+
     private string MapMessagingErrorCode(MessagingErrorCode? errorCode, string message)
     {
         if (errorCode == null)

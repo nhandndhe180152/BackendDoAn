@@ -26,9 +26,9 @@ public class NotificationDispatcher : INotificationDispatcher
     private readonly INotificationTypeRepository _notificationTypeRepository;
     private readonly IUserRoleRepository _userRoleRepository;
     private readonly IUserDeviceRepository _userDeviceRepository;
-    private readonly IFireBaseService _fireBaseService;
     private readonly IApplicationDbContext _context;
     private readonly IFcmClient _fcmClient;
+    private readonly IFcmFailureClassifier _failureClassifier;
     private readonly ILogger<NotificationDispatcher> _logger;
 
     public NotificationDispatcher(
@@ -38,9 +38,9 @@ public class NotificationDispatcher : INotificationDispatcher
         INotificationTypeRepository notificationTypeRepository,
         IUserRoleRepository userRoleRepository,
         IUserDeviceRepository userDeviceRepository,
-        IFireBaseService fireBaseService,
         IApplicationDbContext context,
         IFcmClient fcmClient,
+        IFcmFailureClassifier failureClassifier,
         ILoggerFactory loggerFactory)
     {
         _notificationRepository = notificationRepository;
@@ -49,9 +49,9 @@ public class NotificationDispatcher : INotificationDispatcher
         _notificationTypeRepository = notificationTypeRepository;
         _userRoleRepository = userRoleRepository;
         _userDeviceRepository = userDeviceRepository;
-        _fireBaseService = fireBaseService;
         _context = context;
         _fcmClient = fcmClient;
+        _failureClassifier = failureClassifier;
         _logger = loggerFactory.CreateLogger<NotificationDispatcher>();
     }
 
@@ -186,8 +186,7 @@ public class NotificationDispatcher : INotificationDispatcher
 
                         if (outcome.Exception != null)
                         {
-                            var errCodeProp = outcome.Exception.GetType().GetProperty("MessagingErrorCode");
-                            errCode = errCodeProp != null ? errCodeProp.GetValue(outcome.Exception)?.ToString() : "Exception";
+                            errCode = _failureClassifier.GetErrorCode(outcome.Exception) ?? "Exception";
                         }
 
                         if (!outcome.IsSuccess)

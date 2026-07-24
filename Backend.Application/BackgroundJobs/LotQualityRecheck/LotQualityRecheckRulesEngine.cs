@@ -66,8 +66,8 @@ public class LotQualityRecheckRulesEngine : ILotQualityRecheckRulesEngine
 
         if (latestInspection == null)
         {
-            shouldAlert = true;
             var dueAt = lot.InboundDate.Date.AddDays(config.InspectionIntervalDays);
+            shouldAlert = businessToday.Date >= dueAt;
             overdueDays = Math.Max(0, (businessToday.Date - dueAt).Days);
 
             if (overdueDays >= config.InspectionOverdueCriticalDays)
@@ -143,7 +143,9 @@ public class LotQualityRecheckRulesEngine : ILotQualityRecheckRulesEngine
             severity = AlertConstants.Severity.Critical;
         }
 
-        string message = $"Lô {lot.LotCode} có độ ẩm {moisture:0.##}% vượt ngưỡng cảnh báo {config.MoistureWarningThreshold:0.##}%. Cần kiểm tra và cân nhắc sấy, đảo lô hoặc cách ly.";
+        string message = severity == AlertConstants.Severity.Critical
+            ? $"Lô {lot.LotCode} có độ ẩm {moisture:0.##}% vượt ngưỡng nghiêm trọng {config.MoistureCriticalThreshold:0.##}%. Cần kiểm tra và cân nhắc sấy, đảo lô hoặc cách ly."
+            : $"Lô {lot.LotCode} có độ ẩm {moisture:0.##}% vượt ngưỡng cảnh báo {config.MoistureWarningThreshold:0.##}%. Cần kiểm tra và cân nhắc sấy, đảo lô hoặc cách ly.";
 
         return new LotQualityRecheckRuleEvaluation
         {
@@ -222,13 +224,14 @@ public class LotQualityRecheckRulesEngine : ILotQualityRecheckRulesEngine
         }
 
         string message;
+        var thresholdString = severity == AlertConstants.Severity.Critical ? config.LongStoredCriticalDays : config.LongStoredWarningDays;
         if (isQuarantined)
         {
-            message = $"[ĐÃ CÁCH LY] Lô {lot.LotCode} đã lưu kho {storedAgeDays} ngày, vượt ngưỡng {config.LongStoredWarningDays} ngày. Vui lòng kiểm định và lên phương án xử lý.";
+            message = $"[ĐÃ CÁCH LY] Lô {lot.LotCode} đã lưu kho {storedAgeDays} ngày, vượt ngưỡng {thresholdString} ngày. Vui lòng kiểm định và lên phương án xử lý.";
         }
         else
         {
-            message = $"Lô {lot.LotCode} đã lưu kho {storedAgeDays} ngày, vượt ngưỡng {config.LongStoredWarningDays} ngày. Vui lòng kiểm định và lên phương án xử lý.";
+            message = $"Lô {lot.LotCode} đã lưu kho {storedAgeDays} ngày, vượt ngưỡng {thresholdString} ngày. Vui lòng kiểm định và lên phương án xử lý.";
         }
 
         return new LotQualityRecheckRuleEvaluation

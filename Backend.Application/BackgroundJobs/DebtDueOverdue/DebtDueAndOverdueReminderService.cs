@@ -161,21 +161,21 @@ public class DebtDueAndOverdueReminderService : IDebtDueAndOverdueReminderServic
                         {
                             foreach (var act in lotResult.Actions)
                             {
-                                if (act == DebtDueOverdueConstants.Action.Created)
+                                switch (act)
                                 {
-                                    result.NotificationsQueued++;
-                                }
-                                else if (act == DebtDueOverdueConstants.Action.Escalated)
-                                {
-                                    result.NotificationsQueued++;
-                                }
-
-                                if (act == DebtDueOverdueConstants.Action.Created)
-                                {
-                                    // Increment based on alert type
-                                    // Wait, let's look at the rule evaluations
+                                    case DebtDueOverdueConstants.Action.Created:
+                                    case DebtDueOverdueConstants.Action.Escalated:
+                                        result.NotificationsQueued++;
+                                        break;
+                                    case DebtDueOverdueConstants.Action.Resolved:
+                                        result.AlertsResolved++;
+                                        break;
                                 }
                             }
+                            result.DueSoonCreated += lotResult.DueSoonCreated;
+                            result.OverdueCreated += lotResult.OverdueCreated;
+                            result.AlertsUpdated += lotResult.AlertsUpdated;
+                            result.AlertsEscalated += lotResult.AlertsEscalated;
                         }
                         else
                         {
@@ -210,10 +210,6 @@ public class DebtDueAndOverdueReminderService : IDebtDueAndOverdueReminderServic
 
         stopwatch.Stop();
         result.DurationMs = stopwatch.ElapsedMilliseconds;
-
-        // Calculate custom created amounts
-        result.DueSoonCreated = 0; // Filled based on DB query in real implementation or manually tracked
-        result.OverdueCreated = 0;
 
         return result;
     }
@@ -268,8 +264,9 @@ public class DebtDueAndOverdueReminderService : IDebtDueAndOverdueReminderServic
                 .Where(t => t.PartyDebtId == partyDebtId && !t.IsDeleted)
                 .ToListAsync(cancellationToken);
 
+            var dedupPrefix = $"{DebtDueOverdueConstants.Job.DeduplicationKeyPrefix}_";
             var activeAlerts = await _context.Alerts
-                .Where(a => a.RelatedEntityType == "PARTY_DEBT" &&
+                .Where(a => a.RelatedEntityType == AlertConstants.RelatedEntityType.PartyDebt &&
                             a.RelatedEntityId == partyDebtId &&
                             a.Status != AlertConstants.Status.Resolved &&
                             !a.IsDeleted)
@@ -323,9 +320,6 @@ public class DebtDueAndOverdueReminderService : IDebtDueAndOverdueReminderServic
         // 3. Evaluate rules
         var evaluations = _rulesEngine.Evaluate(partyDebt, partyName, agingResult, config, configErrors, businessToday);
 
-        var firstWarehouse = await _context.Warehouses.FirstOrDefaultAsync(w => !w.IsDeleted, cancellationToken);
-        int defaultWarehouseId = firstWarehouse?.Id ?? 1;
-
         // 4. Database transaction
         using var transaction = _context.Database.ProviderName != "Microsoft.EntityFrameworkCore.InMemory"
             ? await _context.Database.BeginTransactionAsync(cancellationToken)
@@ -348,9 +342,9 @@ public class DebtDueAndOverdueReminderService : IDebtDueAndOverdueReminderServic
                         {
                             AlertType = eval.AlertType,
                             Severity = eval.Severity,
-                            WarehouseId = defaultWarehouseId,
+                            WarehouseId = null,  // debt alerts are not warehouse-scoped
                             Message = eval.Message,
-                            RelatedEntityType = "PARTY_DEBT",
+                            RelatedEntityType = AlertConstants.RelatedEntityType.PartyDebt,
                             RelatedEntityId = partyDebt.Id,
                             Status = AlertConstants.Status.Open,
                             CreatedDate = DateTime.UtcNow,
@@ -365,6 +359,12 @@ public class DebtDueAndOverdueReminderService : IDebtDueAndOverdueReminderServic
                         result.Actions.Add(DebtDueOverdueConstants.Action.Created);
                         notificationsToSend.Add((newAlert, GetNotificationCode(eval.AlertType), eval.Message));
                         shouldNotifyRealtime = true;
+
+                        // Track stat by alert type
+                        if (eval.AlertType == DebtDueOverdueConstants.AlertType.DebtDueSoon)
+                            result.DueSoonCreated++;
+                        else if (eval.AlertType == DebtDueOverdueConstants.AlertType.DebtOverdue)
+                            result.OverdueCreated++;
                     }
                     else
                     {
@@ -398,11 +398,13 @@ public class DebtDueAndOverdueReminderService : IDebtDueAndOverdueReminderServic
                             {
                                 existingAlert.Status = AlertConstants.Status.Open; // Reopen/escalate
                                 result.Actions.Add(DebtDueOverdueConstants.Action.Escalated);
+                                result.AlertsEscalated++;
                                 notificationsToSend.Add((existingAlert, GetNotificationCode(eval.AlertType), eval.Message));
                             }
                             else
                             {
                                 result.Actions.Add(DebtDueOverdueConstants.Action.Updated);
+                                result.AlertsUpdated++;
                             }
 
                             _context.Alerts.Update(existingAlert);
@@ -438,20 +440,20 @@ public class DebtDueAndOverdueReminderService : IDebtDueAndOverdueReminderServic
                 await transaction.CommitAsync(cancellationToken);
             }
 
-            // Dispatch SignalR notification after commit
+            // Dispatch SignalR notification after commit using already-tracked references (avoid re-query)
             if (shouldNotifyRealtime)
             {
-                foreach (var eval in evaluations)
+                var alertsToNotify = notificationsToSend.Select(x => x.Alert)
+                    .Union(evaluations
+                        .Select(e => activeAlertsForParty.FirstOrDefault(a => a.AlertType == e.AlertType && !e.ShouldAlert && a.Status == AlertConstants.Status.Resolved))
+                        .Where(a => a != null)
+                        .Select(a => a!))
+                    .Distinct()
+                    .ToList();
+
+                foreach (var alert in alertsToNotify)
                 {
-                    var alert = await _context.Alerts.AsNoTracking()
-                        .FirstOrDefaultAsync(a => a.DeduplicationKey == eval.DeduplicationKey ||
-                                                  (a.RelatedEntityId == partyDebt.Id &&
-                                                   a.AlertType == eval.AlertType &&
-                                                   a.Status == AlertConstants.Status.Resolved), cancellationToken);
-                    if (alert != null)
-                    {
-                        await NotifySignalRAsync(alert);
-                    }
+                    await NotifySignalRAsync(alert);
                 }
             }
 
@@ -549,9 +551,6 @@ public class DebtDueAndOverdueReminderService : IDebtDueAndOverdueReminderServic
         var existingAlert = await _context.Alerts
             .FirstOrDefaultAsync(a => a.DeduplicationKey == dedupKey && !a.IsDeleted && a.Status != AlertConstants.Status.Resolved, cancellationToken);
 
-        var firstWarehouse = await _context.Warehouses.FirstOrDefaultAsync(w => !w.IsDeleted, cancellationToken);
-        int defaultWarehouseId = firstWarehouse?.Id ?? 1;
-
         if (errors.Count > 0)
         {
             var message = $"Cấu hình mặc định JOB-04 không hợp lệ: {string.Join(", ", errors)}.";
@@ -561,7 +560,7 @@ public class DebtDueAndOverdueReminderService : IDebtDueAndOverdueReminderServic
                 {
                     AlertType = DebtDueOverdueConstants.AlertType.DebtConfigInvalid,
                     Severity = AlertConstants.Severity.Warning,
-                    WarehouseId = defaultWarehouseId,
+                    WarehouseId = null,  // system-level alert, not warehouse-scoped
                     Message = message,
                     Status = AlertConstants.Status.Open,
                     CreatedDate = DateTime.UtcNow,
@@ -595,9 +594,6 @@ public class DebtDueAndOverdueReminderService : IDebtDueAndOverdueReminderServic
         var existingAlert = await _context.Alerts
             .FirstOrDefaultAsync(a => a.DeduplicationKey == dedupKey && !a.IsDeleted && a.Status != AlertConstants.Status.Resolved, cancellationToken);
 
-        var firstWarehouse = await _context.Warehouses.FirstOrDefaultAsync(w => !w.IsDeleted, cancellationToken);
-        int defaultWarehouseId = firstWarehouse?.Id ?? 1;
-
         if (errors.Count > 0)
         {
             var message = $"Cấu hình JOB-04 cho sổ nợ ID {partyDebtId} ({direction}) không hợp lệ: {string.Join(", ", errors)}.";
@@ -607,9 +603,9 @@ public class DebtDueAndOverdueReminderService : IDebtDueAndOverdueReminderServic
                 {
                     AlertType = DebtDueOverdueConstants.AlertType.DebtConfigInvalid,
                     Severity = AlertConstants.Severity.Warning,
-                    WarehouseId = defaultWarehouseId,
+                    WarehouseId = null,  // debt alerts are not warehouse-scoped
                     Message = message,
-                    RelatedEntityType = "PARTY_DEBT",
+                    RelatedEntityType = AlertConstants.RelatedEntityType.PartyDebt,
                     RelatedEntityId = partyDebtId,
                     Status = AlertConstants.Status.Open,
                     CreatedDate = DateTime.UtcNow,
@@ -645,7 +641,7 @@ public class DebtDueAndOverdueReminderService : IDebtDueAndOverdueReminderServic
         // 0.01 tolerance for decimals
         if (Math.Abs(agingResult.ReconciliationDifference) > 0.01m)
         {
-            _logger.LogWarning("{LogPrefix} Balance discrepancy resolved for debt {DebtId}. CurrentBalance: {Real}, ComputedBalance: {Comp}, Diff: {Diff}",
+            _logger.LogWarning("{LogPrefix} Balance discrepancy detected for debt {DebtId}. CurrentBalance: {Real}, ComputedBalance: {Comp}, Diff: {Diff}",
                 DebtDueOverdueConstants.Job.LogPrefix, partyDebt.Id, partyDebt.CurrentBalance, partyDebt.CurrentBalance - agingResult.ReconciliationDifference, agingResult.ReconciliationDifference);
 
             var dedupKey = $"{DebtDueOverdueConstants.Job.DeduplicationKeyPrefix}_ANOMALY_DEBT_{partyDebt.Id}";
@@ -654,18 +650,15 @@ public class DebtDueAndOverdueReminderService : IDebtDueAndOverdueReminderServic
 
             var message = $"Số dư công nợ của sổ ID {partyDebt.Id} không khớp với lịch sử giao dịch. Lệch: {agingResult.ReconciliationDifference:N2} VNĐ.";
 
-            var firstWarehouse = await _context.Warehouses.FirstOrDefaultAsync(w => !w.IsDeleted, cancellationToken);
-            int defaultWarehouseId = firstWarehouse?.Id ?? 1;
-
             if (existingAlert == null)
             {
                 var newAlert = new Alert
                 {
                     AlertType = DebtDueOverdueConstants.AlertType.DebtDataAnomaly,
                     Severity = AlertConstants.Severity.Warning,
-                    WarehouseId = defaultWarehouseId,
+                    WarehouseId = null,  // debt alerts are not warehouse-scoped
                     Message = message,
-                    RelatedEntityType = "PARTY_DEBT",
+                    RelatedEntityType = AlertConstants.RelatedEntityType.PartyDebt,
                     RelatedEntityId = partyDebt.Id,
                     Status = AlertConstants.Status.Open,
                     CreatedDate = DateTime.UtcNow,
@@ -701,7 +694,7 @@ public class DebtDueAndOverdueReminderService : IDebtDueAndOverdueReminderServic
     private async Task AutoResolveAlertsForDebtAsync(int partyDebtId, CancellationToken cancellationToken)
     {
         var alerts = await _context.Alerts
-            .Where(a => a.RelatedEntityType == "PARTY_DEBT" &&
+            .Where(a => a.RelatedEntityType == AlertConstants.RelatedEntityType.PartyDebt &&
                         a.RelatedEntityId == partyDebtId &&
                         a.Status != AlertConstants.Status.Resolved &&
                         !a.IsDeleted)
@@ -729,8 +722,9 @@ public class DebtDueAndOverdueReminderService : IDebtDueAndOverdueReminderServic
     private async Task ResolveClearedAlertsAsync(CancellationToken cancellationToken)
     {
         // Resolve all alerts linked to deactivated or deleted debts or debts with 0 balance
+        var dedupPrefix = $"{DebtDueOverdueConstants.Job.DeduplicationKeyPrefix}_";
         var activeAlerts = await _context.Alerts
-            .Where(a => a.RelatedEntityType == "PARTY_DEBT" &&
+            .Where(a => a.RelatedEntityType == AlertConstants.RelatedEntityType.PartyDebt &&
                         a.RelatedEntityId.HasValue &&
                         a.Status != AlertConstants.Status.Resolved &&
                         !a.IsDeleted)

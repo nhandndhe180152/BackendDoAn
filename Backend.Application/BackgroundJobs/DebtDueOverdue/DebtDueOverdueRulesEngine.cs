@@ -45,7 +45,7 @@ public class DebtDueOverdueRulesEngine : IDebtDueOverdueRulesEngine
     {
         var alertType = DebtDueOverdueConstants.AlertType.DebtDueSoon;
         var orgPrefix = partyDebt.OrganizationId.HasValue ? $"JOB04:{partyDebt.OrganizationId.Value}" : "JOB04";
-        var dedupKey = $"{orgPrefix}:PARTY_DEBT:{partyDebt.Id}:{alertType}";
+        var dedupKey = $"{orgPrefix}:{AlertConstants.RelatedEntityType.PartyDebt}:{partyDebt.Id}:{alertType}";
 
         decimal amount = agingResult.DueSoonAmount + agingResult.DueTodayAmount;
         bool shouldAlert = amount > 0m;
@@ -92,7 +92,7 @@ public class DebtDueOverdueRulesEngine : IDebtDueOverdueRulesEngine
     {
         var alertType = DebtDueOverdueConstants.AlertType.DebtOverdue;
         var orgPrefix = partyDebt.OrganizationId.HasValue ? $"JOB04:{partyDebt.OrganizationId.Value}" : "JOB04";
-        var dedupKey = $"{orgPrefix}:PARTY_DEBT:{partyDebt.Id}:{alertType}";
+        var dedupKey = $"{orgPrefix}:{AlertConstants.RelatedEntityType.PartyDebt}:{partyDebt.Id}:{alertType}";
 
         decimal amount = agingResult.OverdueAmount;
         bool shouldAlert = amount > 0m;

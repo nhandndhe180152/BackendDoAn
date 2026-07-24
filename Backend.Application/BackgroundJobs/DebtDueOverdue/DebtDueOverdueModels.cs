@@ -26,6 +26,10 @@ public class DebtDueOverduePartyEvaluationResult
     public bool Success { get; set; }
     public string? ErrorMessage { get; set; }
     public List<string> Actions { get; set; } = new();
+    public int DueSoonCreated { get; set; }
+    public int OverdueCreated { get; set; }
+    public int AlertsUpdated { get; set; }
+    public int AlertsEscalated { get; set; }
 }
 
 public class DebtDueOverdueConfig

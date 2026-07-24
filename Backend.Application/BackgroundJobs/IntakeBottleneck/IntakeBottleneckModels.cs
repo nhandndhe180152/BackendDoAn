@@ -107,4 +107,7 @@ public class IntakeBottleneckWarehouseResult
     public IntakeBottleneckCalculationResult? CalculationResult { get; set; }
     public bool Success { get; set; }
     public string? ErrorMessage { get; set; }
+    public bool ConfigAlertCreated { get; set; }
+    public bool ConfigAlertUpdated { get; set; }
+    public bool ConfigAlertResolved { get; set; }
 }

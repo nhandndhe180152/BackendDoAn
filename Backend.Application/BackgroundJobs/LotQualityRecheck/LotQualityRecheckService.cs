@@ -392,20 +392,23 @@ public class LotQualityRecheckService : ILotQualityRecheckService
                 await transaction.CommitAsync(cancellationToken);
             }
 
-            // Realtime SignalR
+            // Realtime SignalR — use already-tracked references instead of re-querying DB after commit
             if (shouldNotifyRealtime)
             {
-                foreach (var eval in evaluations)
+                var resolvedAlerts = evaluations
+                    .Where(e => !e.ShouldAlert)
+                    .Select(e => activeAlertsForLot.FirstOrDefault(a => a.AlertType == e.AlertType && a.Status == AlertConstants.Status.Resolved))
+                    .Where(a => a != null)
+                    .Select(a => a!);
+
+                var alertsToNotify = notificationsToSend.Select(x => x.Alert)
+                    .Union(resolvedAlerts)
+                    .Distinct()
+                    .ToList();
+
+                foreach (var alert in alertsToNotify)
                 {
-                    var alert = await _context.Alerts.AsNoTracking()
-                        .FirstOrDefaultAsync(a => a.DeduplicationKey == eval.DeduplicationKey ||
-                                                  (a.RelatedEntityId == lot.Id &&
-                                                   a.AlertType == eval.AlertType &&
-                                                   a.Status == AlertConstants.Status.Resolved), cancellationToken);
-                    if (alert != null)
-                    {
-                        await NotifySignalRAsync(alert);
-                    }
+                    await NotifySignalRAsync(alert);
                 }
             }
 

@@ -370,7 +370,7 @@ public class LotQualityRecheckTests
             LotType = "PADDY",
             WarehouseId = 1,
             StatusId = 2, // IN_STOCK
-            InboundDate = DateTime.UtcNow.AddDays(-10),
+            InboundDate = DateTime.UtcNow.AddDays(-35),
             RemainingWeightKg = 1000m,
             IsDeleted = false
         };

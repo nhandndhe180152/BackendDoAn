@@ -157,6 +157,7 @@ public class SimpleServiceCoverageTests
         var farmRepo           = new Mock<IRepositoryBase<Backend.Domain.Entities.Farmer, int>>();
 
         var aggSvc             = new Mock<IInventoryStateAggregationService>();
+        var contextMock        = new Mock<IApplicationDbContext>();
 
         var svc = new DashboardService(
             invRepo.Object,
@@ -171,7 +172,8 @@ public class SimpleServiceCoverageTests
             farmRepo.Object,
             aggSvc.Object,
             loggerMock.Object,
-            httpContext.Object);
+            httpContext.Object,
+            contextMock.Object);
 
         svc.Should().NotBeNull();
     }

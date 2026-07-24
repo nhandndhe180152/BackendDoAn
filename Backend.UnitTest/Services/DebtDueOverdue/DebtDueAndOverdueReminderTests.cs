@@ -248,10 +248,10 @@ public class DebtDueAndOverdueReminderTests
             AlertType = DebtDueOverdueConstants.AlertType.DebtOverdue,
             Severity = AlertConstants.Severity.Warning,
             Status = AlertConstants.Status.Open,
-            RelatedEntityType = "PARTY_DEBT",
+            RelatedEntityType = AlertConstants.RelatedEntityType.PartyDebt,
             RelatedEntityId = 1,
             Message = "Unpaid debt",
-            DeduplicationKey = "JOB04:PARTY_DEBT:1:DEBT_OVERDUE",
+            DeduplicationKey = $"JOB04:{AlertConstants.RelatedEntityType.PartyDebt}:1:DEBT_OVERDUE",
             IsDeleted = false
         };
         context.Alerts.Add(existingAlert);

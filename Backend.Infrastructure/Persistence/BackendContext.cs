@@ -198,6 +198,11 @@ public class BackendContext : DbContext, IApplicationDbContext
         modelBuilder.Entity<ProductCategory>().HasData(ProductCategorySeed.GetCategories());
         modelBuilder.Entity<Product>().HasData(ProductSeed.GetProducts());
         modelBuilder.Entity<ProductVariant>().HasData(ProductVariantSeed.GetVariants());
+        
+        // Seed Notification
+        modelBuilder.Entity<NotificationType>().HasData(NotificationTypeSeed.GetTypes());
+        modelBuilder.Entity<NotificationCategory>().HasData(NotificationCategorySeed.GetCategories());
+        
         base.OnModelCreating(modelBuilder);
     }
 

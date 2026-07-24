@@ -87,12 +87,26 @@ public class IntakeBottleneckEvaluationService : IIntakeBottleneckEvaluationServ
                             result.AlertsResolved++;
                             break;
                         case IntakeBottleneckConstants.Action.ConfigWarning:
-                            // Config warning creates/updates config alerts
-                            result.AlertsCreated++;
+                            // Handled via ConfigAlert properties below
                             break;
                         case IntakeBottleneckConstants.Action.Skipped:
                             result.Skipped++;
                             break;
+                    }
+
+                    if (whResult.ConfigAlertCreated)
+                    {
+                        result.AlertsCreated++;
+                        result.NotificationsQueued++;
+                    }
+                    if (whResult.ConfigAlertUpdated)
+                    {
+                        result.AlertsUpdated++;
+                        result.NotificationsQueued++;
+                    }
+                    if (whResult.ConfigAlertResolved)
+                    {
+                        result.AlertsResolved++;
                     }
                 }
                 else
@@ -193,6 +207,7 @@ public class IntakeBottleneckEvaluationService : IIntakeBottleneckEvaluationServ
                         shouldSendNotification = true;
                         notificationMessage = configMessage;
                         notificationCode = NotificationConstants.Code.IntakeBottleneckConfigAlert;
+                        result.ConfigAlertCreated = true;
                     }
                     else
                     {
@@ -207,6 +222,7 @@ public class IntakeBottleneckEvaluationService : IIntakeBottleneckEvaluationServ
                             shouldSendNotification = true;
                             notificationMessage = configMessage;
                             notificationCode = NotificationConstants.Code.IntakeBottleneckConfigAlert;
+                            result.ConfigAlertUpdated = true;
                         }
                     }
 
@@ -249,11 +265,13 @@ public class IntakeBottleneckEvaluationService : IIntakeBottleneckEvaluationServ
                     await _context.SaveChangesAsync(cancellationToken);
 
                     await NotifySignalRAsync(activeConfigAlert);
+                    result.ConfigAlertResolved = true;
                 }
 
                 // 2. Business Evaluation
-                var windowStart = DateTimeHelper.VietnamNow();
-                var windowEnd = windowStart.AddHours((double)windowHours!.Value);
+                var vietnamNow = DateTimeHelper.VietnamNow();
+                var windowStart = vietnamNow.Date; // capture delayed/unreceived schedules from beginning of today
+                var windowEnd = vietnamNow.AddHours((double)windowHours!.Value);
 
                 var expectedIntake = await _queryService.GetExpectedIntakeAsync(warehouseId, windowStart, windowEnd, cancellationToken);
                 var freeStorage = await _queryService.GetFreeStorageCapacityAsync(warehouseId, cancellationToken);
@@ -265,7 +283,7 @@ public class IntakeBottleneckEvaluationService : IIntakeBottleneckEvaluationServ
                     IntakeLabourCapacityKg = labourCapacity!.Value,
                     WarningRatio = warningRatio!.Value,
                     CriticalRatio = criticalRatio!.Value,
-                    WindowStart = windowStart,
+                    WindowStart = vietnamNow, // pass evaluation start time to calculation input
                     WindowEnd = windowEnd
                 };
 
@@ -298,7 +316,7 @@ public class IntakeBottleneckEvaluationService : IIntakeBottleneckEvaluationServ
                         : AlertConstants.Severity.Warning;
 
                     string message;
-                    var startStr = windowStart.ToString("dd/MM/yyyy HH:mm");
+                    var startStr = vietnamNow.ToString("dd/MM/yyyy HH:mm");
                     var endStr = windowEnd.ToString("dd/MM/yyyy HH:mm");
 
                     if (severity == AlertConstants.Severity.Critical)
