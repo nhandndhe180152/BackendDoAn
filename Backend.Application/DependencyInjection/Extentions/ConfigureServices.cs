@@ -75,7 +75,9 @@ public static class ConfigureServices
             .AddScoped<IStockAlertConfigService, StockAlertConfigService>()
             .AddScoped<IInventoryStateAggregationService, InventoryStateAggregationService>()
             .AddScoped<IAlertService, AlertService>()
-            .AddScoped<ICustomerReturnOrderService, CustomerReturnOrderService>();
+            .AddScoped<ICustomerReturnOrderService, CustomerReturnOrderService>()
+            // ── Trả hàng nhà cung cấp (FE-16) ─────────────────────────────────────────
+            .AddScoped<IReturnToSupplierOrderService, ReturnToSupplierOrderService>();
 
 
         services.AddFluentValidationAutoValidation(options => options.DisableDataAnnotationsValidation = true);

@@ -494,16 +494,24 @@ public class CustomerReturnOrderServiceTests
 
         // Assert
         result.Status.Should().Be(200);
-        _partyDebts.Should().HaveCount(1);
-        var createdPartyDebt = _partyDebts.First();
-        createdPartyDebt.PartyId.Should().Be(12);
-        createdPartyDebt.CurrentBalance.Should().Be(-50000);
+
+        // #18: Khoản phải hoàn trả vượt dư nợ được ghi vào PartyDebt hướng PAYABLE riêng,
+        // KHÔNG đẩy số dư RECEIVABLE xuống âm. Do đó có 2 PartyDebt cho khách này.
+        _partyDebts.Should().HaveCount(2);
+
+        var receivable = _partyDebts.First(x => x.Direction == "RECEIVABLE");
+        receivable.PartyId.Should().Be(12);
+        receivable.CurrentBalance.Should().Be(0);
+
+        var payable = _partyDebts.First(x => x.Direction == "PAYABLE");
+        payable.PartyId.Should().Be(12);
+        payable.CurrentBalance.Should().Be(50000);
 
         _debtTransactions.Should().HaveCount(1);
         var createdTx = _debtTransactions.First();
         createdTx.TransactionType.Should().Be("REFUND_PAYABLE");
         createdTx.Amount.Should().Be(50000);
-        createdTx.BalanceAfter.Should().Be(-50000);
-        createdTx.PartyDebt.Should().Be(createdPartyDebt);
+        createdTx.BalanceAfter.Should().Be(50000);
+        createdTx.PartyDebt.Should().Be(payable);
     }
 }

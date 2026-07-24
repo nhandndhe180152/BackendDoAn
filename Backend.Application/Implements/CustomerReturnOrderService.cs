@@ -84,6 +84,13 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         if (outbound == null)
             return ApiResponse.NotFound(message: "Không tìm thấy phiếu xuất gốc.");
 
+        // #19: Null-check tránh NullReferenceException (500) khi phiếu xuất thiếu trạng thái/đơn bán liên kết
+        if (outbound.OutboundOrderStatus == null)
+            return ApiResponse.UnprocessableEntity(message: "Phiếu xuất gốc chưa có trạng thái hợp lệ.");
+
+        if (outbound.SalesOrder == null)
+            return ApiResponse.UnprocessableEntity(message: "Phiếu xuất gốc không gắn với đơn bán nào.");
+
         if (outbound.OutboundOrderStatus.Name != "DISPATCHED" && outbound.OutboundOrderStatus.Name != "COMPLETED")
             return ApiResponse.UnprocessableEntity(message: "Chỉ được trả hàng đối với phiếu xuất đã Dispatched hoặc Completed.");
 
@@ -104,6 +111,14 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         var cntToday = await _context.CustomerReturnOrders
             .CountAsync(x => x.ReturnCode.StartsWith(baseCode), cancellationToken);
         var returnCode = $"{baseCode}-{(cntToday + 1):D6}";
+
+        // #5: Retry chống trùng mã khi nhiều request chạy đồng thời
+        int codeAttempts = 0;
+        while (await _context.CustomerReturnOrders.AnyAsync(x => x.ReturnCode == returnCode, cancellationToken) && codeAttempts < 10)
+        {
+            codeAttempts++;
+            returnCode = $"{baseCode}-{(cntToday + 1 + codeAttempts):D6}";
+        }
 
         var returnOrder = new CustomerReturnOrder
             {
@@ -996,25 +1011,53 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
                 if (refundPending > 0)
                 {
-                    partyDebt.CurrentBalance -= refundPending;
-                    partyDebt.UpdatedBy = userId;
-                    partyDebt.LastModifiedDate = now;
+                    // #18: Khoản phải hoàn trả cho khách (vượt dư nợ) là công nợ hướng PAYABLE,
+                    // KHÔNG đẩy số dư RECEIVABLE xuống âm. Tìm/tạo PartyDebt PAYABLE riêng cho khách.
+                    var payableDebt = await _context.PartyDebts.FirstOrDefaultAsync(d =>
+                        d.PartyType == LookupCodes.PartyType.Customer &&
+                        d.PartyId == order.CustomerId &&
+                        d.Direction == LookupCodes.DebtDirection.Payable &&
+                        d.IsActive && !d.IsDeleted, cancellationToken);
 
-                    var refundTx = new DebtTransaction
+                    if (payableDebt == null && order.CustomerId.HasValue)
                     {
-                        PartyDebt = partyDebt,
-                        TransactionType = LookupCodes.DebtTransactionType.RefundPayable,
-                        Amount = refundPending,
-                        BalanceAfter = partyDebt.CurrentBalance,
-                        RefType = InventoryReferenceTypeConstants.CustomerReturnOrder,
-                        RefId = order.Id,
-                        TransactionDate = now,
-                        Note = $"Ghi nhận khoản phải hoàn trả (Refund Payable) vượt dư nợ của đơn trả hàng {order.ReturnCode}",
-                        DeduplicationKey = deduplicationKey + "-REFUND",
-                        CreatedBy = userId,
-                        CreatedDate = now
-                    };
-                    await _context.DebtTransactions.AddAsync(refundTx, cancellationToken);
+                        payableDebt = new PartyDebt
+                        {
+                            OrganizationId = order.OrganizationId,
+                            PartyType = LookupCodes.PartyType.Customer,
+                            PartyId = order.CustomerId.Value,
+                            Direction = LookupCodes.DebtDirection.Payable,
+                            OpeningBalance = 0,
+                            CurrentBalance = 0,
+                            IsActive = true,
+                            CreatedDate = now,
+                            CreatedBy = userId
+                        };
+                        await _context.PartyDebts.AddAsync(payableDebt, cancellationToken);
+                    }
+
+                    if (payableDebt != null)
+                    {
+                        payableDebt.CurrentBalance += refundPending;
+                        payableDebt.UpdatedBy = userId;
+                        payableDebt.LastModifiedDate = now;
+
+                        var refundTx = new DebtTransaction
+                        {
+                            PartyDebt = payableDebt,
+                            TransactionType = LookupCodes.DebtTransactionType.RefundPayable,
+                            Amount = refundPending,
+                            BalanceAfter = payableDebt.CurrentBalance,
+                            RefType = InventoryReferenceTypeConstants.CustomerReturnOrder,
+                            RefId = order.Id,
+                            TransactionDate = now,
+                            Note = $"Ghi nhận khoản phải hoàn trả (Refund Payable) cho khách của đơn trả hàng {order.ReturnCode}",
+                            DeduplicationKey = deduplicationKey + "-REFUND",
+                            CreatedBy = userId,
+                            CreatedDate = now
+                        };
+                        await _context.DebtTransactions.AddAsync(refundTx, cancellationToken);
+                    }
                 }
             }
 

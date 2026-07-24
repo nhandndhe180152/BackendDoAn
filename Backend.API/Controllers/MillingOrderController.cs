@@ -33,6 +33,14 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        /// <summary>Gap 2: Danh sách lệnh xay gắn với một đơn bán (điều phối xay-theo-đơn).</summary>
+        [HttpGet("by-sales-order/{salesOrderId}")]
+        public async Task<IActionResult> GetBySalesOrderAsync(int salesOrderId)
+        {
+            var result = await _millingOrderService.GetBySalesOrderAsync(salesOrderId);
+            return BaseResult(result);
+        }
+
         [HttpPost("paged-advanced")]
         public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)
         {

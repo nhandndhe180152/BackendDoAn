@@ -184,6 +184,14 @@ public class InboundOrderController : BaseController
         return BaseResult(result);
     }
 
+    /// <summary>Gap 3: Đảo ngược một dòng phiếu nhập đã xác nhận nhập kho (store-in sai).</summary>
+    [HttpPost("{id}/receipts/{receiptId}/reverse")]
+    public async Task<IActionResult> ReverseReceiptAsync(int id, int receiptId, [FromQuery] string reason)
+    {
+        var result = await _inboundOrderService.ReverseReceiptAsync(id, receiptId, reason);
+        return BaseResult(result);
+    }
+
     [HttpGet("{id}/receipts")]
     public async Task<IActionResult> GetReceiptsAsync(int id)
     {

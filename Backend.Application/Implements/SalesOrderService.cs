@@ -34,6 +34,7 @@ public class SalesOrderService : ISalesOrderService
     private readonly IInventoryRepository _inventoryRepository;
     private readonly IInventoryTransactionRepository _inventoryTransactionRepository;
     private readonly IPartyDebtRepository _partyDebtRepository;
+    private readonly IRepositoryBase<MillingOrder, int> _millingOrderRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly INotificationDispatcher _notificationDispatcher;
 
@@ -48,6 +49,7 @@ public class SalesOrderService : ISalesOrderService
         IInventoryRepository inventoryRepository,
         IInventoryTransactionRepository inventoryTransactionRepository,
         IPartyDebtRepository partyDebtRepository,
+        IRepositoryBase<MillingOrder, int> millingOrderRepository,
         IHttpContextAccessor httpContextAccessor,
         INotificationDispatcher notificationDispatcher)
     {
@@ -61,6 +63,7 @@ public class SalesOrderService : ISalesOrderService
         _inventoryRepository         = inventoryRepository;
         _inventoryTransactionRepository = inventoryTransactionRepository;
         _partyDebtRepository         = partyDebtRepository;
+        _millingOrderRepository      = millingOrderRepository;
         _httpContextAccessor         = httpContextAccessor;
         _notificationDispatcher      = notificationDispatcher;
     }
@@ -357,6 +360,20 @@ public class SalesOrderService : ISalesOrderService
             return ApiResponse.Error(
                 $"Đơn đang ở trạng thái '{so.Status?.Name}', chỉ có thể giữ hàng khi ở Chờ xác nhận.",
                 409, ApiCodeConstants.SalesOrder.InvalidState);
+
+        // Gap 2: Đơn "cần xay" (RequiresMilling) bắt buộc phải có ít nhất 1 lệnh xay ĐÃ HOÀN THÀNH
+        // gắn với đơn này trước khi giữ hàng — để đảm bảo gạo thành phẩm đã thực sự được sản xuất cho đơn.
+        if (so.RequiresMilling)
+        {
+            var hasCompletedMilling = await _millingOrderRepository
+                .FindByCondition(x => x.SalesOrderId == so.Id && !x.IsDeleted, false, x => x.Status)
+                .AnyAsync(x => x.Status != null && x.Status.Code == LookupCodes.MillingOrderStatus.Completed);
+
+            if (!hasCompletedMilling)
+                return ApiResponse.Error(
+                    "Đơn hàng yêu cầu xay xát: vui lòng tạo và hoàn thành lệnh xay cho đơn này trước khi giữ hàng.",
+                    422, ApiCodeConstants.SalesOrder.InvalidState);
+        }
 
         // 1. Kiểm tra khách hàng còn hoạt động
         var customer = await _customerRepository.GetByIdAsync(so.CustomerId);

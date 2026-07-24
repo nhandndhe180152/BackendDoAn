@@ -301,6 +301,25 @@ public class AuthService : IAuthService
                 return ApiResponse.Forbidden(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.RequiredAdminUser), ApiCodeConstants.Auth.RequiredAdminUser);
         }
 
+        // #14: Kiểm tra khóa tài khoản TRƯỚC khi verify mật khẩu.
+        // Nếu đang bị khóa và còn hiệu lực -> trả thông báo khóa, KHÔNG tăng AccessFailedCount
+        // (tránh mỗi lần nhập sai lại gia hạn khóa vô hạn). Hết hạn khóa -> tự mở khóa rồi cho đăng nhập tiếp.
+        if (user.LockEnabled && user.AccessFailedCount >= AuthConstants.MAX_ACCESS_FAILED)
+        {
+            if (user.LockEndDate.HasValue && user.LockEndDate.Value > DateTime.Now)
+            {
+                return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.UserLocked)
+                        .Replace("{ExpireTime}", user.LockEndDate?.ToString("dd/MM/yyy HH:mm:ss")),
+                    ApiCodeConstants.Auth.UserLocked);
+            }
+
+            user.LockEnabled = false;
+            user.LockEndDate = null;
+            user.AccessFailedCount = 0;
+            await _userRepository.UpdateAsync(user);
+            await _userRepository.SaveChangesAsync();
+        }
+
         if (!PasswordHelper.VerifyPassword(obj.Password, user.PasswordHash))
         {
             user.AccessFailedCount++;

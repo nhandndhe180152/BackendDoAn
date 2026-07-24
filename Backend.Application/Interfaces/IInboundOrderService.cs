@@ -25,6 +25,8 @@ public interface IInboundOrderService
     Task<ApiResponse> GetPutawaySuggestionsAsync(int orderId, int receiptId);
     Task<ApiResponse> SelectPutawayAsync(int orderId, int receiptId, SelectPutawayDto dto);
     Task<ApiResponse> ConfirmReceiptAsync(int orderId, int receiptId, ConfirmReceiptDto dto);
+    /// <summary>Gap 3: Đảo ngược một dòng phiếu nhập đã xác nhận nhập kho (store-in sai).</summary>
+    Task<ApiResponse> ReverseReceiptAsync(int orderId, int receiptId, string reason);
     Task<ApiResponse> GetReceiptsAsync(int orderId);
 
     // Chứng từ giao hàng (Delivery Note: ảnh + OCR)

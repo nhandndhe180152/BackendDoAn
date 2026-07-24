@@ -55,8 +55,25 @@ public class MillingOrderService : IMillingOrderService
         _notificationDispatcher = notificationDispatcher;
     }
 
+    /// <summary>
+    /// Kiểm tra lô có đang bị CÁCH LY hay không (#2/#11).
+    /// Chỉ chặn đúng trạng thái QUARANTINE — KHÔNG dùng IsSellable, vì lúa nguyên liệu
+    /// (PADDY) mặc định ở trạng thái PENDING_INBOUND có IsSellable=false nhưng vẫn hợp lệ để đưa vào xay.
+    /// </summary>
+    private async Task<bool> IsLotBlockedForMillingAsync(int statusId)
+    {
+        var status = await _lotStatusRepository.GetByIdAsync(statusId);
+        return status != null && status.Code == LotStatusCodeConstants.Quarantine;
+    }
+
     public async Task<ApiResponse> CreateAsync(CreateMillingOrderDto obj)
     {
+        // #17: Validate tỷ lệ thu hồi (yield) và khối lượng gạo mục tiêu
+        if (obj.ExpectedYield <= 0 || obj.ExpectedYield > 1)
+            return ApiResponse.UnprocessableEntity("Tỷ lệ thu hồi (ExpectedYield) phải nằm trong khoảng (0, 1]. Ví dụ 0.65 = 65%.");
+        if (obj.TargetRiceKg <= 0)
+            return ApiResponse.UnprocessableEntity("Khối lượng gạo mục tiêu (TargetRiceKg) phải lớn hơn 0.");
+
         var now = DateTimeHelper.VietnamNow();
         var datePart = now.ToString("yyyyMMdd");
         var baseCode = $"MO-{datePart}";
@@ -64,6 +81,14 @@ public class MillingOrderService : IMillingOrderService
             .FindByCondition(x => x.MillingCode.StartsWith(baseCode))
             .CountAsync();
         var millingCode = $"{baseCode}-{(count + 1):D4}";
+
+        // #5: Retry chống trùng mã khi nhiều request chạy đồng thời
+        int codeAttempts = 0;
+        while (await _millingOrderRepository.FindByCondition(x => x.MillingCode == millingCode).AnyAsync() && codeAttempts < 10)
+        {
+            codeAttempts++;
+            millingCode = $"{baseCode}-{(count + 1 + codeAttempts):D4}";
+        }
 
         var draftStatus = await _statusRepository.FirstOrDefaultAsync(x => x.Code == LookupCodes.MillingOrderStatus.Draft && !x.IsDeleted)
             ?? throw new InvalidOperationException("Không tìm thấy MillingOrderStatus DRAFT.");
@@ -127,6 +152,17 @@ public class MillingOrderService : IMillingOrderService
         return ApiResponse.Success(ToDetailDto(entity));
     }
 
+    /// <summary>Gap 2: Lấy các lệnh xay gắn với một đơn bán (điều phối xay-theo-đơn).</summary>
+    public async Task<ApiResponse> GetBySalesOrderAsync(int salesOrderId)
+    {
+        var entities = await _millingOrderRepository
+            .FindByCondition(x => x.SalesOrderId == salesOrderId && !x.IsDeleted, false, x => x.Status, x => x.Warehouse)
+            .OrderByDescending(x => x.CreatedDate)
+            .ToListAsync();
+
+        return ApiResponse.Success(entities.Select(x => ToDetailDto(x)).ToList());
+    }
+
     public async Task<ApiResponse> GetPagedAsync(DTParameter parameters)
     {
         var data = await _millingOrderRepository.GetPagedAsync(parameters);
@@ -147,6 +183,12 @@ public class MillingOrderService : IMillingOrderService
 
         if (existData.Status?.Code != LookupCodes.MillingOrderStatus.Draft)
             return ApiResponse.UnprocessableEntity("Chỉ có thể chỉnh sửa lệnh xay ở trạng thái Nháp.");
+
+        // #17: Validate tỷ lệ thu hồi (yield) và khối lượng gạo mục tiêu
+        if (obj.ExpectedYield <= 0 || obj.ExpectedYield > 1)
+            return ApiResponse.UnprocessableEntity("Tỷ lệ thu hồi (ExpectedYield) phải nằm trong khoảng (0, 1]. Ví dụ 0.65 = 65%.");
+        if (obj.TargetRiceKg <= 0)
+            return ApiResponse.UnprocessableEntity("Khối lượng gạo mục tiêu (TargetRiceKg) phải lớn hơn 0.");
 
         existData.OrganizationId = obj.OrganizationId;
         existData.WarehouseId = obj.WarehouseId;
@@ -205,6 +247,10 @@ public class MillingOrderService : IMillingOrderService
             {
                 var lot = await _paddyLotRepository.GetByIdAsync(inputDto.PaddyLotId);
                 if (lot == null) return ApiResponse.Error($"Không tìm thấy lô lúa {inputDto.PaddyLotId}", 404);
+
+                // #2/#11: Chặn đưa lô đang CÁCH LY / không đủ điều kiện vào xay
+                if (await IsLotBlockedForMillingAsync(lot.StatusId))
+                    return ApiResponse.UnprocessableEntity($"Lô {lot.LotCode} đang bị cách ly hoặc không đủ điều kiện để đưa vào xay xát.");
 
                 if (lot.RemainingWeightKg < inputDto.ConsumedWeightKg)
                     return ApiResponse.UnprocessableEntity($"Lô {lot.LotCode} không đủ lúa (còn {lot.RemainingWeightKg} kg, yêu cầu {inputDto.ConsumedWeightKg} kg).");
@@ -363,11 +409,24 @@ public class MillingOrderService : IMillingOrderService
         var lossKg = dto.LossKg ?? 0;
         var massBalanceTolerance = totalConsumedKg * 0.02m;
         
+        // #17: Đầu ra phải > 0
+        if (totalProducedKg <= 0)
+            return ApiResponse.UnprocessableEntity("Tổng khối lượng đầu ra phải lớn hơn 0.");
+
         if (totalConsumedKg > 0 && (totalProducedKg + lossKg) > (totalConsumedKg + massBalanceTolerance))
         {
             return ApiResponse.UnprocessableEntity(
                 $"Mass balance không hợp lệ: Tổng đầu ra ({totalProducedKg} kg) + Hao hụt ({lossKg} kg) " +
                 $"vượt quá tổng lúa đầu vào ({totalConsumedKg} kg) ± 2% dung sai.");
+        }
+
+        // #17: Chặn cận dưới — tổng đầu ra + hao hụt không được thấp hơn đầu vào quá dung sai
+        // (tránh khai báo output/loss quá thấp làm "bốc hơi" lúa không rõ nguyên nhân).
+        if (totalConsumedKg > 0 && (totalProducedKg + lossKg) < (totalConsumedKg - massBalanceTolerance))
+        {
+            return ApiResponse.UnprocessableEntity(
+                $"Mass balance không hợp lệ: Tổng đầu ra ({totalProducedKg} kg) + Hao hụt ({lossKg} kg) " +
+                $"thấp hơn tổng lúa đầu vào ({totalConsumedKg} kg) quá 2% dung sai. Vui lòng khai báo đủ hao hụt/phụ phẩm.");
         }
 
         await using var tx = await _millingOrderRepository.BeginTransactionAsync();
@@ -378,6 +437,10 @@ public class MillingOrderService : IMillingOrderService
             {
                 var lot = await _paddyLotRepository.GetByIdAsync(input.PaddyLotId);
                 if (lot == null) return ApiResponse.Error($"Không tìm thấy lô lúa Id={input.PaddyLotId}.", 404);
+
+                // #2/#11: Chặn hoàn thành nếu lô đã bị chuyển sang CÁCH LY sau khi giữ lúa
+                if (await IsLotBlockedForMillingAsync(lot.StatusId))
+                    return ApiResponse.UnprocessableEntity($"Lô {lot.LotCode} đang bị cách ly hoặc không đủ điều kiện để xay xát.");
 
                 if (lot.RemainingWeightKg < input.ConsumedWeightKg)
                     return ApiResponse.UnprocessableEntity(
@@ -446,6 +509,14 @@ public class MillingOrderService : IMillingOrderService
                 var baseCode = $"LOT-{lotType}-{datePart}";
                 var count = await _paddyLotRepository.FindByCondition(x => x.LotCode.StartsWith(baseCode)).CountAsync();
                 var lotCode = $"{baseCode}-{(count + 1):D4}";
+
+                // #5: Retry chống trùng mã lô đầu ra
+                int lotAttempts = 0;
+                while (await _paddyLotRepository.FindByCondition(x => x.LotCode == lotCode).AnyAsync() && lotAttempts < 10)
+                {
+                    lotAttempts++;
+                    lotCode = $"{baseCode}-{(count + 1 + lotAttempts):D4}";
+                }
 
                 var unitCost = outputDto.UnitCost ?? defaultUnitCost;
 

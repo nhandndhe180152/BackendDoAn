@@ -86,6 +86,14 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         var count = await _receiptRepository.FindByCondition(x => x.ReceiptCode.StartsWith(baseCode)).CountAsync();
         var receiptCode = $"{baseCode}-{(count + 1):D4}";
 
+        // #5: Retry chống trùng mã khi nhiều request chạy đồng thời
+        int codeAttempts = 0;
+        while (await _receiptRepository.FindByCondition(x => x.ReceiptCode == receiptCode).AnyAsync() && codeAttempts < 10)
+        {
+            codeAttempts++;
+            receiptCode = $"{baseCode}-{(count + 1 + codeAttempts):D4}";
+        }
+
         var model = obj.ToEntity(receiptCode);
         await _receiptRepository.CreateAsync(model);
         await _receiptRepository.SaveChangesAsync();
@@ -215,6 +223,14 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         var count = await _paddyLotRepository.FindByCondition(x => x.LotCode.StartsWith(baseCode)).CountAsync();
         var lotCode = $"{baseCode}-{(count + 1):D4}";
 
+        // #5: Retry chống trùng mã lô khi nhiều request chốt phiếu đồng thời
+        int lotCodeAttempts = 0;
+        while (await _paddyLotRepository.FindByCondition(x => x.LotCode == lotCode).AnyAsync() && lotCodeAttempts < 10)
+        {
+            lotCodeAttempts++;
+            lotCode = $"{baseCode}-{(count + 1 + lotCodeAttempts):D4}";
+        }
+
         // 3. Lấy trạng thái lô mặc định của hệ thống
         var defaultLotStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => !x.IsDeleted) 
             ?? throw new InvalidOperationException("Không tìm thấy LotStatus nào trong hệ thống.");
@@ -339,6 +355,17 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         {
             await _receiptRepository.RollbackTransactionAsync();
             return ApiResponse.UnprocessableEntity(ex.Message);
+        }
+        catch (DbUpdateException dbEx) when (
+            dbEx.InnerException != null && (
+                dbEx.InnerException.Message.Contains("Duplicate entry") ||
+                dbEx.InnerException.Message.Contains("1062") ||
+                dbEx.InnerException.Message.Contains("IX_PaddyLot_SourceReceiptId")))
+        {
+            // #6: Hai request chốt cùng lúc — request thứ 2 vi phạm unique index SourceReceiptId.
+            // Coi như idempotent: phiếu đã được chốt trước đó.
+            await _receiptRepository.RollbackTransactionAsync();
+            return ApiResponse.UnprocessableEntity("Phiếu này đã được chốt trước đó.");
         }
         catch
         {
@@ -523,14 +550,9 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         }
 
         var before = inventory.QuantityOnHand;
-        if (before > 0 && inventory.CostPrice > 0)
-        {
-            inventory.CostPrice = Math.Round(((before * inventory.CostPrice) + (receipt.ActualWeightKg * lot.CostPricePerKg)) / (before + receipt.ActualWeightKg), 2);
-        }
-        else
-        {
-            inventory.CostPrice = lot.CostPricePerKg;
-        }
+        // #12: Tồn đệm luôn được tạo mới theo PaddyLotId (mỗi lần chốt sinh 1 lô mới),
+        // nên giá vốn luôn lấy trực tiếp từ lô. (Bỏ nhánh bình quân gia quyền không bao giờ chạy.)
+        inventory.CostPrice = lot.CostPricePerKg;
 
         inventory.QuantityOnHand += receipt.ActualWeightKg;
         inventory.LastModifiedDate = now;

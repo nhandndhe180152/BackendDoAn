@@ -668,6 +668,37 @@ public class OutboundOrderService : IOutboundOrderService
                             CreatedDate     = now,
                             CreatedBy       = userId
                         });
+
+                        // #7: Ghi nhận tiền cọc (deposit) đã thu của đơn bán như một khoản thanh toán,
+                        // giảm công nợ phải thu — CHỈ MỘT LẦN cho mỗi đơn bán (dedup theo RefType/RefId).
+                        if (salesOrder.DepositAmount.HasValue && salesOrder.DepositAmount.Value > 0)
+                        {
+                            var depositRecorded = await _debtTransactionRepository.FirstOrDefaultAsync(x =>
+                                x.RefType == "SALES_ORDER_DEPOSIT" && x.RefId == salesOrder.Id && !x.IsDeleted);
+
+                            if (depositRecorded == null)
+                            {
+                                var depositAmount = salesOrder.DepositAmount.Value;
+                                partyDebt.CurrentBalance  -= depositAmount;
+                                partyDebt.LastModifiedDate  = now;
+                                partyDebt.UpdatedBy         = userId;
+                                await _partyDebtRepository.UpdateAsync(partyDebt);
+
+                                await _debtTransactionRepository.CreateAsync(new DebtTransaction
+                                {
+                                    PartyDebtId     = partyDebt.Id,
+                                    TransactionType = "PAYMENT",
+                                    Amount          = depositAmount,
+                                    BalanceAfter    = partyDebt.CurrentBalance,
+                                    RefType         = "SALES_ORDER_DEPOSIT",
+                                    RefId           = salesOrder.Id,
+                                    TransactionDate = now,
+                                    Note            = $"Ghi nhận tiền cọc đã thu của đơn bán {salesOrder.SOCode}",
+                                    CreatedDate     = now,
+                                    CreatedBy       = userId
+                                });
+                            }
+                        }
                     }
                 }
             }

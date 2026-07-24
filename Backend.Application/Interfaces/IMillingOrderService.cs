@@ -14,4 +14,7 @@ public interface IMillingOrderService : IServiceBase<int, CreateMillingOrderDto,
     /// Hoàn thành lệnh xay: trừ lúa từ lô đầu vào, sinh lô gạo/phụ phẩm, nhập kho đầu ra.
     /// </summary>
     Task<ApiResponse> CompleteMillingOrderAsync(int orderId, CompleteMillingOrderDto dto, int completedById);
+
+    /// <summary>Gap 2: Lấy các lệnh xay gắn với một đơn bán (điều phối xay-theo-đơn).</summary>
+    Task<ApiResponse> GetBySalesOrderAsync(int salesOrderId);
 }

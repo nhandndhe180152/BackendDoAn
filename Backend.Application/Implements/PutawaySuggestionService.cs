@@ -482,6 +482,12 @@ public class PutawaySuggestionService : IPutawaySuggestionService
         return ApiResponse.Success(message: "Cập nhật cấu hình quy tắc gợi ý vị trí thành công.");
     }
 
+    /// <remarks>
+    /// #9 — CẢNH BÁO: Đây là 1 trong 2 đường "store-in" của hệ thống.
+    /// Đường còn lại là <see cref="InboundOrderService.ConfirmReceiptAsync"/> (tăng thẳng tồn vị trí).
+    /// Với 1 phiếu nhập, CHỈ ĐƯỢC dùng ĐÚNG MỘT đường — nếu FE gọi cả hai cho cùng nguồn sẽ đếm tồn 2 lần.
+    /// Luồng lúa (PADDY_PURCHASE) dùng đường này (có trừ khu đệm). Cần đảm bảo FE không gọi trùng.
+    /// </remarks>
     public async Task<ApiResponse> ConfirmStoreInAsync(string referenceType, int referenceId, ConfirmStoreInRequest request, CancellationToken cancellationToken)
     {
         if (request.WeightKg <= 0)
@@ -669,6 +675,14 @@ public class PutawaySuggestionService : IPutawaySuggestionService
                 };
                 _context.InventoryTransactions.Add(bufferTxn);
             }
+            else
+            {
+                // #8: Hàng non-paddy — lấy giá vốn từ dòng phiếu nhập khớp ProductVariant,
+                // tránh ghi nhận giá vốn = 0 làm sai định giá tồn kho.
+                var matchItem = inboundOrder?.InboundOrderItems
+                    .FirstOrDefault(i => !i.IsDeleted && i.ProductVariantId == request.ProductVariantId);
+                sourceCostPrice = matchItem?.UnitCostPrice ?? 0m;
+            }
 
             var inv = await _context.Inventories
                 .FirstOrDefaultAsync(x =>
@@ -689,7 +703,7 @@ public class PutawaySuggestionService : IPutawaySuggestionService
                     LocationId = request.SelectedLocationId,
                     ProductVariantId = request.ProductVariantId,
                     PaddyLotId = request.PaddyLotId,
-                    CostPrice = isPaddy ? sourceCostPrice : 0m,
+                    CostPrice = sourceCostPrice,
                     QuantityOnHand = 0,
                     QuantityReserved = 0,
                     CreatedBy = userId,
@@ -700,18 +714,15 @@ public class PutawaySuggestionService : IPutawaySuggestionService
             }
             else
             {
-                // Nếu đã có tồn cùng lô thì tính giá vốn bình quân gia quyền đúng
-                if (isPaddy)
+                // #8: Tính giá vốn bình quân gia quyền cho cả lúa lẫn non-paddy khi đã có tồn cùng lô/vị trí
+                if (beforeQty > 0 && inv.CostPrice > 0)
                 {
-                    if (beforeQty > 0 && inv.CostPrice > 0)
-                    {
-                        var newCost = ((beforeQty * inv.CostPrice) + (request.WeightKg * sourceCostPrice)) / (beforeQty + request.WeightKg);
-                        inv.CostPrice = Math.Round(newCost, 2);
-                    }
-                    else
-                    {
-                        inv.CostPrice = sourceCostPrice;
-                    }
+                    var newCost = ((beforeQty * inv.CostPrice) + (request.WeightKg * sourceCostPrice)) / (beforeQty + request.WeightKg);
+                    inv.CostPrice = Math.Round(newCost, 2);
+                }
+                else
+                {
+                    inv.CostPrice = sourceCostPrice;
                 }
             }
 

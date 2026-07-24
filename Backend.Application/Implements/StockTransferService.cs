@@ -23,6 +23,7 @@ public class StockTransferService : IStockTransferService
     private readonly IStockTransferRepository _transferRepository;
     private readonly IRepositoryBase<StockTransferItem, int> _itemRepository;
     private readonly IRepositoryBase<StockTransferStatus, int> _statusRepository;
+    private readonly IRepositoryBase<LotStatus, int> _lotStatusRepository;
     private readonly IPaddyLotRepository _paddyLotRepository;
     private readonly IInventoryRepository _inventoryRepository;
     private readonly IInventoryTransactionRepository _inventoryTransactionRepository;
@@ -32,6 +33,7 @@ public class StockTransferService : IStockTransferService
         IStockTransferRepository transferRepository,
         IRepositoryBase<StockTransferItem, int> itemRepository,
         IRepositoryBase<StockTransferStatus, int> statusRepository,
+        IRepositoryBase<LotStatus, int> lotStatusRepository,
         IPaddyLotRepository paddyLotRepository,
         IInventoryRepository inventoryRepository,
         IInventoryTransactionRepository inventoryTransactionRepository,
@@ -40,10 +42,22 @@ public class StockTransferService : IStockTransferService
         _transferRepository = transferRepository;
         _itemRepository = itemRepository;
         _statusRepository = statusRepository;
+        _lotStatusRepository = lotStatusRepository;
         _paddyLotRepository = paddyLotRepository;
         _inventoryRepository = inventoryRepository;
         _inventoryTransactionRepository = inventoryTransactionRepository;
         _notificationDispatcher = notificationDispatcher;
+    }
+
+    /// <summary>
+    /// #2/#11: Lô đang CÁCH LY (QUARANTINE) thì không cho điều chuyển.
+    /// Chỉ chặn đúng QUARANTINE — KHÔNG dùng IsSellable, vì lúa nguyên liệu mặc định
+    /// PENDING_INBOUND có IsSellable=false nhưng vẫn được phép điều chuyển giữa các kho.
+    /// </summary>
+    private async Task<bool> IsLotBlockedForTransferAsync(int statusId)
+    {
+        var status = await _lotStatusRepository.GetByIdAsync(statusId);
+        return status != null && status.Code == LotStatusCodeConstants.Quarantine;
     }
 
     public async Task<ApiResponse> CreateAsync(CreateStockTransferDto obj)
@@ -58,6 +72,14 @@ public class StockTransferService : IStockTransferService
             .FindByCondition(x => x.TransferCode.StartsWith(baseCode))
             .CountAsync();
         var transferCode = $"{baseCode}-{(count + 1):D4}";
+
+        // #5: Retry chống trùng mã khi nhiều request chạy đồng thời
+        int codeAttempts = 0;
+        while (await _transferRepository.FindByCondition(x => x.TransferCode == transferCode).AnyAsync() && codeAttempts < 10)
+        {
+            codeAttempts++;
+            transferCode = $"{baseCode}-{(count + 1 + codeAttempts):D4}";
+        }
 
         var pendingStatus = await _statusRepository.FirstOrDefaultAsync(x => x.Name == "Pending" && !x.IsDeleted)
             ?? await _statusRepository.FirstOrDefaultAsync(x => !x.IsDeleted)
@@ -216,12 +238,26 @@ public class StockTransferService : IStockTransferService
                 if (item.PaddyLotId.HasValue)
                 {
                     lot = await _paddyLotRepository.GetByIdAsync(item.PaddyLotId.Value);
-                    
+
                     // NGẮT SỚM (Fail-fast): Validate đảm bảo lô hàng tồn tại và không bị xóa
                     if (lot == null || lot.IsDeleted)
                     {
                         throw new InvalidOperationException($"Không tìm thấy lô lúa/gạo hoặc lô hàng đã bị xóa (ID: {item.PaddyLotId.Value}) trong phiếu điều chuyển.");
                     }
+
+                    // #4: Lô phải thuộc đúng kho nguồn của phiếu điều chuyển
+                    if (lot.WarehouseId != transfer.FromWarehouseId)
+                        throw new InvalidOperationException($"Lô {lot.LotCode} không thuộc kho nguồn của phiếu điều chuyển (kho hiện tại của lô: {lot.WarehouseId}, kho nguồn: {transfer.FromWarehouseId}).");
+
+                    // #4: Khối lượng điều chuyển phải hợp lệ
+                    if (item.WeightKg <= 0)
+                        throw new InvalidOperationException($"Khối lượng điều chuyển của lô {lot.LotCode} phải lớn hơn 0.");
+                    if (item.WeightKg > lot.RemainingWeightKg)
+                        throw new InvalidOperationException($"Khối lượng điều chuyển ({item.WeightKg} kg) vượt quá khối lượng còn lại của lô {lot.LotCode} ({lot.RemainingWeightKg} kg).");
+
+                    // #2/#11: Chặn điều chuyển lô đang CÁCH LY / không đủ điều kiện
+                    if (await IsLotBlockedForTransferAsync(lot.StatusId))
+                        throw new InvalidOperationException($"Lô {lot.LotCode} đang bị cách ly hoặc không đủ điều kiện để điều chuyển.");
 
                     costPrice = lot.CostPricePerKg;
 
@@ -235,6 +271,14 @@ public class StockTransferService : IStockTransferService
                         var baseCode = $"LOT-{lotType}-{datePart}";
                         var count = await _paddyLotRepository.FindByCondition(x => x.LotCode.StartsWith(baseCode)).CountAsync();
                         var newLotCode = $"{baseCode}-{(count + 1):D4}";
+
+                        // #5: Retry chống trùng mã lô tách
+                        int splitAttempts = 0;
+                        while (await _paddyLotRepository.FindByCondition(x => x.LotCode == newLotCode).AnyAsync() && splitAttempts < 10)
+                        {
+                            splitAttempts++;
+                            newLotCode = $"{baseCode}-{(count + 1 + splitAttempts):D4}";
+                        }
 
                         var newLot = new PaddyLot
                         {
@@ -377,9 +421,12 @@ public class StockTransferService : IStockTransferService
 
         if (isExport)
         {
-            if (inventory.QuantityOnHand < qty)
+            // #3: Xuất điều chuyển phải theo tồn KHẢ DỤNG (OnHand - Reserved),
+            // không được đụng vào phần đang GIỮ cho đơn bán/lệnh xay.
+            var availableQty = inventory.QuantityOnHand - inventory.QuantityReserved;
+            if (availableQty < qty)
             {
-                throw new InvalidOperationException($"Số lượng tồn kho tại kho {warehouseId} (kệ {locationId}) không đủ (chỉ còn {inventory.QuantityOnHand} kg) để xuất điều chuyển {qty} kg.");
+                throw new InvalidOperationException($"Tồn kho khả dụng tại kho {warehouseId} (kệ {locationId}) không đủ (khả dụng {availableQty} kg, đang giữ {inventory.QuantityReserved} kg) để xuất điều chuyển {qty} kg.");
             }
 
             inventory.QuantityOnHand = Math.Max(0, inventory.QuantityOnHand - qty);

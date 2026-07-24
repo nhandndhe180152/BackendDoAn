@@ -1331,6 +1331,145 @@ public class InboundOrderService : IInboundOrderService
     }
 
     /// <summary>
+    /// Gap 3: Đảo ngược một dòng phiếu nhập đã xác nhận nhập kho (store-in sai).
+    /// Trừ lại tồn kho vật lý + sức chứa vị trí + tồn lô, ghi giao dịch đảo (INBOUND_REVERSAL),
+    /// đưa dòng receipt về trạng thái PutawaySelected để thao tác lại. Chặn nếu hàng đã bị giữ/tiêu thụ.
+    /// </summary>
+    public async Task<ApiResponse> ReverseReceiptAsync(int orderId, int receiptId, string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+            return ApiResponse.BadRequest("Vui lòng nhập lý do đảo ngược phiếu nhập.", ApiCodeConstants.Common.BadRequest);
+
+        await using var transaction = await _inboundOrderRepository.BeginTransactionAsync();
+        try
+        {
+            var order = await _inboundOrderRepository.FirstOrDefaultAsync(
+                x => x.Id == orderId && !x.IsDeleted, true, x => x.InboundOrderItems);
+            if (order == null)
+                return ApiResponse.NotFound("Không tìm thấy phiếu nhập.", ApiCodeConstants.Common.NotFound);
+
+            var item = await _inboundOrderItemRepository.FirstOrDefaultAsync(
+                x => x.Id == receiptId && !x.IsDeleted && x.InboundOrderId == orderId, true, x => x.ProductVariant);
+            if (item == null)
+                return ApiResponse.NotFound("Không tìm thấy dòng receipt tương ứng.", ApiCodeConstants.Common.NotFound);
+
+            var state = item.GetReceiptState();
+            if (state.ReceiptStatus != "Confirmed" || !state.ConfirmedLocationId.HasValue)
+                return ApiResponse.UnprocessableEntity("Chỉ đảo ngược được dòng đã ở trạng thái Đã nhập kho (Confirmed).", ApiCodeConstants.Common.UnprocessableEntity);
+
+            var qty = state.QuantityEntered ?? 0m;
+            if (qty <= 0)
+                return ApiResponse.UnprocessableEntity("Khối lượng đã nhập không hợp lệ để đảo ngược.", ApiCodeConstants.Common.UnprocessableEntity);
+
+            var locId = state.ConfirmedLocationId.Value;
+            var paddyLotId = item.PaddyLotId;
+
+            var inventory = await _inventoryRepository.FirstOrDefaultAsync(x =>
+                x.WarehouseId == order.WarehouseId &&
+                x.LocationId == locId &&
+                x.ProductVariantId == item.ProductVariantId &&
+                x.PaddyLotId == paddyLotId, true);
+
+            if (inventory == null)
+                return ApiResponse.UnprocessableEntity("Không tìm thấy tồn kho tương ứng để đảo ngược.", ApiCodeConstants.Common.UnprocessableEntity);
+
+            // Chặn đảo ngược nếu hàng đã bị giữ (reserved) hoặc đã tiêu thụ bớt (không đủ khả dụng)
+            var available = inventory.QuantityOnHand - inventory.QuantityReserved;
+            if (available < qty)
+                return ApiResponse.UnprocessableEntity(
+                    $"Không thể đảo ngược: tồn khả dụng ({available} kg) nhỏ hơn khối lượng cần đảo ({qty} kg) — hàng có thể đã được giữ hoặc xuất/xay.",
+                    ApiCodeConstants.Common.UnprocessableEntity);
+
+            var beforeQty = inventory.QuantityOnHand;
+            inventory.QuantityOnHand -= qty;
+            inventory.LastModifiedDate = DateTime.Now;
+            inventory.UpdatedBy = GetCurrentUserId();
+            await _inventoryRepository.UpdateAsync(inventory);
+
+            // Trả lại sức chứa vị trí
+            var loc = await _locationRepository.FirstOrDefaultAsync(x => x.Id == locId && !x.IsDeleted, true);
+            if (loc != null)
+            {
+                loc.CurrentOccupancy = System.Math.Max(0m, loc.CurrentOccupancy - qty);
+                await _locationRepository.UpdateAsync(loc);
+            }
+
+            // Giảm tồn lô nếu là hàng theo lô
+            if (paddyLotId.HasValue)
+            {
+                var lot = await _paddyLotRepository.GetByIdAsync(paddyLotId.Value);
+                if (lot != null && !lot.IsDeleted)
+                {
+                    lot.RemainingWeightKg = System.Math.Max(0m, lot.RemainingWeightKg - qty);
+                    await _paddyLotRepository.UpdateAsync(lot);
+                }
+            }
+
+            // Ghi giao dịch đảo (xuất) để giữ audit trail
+            var invTrans = new InventoryTransaction
+            {
+                InventoryId = inventory.Id,
+                WarehouseId = order.WarehouseId,
+                LocationId = locId,
+                ProductVariantId = item.ProductVariantId,
+                PaddyLotId = paddyLotId,
+                TransactionType = InventoryTransactionTypeConstants.Export,
+                ReferenceType = "INBOUND_REVERSAL",
+                ReferenceId = item.Id,
+                ReferenceItemId = item.Id,
+                Quantity = -qty,
+                BeforeQuantity = beforeQty,
+                AfterQuantity = inventory.QuantityOnHand,
+                WeightKg = qty,
+                Note = $"Đảo ngược nhập kho: {reason}",
+                CreatedBy = GetCurrentUserId(),
+                CreatedDate = DateTime.Now
+            };
+            await _inventoryTransactionRepository.CreateAsync(invTrans);
+
+            // Hoàn lại số lượng đã nhận của dòng và đưa state về PutawaySelected để thao tác lại
+            item.QuantityReceived = System.Math.Max(0m, item.QuantityReceived - qty);
+            state.ReceiptStatus = "PutawaySelected";
+            item.SaveReceiptState(state);
+            await _inboundOrderItemRepository.UpdateAsync(item);
+
+            // Tính lại trạng thái phiếu nhập
+            var allItems = await _inboundOrderItemRepository.FindByConditionAsync(x => x.InboundOrderId == order.Id && !x.IsDeleted);
+            var totalLines = allItems.Count;
+            var settledLines = allItems.Count(x => x.QuantityReceived >= x.QuantityOrdered);
+            var hasAnyReceived = allItems.Any(x => x.QuantityReceived > 0);
+
+            var nextDocStatusName = hasAnyReceived
+                ? (settledLines == totalLines ? InboundOrderStatusNames.Confirmed : InboundOrderStatusNames.PartiallyReceived)
+                : InboundOrderStatusNames.Receiving;
+
+            order.InboundOrderStatusId = await GetStatusIdAsync(nextDocStatusName);
+            if (nextDocStatusName != InboundOrderStatusNames.Confirmed)
+                order.CompletedDate = null;
+            order.UpdatedBy = GetCurrentUserId();
+            order.LastModifiedDate = DateTime.Now;
+            await _inboundOrderRepository.UpdateAsync(order);
+
+            await _inboundOrderRepository.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            return ApiResponse.Success(item.ToDto(), "Đảo ngược nhập kho thành công.");
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            await transaction.RollbackAsync();
+            _logger.LogError(ex, "Concurrency conflict during ReverseReceiptAsync.");
+            return ApiResponse.Error("Xung đột dữ liệu đồng thời. Vui lòng tải lại và thử lại.", 409, ApiCodeConstants.Common.DuplicatedData);
+        }
+        catch (System.Exception ex)
+        {
+            await transaction.RollbackAsync();
+            _logger.LogError(ex, "Failed to reverse receipt.");
+            return ApiResponse.InternalServerError();
+        }
+    }
+
+    /// <summary>
     /// Lưu/gắn chứng từ giao hàng (ảnh + thông tin OCR) vào phiếu nhập.
     /// Ảnh phải được upload trước qua /file-manager/upload-by-category để lấy OriginalImageFileId.
     /// Quan hệ 1-1 do InboundOrder.DeliveryNoteId sở hữu: gọi lại sẽ cập nhật chứng từ hiện có.
