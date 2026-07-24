@@ -37,6 +37,7 @@ public static class NotificationConstants
         public const string OutboundOrder = "Đơn xuất kho";
         public const string StockTransfer = "Điều chuyển kho";
         public const string StockTake = "Kiểm kê kho";
+        public const string QualityInspection = "Kiểm định chất lượng";
         public const string System = "Hệ thống";
     }
 
@@ -69,6 +70,9 @@ public static class NotificationConstants
         // Kiểm kê kho
         public const string StockTakeApproved = "STOCKTAKE_APPROVED";
         public const string StockTakeRejected = "STOCKTAKE_REJECTED";
+        // Kiểm định chất lượng
+        public const string QualityInspectionAssigned = "QUALITY_INSPECTION_ASSIGNED";
+        public const string QualityInspectionResult = "QUALITY_INSPECTION_RESULT";
         // Cảnh báo
         public const string LowStockAlert = "LOW_STOCK_ALERT";
     }
@@ -230,6 +234,22 @@ public static class NotificationConstants
                 Color = "#ef4444",
                 Title = "Phiếu kiểm kê bị từ chối",
                 Content = "Phiếu kiểm kê kho {0} đã bị từ chối. Lý do: {1}."
+            },
+
+            // ── Kiểm định chất lượng ─────────────────────────────────────
+            [Code.QualityInspectionAssigned] = new()
+            {
+                Category = Category.QualityInspection,
+                Color = "#f59e0b",
+                Title = "Được giao kiểm định chất lượng",
+                Content = "Bạn được giao đi kiểm định chất lượng lô {0}. Vui lòng tiến hành kiểm tra và ghi nhận kết quả."
+            },
+            [Code.QualityInspectionResult] = new()
+            {
+                Category = Category.QualityInspection,
+                Color = "#10b981",
+                Title = "Có kết quả kiểm định lô",
+                Content = "Lô {0} đã được kiểm định với kết quả: {1}."
             },
 
             // ── Cảnh báo tồn kho thấp ────────────────────────────────────

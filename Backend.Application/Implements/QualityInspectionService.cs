@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Backend.Application.Constants;
 using Backend.Application.DTOs.QualityInspections;
 using Backend.Application.Interfaces;
 using Backend.Domain.Entities;
@@ -19,13 +20,16 @@ public class QualityInspectionService : IQualityInspectionService
 {
     private readonly IQualityInspectionRepository _repo;
     private readonly IPaddyLotRepository _paddyLotRepository;
+    private readonly INotificationDispatcher _notificationDispatcher;
 
     public QualityInspectionService(
         IQualityInspectionRepository repo,
-        IPaddyLotRepository paddyLotRepository)
+        IPaddyLotRepository paddyLotRepository,
+        INotificationDispatcher notificationDispatcher)
     {
         _repo = repo;
         _paddyLotRepository = paddyLotRepository;
+        _notificationDispatcher = notificationDispatcher;
     }
 
     public async Task<ApiResponse> CreateAsync(CreateQualityInspectionDto obj)
@@ -71,6 +75,18 @@ public class QualityInspectionService : IQualityInspectionService
         {
             await tx.RollbackAsync();
             throw;
+        }
+
+        // Giao phiếu cho người kiểm định -> thông báo + push FCM cho người được giao.
+        // (Không tự gửi lại cho chính người tạo nếu tự nhận kiểm.)
+        if (entity.InspectorId.HasValue && entity.InspectorId != obj.CreatedBy)
+        {
+            await _notificationDispatcher.DispatchAsync(
+                NotificationConstants.Code.QualityInspectionAssigned,
+                new NotificationTarget { UserIds = new List<int> { entity.InspectorId.Value } },
+                new object[] { lot.LotCode },
+                "/admin/quality-inspections",
+                obj.CreatedBy);
         }
 
         return ApiResponse.Created(entity.Id, "Tạo phiếu kiểm tra chất lượng thành công.");
@@ -150,6 +166,21 @@ public class QualityInspectionService : IQualityInspectionService
             lot.LastModifiedDate = entity.LastModifiedDate;
             await _paddyLotRepository.UpdateAsync(lot);
             await _paddyLotRepository.SaveChangesAsync();
+        }
+
+        // Kiểm định xong (ghi nhận kết quả) -> thông báo lại cho người TẠO phiếu.
+        if (entity.CreatedBy.HasValue && entity.CreatedBy != obj.UpdatedBy)
+        {
+            await _notificationDispatcher.DispatchAsync(
+                NotificationConstants.Code.QualityInspectionResult,
+                new NotificationTarget { UserIds = new List<int> { entity.CreatedBy.Value } },
+                new object[]
+                {
+                    lot?.LotCode ?? ("#" + entity.PaddyLotId),
+                    obj.PassedInspection ? "Đạt" : "Cách ly (không đạt)"
+                },
+                "/admin/quality-inspections",
+                obj.UpdatedBy);
         }
 
         return ApiResponse.Success(entity.Id, "Cập nhật phiếu kiểm tra thành công.");
