@@ -18,6 +18,9 @@ public static class InventoryReferenceTypeConstants
     public const string PurchaseOrder  = "PURCHASE_ORDER";   // đối chiếu tồn theo đơn mua (non-paddy)
     public const string StockTransfer  = "STOCK_TRANSFER";   // điều chuyển nội bộ giữa kho
     public const string CustomerReturnOrder = "CUSTOMER_RETURN_ORDER"; // nhập lại kho do trả hàng
+    public const string QualityInspectionSplit = "QUALITY_INSPECTION_SPLIT";
+    public const string QualityInspectionQuarantine = "QUALITY_INSPECTION_QUARANTINE";
+    public const string QualityInspection = "QUALITY_INSPECTION";
 
     public static readonly string[] All =
     [
@@ -30,7 +33,11 @@ public static class InventoryReferenceTypeConstants
         MillingOrder,
         SalesOrder,
         PurchaseOrder,
-        StockTransfer
+        StockTransfer,
+        CustomerReturnOrder,
+        QualityInspectionSplit,
+        QualityInspectionQuarantine,
+        QualityInspection
     ];
 
     public static string Normalize(string? type)

@@ -16,4 +16,5 @@ public class CreateQualityInspectionDto
     public string? Handling { get; set; }
     public string? Note { get; set; }
     public int? CreatedBy { get; set; }
+    public decimal? AffectedWeightKg { get; set; }
 }

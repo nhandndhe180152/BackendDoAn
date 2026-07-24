@@ -21,6 +21,7 @@ public class QualityInspectionConfiguration : IEntityTypeConfiguration<QualityIn
         builder.Property(x => x.Handling).HasMaxLength(200);
         builder.Property(x => x.Note).HasMaxLength(1000);
         builder.Property(x => x.PassedInspection).HasDefaultValue(false);
+        builder.Property(x => x.AffectedWeightKg).HasColumnType("decimal(18,3)");
 
         builder.HasOne(x => x.PaddyLot)
             .WithMany(x => x.QualityInspections)

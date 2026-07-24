@@ -68,6 +68,11 @@ public class PaddyLotConfiguration : IEntityTypeConfiguration<PaddyLot>
             .HasForeignKey(x => x.LocationId)
             .OnDelete(DeleteBehavior.SetNull);
 
+        builder.HasOne(x => x.ParentLot)
+            .WithMany()
+            .HasForeignKey(x => x.ParentLotId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasIndex(x => x.WarehouseId).HasDatabaseName("IX_PaddyLot_WarehouseId");
         builder.HasIndex(x => x.StatusId).HasDatabaseName("IX_PaddyLot_StatusId");
         builder.HasIndex(x => x.InboundDate).HasDatabaseName("IX_PaddyLot_InboundDate");

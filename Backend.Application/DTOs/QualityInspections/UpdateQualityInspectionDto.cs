@@ -17,4 +17,5 @@ public class UpdateQualityInspectionDto
     public string? Handling { get; set; }
     public string? Note { get; set; }
     public int? UpdatedBy { get; set; }
+    public decimal? AffectedWeightKg { get; set; }
 }
