@@ -20,6 +20,7 @@ public class PaddyPurchaseSchedule : EntityAuditBase<int>
     public decimal? EstimatedQtyKg { get; set; }
     public decimal? ExpectedPrice { get; set; }
     public int? AssignedUserId { get; set; }
+    public int? WarehouseId { get; set; }
     public string? Note { get; set; }
 
     // Navigation
@@ -28,5 +29,6 @@ public class PaddyPurchaseSchedule : EntityAuditBase<int>
     public virtual PaddyPurchaseScheduleStatus Status { get; set; } = null!;
     public virtual RiceVariety? RiceVariety { get; set; }
     public virtual User? AssignedUser { get; set; }
+    public virtual Warehouse? Warehouse { get; set; }
     public virtual ICollection<PaddyPurchaseReceipt> PaddyPurchaseReceipts { get; set; } = new List<PaddyPurchaseReceipt>();
 }

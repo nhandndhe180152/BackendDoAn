@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Backend.Application.DTOs.PartyDebts;
 using Backend.Application.Implements;
+using Backend.Application.Constants;
 using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
@@ -20,8 +21,10 @@ public class PartyDebtServiceTests
 {
     private readonly Mock<IPartyDebtRepository> _debtRepo = new();
     private readonly Mock<IDebtTransactionRepository> _txRepo = new();
+    private readonly Mock<Backend.Application.BackgroundJobs.DebtDueOverdue.IDebtAgingCalculationService> _agingServiceMock = new();
+    private readonly Mock<Backend.Share.Services.IScheduledJobService> _scheduledJobServiceMock = new();
 
-    private PartyDebtService Sut() => new(_debtRepo.Object, _txRepo.Object);
+    private PartyDebtService Sut() => new(_debtRepo.Object, _txRepo.Object, _agingServiceMock.Object, _scheduledJobServiceMock.Object);
 
     // ── Helper: tạo PartyDebt hợp lệ ─────────────────────────────────────────
 
@@ -47,7 +50,7 @@ public class PartyDebtServiceTests
         var dto = new CreateDebtTransactionDto
         {
             PartyDebtId = 1, Amount = 200_000m,
-            TransactionDate = DateTime.UtcNow, TransactionType = "CHARGE"
+            TransactionDate = DateTime.UtcNow, TransactionType = LookupCodes.DebtTransactionType.Charge
         };
 
         // Act
@@ -122,7 +125,7 @@ public class PartyDebtServiceTests
         var dto = new CreateDebtTransactionDto
         {
             PartyDebtId = 1, Amount = 300_000m,
-            TransactionDate = DateTime.UtcNow, TransactionType = "PAYMENT"
+            TransactionDate = DateTime.UtcNow, TransactionType = LookupCodes.DebtTransactionType.Payment
         };
 
         // Act

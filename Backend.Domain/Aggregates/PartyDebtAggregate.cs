@@ -15,4 +15,10 @@ public class PartyDebtAggregate
     public bool IsActive { get; set; }
     public DateTime CreatedDate { get; set; }
     public DateTime? LastModifiedDate { get; set; }
+
+    public decimal DueSoonAmount { get; set; }
+    public decimal DueTodayAmount { get; set; }
+    public decimal OverdueAmount { get; set; }
+    public DateTime? OldestOverdueDate { get; set; }
+    public int MaxDaysOverdue { get; set; }
 }

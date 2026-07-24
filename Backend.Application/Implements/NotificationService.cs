@@ -13,6 +13,9 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
+using Newtonsoft.Json;
+using Backend.Application.BackgroundJobs.FcmNotificationRetry;
+
 namespace Backend.Application.Implements;
 
 public class NotificationService : INotificationService
@@ -24,8 +27,19 @@ public class NotificationService : INotificationService
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<NotificationService> _logger;
     private readonly IFireBaseService _fireBaseService;
+    private readonly IApplicationDbContext _context;
+    private readonly IFcmClient _fcmClient;
 
-    public NotificationService(INotificationRepository notificationRepository, IUserNotificationRepository userNotificationRepository, INotificationCategoryRepository notificationCategoryRepository, ILoggerFactory loggerFactory, IHttpContextAccessor httpContextAccessor, IUserDeviceRepository userDeviceRepository, IFireBaseService fireBaseService)
+    public NotificationService(
+        INotificationRepository notificationRepository,
+        IUserNotificationRepository userNotificationRepository,
+        INotificationCategoryRepository notificationCategoryRepository,
+        ILoggerFactory loggerFactory,
+        IHttpContextAccessor httpContextAccessor,
+        IUserDeviceRepository userDeviceRepository,
+        IFireBaseService fireBaseService,
+        IApplicationDbContext context,
+        IFcmClient fcmClient)
     {
         _notificationRepository = notificationRepository;
         _userNotificationRepository = userNotificationRepository;
@@ -34,6 +48,8 @@ public class NotificationService : INotificationService
         _httpContextAccessor = httpContextAccessor;
         _userDeviceRepository = userDeviceRepository;
         _fireBaseService = fireBaseService;
+        _context = context;
+        _fcmClient = fcmClient;
     }
 
     public async Task<ApiResponse> CreateAsync(CreateNotificationDto obj)
@@ -68,26 +84,111 @@ public class NotificationService : INotificationService
             return ApiResponse.InternalServerError();
         }
 
-        // Push FCM tới thiết bị của người nhận (lỗi push không làm hỏng việc tạo).
+        // Push FCM tới thiết bị của người nhận (lỗi push không làm hỏng việc tạo) và lưu log.
         try
         {
             if (obj.UserIds.Any())
             {
-                var tokens = await _userDeviceRepository
+                var devices = await _userDeviceRepository
                     .FindByCondition(x =>
                         obj.UserIds.Contains(x.UserId) &&
                         !x.IsDeleted &&
                         x.DeviceToken != null &&
                         x.DeviceToken != "")
-                    .Select(x => x.DeviceToken!)
-                    .Distinct()
                     .ToListAsync();
 
-                if (tokens.Count > 0)
+                if (devices.Count > 0)
                 {
-                    await _fireBaseService.SendNotificationAsync(
-                        tokens, model.Title, model.Content,
-                        model.NotificationCategoryId.ToString(), model.DirectionId);
+                    var uniqueDevices = devices.GroupBy(d => d.DeviceToken).Select(g => g.First()).ToList();
+                    var tokens = uniqueDevices.Select(d => d.DeviceToken!).ToList();
+
+                    List<FcmSendOutcome>? outcomes = null;
+                    Exception? globalException = null;
+
+                    try
+                    {
+                        outcomes = await _fcmClient.SendMulticastAsync(tokens, model.Title, model.Content, new Dictionary<string, string>
+                        {
+                            { "categoryId", model.NotificationCategoryId.ToString() },
+                            { "directionId", model.DirectionId ?? "" }
+                        }, CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "[FCM] Primary send failed globally in NotificationService for notification {Id}: {Message}", model.Id, ex.Message);
+                        globalException = ex;
+                    }
+
+                    var logs = new List<FcmNotificationLog>();
+                    var now = DateTime.UtcNow;
+
+                    for (int i = 0; i < uniqueDevices.Count; i++)
+                    {
+                        var device = uniqueDevices[i];
+                        var success = false;
+                        string? providerMsgId = null;
+                        string? errorMsg = null;
+                        string? errCode = null;
+
+                        var outcome = outcomes?.FirstOrDefault(o => o.Token == device.DeviceToken);
+
+                        if (outcome != null)
+                        {
+                            success = outcome.IsSuccess;
+                            providerMsgId = outcome.IsSuccess ? outcome.MessageId : null;
+                            errorMsg = outcome.IsSuccess ? null : outcome.Exception?.Message;
+
+                            if (outcome.Exception != null)
+                            {
+                                var errCodeProp = outcome.Exception.GetType().GetProperty("MessagingErrorCode");
+                                errCode = errCodeProp != null ? errCodeProp.GetValue(outcome.Exception)?.ToString() : "Exception";
+                            }
+
+                            if (!outcome.IsSuccess)
+                            {
+                                _logger.LogError("[FCM] Primary send failed for device {DeviceId} (Token: {Token}): {Error}", device.Id, device.DeviceToken, errorMsg);
+                                if (errCode == "Unregistered" || errCode == "SenderIdMismatch")
+                                {
+                                    device.IsDeleted = true;
+                                    await _userDeviceRepository.UpdateAsync(device);
+                                }
+                            }
+                        }
+                        else if (globalException != null)
+                        {
+                            errorMsg = globalException.Message;
+                            errCode = "GLOBAL_SEND_ERROR";
+                        }
+
+                        var log = new FcmNotificationLog
+                        {
+                            UserId = device.UserId,
+                            UserDeviceId = device.Id,
+                            Title = model.Title,
+                            Body = model.Content,
+                            DataPayload = JsonConvert.SerializeObject(new Dictionary<string, string>
+                            {
+                                { "categoryId", model.NotificationCategoryId.ToString() },
+                                { "directionId", model.DirectionId ?? "" }
+                            }),
+                            TriggerType = "NOTIFICATION_SERVICE",
+                            IsSent = success,
+                            SentAt = success ? now : null,
+                            ErrorMessage = errorMsg,
+                            LastErrorCode = errCode,
+                            ProviderMessageId = providerMsgId,
+                            Status = success ? FcmNotificationRetryConstants.Status.Sent : FcmNotificationRetryConstants.Status.Pending,
+                            AttemptCount = 1,
+                            LastAttemptAt = now,
+                            CreatedDate = now,
+                            IsDeleted = false
+                        };
+
+                        logs.Add(log);
+                    }
+
+                    await _context.FcmNotificationLogs.AddRangeAsync(logs);
+                    await _context.SaveChangesAsync();
                 }
             }
         }

@@ -28,6 +28,14 @@ public static class AlertConstants
         public const string DebtOverdue = "DEBT_OVERDUE";
     }
 
+    public static class RelatedEntityType
+    {
+        public const string PaddyLot = "PADDY_LOT";
+        public const string ProductVariant = "PRODUCT_VARIANT";
+        public const string PartyDebt = "PARTY_DEBT";
+        public const string Warehouse = "WAREHOUSE";
+    }
+
     /// <summary>
     /// Mã quy tắc cảnh báo (bật/tắt) hiển thị ở khối "Quy tắc cảnh báo" (SCR-21).
     /// Trạng thái bật/tắt được lưu trong bảng SystemConfig theo <see cref="RuleEnabledKey"/>

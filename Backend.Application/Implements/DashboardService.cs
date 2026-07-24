@@ -139,7 +139,7 @@ public class DashboardService : IDashboardService
             ? await _debtTransactionRepository
                 .FindByCondition(x =>
                     !x.IsDeleted &&
-                    x.TransactionType == "CHARGE" &&
+                    x.TransactionType == LookupCodes.DebtTransactionType.Charge &&
                     debtIdsWithBalance.Contains(x.PartyDebtId), false)
                 .OrderByDescending(x => x.TransactionDate)
                 .ToListAsync()
@@ -228,7 +228,7 @@ public class DashboardService : IDashboardService
 
         var completedSoIds = salesOrders.Select(x => x.Id).ToList();
         var payments = await _debtTransactionRepository
-            .FindByCondition(x => !x.IsDeleted && x.TransactionType == "PAYMENT" &&
+            .FindByCondition(x => !x.IsDeleted && x.TransactionType == LookupCodes.DebtTransactionType.Payment &&
                                   x.RefType == "SALES_ORDER" && x.RefId.HasValue &&
                                   completedSoIds.Contains(x.RefId.Value), false)
             .SumAsync(x => x.Amount);
@@ -547,7 +547,7 @@ public class DashboardService : IDashboardService
         var chargesByDebtId = await _debtTransactionRepository
             .FindByCondition(x =>
                 !x.IsDeleted &&
-                x.TransactionType == "CHARGE" &&
+                x.TransactionType == LookupCodes.DebtTransactionType.Charge &&
                 debtIdsWithBalance.Contains(x.PartyDebtId), false)
             .OrderByDescending(x => x.TransactionDate)
             .ToListAsync();
@@ -658,7 +658,7 @@ public class DashboardService : IDashboardService
         var orderIds = orders.Select(x => x.Id).ToList();
 
         var paymentGroups = await _debtTransactionRepository
-            .FindByCondition(x => !x.IsDeleted && x.TransactionType == "PAYMENT" &&
+            .FindByCondition(x => !x.IsDeleted && x.TransactionType == LookupCodes.DebtTransactionType.Payment &&
                                   x.RefType == "SALES_ORDER" && x.RefId.HasValue &&
                                   orderIds.Contains(x.RefId.Value), false)
             .GroupBy(x => x.RefId!.Value)

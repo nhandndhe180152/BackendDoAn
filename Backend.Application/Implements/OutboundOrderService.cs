@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Backend.Application.BackgroundJobs.DebtDueOverdue;
+using Backend.Share.Services;
 using Backend.Application.Constants;
 using Backend.Application.DTOs.OutboundOrders;
 using Backend.Application.Interfaces;
@@ -36,6 +38,7 @@ public class OutboundOrderService : IOutboundOrderService
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IPaddyLotRepository _paddyLotRepository;
     private readonly INotificationDispatcher _notificationDispatcher;
+    private readonly IScheduledJobService? _scheduledJobService;
 
     public OutboundOrderService(
         IOutboundOrderRepository outboundOrderRepository,
@@ -49,7 +52,8 @@ public class OutboundOrderService : IOutboundOrderService
         IDebtTransactionRepository debtTransactionRepository,
         IHttpContextAccessor httpContextAccessor,
         IPaddyLotRepository paddyLotRepository,
-        INotificationDispatcher notificationDispatcher)
+        INotificationDispatcher notificationDispatcher,
+        IScheduledJobService? scheduledJobService = null)
     {
         _outboundOrderRepository       = outboundOrderRepository;
         _outboundStatusRepository      = outboundStatusRepository;
@@ -63,6 +67,7 @@ public class OutboundOrderService : IOutboundOrderService
         _httpContextAccessor           = httpContextAccessor;
         _paddyLotRepository            = paddyLotRepository;
         _notificationDispatcher        = notificationDispatcher;
+        _scheduledJobService           = scheduledJobService;
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
@@ -505,6 +510,7 @@ public class OutboundOrderService : IOutboundOrderService
         var userId = GetCurrentUserId();
         decimal totalDispatchedValue = 0;
         decimal totalDispatchedSaleValue = 0;
+        PartyDebt? partyDebt = null;
 
         // Bọc toàn bộ trong 1 DB transaction thật — đảm bảo nguyên tử
         await using var tx = await _outboundOrderRepository.BeginTransactionAsync();
@@ -616,15 +622,16 @@ public class OutboundOrderService : IOutboundOrderService
 
                 // 10. Tạo công nợ phải thu dựa trên giá trị xuất kho của phiếu này
                 var amountToCharge = order.TotalDispatchedSaleValue;
+                partyDebt = null;
                 if (amountToCharge > 0)
                 {
                     var existingCharge = await _debtTransactionRepository.FirstOrDefaultAsync(x => 
-                        x.RefType == "OUTBOUND_ORDER" && x.RefId == order.Id && x.TransactionType == "CHARGE" && !x.IsDeleted);
+                        x.RefType == "OUTBOUND_ORDER" && x.RefId == order.Id && x.TransactionType == LookupCodes.DebtTransactionType.Charge && !x.IsDeleted);
                     
                     if (existingCharge == null)
                     {
                         // Tìm hoặc tạo PartyDebt RECEIVABLE
-                        var partyDebt = await _partyDebtRepository.FirstOrDefaultAsync(x =>
+                        partyDebt = await _partyDebtRepository.FirstOrDefaultAsync(x =>
                             !x.IsDeleted &&
                             x.PartyType == "CUSTOMER" &&
                             x.PartyId == salesOrder.CustomerId &&
@@ -658,7 +665,7 @@ public class OutboundOrderService : IOutboundOrderService
                         await _debtTransactionRepository.CreateAsync(new DebtTransaction
                         {
                             PartyDebtId     = partyDebt.Id,
-                            TransactionType = "CHARGE",
+                            TransactionType = LookupCodes.DebtTransactionType.Charge,
                             Amount          = amountToCharge,
                             BalanceAfter    = partyDebt.CurrentBalance,
                             RefType         = "OUTBOUND_ORDER",
@@ -687,7 +694,7 @@ public class OutboundOrderService : IOutboundOrderService
                                 await _debtTransactionRepository.CreateAsync(new DebtTransaction
                                 {
                                     PartyDebtId     = partyDebt.Id,
-                                    TransactionType = "PAYMENT",
+                                    TransactionType = LookupCodes.DebtTransactionType.Payment,
                                     Amount          = depositAmount,
                                     BalanceAfter    = partyDebt.CurrentBalance,
                                     RefType         = "SALES_ORDER_DEPOSIT",
@@ -706,6 +713,12 @@ public class OutboundOrderService : IOutboundOrderService
             // Ghi toàn bộ thay đổi vào DB rồi commit trong 1 transaction
             await _outboundOrderRepository.SaveChangesAsync();
             await tx.CommitAsync();
+
+            // Enqueue targeted background job evaluation for JOB-04 after transaction completes
+            if (_scheduledJobService != null && partyDebt != null)
+            {
+                _scheduledJobService.Enqueue<IDebtDueAndOverdueReminderService>(s => s.EvaluatePartyDebtAsync(partyDebt.Id, CancellationToken.None));
+            }
         }
         catch (DbUpdateConcurrencyException)
         {
@@ -890,6 +903,7 @@ public class OutboundOrderService : IOutboundOrderService
 
             // Hoàn trả lại công nợ (nếu có)
             var salesOrder = await _salesOrderRepository.GetByIdDetailAsync(order.SalesOrderId);
+            PartyDebt? partyDebt = null;
             if (salesOrder != null && !salesOrder.IsDeleted)
             {
                 var amountToCharge = order.TotalDispatchedSaleValue;
@@ -897,11 +911,11 @@ public class OutboundOrderService : IOutboundOrderService
                 {
                     // Kiểm tra xem đã có giao dịch CHARGE cho phiếu xuất này chưa
                     var existingCharge = await _debtTransactionRepository.FirstOrDefaultAsync(x =>
-                        x.RefType == "OUTBOUND_ORDER" && x.RefId == order.Id && x.TransactionType == "CHARGE" && !x.IsDeleted);
+                        x.RefType == "OUTBOUND_ORDER" && x.RefId == order.Id && x.TransactionType == LookupCodes.DebtTransactionType.Charge && !x.IsDeleted);
 
                     if (existingCharge != null)
                     {
-                        var partyDebt = await _partyDebtRepository.FirstOrDefaultAsync(x =>
+                        partyDebt = await _partyDebtRepository.FirstOrDefaultAsync(x =>
                             !x.IsDeleted &&
                             x.PartyType == "CUSTOMER" &&
                             x.PartyId == salesOrder.CustomerId &&
@@ -956,6 +970,12 @@ public class OutboundOrderService : IOutboundOrderService
 
             await _outboundOrderRepository.SaveChangesAsync();
             await tx.CommitAsync();
+
+            // Enqueue targeted background job evaluation for JOB-04 after transaction completes
+            if (_scheduledJobService != null && partyDebt != null)
+            {
+                _scheduledJobService.Enqueue<IDebtDueAndOverdueReminderService>(s => s.EvaluatePartyDebtAsync(partyDebt.Id, CancellationToken.None));
+            }
 
             return ApiResponse.Success(message: "Xác nhận giao hàng thất bại thành công.");
         }

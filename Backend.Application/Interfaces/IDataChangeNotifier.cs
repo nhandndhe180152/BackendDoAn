@@ -11,4 +11,5 @@ namespace Backend.Application.Interfaces;
 public interface IDataChangeNotifier
 {
     Task NotifyEntitiesChangedAsync(IReadOnlyCollection<string> entityNames);
+    Task NotifyAlertChangedAsync(object payload);
 }

@@ -10,6 +10,8 @@ using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
 using Backend.Share.Helpers;
+using Backend.Application.BackgroundJobs.LotQualityRecheck;
+using Backend.Share.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Application.Implements;
@@ -26,6 +28,7 @@ public class QualityInspectionService : IQualityInspectionService
     private readonly IInventoryTransactionRepository _inventoryTransactionRepository;
     private readonly IRepositoryBase<LotStatus, int> _lotStatusRepository;
     private readonly IApplicationDbContext _context;
+    private readonly IScheduledJobService _scheduledJobService;
 
     public QualityInspectionService(
         IQualityInspectionRepository repo,
@@ -34,7 +37,8 @@ public class QualityInspectionService : IQualityInspectionService
         IInventoryTransactionRepository inventoryTransactionRepository,
         IRepositoryBase<LotStatus, int> lotStatusRepository,
         IApplicationDbContext context,
-        INotificationDispatcher notificationDispatcher)
+        INotificationDispatcher notificationDispatcher,
+        IScheduledJobService? scheduledJobService = null)
     {
         _repo = repo;
         _paddyLotRepository = paddyLotRepository;
@@ -43,6 +47,7 @@ public class QualityInspectionService : IQualityInspectionService
         _inventoryTransactionRepository = inventoryTransactionRepository;
         _lotStatusRepository = lotStatusRepository;
         _context = context;
+        _scheduledJobService = scheduledJobService;
     }
 
     public async Task<ApiResponse> CreateAsync(CreateQualityInspectionDto obj)
@@ -325,6 +330,22 @@ public class QualityInspectionService : IQualityInspectionService
             }
 
             await tx.CommitAsync();
+
+            try
+            {
+                if (_scheduledJobService != null)
+                {
+                    _scheduledJobService.Enqueue<ILotQualityRecheckService>(s => s.EvaluateLotAsync(entity.PaddyLotId, CancellationToken.None));
+                    if (isSplit && childLot != null)
+                    {
+                        _scheduledJobService.Enqueue<ILotQualityRecheckService>(s => s.EvaluateLotAsync(childLot.Id, CancellationToken.None));
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore to avoid disrupting business flow
+            }
         }
         catch
         {
@@ -439,6 +460,18 @@ public class QualityInspectionService : IQualityInspectionService
             }
         }
 
+        try
+        {
+            if (_scheduledJobService != null)
+            {
+                _scheduledJobService.Enqueue<ILotQualityRecheckService>(s => s.EvaluateLotAsync(entity.PaddyLotId, CancellationToken.None));
+            }
+        }
+        catch
+        {
+            // Ignore to avoid disrupting business flow
+        }
+
         return ApiResponse.Success(entity.Id, "Cập nhật phiếu kiểm tra thành công.");
     }
 
@@ -460,6 +493,19 @@ public class QualityInspectionService : IQualityInspectionService
         var isDeleted = await _repo.SoftDeleteAsync(id);
         if (!isDeleted) return ApiResponse.BadRequest();
         await _repo.SaveChangesAsync();
+
+        try
+        {
+            if (_scheduledJobService != null)
+            {
+                _scheduledJobService.Enqueue<ILotQualityRecheckService>(s => s.EvaluateLotAsync(entity.PaddyLotId, CancellationToken.None));
+            }
+        }
+        catch
+        {
+            // Ignore
+        }
+
         return ApiResponse.Success(isDeleted);
     }
 
@@ -478,9 +524,35 @@ public class QualityInspectionService : IQualityInspectionService
             }
         }
 
+        var lotIds = new List<int>();
+        foreach (var id in objs)
+        {
+            var entity = await _repo.GetByIdAsync(id);
+            if (entity != null)
+            {
+                lotIds.Add(entity.PaddyLotId);
+            }
+        }
+
         var isDeleted = await _repo.SoftDeleteListAsync(objs);
         if (!isDeleted) return ApiResponse.BadRequest();
         await _repo.SaveChangesAsync();
+
+        if (_scheduledJobService != null)
+        {
+            foreach (var lotId in lotIds.Distinct())
+            {
+                try
+                {
+                    _scheduledJobService.Enqueue<ILotQualityRecheckService>(s => s.EvaluateLotAsync(lotId, CancellationToken.None));
+                }
+                catch
+                {
+                    // Ignore
+                }
+            }
+        }
+
         return ApiResponse.Success(isDeleted);
     }
 

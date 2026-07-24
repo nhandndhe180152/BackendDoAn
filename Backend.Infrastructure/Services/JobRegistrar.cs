@@ -6,6 +6,7 @@ using Backend.Share.Services;
 using Hangfire;
 using Hangfire.Storage;
 using Microsoft.Extensions.Options;
+using Backend.Application.BackgroundJobs.FcmNotificationRetry;
 
 namespace Backend.Infrastructure.Services;
 
@@ -59,6 +60,30 @@ public class JobRegistrar : IJobRegistrar
             "JOB-01-low-stock-detection",
             _config.LowStockDetection.Enabled,
             _config.LowStockDetection.Cron
+        );
+
+        RegisterJob<IntakeBottleneckEvaluationJob>(
+            Backend.Application.BackgroundJobs.IntakeBottleneck.IntakeBottleneckConstants.Job.Id,
+            _config.IntakeBottleneckEvaluation.Enabled,
+            _config.IntakeBottleneckEvaluation.Cron
+        );
+
+        RegisterJob<LotQualityRecheckJob>(
+            Backend.Application.BackgroundJobs.LotQualityRecheck.LotQualityRecheckConstants.Job.Id,
+            _config.LotQualityRecheck.Enabled,
+            _config.LotQualityRecheck.Cron
+        );
+
+        RegisterJob<DebtDueAndOverdueReminderJob>(
+            Backend.Application.BackgroundJobs.DebtDueOverdue.DebtDueOverdueConstants.Job.Id,
+            _config.DebtDueAndOverdueReminder.Enabled,
+            _config.DebtDueAndOverdueReminder.Cron
+        );
+
+        RegisterJob<FcmNotificationRetryJob>(
+            FcmNotificationRetryConstants.Job.Id,
+            _config.FcmNotificationRetry.Enabled,
+            _config.FcmNotificationRetry.Cron
         );
 
         // RegisterJob<PingDatabaseJob>(

@@ -82,6 +82,7 @@ public static class LookupCodes
 
     public static class DebtTransactionType
     {
+        public const string Charge = "CHARGE";
         public const string ReturnCredit = "RETURN_CREDIT";
         public const string RefundPayable = "REFUND_PAYABLE";
         public const string SaleCharge = "SALE_CHARGE";

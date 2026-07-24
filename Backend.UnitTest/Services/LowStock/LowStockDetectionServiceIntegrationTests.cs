@@ -133,6 +133,8 @@ public class LowStockDetectionServiceIntegrationTests
             It.IsAny<NotificationTarget>(),
             It.IsAny<object[]>(),
             It.IsAny<string>(),
+            It.IsAny<int?>(),
+            It.IsAny<string?>(),
             It.IsAny<int?>()
         )).ThrowsAsync(new Exception("Firebase connection timeout"));
 

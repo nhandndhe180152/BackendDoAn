@@ -240,6 +240,9 @@ namespace Backend.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)");
 
+                    b.Property<string>("ConditionFingerprint")
+                        .HasColumnType("longtext");
+
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
 
@@ -276,6 +279,9 @@ namespace Backend.Infrastructure.Migrations
 
                     b.Property<DateTime?>("ResolvedAt")
                         .HasColumnType("datetime(6)");
+
+                    b.Property<string>("ResolvedReason")
+                        .HasColumnType("longtext");
 
                     b.Property<string>("Severity")
                         .IsRequired()
@@ -1041,6 +1047,11 @@ namespace Backend.Infrastructure.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int>("AttemptCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
                     b.Property<string>("Body")
                         .IsRequired()
                         .HasColumnType("longtext");
@@ -1054,8 +1065,15 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<string>("DataPayload")
                         .HasColumnType("longtext");
 
+                    b.Property<string>("DeduplicationKey")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("longtext");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("datetime(6)");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("tinyint(1)");
@@ -1063,8 +1081,32 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<bool>("IsSent")
                         .HasColumnType("tinyint(1)");
 
+                    b.Property<DateTime?>("LastAttemptAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("LastErrorCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
                     b.Property<DateTime?>("LastModifiedDate")
                         .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("NextRetryAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("ProcessingBy")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<DateTime?>("ProcessingLeaseUntil")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("ProcessingStartedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("ProviderMessageId")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
 
                     b.Property<int?>("ReferenceId")
                         .HasColumnType("int");
@@ -1074,6 +1116,13 @@ namespace Backend.Infrastructure.Migrations
 
                     b.Property<DateTime?>("SentAt")
                         .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)")
+                        .HasDefaultValue("PENDING");
 
                     b.Property<string>("Title")
                         .IsRequired()
@@ -1093,9 +1142,15 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("DeduplicationKey")
+                        .HasDatabaseName("IX_FcmNotificationLog_DeduplicationKey");
+
                     b.HasIndex("UserDeviceId");
 
                     b.HasIndex("UserId");
+
+                    b.HasIndex("Status", "IsDeleted", "NextRetryAt", "Id")
+                        .HasDatabaseName("IX_FcmNotificationLog_EligibleQuery");
 
                     b.ToTable("FcmNotificationLog", (string)null);
                 });
@@ -3047,6 +3102,9 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<int?>("UpdatedBy")
                         .HasColumnType("int");
 
+                    b.Property<int?>("WarehouseId")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AssignedUserId");
@@ -3064,6 +3122,9 @@ namespace Backend.Infrastructure.Migrations
                     b.HasIndex("OrganizationId", "ScheduleCode")
                         .IsUnique()
                         .HasDatabaseName("UX_PaddyPurchaseSchedule_OrgId_Code");
+
+                    b.HasIndex("WarehouseId", "StatusId", "ScheduleDate", "IsDeleted")
+                        .HasDatabaseName("IX_PaddyPurchaseSchedule_Lookup");
 
                     b.ToTable("PaddyPurchaseSchedule", (string)null);
                 });
@@ -6529,6 +6590,11 @@ namespace Backend.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("AssignedUser");
 
                     b.Navigation("Farmer");
@@ -6538,6 +6604,8 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("RiceVariety");
 
                     b.Navigation("Status");
+
+                    b.Navigation("Warehouse");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.PartyDebt", b =>

@@ -14,6 +14,7 @@ public class UpdatePaddyPurchaseScheduleDto
     public decimal? EstimatedQtyKg { get; set; }
     public decimal? ExpectedPrice { get; set; }
     public int? AssignedUserId { get; set; }
+    public int? WarehouseId { get; set; }
     public string? Note { get; set; }
     public int? UpdatedBy { get; set; }
 }

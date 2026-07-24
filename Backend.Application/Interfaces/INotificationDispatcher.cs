@@ -22,5 +22,7 @@ public interface INotificationDispatcher
         NotificationTarget target,
         object[]? args = null,
         string? directionId = null,
-        int? createdBy = null);
+        int? createdBy = null,
+        string? referenceType = null,
+        int? referenceId = null);
 }
