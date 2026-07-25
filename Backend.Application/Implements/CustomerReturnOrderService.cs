@@ -43,10 +43,21 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
     private int GetCurrentUserId()
         => _httpContextAccessor.HttpContext?.GetCurrentUserId() ?? 1;
 
-    private int GetCurrentOrganizationId()
+    private async Task<int> GetCurrentOrganizationIdAsync()
     {
         var officeIdStr = _httpContextAccessor.HttpContext?.User?.FindFirst(ClaimNames.OFFICE_ID)?.Value;
-        return int.TryParse(officeIdStr, out var id) ? id : 1;
+        if (int.TryParse(officeIdStr, out var id) && id > 0)
+        {
+            return id;
+        }
+
+        var defaultOrg = await _context.Organizations
+            .Where(x => x.IsActive && !x.IsDeleted)
+            .OrderBy(x => x.Id)
+            .FirstOrDefaultAsync();
+
+        return defaultOrg?.Id 
+            ?? throw new InvalidOperationException("Không tìm thấy tổ chức hoạt động nào trong hệ thống.");
     }
 
     private async Task<bool> CheckPermissionAsync(string action, CancellationToken cancellationToken)
@@ -112,7 +123,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         if (status == null)
             return ApiResponse.Error(message: "Hệ thống chưa cấu hình trạng thái DRAFT cho đơn trả hàng.");
 
-        var orgId = GetCurrentOrganizationId();
+        var orgId = await GetCurrentOrganizationIdAsync();
         var datePart = DateTimeHelper.VietnamNow().ToString("yyyyMMdd");
         var baseCode = $"CRT-{datePart}";
         var cntToday = await _context.CustomerReturnOrders

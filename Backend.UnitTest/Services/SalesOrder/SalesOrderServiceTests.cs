@@ -32,6 +32,7 @@ public class SalesOrderServiceTests
     private readonly Mock<IInventoryTransactionRepository> _invTxRepo = new();
     private readonly Mock<IPartyDebtRepository> _partyDebtRepo = new();
     private readonly Mock<IRepositoryBase<global::Backend.Domain.Entities.MillingOrder, int>> _millingRepo = new();
+    private readonly Mock<IRepositoryBase<global::Backend.Domain.Entities.Organization, int>> _orgRepo = new();
     private readonly Mock<IHttpContextAccessor> _http = new();
     private readonly Mock<INotificationDispatcher> _dispatcher = new();
 
@@ -47,6 +48,7 @@ public class SalesOrderServiceTests
         _invTxRepo.Object,
         _partyDebtRepo.Object,
         _millingRepo.Object,
+        _orgRepo.Object,
         _http.Object,
         _dispatcher.Object);
 
