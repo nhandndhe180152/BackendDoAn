@@ -35,6 +35,7 @@ public class SalesOrderService : ISalesOrderService
     private readonly IInventoryTransactionRepository _inventoryTransactionRepository;
     private readonly IPartyDebtRepository _partyDebtRepository;
     private readonly IRepositoryBase<MillingOrder, int> _millingOrderRepository;
+    private readonly IRepositoryBase<Organization, int> _organizationRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly INotificationDispatcher _notificationDispatcher;
 
@@ -50,6 +51,7 @@ public class SalesOrderService : ISalesOrderService
         IInventoryTransactionRepository inventoryTransactionRepository,
         IPartyDebtRepository partyDebtRepository,
         IRepositoryBase<MillingOrder, int> millingOrderRepository,
+        IRepositoryBase<Organization, int> organizationRepository,
         IHttpContextAccessor httpContextAccessor,
         INotificationDispatcher notificationDispatcher)
     {
@@ -64,6 +66,7 @@ public class SalesOrderService : ISalesOrderService
         _inventoryTransactionRepository = inventoryTransactionRepository;
         _partyDebtRepository         = partyDebtRepository;
         _millingOrderRepository      = millingOrderRepository;
+        _organizationRepository      = organizationRepository;
         _httpContextAccessor         = httpContextAccessor;
         _notificationDispatcher      = notificationDispatcher;
     }
@@ -73,10 +76,19 @@ public class SalesOrderService : ISalesOrderService
     private int GetCurrentUserId()
         => _httpContextAccessor.HttpContext?.GetCurrentUserId() ?? 0;
 
-    private int GetCurrentOrganizationId()
+    private async Task<int> GetCurrentOrganizationIdAsync()
     {
         var officeIdStr = _httpContextAccessor.HttpContext?.User?.FindFirst(ClaimNames.OFFICE_ID)?.Value;
-        return int.TryParse(officeIdStr, out var id) ? id : 1; // Default to 1 if claim not present
+        if (int.TryParse(officeIdStr, out var id) && id > 0)
+        {
+            return id;
+        }
+
+        var defaultOrg = await _organizationRepository.FirstOrDefaultAsync(
+            x => x.IsActive && !x.IsDeleted);
+
+        return defaultOrg?.Id 
+            ?? throw new InvalidOperationException("Không tìm thấy tổ chức hoạt động nào trong hệ thống.");
     }
 
     private async Task<int> GetStatusIdAsync(string name)
@@ -184,7 +196,7 @@ public class SalesOrderService : ISalesOrderService
 
         var now    = DateTimeHelper.VietnamNow();
         var userId = GetCurrentUserId();
-        var orgId  = GetCurrentOrganizationId();
+        var orgId  = await GetCurrentOrganizationIdAsync();
 
         // Generate SOCode: SO-YYYYMMDD-XXXX
         var datePart = now.ToString("yyyyMMdd");
