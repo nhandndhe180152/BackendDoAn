@@ -4,10 +4,12 @@ using System.Linq;
 using System.Threading.Tasks;
 using Backend.Application.Constants;
 using Backend.Application.Interfaces;
+using Backend.Application.BackgroundJobs.FcmNotificationRetry;
 using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 
 namespace Backend.Application.Implements;
 
@@ -24,7 +26,9 @@ public class NotificationDispatcher : INotificationDispatcher
     private readonly INotificationTypeRepository _notificationTypeRepository;
     private readonly IUserRoleRepository _userRoleRepository;
     private readonly IUserDeviceRepository _userDeviceRepository;
-    private readonly IFireBaseService _fireBaseService;
+    private readonly IApplicationDbContext _context;
+    private readonly IFcmClient _fcmClient;
+    private readonly IFcmFailureClassifier _failureClassifier;
     private readonly ILogger<NotificationDispatcher> _logger;
 
     public NotificationDispatcher(
@@ -34,7 +38,9 @@ public class NotificationDispatcher : INotificationDispatcher
         INotificationTypeRepository notificationTypeRepository,
         IUserRoleRepository userRoleRepository,
         IUserDeviceRepository userDeviceRepository,
-        IFireBaseService fireBaseService,
+        IApplicationDbContext context,
+        IFcmClient fcmClient,
+        IFcmFailureClassifier failureClassifier,
         ILoggerFactory loggerFactory)
     {
         _notificationRepository = notificationRepository;
@@ -43,7 +49,9 @@ public class NotificationDispatcher : INotificationDispatcher
         _notificationTypeRepository = notificationTypeRepository;
         _userRoleRepository = userRoleRepository;
         _userDeviceRepository = userDeviceRepository;
-        _fireBaseService = fireBaseService;
+        _context = context;
+        _fcmClient = fcmClient;
+        _failureClassifier = failureClassifier;
         _logger = loggerFactory.CreateLogger<NotificationDispatcher>();
     }
 
@@ -52,7 +60,9 @@ public class NotificationDispatcher : INotificationDispatcher
         NotificationTarget target,
         object[]? args = null,
         string? directionId = null,
-        int? createdBy = null)
+        int? createdBy = null,
+        string? referenceType = null,
+        int? referenceId = null)
     {
         try
         {
@@ -124,21 +134,108 @@ public class NotificationDispatcher : INotificationDispatcher
             await _userNotificationRepository.SaveChangesAsync();
 
 
-            // 2) Push FCM tới các thiết bị của người nhận.
-            var tokens = await _userDeviceRepository
+            // 2) Push FCM tới các thiết bị của người nhận và ghi nhận log.
+            var devices = await _userDeviceRepository
                 .FindByCondition(x =>
                     userIds.Contains(x.UserId) &&
                     !x.IsDeleted &&
                     x.DeviceToken != null &&
                     x.DeviceToken != "")
-                .Select(x => x.DeviceToken!)
-                .Distinct()
                 .ToListAsync();
 
-            if (tokens.Count > 0)
+            if (devices.Count > 0)
             {
-                await _fireBaseService.SendNotificationAsync(
-                    tokens, title, content, categoryId.Value.ToString(), directionId);
+                var uniqueDevices = devices.GroupBy(d => d.DeviceToken).Select(g => g.First()).ToList();
+                var tokens = uniqueDevices.Select(d => d.DeviceToken!).ToList();
+
+                List<FcmSendOutcome>? outcomes = null;
+                Exception? globalException = null;
+
+                try
+                {
+                    outcomes = await _fcmClient.SendMulticastAsync(tokens, title, content, new Dictionary<string, string>
+                    {
+                        { "categoryId", categoryId.Value.ToString() },
+                        { "directionId", directionId ?? "" }
+                    }, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[FCM] Primary send failed globally (possible credentials/project config issue): {Message}", ex.Message);
+                    globalException = ex;
+                }
+
+                var logs = new List<FcmNotificationLog>();
+                var now = DateTime.UtcNow;
+
+                for (int i = 0; i < uniqueDevices.Count; i++)
+                {
+                    var device = uniqueDevices[i];
+                    var success = false;
+                    string? providerMsgId = null;
+                    string? errorMsg = null;
+                    string? errCode = null;
+
+                    var outcome = outcomes?.FirstOrDefault(o => o.Token == device.DeviceToken);
+
+                    if (outcome != null)
+                    {
+                        success = outcome.IsSuccess;
+                        providerMsgId = outcome.IsSuccess ? outcome.MessageId : null;
+                        errorMsg = outcome.IsSuccess ? null : outcome.Exception?.Message;
+
+                        if (outcome.Exception != null)
+                        {
+                            errCode = _failureClassifier.GetErrorCode(outcome.Exception) ?? "Exception";
+                        }
+
+                        if (!outcome.IsSuccess)
+                        {
+                            _logger.LogError("[FCM] Primary send failed for device {DeviceId} (Token: {Token}): {Error}", device.Id, device.DeviceToken, errorMsg);
+                            if (errCode == "Unregistered" || errCode == "SenderIdMismatch")
+                            {
+                                device.IsDeleted = true;
+                                await _userDeviceRepository.UpdateAsync(device);
+                            }
+                        }
+                    }
+                    else if (globalException != null)
+                    {
+                        errorMsg = globalException.Message;
+                        errCode = "GLOBAL_SEND_ERROR";
+                    }
+
+                    var log = new FcmNotificationLog
+                    {
+                        UserId = device.UserId,
+                        UserDeviceId = device.Id,
+                        Title = title,
+                        Body = content,
+                        DataPayload = JsonConvert.SerializeObject(new Dictionary<string, string>
+                        {
+                            { "categoryId", categoryId.Value.ToString() },
+                            { "directionId", directionId ?? "" }
+                        }),
+                        TriggerType = code,
+                        ReferenceType = referenceType,
+                        ReferenceId = referenceId,
+                        IsSent = success,
+                        SentAt = success ? now : null,
+                        ErrorMessage = errorMsg,
+                        LastErrorCode = errCode,
+                        ProviderMessageId = providerMsgId,
+                        Status = success ? FcmNotificationRetryConstants.Status.Sent : FcmNotificationRetryConstants.Status.Pending,
+                        AttemptCount = 1,
+                        LastAttemptAt = now,
+                        CreatedDate = now,
+                        IsDeleted = false
+                    };
+
+                    logs.Add(log);
+                }
+
+                await _context.FcmNotificationLogs.AddRangeAsync(logs);
+                await _context.SaveChangesAsync();
             }
         }
         catch (Exception ex)

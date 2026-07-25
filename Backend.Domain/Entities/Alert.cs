@@ -11,7 +11,7 @@ public class Alert : EntityAuditBase<int>
 {
     public string AlertType { get; set; } = null!;       // LOW_STOCK | BOTTLENECK
     public string Severity { get; set; } = null!;        // INFO | WARNING | CRITICAL
-    public int WarehouseId { get; set; }
+    public int? WarehouseId { get; set; }
     public int? ProductVariantId { get; set; }
     public int? LocationId { get; set; }
     public string Message { get; set; } = null!;
@@ -22,8 +22,10 @@ public class Alert : EntityAuditBase<int>
     public DateTime? AcknowledgedAt { get; set; }
     public DateTime? ResolvedAt { get; set; }
     public string? DeduplicationKey { get; set; }
+    public string? ConditionFingerprint { get; set; }
+    public string? ResolvedReason { get; set; }
 
-    public virtual Warehouse Warehouse { get; set; } = null!;
+    public virtual Warehouse? Warehouse { get; set; }
     public virtual ProductVariant? ProductVariant { get; set; }
     public virtual Location? Location { get; set; }
     public virtual User? AcknowledgedByUser { get; set; }

@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Backend.Application.BackgroundJobs.DebtDueOverdue;
+using Backend.Share.Services;
 using Backend.Application.Constants;
 using Backend.Application.DTOs.PaddyPurchaseReceipts;
 using Backend.Application.Interfaces;
@@ -39,6 +41,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
     private readonly IInventoryTransactionRepository _inventoryTransactionRepository;
     private readonly IRepositoryBase<PutawayDecision, long> _putawayDecisionRepository;
     private readonly INotificationDispatcher _notificationDispatcher;
+    private readonly IScheduledJobService? _scheduledJobService;
 
     public PaddyPurchaseReceiptService(
         IPaddyPurchaseReceiptRepository receiptRepository,
@@ -56,7 +59,8 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         IInventoryRepository inventoryRepository,
         IInventoryTransactionRepository inventoryTransactionRepository,
         IRepositoryBase<PutawayDecision, long> putawayDecisionRepository,
-        INotificationDispatcher notificationDispatcher)
+        INotificationDispatcher notificationDispatcher,
+        IScheduledJobService? scheduledJobService = null)
     {
         _receiptRepository = receiptRepository;
         _paddyLotRepository = paddyLotRepository;
@@ -74,6 +78,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         _inventoryTransactionRepository = inventoryTransactionRepository;
         _putawayDecisionRepository = putawayDecisionRepository;
         _notificationDispatcher = notificationDispatcher;
+        _scheduledJobService = scheduledJobService;
     }
 
     private int GetCurrentUserId()
@@ -427,7 +432,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             x.OrganizationId == receipt.OrganizationId &&
             x.PartyType == "FARMER" &&
             x.PartyId == receipt.FarmerId &&
-            x.Direction == "PAYABLE" &&
+            x.Direction == LookupCodes.DebtDirection.Payable &&
             !x.IsDeleted);
 
         if (partyDebt == null)
@@ -437,7 +442,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                 OrganizationId = receipt.OrganizationId,
                 PartyType = "FARMER",
                 PartyId = receipt.FarmerId,
-                Direction = "PAYABLE",
+                Direction = LookupCodes.DebtDirection.Payable,
                 OpeningBalance = 0,
                 CurrentBalance = 0,
                 IsActive = true,
@@ -457,7 +462,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         var tx = new DebtTransaction
         {
             PartyDebtId = partyDebt.Id,
-            TransactionType = "CHARGE",
+            TransactionType = LookupCodes.DebtTransactionType.Charge,
             Amount = receipt.DebtAmount,
             BalanceAfter = partyDebt.CurrentBalance,
             RefType = "PADDY_RECEIPT",
@@ -470,6 +475,11 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
         await _debtTransactionRepository.CreateAsync(tx);
         await _debtTransactionRepository.SaveChangesAsync();
+
+        if (_scheduledJobService != null)
+        {
+            _scheduledJobService.Enqueue<IDebtDueAndOverdueReminderService>(s => s.EvaluatePartyDebtAsync(partyDebt.Id, CancellationToken.None));
+        }
     }
 
     public async Task UpdateScheduleStatusAsync(int scheduleId, int userId)

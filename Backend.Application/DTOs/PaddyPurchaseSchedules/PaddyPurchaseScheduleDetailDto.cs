@@ -18,6 +18,8 @@ public class PaddyPurchaseScheduleDetailDto
     public decimal? EstimatedQtyKg { get; set; }
     public decimal? ExpectedPrice { get; set; }
     public int? AssignedUserId { get; set; }
+    public int? WarehouseId { get; set; }
+    public string? WarehouseName { get; set; }
     public string? Note { get; set; }
     public DateTime CreatedDate { get; set; }
     public DateTime? LastModifiedDate { get; set; }

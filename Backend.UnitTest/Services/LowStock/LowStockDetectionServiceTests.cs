@@ -293,6 +293,8 @@ public class LowStockDetectionServiceTests
                 args[3].ToString() == "100 kg"
             ),
             It.IsAny<string>(),
+            It.IsAny<int?>(),
+            It.IsAny<string?>(),
             It.IsAny<int?>()
         ), Times.Once);
     }
@@ -441,6 +443,8 @@ public class LowStockDetectionServiceTests
             It.IsAny<NotificationTarget>(),
             It.IsAny<object[]>(),
             It.IsAny<string>(),
+            It.IsAny<int?>(),
+            It.IsAny<string?>(),
             It.IsAny<int?>()
         ), Times.Never);
     }
@@ -493,9 +497,7 @@ public class LowStockDetectionServiceTests
                 args[0].ToString() == "PV-ST25 - Gạo ST25 10kg" && 
                 args[2].ToString() == "0 kg"
             ),
-            It.IsAny<string>(),
-            It.IsAny<int?>()
-        ), Times.Once);
+            It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<int?>()), Times.Once);
     }
 
     [Fact]
@@ -673,6 +675,8 @@ public class LowStockDetectionServiceTests
             It.Is<NotificationTarget>(t => t.RoleIds.Contains(CommonConstants.Role.ADMIN) && t.RoleIds.Contains(CommonConstants.Role.OWNER)),
             It.IsAny<object[]>(),
             It.IsAny<string>(),
+            It.IsAny<int?>(),
+            It.IsAny<string?>(),
             It.IsAny<int?>()
         ), Times.Once);
     }
@@ -716,9 +720,7 @@ public class LowStockDetectionServiceTests
             NotificationConstants.Code.LowStockAlert,
             It.Is<NotificationTarget>(t => t.RoleIds.Contains(CommonConstants.Role.ADMIN) && t.RoleIds.Contains(CommonConstants.Role.OWNER)),
             It.Is<object[]>(args => args.Length == 4 && args[0].ToString() == "PV-ST25 - Gạo ST25 10kg"),
-            It.IsAny<string>(),
-            It.IsAny<int?>()
-        ), Times.Once);
+            It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<int?>()), Times.Once);
     }
 
     [Fact]
@@ -801,3 +803,4 @@ public class LowStockDetectionServiceTests
         alerts.First().Message.Should().Contain("30 kg khả dụng");
     }
 }
+

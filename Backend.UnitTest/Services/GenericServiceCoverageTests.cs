@@ -136,15 +136,11 @@ public class SimpleServiceCoverageTests
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // DashboardService — ctor: (ILogger<DashboardService>, IHttpContextAccessor)
-    // Lưu ý: GetReportStatisticsAsync() throw NotImplementedException nên không test
+    // DashboardService — ctor: (IDebtAgingCalculationService, etc.)
     // ════════════════════════════════════════════════════════════════════════
     [Fact][Trait("Service","Dashboard")]
     public void DashboardService_CanBeInstantiated()
     {
-        var loggerMock  = new Mock<Microsoft.Extensions.Logging.ILogger<DashboardService>>();
-        var httpContext = MockHelper.HttpContextAccessor();
-
         var invRepo            = new Mock<IRepositoryBase<Backend.Domain.Entities.Inventory, int>>();
         var lotRepo            = new Mock<IRepositoryBase<Backend.Domain.Entities.PaddyLot, int>>();
         var millRepo           = new Mock<IRepositoryBase<Backend.Domain.Entities.MillingOrder, int>>();
@@ -157,6 +153,8 @@ public class SimpleServiceCoverageTests
         var farmRepo           = new Mock<IRepositoryBase<Backend.Domain.Entities.Farmer, int>>();
 
         var aggSvc             = new Mock<IInventoryStateAggregationService>();
+        var agingSvc           = new Mock<Backend.Application.BackgroundJobs.DebtDueOverdue.IDebtAgingCalculationService>();
+        var contextMock        = new Mock<IApplicationDbContext>();
 
         var svc = new DashboardService(
             invRepo.Object,
@@ -170,8 +168,8 @@ public class SimpleServiceCoverageTests
             custRepo.Object,
             farmRepo.Object,
             aggSvc.Object,
-            loggerMock.Object,
-            httpContext.Object);
+            agingSvc.Object,
+            contextMock.Object);
 
         svc.Should().NotBeNull();
     }

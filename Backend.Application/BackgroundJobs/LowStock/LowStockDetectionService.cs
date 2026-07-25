@@ -56,7 +56,7 @@ public class LowStockDetectionService : ILowStockDetectionService
             result.Processed = snapshots.Count;
             result.Skipped = skippedCount;
 
-            var notificationsToSend = new List<(LowStockSnapshotDto Snapshot, string Severity)>();
+            var notificationsToSend = new List<(LowStockSnapshotDto Snapshot, string Severity, int AlertId)>();
 
             // 2. Duyệt qua từng record và xử lý cô lập lỗi (per-record error handling)
             foreach (var snapshot in snapshots)
@@ -89,7 +89,7 @@ public class LowStockDetectionService : ILowStockDetectionService
                             await _context.SaveChangesAsync(cancellationToken);
 
                             result.Created++;
-                            notificationsToSend.Add((snapshot, severity));
+                            notificationsToSend.Add((snapshot, severity, newAlert.Id));
                         }
                         else
                         {
@@ -120,7 +120,7 @@ public class LowStockDetectionService : ILowStockDetectionService
                                 // Gửi notification nếu Severity tăng lên
                                 if (GetSeverityPriority(severity) > GetSeverityPriority(oldSeverity))
                                 {
-                                    notificationsToSend.Add((snapshot, severity));
+                                    notificationsToSend.Add((snapshot, severity, activeAlert.Id));
                                 }
                             }
                         }
@@ -244,9 +244,9 @@ public class LowStockDetectionService : ILowStockDetectionService
             }
 
             // 3. Gửi Notifications ngoài transaction (tránh nghẽn DB và đảm bảo tin nhắn lỗi không rollback DB)
-            foreach (var (snap, sev) in notificationsToSend)
+            foreach (var (snap, sev, alertId) in notificationsToSend)
             {
-                await SendLowStockNotificationAsync(snap, sev);
+                await SendLowStockNotificationAsync(snap, sev, alertId);
             }
         }
         catch (Exception ex)
@@ -363,7 +363,7 @@ public class LowStockDetectionService : ILowStockDetectionService
 
             if (shouldSendNotification)
             {
-                await SendLowStockNotificationAsync(snapshot, severityToSend);
+                await SendLowStockNotificationAsync(snapshot, severityToSend, activeAlert?.Id ?? 0);
             }
         }
         catch (DbUpdateException dbEx) when (IsUniqueConstraintViolation(dbEx))
@@ -422,7 +422,7 @@ public class LowStockDetectionService : ILowStockDetectionService
 
                         if (GetSeverityPriority(severity) > GetSeverityPriority(oldSeverity))
                         {
-                            await SendLowStockNotificationAsync(snapshot, severity);
+                            await SendLowStockNotificationAsync(snapshot, severity, existingAlert.Id);
                         }
                     }
                 }
@@ -463,7 +463,7 @@ public class LowStockDetectionService : ILowStockDetectionService
         }
     }
 
-    private async Task SendLowStockNotificationAsync(LowStockSnapshotDto snapshot, string severity)
+    private async Task SendLowStockNotificationAsync(LowStockSnapshotDto snapshot, string severity, int alertId)
     {
         try
         {
@@ -495,7 +495,9 @@ public class LowStockDetectionService : ILowStockDetectionService
                 target,
                 args,
                 directionId: "/admin/alerts",
-                createdBy: CommonConstants.ADMIN_USER
+                createdBy: CommonConstants.ADMIN_USER,
+                referenceType: NotificationConstants.ReferenceType.Alert,
+                referenceId: alertId > 0 ? alertId : null
             );
         }
         catch (Exception ex)
@@ -525,7 +527,7 @@ public class LowStockDetectionService : ILowStockDetectionService
             Severity = severity,
             WarehouseId = warehouseId,
             ProductVariantId = productVariantId,
-            RelatedEntityType = "PRODUCT_VARIANT",
+            RelatedEntityType = AlertConstants.RelatedEntityType.ProductVariant,
             RelatedEntityId = productVariantId,
             Status = AlertConstants.Status.Open,
             Message = message,

@@ -19,4 +19,9 @@ public class DataChangeNotifier : IDataChangeNotifier
     {
         return _hubContext.Clients.All.SendAsync("EntityChanged", entityNames);
     }
+
+    public Task NotifyAlertChangedAsync(object payload)
+    {
+        return _hubContext.Clients.All.SendAsync("alertChanged", payload);
+    }
 }

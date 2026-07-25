@@ -2,6 +2,9 @@ using System;
 using Backend.Application.Implements;
 using Backend.Application.Interfaces;
 using Backend.Application.Validators.Auths;
+using Backend.Application.BackgroundJobs.IntakeBottleneck;
+using Backend.Application.BackgroundJobs.LotQualityRecheck;
+using Backend.Application.BackgroundJobs.DebtDueOverdue;
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.Extensions.Configuration;
@@ -77,7 +80,19 @@ public static class ConfigureServices
             .AddScoped<IAlertService, AlertService>()
             .AddScoped<ICustomerReturnOrderService, CustomerReturnOrderService>()
             // ── Trả hàng nhà cung cấp (FE-16) ─────────────────────────────────────────
-            .AddScoped<IReturnToSupplierOrderService, ReturnToSupplierOrderService>();
+            .AddScoped<IReturnToSupplierOrderService, ReturnToSupplierOrderService>()
+            // ── Intake Bottleneck evaluation (JOB-02) ─────────────────────────────────
+            .AddScoped<IIntakeBottleneckCalculator, IntakeBottleneckCalculator>()
+            .AddScoped<IIntakeBottleneckQueryService, IntakeBottleneckQueryService>()
+            .AddScoped<IIntakeBottleneckEvaluationService, IntakeBottleneckEvaluationService>()
+            // ── Lot Quality Recheck & Long Stored evaluation (JOB-03) ─────────────────
+            .AddScoped<ILotQualityRecheckRulesEngine, LotQualityRecheckRulesEngine>()
+            .AddScoped<ILotQualityRecheckService, LotQualityRecheckService>()
+            // ── Debt Due & Overdue Reminder (JOB-04) ──────────────────────────
+            .AddScoped<IDebtTransactionEffectResolver, DebtTransactionEffectResolver>()
+            .AddScoped<IDebtAgingCalculationService, DebtAgingCalculationService>()
+            .AddScoped<IDebtDueOverdueRulesEngine, DebtDueOverdueRulesEngine>()
+            .AddScoped<IDebtDueAndOverdueReminderService, DebtDueAndOverdueReminderService>();
 
 
         services.AddFluentValidationAutoValidation(options => options.DisableDataAnnotationsValidation = true);

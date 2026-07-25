@@ -48,7 +48,13 @@ public class PaddyPurchaseScheduleConfiguration : IEntityTypeConfiguration<Paddy
             .HasForeignKey(x => x.AssignedUserId)
             .OnDelete(DeleteBehavior.SetNull);
 
+        builder.HasOne(x => x.Warehouse)
+            .WithMany()
+            .HasForeignKey(x => x.WarehouseId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasIndex(x => x.FarmerId).HasDatabaseName("IX_PaddyPurchaseSchedule_FarmerId");
         builder.HasIndex(x => x.ScheduleDate).HasDatabaseName("IX_PaddyPurchaseSchedule_ScheduleDate");
+        builder.HasIndex(x => new { x.WarehouseId, x.StatusId, x.ScheduleDate, x.IsDeleted }).HasDatabaseName("IX_PaddyPurchaseSchedule_Lookup");
     }
 }

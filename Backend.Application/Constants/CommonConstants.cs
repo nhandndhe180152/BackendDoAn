@@ -184,6 +184,12 @@ public static class CommonConstants
         public const int TAG_TYPE_BLOG = 1001;
     }
 
+    public static class ProductCategory
+    {
+        public const int Paddy = 101;
+        // Seeded in DB: 101 (Lúa thô), 102 (Gạo thành phẩm), 103 (Phụ phẩm)
+    }
+
     public static class ActivityLogType
     {
         public const string REQUEST = "REQUEST";

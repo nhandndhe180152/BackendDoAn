@@ -240,6 +240,9 @@ namespace Backend.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)");
 
+                    b.Property<string>("ConditionFingerprint")
+                        .HasColumnType("longtext");
+
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
 
@@ -277,6 +280,9 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<DateTime?>("ResolvedAt")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<string>("ResolvedReason")
+                        .HasColumnType("longtext");
+
                     b.Property<string>("Severity")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -290,7 +296,7 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<int?>("UpdatedBy")
                         .HasColumnType("int");
 
-                    b.Property<int>("WarehouseId")
+                    b.Property<int?>("WarehouseId")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
@@ -1041,6 +1047,11 @@ namespace Backend.Infrastructure.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int>("AttemptCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
                     b.Property<string>("Body")
                         .IsRequired()
                         .HasColumnType("longtext");
@@ -1054,8 +1065,15 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<string>("DataPayload")
                         .HasColumnType("longtext");
 
+                    b.Property<string>("DeduplicationKey")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("longtext");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("datetime(6)");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("tinyint(1)");
@@ -1063,8 +1081,32 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<bool>("IsSent")
                         .HasColumnType("tinyint(1)");
 
+                    b.Property<DateTime?>("LastAttemptAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("LastErrorCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
                     b.Property<DateTime?>("LastModifiedDate")
                         .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("NextRetryAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("ProcessingBy")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<DateTime?>("ProcessingLeaseUntil")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("ProcessingStartedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("ProviderMessageId")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
 
                     b.Property<int?>("ReferenceId")
                         .HasColumnType("int");
@@ -1074,6 +1116,13 @@ namespace Backend.Infrastructure.Migrations
 
                     b.Property<DateTime?>("SentAt")
                         .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)")
+                        .HasDefaultValue("PENDING");
 
                     b.Property<string>("Title")
                         .IsRequired()
@@ -1093,9 +1142,15 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("DeduplicationKey")
+                        .HasDatabaseName("IX_FcmNotificationLog_DeduplicationKey");
+
                     b.HasIndex("UserDeviceId");
 
                     b.HasIndex("UserId");
+
+                    b.HasIndex("Status", "IsDeleted", "NextRetryAt", "Id")
+                        .HasDatabaseName("IX_FcmNotificationLog_EligibleQuery");
 
                     b.ToTable("FcmNotificationLog", (string)null);
                 });
@@ -2335,6 +2390,107 @@ namespace Backend.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("NotificationCategory", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Color = "#ef4444",
+                            CreatedDate = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Thông báo liên quan đến hàng tồn kho thấp cần bổ sung",
+                            IsDeleted = false,
+                            Name = "Cảnh báo tồn kho thấp"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Color = "#0ea5e9",
+                            CreatedDate = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Thông báo liên quan đến lịch và phiếu thu mua lúa",
+                            IsDeleted = false,
+                            Name = "Thu mua lúa"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Color = "#10b981",
+                            CreatedDate = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Thông báo đơn mua hàng hóa khác",
+                            IsDeleted = false,
+                            Name = "Đơn mua hàng"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Color = "#3b82f6",
+                            CreatedDate = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Thông báo quy trình nhập kho",
+                            IsDeleted = false,
+                            Name = "Đơn nhập kho"
+                        },
+                        new
+                        {
+                            Id = 5,
+                            Color = "#3b82f6",
+                            CreatedDate = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Thông báo quy trình xay xát lúa",
+                            IsDeleted = false,
+                            Name = "Xay xát"
+                        },
+                        new
+                        {
+                            Id = 6,
+                            Color = "#f59e0b",
+                            CreatedDate = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Thông báo quy trình bán hàng",
+                            IsDeleted = false,
+                            Name = "Đơn bán hàng"
+                        },
+                        new
+                        {
+                            Id = 7,
+                            Color = "#10b981",
+                            CreatedDate = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Thông báo quy trình xuất kho",
+                            IsDeleted = false,
+                            Name = "Đơn xuất kho"
+                        },
+                        new
+                        {
+                            Id = 8,
+                            Color = "#10b981",
+                            CreatedDate = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Thông báo điều chuyển nội bộ",
+                            IsDeleted = false,
+                            Name = "Điều chuyển kho"
+                        },
+                        new
+                        {
+                            Id = 9,
+                            Color = "#10b981",
+                            CreatedDate = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Thông báo quá trình kiểm kê",
+                            IsDeleted = false,
+                            Name = "Kiểm kê kho"
+                        },
+                        new
+                        {
+                            Id = 10,
+                            Color = "#ef4444",
+                            CreatedDate = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Thông báo kiểm tra chất lượng và cảnh báo lô",
+                            IsDeleted = false,
+                            Name = "Kiểm định chất lượng"
+                        },
+                        new
+                        {
+                            Id = 11,
+                            Color = "#ef4444",
+                            CreatedDate = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Thông báo chung và cảnh báo lỗi từ hệ thống",
+                            IsDeleted = false,
+                            Name = "Hệ thống"
+                        });
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.NotificationType", b =>
@@ -2376,6 +2532,16 @@ namespace Backend.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("NotificationType", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            CreatedDate = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            Description = "Thông báo tự động từ hệ thống",
+                            IsDeleted = false,
+                            Name = "Hệ thống"
+                        });
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.Organization", b =>
@@ -3047,6 +3213,9 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<int?>("UpdatedBy")
                         .HasColumnType("int");
 
+                    b.Property<int?>("WarehouseId")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AssignedUserId");
@@ -3064,6 +3233,9 @@ namespace Backend.Infrastructure.Migrations
                     b.HasIndex("OrganizationId", "ScheduleCode")
                         .IsUnique()
                         .HasDatabaseName("UX_PaddyPurchaseSchedule_OrgId_Code");
+
+                    b.HasIndex("WarehouseId", "StatusId", "ScheduleDate", "IsDeleted")
+                        .HasDatabaseName("IX_PaddyPurchaseSchedule_Lookup");
 
                     b.ToTable("PaddyPurchaseSchedule", (string)null);
                 });
@@ -5743,8 +5915,7 @@ namespace Backend.Infrastructure.Migrations
                     b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
                         .WithMany()
                         .HasForeignKey("WarehouseId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("AcknowledgedByUser");
 
@@ -6529,6 +6700,11 @@ namespace Backend.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("AssignedUser");
 
                     b.Navigation("Farmer");
@@ -6538,6 +6714,8 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("RiceVariety");
 
                     b.Navigation("Status");
+
+                    b.Navigation("Warehouse");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.PartyDebt", b =>

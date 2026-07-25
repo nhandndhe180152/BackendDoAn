@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Backend.Application.DTOs.Dashboard;
 
@@ -17,6 +18,8 @@ public class DashboardSummaryDto
     public MillingSummaryDto Milling { get; set; } = new();
     public SalesSummaryDto Sales { get; set; } = new();
     public AlertsSummaryDto Alerts { get; set; } = new();
+    public EfficiencyMetricsDto Efficiency { get; set; } = new();
+    public List<AlertItemDto> RecentAlerts { get; set; } = new();
 }
 
 public class InventorySummaryDto
@@ -28,7 +31,9 @@ public class InventorySummaryDto
     public decimal OtherBlockedKg { get; set; }
     public decimal AvailableKg { get; set; }
     public decimal PaddyKg { get; set; }
+    public decimal PaddyDeltaTodayKg { get; set; }
     public decimal RiceKg { get; set; }
+    public decimal RiceDeltaTodayKg { get; set; }
     public decimal ByproductKg { get; set; }
 }
 
@@ -38,6 +43,7 @@ public class DebtSummaryDto
     public decimal CustomerReceivable { get; set; }
     public decimal OverduePayable { get; set; }
     public decimal OverdueReceivable { get; set; }
+    public decimal TotalDebt => FarmerPayable + CustomerReceivable;
 }
 
 public class MillingSummaryDto
@@ -54,6 +60,8 @@ public class SalesSummaryDto
     public decimal AmountCollected { get; set; }
     public decimal OutstandingAmount { get; set; }
     public int CompletedOrderCount { get; set; }
+    public int PendingDeliveryCount { get; set; }
+    public int PendingDeliveryActionRequiredCount { get; set; }
 }
 
 public class AlertsSummaryDto
@@ -62,4 +70,38 @@ public class AlertsSummaryDto
     public int CriticalCount { get; set; }
     public int QuarantinedLotCount { get; set; }
     public int InspectionOverdueLotCount { get; set; }
+}
+
+public class DashboardTaskDto
+{
+    public string Time { get; set; } = string.Empty; // "08:00"
+    public string Type { get; set; } = string.Empty; // "PURCHASE", "DELIVERY", "INSPECTION"
+    public string Title { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty; // "Đã xác nhận", "Chờ xử lý"
+}
+
+public class ChartDataPointDto
+{
+    public string DayOfWeek { get; set; } = string.Empty; // "T2", "T3" ...
+    public decimal VolumeTons { get; set; } // Sản lượng (tấn)
+    public decimal AveragePrice { get; set; } // Giá (đ/kg)
+}
+
+public class EfficiencyMetricsDto
+{
+    public decimal OnTimeDeliveryRate { get; set; } // e.g. 94.2
+    public decimal OnTimeDeliveryTarget { get; set; } = 95.0m;
+    public decimal DebtRecoveryRate { get; set; } // e.g. 76.3
+    public decimal WarehouseLossRate { get; set; } // e.g. 0.8
+    public decimal WarehouseLossTarget { get; set; } = 1.0m;
+}
+
+public class AlertItemDto
+{
+    public int Id { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public string Severity { get; set; } = string.Empty; // "Warning", "Critical"
+    public string TimeAgo { get; set; } = string.Empty; // "30p trước"
+    public DateTime CreatedAt { get; set; }
 }

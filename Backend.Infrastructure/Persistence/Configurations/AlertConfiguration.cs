@@ -24,6 +24,7 @@ public class AlertConfiguration : IEntityTypeConfiguration<Alert>
         builder.HasOne(x => x.Warehouse)
             .WithMany()
             .HasForeignKey(x => x.WarehouseId)
+            .IsRequired(false)
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(x => x.ProductVariant)

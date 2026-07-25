@@ -23,6 +23,7 @@ public static class PaddyPurchaseMapping
             EstimatedQtyKg = dto.EstimatedQtyKg,
             ExpectedPrice = dto.ExpectedPrice,
             AssignedUserId = dto.AssignedUserId,
+            WarehouseId = dto.WarehouseId,
             Note = dto.Note?.Trim(),
             CreatedBy = dto.CreatedBy,
             CreatedDate = DateTime.Now
@@ -40,6 +41,7 @@ public static class PaddyPurchaseMapping
         existData.EstimatedQtyKg = dto.EstimatedQtyKg;
         existData.ExpectedPrice = dto.ExpectedPrice;
         existData.AssignedUserId = dto.AssignedUserId;
+        existData.WarehouseId = dto.WarehouseId;
         existData.Note = dto.Note?.Trim();
         existData.UpdatedBy = dto.UpdatedBy;
         existData.LastModifiedDate = DateTime.Now;
@@ -64,6 +66,8 @@ public static class PaddyPurchaseMapping
             EstimatedQtyKg = entity.EstimatedQtyKg,
             ExpectedPrice = entity.ExpectedPrice,
             AssignedUserId = entity.AssignedUserId,
+            WarehouseId = entity.WarehouseId,
+            WarehouseName = entity.Warehouse?.Name,
             Note = entity.Note,
             CreatedDate = entity.CreatedDate,
             LastModifiedDate = entity.LastModifiedDate

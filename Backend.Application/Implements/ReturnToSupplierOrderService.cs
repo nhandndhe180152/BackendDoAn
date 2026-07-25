@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Backend.Application.BackgroundJobs.DebtDueOverdue;
+using Backend.Share.Services;
 using Backend.Application.Constants;
 using Backend.Application.DTOs.ReturnToSuppliers;
 using Backend.Application.Interfaces;
@@ -36,14 +38,18 @@ public class ReturnToSupplierOrderService : IReturnToSupplierOrderService
         public const string Cancelled = "Đã huỷ";
     }
 
+    private readonly IScheduledJobService? _scheduledJobService;
+
     public ReturnToSupplierOrderService(
         IApplicationDbContext context,
         IHttpContextAccessor httpContextAccessor,
-        ILogger<ReturnToSupplierOrderService> logger)
+        ILogger<ReturnToSupplierOrderService> logger,
+        IScheduledJobService? scheduledJobService = null)
     {
         _context = context;
         _httpContextAccessor = httpContextAccessor;
         _logger = logger;
+        _scheduledJobService = scheduledJobService;
     }
 
     private int GetCurrentUserId() => _httpContextAccessor.HttpContext?.GetCurrentUserId() ?? 1;
@@ -267,10 +273,11 @@ public class ReturnToSupplierOrderService : IReturnToSupplierOrderService
                 }
             }
 
-            // Đảo ngược công nợ PHẢI TRẢ cho NCC theo giá trị hàng trả (nếu đang còn nợ NCC).
+            PartyDebt? payable = null;
+            decimal reduce = 0;
             if (totalReturnValue > 0)
             {
-                var payable = await _context.PartyDebts.FirstOrDefaultAsync(d =>
+                payable = await _context.PartyDebts.FirstOrDefaultAsync(d =>
                     d.PartyType == LookupCodes.PartyType.Supplier &&
                     d.PartyId == order.SupplierId &&
                     d.Direction == LookupCodes.DebtDirection.Payable &&
@@ -278,7 +285,7 @@ public class ReturnToSupplierOrderService : IReturnToSupplierOrderService
 
                 if (payable != null && payable.CurrentBalance > 0)
                 {
-                    var reduce = Math.Min(payable.CurrentBalance, totalReturnValue);
+                    reduce = Math.Min(payable.CurrentBalance, totalReturnValue);
                     payable.CurrentBalance -= reduce;
                     payable.LastModifiedDate = now;
                     payable.UpdatedBy = userId;
@@ -307,6 +314,12 @@ public class ReturnToSupplierOrderService : IReturnToSupplierOrderService
 
             await _context.SaveChangesAsync(cancellationToken);
             await tx.CommitAsync(cancellationToken);
+
+            // Enqueue targeted background job evaluation for JOB-04 after transaction completes
+            if (_scheduledJobService != null && payable != null && reduce > 0)
+            {
+                _scheduledJobService.Enqueue<IDebtDueAndOverdueReminderService>(s => s.EvaluatePartyDebtAsync(payable.Id, CancellationToken.None));
+            }
 
             return ApiResponse.Success(message: "Xác nhận trả hàng nhà cung cấp thành công.");
         }

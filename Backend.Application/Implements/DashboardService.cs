@@ -11,8 +11,9 @@ using Backend.Share.Entities;
 using Backend.Share.Extensions;
 using Backend.Share.Helpers;
 using Microsoft.AspNetCore.Http;
+using System.Threading;
+using Backend.Application.BackgroundJobs.DebtDueOverdue;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 
 namespace Backend.Application.Implements;
 
@@ -29,8 +30,8 @@ public class DashboardService : IDashboardService
     private readonly IRepositoryBase<Customer, int> _customerRepository;
     private readonly IRepositoryBase<Farmer, int> _farmerRepository;
     private readonly IInventoryStateAggregationService _aggregationService;
-    private readonly IHttpContextAccessor _httpContextAccessor;
-    private readonly ILogger<DashboardService> _logger;
+    private readonly IDebtAgingCalculationService _agingService;
+    private readonly IApplicationDbContext _context;
 
     public DashboardService(
         IRepositoryBase<Inventory, int> inventoryRepository,
@@ -44,8 +45,8 @@ public class DashboardService : IDashboardService
         IRepositoryBase<Customer, int> customerRepository,
         IRepositoryBase<Farmer, int> farmerRepository,
         IInventoryStateAggregationService aggregationService,
-        ILogger<DashboardService> logger,
-        IHttpContextAccessor httpContextAccessor)
+        IDebtAgingCalculationService agingService,
+        IApplicationDbContext context)
     {
         _inventoryRepository = inventoryRepository;
         _paddyLotRepository = paddyLotRepository;
@@ -58,8 +59,8 @@ public class DashboardService : IDashboardService
         _customerRepository = customerRepository;
         _farmerRepository = farmerRepository;
         _aggregationService = aggregationService;
-        _logger = logger;
-        _httpContextAccessor = httpContextAccessor;
+        _agingService = agingService;
+        _context = context;
     }
 
     // H2: resolve Completed status ID by Name to avoid magic number
@@ -89,6 +90,9 @@ public class DashboardService : IDashboardService
 
     public async Task<ApiResponse> GetSummaryAsync(DashboardQuery query)
     {
+        var dateValidation = ValidateAndPopulateDates(query);
+        if (dateValidation != null) return dateValidation;
+
         var fromDate = query.FromDate;
         var toDate   = query.ToDate;
 
@@ -116,9 +120,9 @@ public class DashboardService : IDashboardService
             QuarantinedKg = quarantinedKg,
             OtherBlockedKg = otherBlockedKg,
             AvailableKg = availableKg,
-            PaddyKg = aggregates.Where(x => x.LotType == "PADDY").Sum(x => x.TotalOnHandKg),
-            RiceKg = aggregates.Where(x => x.LotType == "RICE").Sum(x => x.TotalOnHandKg),
-            ByproductKg = aggregates.Where(x => x.LotType == "BYPRODUCT" || (x.LotType == null && x.IsVariantByproduct)).Sum(x => x.TotalOnHandKg)
+            PaddyKg = aggregates.Where(x => x.LotType == LotTypeConstants.Paddy).Sum(x => x.TotalOnHandKg),
+            RiceKg = aggregates.Where(x => x.LotType == LotTypeConstants.Rice).Sum(x => x.TotalOnHandKg),
+            ByproductKg = aggregates.Where(x => x.LotType == LotTypeConstants.ByProduct || (x.LotType == null && x.IsVariantByproduct)).Sum(x => x.TotalOnHandKg)
         };
 
         // 2. Debt Summary
@@ -126,8 +130,8 @@ public class DashboardService : IDashboardService
             .FindByCondition(x => !x.IsDeleted && x.IsActive, false)
             .ToListAsync();
 
-        var farmerPayable      = debts.Where(x => x.PartyType == "FARMER" && x.Direction == "PAYABLE").Sum(x => x.CurrentBalance);
-        var customerReceivable = debts.Where(x => x.PartyType == "CUSTOMER" && x.Direction == "RECEIVABLE").Sum(x => x.CurrentBalance);
+        var farmerPayable      = debts.Where(x => x.PartyType == LookupCodes.PartyType.Farmer && x.Direction == LookupCodes.DebtDirection.Payable).Sum(x => x.CurrentBalance);
+        var customerReceivable = debts.Where(x => x.PartyType == LookupCodes.PartyType.Customer && x.Direction == LookupCodes.DebtDirection.Receivable).Sum(x => x.CurrentBalance);
 
         decimal overduePayable = 0;
         decimal overdueReceivable = 0;
@@ -135,38 +139,17 @@ public class DashboardService : IDashboardService
 
         // M4b: Bulk-load all CHARGE transactions for debts that have balance > 0 to prevent N+1 query
         var debtIdsWithBalance = debts.Where(x => x.CurrentBalance > 0).Select(x => x.Id).ToList();
-        var chargesByDebtId = debtIdsWithBalance.Count > 0
-            ? await _debtTransactionRepository
-                .FindByCondition(x =>
-                    !x.IsDeleted &&
-                    x.TransactionType == "CHARGE" &&
-                    debtIdsWithBalance.Contains(x.PartyDebtId), false)
-                .OrderByDescending(x => x.TransactionDate)
-                .ToListAsync()
-            : new List<DebtTransaction>();
-
-        var chargeMap = chargesByDebtId.GroupBy(x => x.PartyDebtId)
-            .ToDictionary(g => g.Key, g => g.ToList());
+        var agingResults = await _agingService.CalculatePartyDebtsAgingBatchAsync(debtIdsWithBalance, nowLimit, CancellationToken.None);
 
         foreach (var debt in debts.Where(x => x.CurrentBalance > 0))
         {
             decimal overdue = 0;
-            if (chargeMap.TryGetValue(debt.Id, out var charges))
+            if (agingResults.TryGetValue(debt.Id, out var aging))
             {
-                decimal remaining = debt.CurrentBalance;
-                foreach (var charge in charges)
-                {
-                    if (remaining <= 0) break;
-                    var unpaidAmount = Math.Min(charge.Amount, remaining);
-                    if (charge.DueDate.HasValue && charge.DueDate.Value < nowLimit)
-                    {
-                        overdue += unpaidAmount;
-                    }
-                    remaining -= unpaidAmount;
-                }
+                overdue = aging.OverdueAmount;
             }
 
-            if (debt.Direction == "PAYABLE") overduePayable += overdue;
+            if (debt.Direction == LookupCodes.DebtDirection.Payable) overduePayable += overdue;
             else overdueReceivable += overdue;
         }
 
@@ -228,8 +211,8 @@ public class DashboardService : IDashboardService
 
         var completedSoIds = salesOrders.Select(x => x.Id).ToList();
         var payments = await _debtTransactionRepository
-            .FindByCondition(x => !x.IsDeleted && x.TransactionType == "PAYMENT" &&
-                                  x.RefType == "SALES_ORDER" && x.RefId.HasValue &&
+            .FindByCondition(x => !x.IsDeleted && x.TransactionType == LookupCodes.DebtTransactionType.Payment &&
+                                  x.RefType == InventoryReferenceTypeConstants.SalesOrder && x.RefId.HasValue &&
                                   completedSoIds.Contains(x.RefId.Value), false)
             .SumAsync(x => x.Amount);
 
@@ -246,7 +229,7 @@ public class DashboardService : IDashboardService
         };
 
         // 5. Alerts Summary
-        var alertsQuery = _alertRepository.FindByCondition(x => !x.IsDeleted && x.Status == "OPEN", false);
+        var alertsQuery = _alertRepository.FindByCondition(x => !x.IsDeleted && x.Status == AlertConstants.Status.Open, false);
 
         if (query.WarehouseId.HasValue)
         {
@@ -264,13 +247,78 @@ public class DashboardService : IDashboardService
         var thirtyDaysAgo = nowLimit.AddDays(-30);
         var overdueLotCount = await _paddyLotRepository
             .FindByCondition(x => !x.IsDeleted && x.RemainingWeightKg > 0 && x.Status.IsSellable &&
-                                 (!x.QualityInspections.Any() || x.QualityInspections.Max(q => q.InspectedAt) < thirtyDaysAgo), false)
+                                 (!x.QualityInspections.Any(q => !q.IsDeleted) || 
+                                  x.QualityInspections.Where(q => !q.IsDeleted).Max(q => q.InspectedAt) < thirtyDaysAgo), false)
             .CountAsync();
+
+        // 6. Recent Alerts (Top 5)
+        var recentAlerts = await _alertRepository.FindByCondition(x => !x.IsDeleted && x.Status == AlertConstants.Status.Open, false)
+            .OrderByDescending(x => x.CreatedDate)
+            .Take(5)
+            .Select(x => new AlertItemDto
+            {
+                Id = x.Id,
+                Message = x.Message,
+                Severity = x.Severity,
+                CreatedAt = x.CreatedDate
+            })
+            .ToListAsync();
+
+        foreach (var alert in recentAlerts)
+        {
+            alert.TimeAgo = GetTimeAgo(alert.CreatedAt);
+        }
+
+        // 7. Efficiency Metrics
+        var efficiency = await GetOperationalEfficiencyInternalAsync(query);
+
+        // 8. Delta Today
+        var today = DateTimeHelper.VietnamNow().Date;
+        var txQuery = _context.InventoryTransactions.Where(x => !x.IsDeleted && x.CreatedDate >= today);
+        if (query.WarehouseId.HasValue)
+        {
+            txQuery = txQuery.Where(x => x.WarehouseId == query.WarehouseId.Value);
+        }
+        var todayTransactions = await txQuery
+            .Select(x => new {
+                x.Quantity,
+                LotType = x.PaddyLot != null ? x.PaddyLot.LotType : null
+            })
+            .ToListAsync();
+
+        var paddyDelta = todayTransactions.Where(x => x.LotType == LotTypeConstants.Paddy).Sum(x => x.Quantity);
+        var riceDelta = todayTransactions.Where(x => x.LotType == LotTypeConstants.Rice).Sum(x => x.Quantity);
+
+        inventorySummary.PaddyDeltaTodayKg = paddyDelta;
+        inventorySummary.RiceDeltaTodayKg = riceDelta;
+
+        // 9. Pending Delivery Tasks
+        var pendingDeliveryStatuses = new[] { 
+            SalesOrderStatusNames.PendingConfirm, 
+            SalesOrderStatusNames.Reserved, 
+            SalesOrderStatusNames.AwaitingMilling, 
+            SalesOrderStatusNames.Preparing, 
+            SalesOrderStatusNames.Delivering 
+        };
+        var actionRequiredStatuses = new[] { 
+            SalesOrderStatusNames.New, 
+            SalesOrderStatusNames.PendingConfirm 
+        };
+
+        var pendingDeliveryOrders = await _salesOrderRepository
+            .FindByCondition(x => !x.IsDeleted, false)
+            .Where(x => pendingDeliveryStatuses.Contains(x.Status.Name) || x.Status.Name == SalesOrderStatusNames.New)
+            .Select(x => new { x.Status.Name })
+            .ToListAsync();
+
+        salesSummary.PendingDeliveryCount = pendingDeliveryOrders.Count;
+        salesSummary.PendingDeliveryActionRequiredCount = pendingDeliveryOrders
+            .Count(x => actionRequiredStatuses.Contains(x.Name));
 
         var alertsSummary = new AlertsSummaryDto
         {
             OpenCount                 = openAlerts.Count,
-            CriticalCount             = openAlerts.Count(x => x.Severity == "CRITICAL"),
+            CriticalCount             = openAlerts.Count(x => x.Severity == AlertConstants.Severity.Critical),
             QuarantinedLotCount       = quarantinedLotCount,
             InspectionOverdueLotCount = overdueLotCount
         };
@@ -281,7 +329,9 @@ public class DashboardService : IDashboardService
             Debt      = debtSummary,
             Milling   = millingSummary,
             Sales     = salesSummary,
-            Alerts    = alertsSummary
+            Alerts    = alertsSummary,
+            RecentAlerts = recentAlerts,
+            Efficiency = efficiency
         });
     }
 
@@ -461,9 +511,9 @@ public class DashboardService : IDashboardService
                     ReservedKg = reservedKg,
                     QuarantinedKg = quarantinedKg,
                     AvailableKg = availableKg,
-                    PaddyKg = g.Where(x => x.LotType == "PADDY").Sum(x => x.TotalOnHandKg),
-                    RiceKg = g.Where(x => x.LotType == "RICE").Sum(x => x.TotalOnHandKg),
-                    ByproductKg = g.Where(x => x.LotType == "BYPRODUCT" || (x.LotType == null && x.IsVariantByproduct)).Sum(x => x.TotalOnHandKg),
+                    PaddyKg = g.Where(x => x.LotType == LotTypeConstants.Paddy).Sum(x => x.TotalOnHandKg),
+                    RiceKg = g.Where(x => x.LotType == LotTypeConstants.Rice).Sum(x => x.TotalOnHandKg),
+                    ByproductKg = g.Where(x => x.LotType == LotTypeConstants.ByProduct || (x.LotType == null && x.IsVariantByproduct)).Sum(x => x.TotalOnHandKg),
                     QuarantinedLotCount = quarantinedLotCount,
                     QuarantineLocationCount = quarantineLocCount
                 };
@@ -529,8 +579,8 @@ public class DashboardService : IDashboardService
         var nowLimit = DateTimeHelper.VietnamNow();
 
         // M4: Bulk-load customers and farmers — 2 queries instead of N queries
-        var customerIds = debts.Where(d => d.PartyType == "CUSTOMER").Select(d => d.PartyId).Distinct().ToList();
-        var farmerIds   = debts.Where(d => d.PartyType == "FARMER").Select(d => d.PartyId).Distinct().ToList();
+        var customerIds = debts.Where(d => d.PartyType == LookupCodes.PartyType.Customer).Select(d => d.PartyId).Distinct().ToList();
+        var farmerIds   = debts.Where(d => d.PartyType == LookupCodes.PartyType.Farmer).Select(d => d.PartyId).Distinct().ToList();
 
         var customerNames = await _customerRepository
             .FindByCondition(x => customerIds.Contains(x.Id) && !x.IsDeleted, false)
@@ -544,16 +594,7 @@ public class DashboardService : IDashboardService
 
         // M4: Bulk-load all CHARGE transactions for debts that have balance > 0
         var debtIdsWithBalance = debts.Where(d => d.CurrentBalance > 0).Select(d => d.Id).ToList();
-        var chargesByDebtId = await _debtTransactionRepository
-            .FindByCondition(x =>
-                !x.IsDeleted &&
-                x.TransactionType == "CHARGE" &&
-                debtIdsWithBalance.Contains(x.PartyDebtId), false)
-            .OrderByDescending(x => x.TransactionDate)
-            .ToListAsync();
-
-        var chargeMap = chargesByDebtId.GroupBy(x => x.PartyDebtId)
-            .ToDictionary(g => g.Key, g => g.ToList());
+        var agingResults = await _agingService.CalculatePartyDebtsAgingBatchAsync(debtIdsWithBalance, nowLimit, CancellationToken.None);
 
         var report = new List<TwoWayDebtReportDto>(debts.Count);
 
@@ -561,23 +602,15 @@ public class DashboardService : IDashboardService
         {
             var name = debt.PartyType switch
             {
-                "CUSTOMER" => customerNames.GetValueOrDefault(debt.PartyId) ?? $"Khách hàng {debt.PartyId}",
-                "FARMER"   => farmerNames.GetValueOrDefault(debt.PartyId) ?? $"Nông dân {debt.PartyId}",
+                LookupCodes.PartyType.Customer => customerNames.GetValueOrDefault(debt.PartyId) ?? $"Khách hàng {debt.PartyId}",
+                LookupCodes.PartyType.Farmer   => farmerNames.GetValueOrDefault(debt.PartyId) ?? $"Nông dân {debt.PartyId}",
                 _          => $"Bên {debt.PartyId}"
             };
 
             decimal overdue = 0;
-            if (debt.CurrentBalance > 0 && chargeMap.TryGetValue(debt.Id, out var charges))
+            if (debt.CurrentBalance > 0 && agingResults.TryGetValue(debt.Id, out var aging))
             {
-                decimal remaining = debt.CurrentBalance;
-                foreach (var charge in charges)
-                {
-                    if (remaining <= 0) break;
-                    var unpaidAmount = Math.Min(charge.Amount, remaining);
-                    if (charge.DueDate.HasValue && charge.DueDate.Value < nowLimit)
-                        overdue += unpaidAmount;
-                    remaining -= unpaidAmount;
-                }
+                overdue = aging.OverdueAmount;
             }
 
             report.Add(new TwoWayDebtReportDto
@@ -596,6 +629,9 @@ public class DashboardService : IDashboardService
 
     public async Task<ApiResponse> GetMillingYieldReportAsync(DashboardQuery query)
     {
+        var dateValidation = ValidateAndPopulateDates(query);
+        if (dateValidation != null) return dateValidation;
+
         var baseQuery = _millingOrderRepository
             .FindByCondition(x => !x.IsDeleted && x.CompletedAt.HasValue &&
                                   x.CompletedAt.Value >= query.FromDate && x.CompletedAt.Value < query.ToDate, false);
@@ -627,6 +663,9 @@ public class DashboardService : IDashboardService
 
     public async Task<ApiResponse> GetSalesRevenueReportAsync(DashboardQuery query)
     {
+        var dateValidation = ValidateAndPopulateDates(query);
+        if (dateValidation != null) return dateValidation;
+
         // H2: resolve status by Name, not hard-coded ID
         var completedStatusId = await GetCompletedSalesOrderStatusIdAsync();
         var baseQuery = _salesOrderRepository
@@ -658,8 +697,8 @@ public class DashboardService : IDashboardService
         var orderIds = orders.Select(x => x.Id).ToList();
 
         var paymentGroups = await _debtTransactionRepository
-            .FindByCondition(x => !x.IsDeleted && x.TransactionType == "PAYMENT" &&
-                                  x.RefType == "SALES_ORDER" && x.RefId.HasValue &&
+            .FindByCondition(x => !x.IsDeleted && x.TransactionType == LookupCodes.DebtTransactionType.Payment &&
+                                  x.RefType == InventoryReferenceTypeConstants.SalesOrder && x.RefId.HasValue &&
                                   orderIds.Contains(x.RefId.Value), false)
             .GroupBy(x => x.RefId!.Value)
             .Select(g => new { OrderId = g.Key, TotalPaid = g.Sum(x => x.Amount) })
@@ -739,5 +778,325 @@ public class DashboardService : IDashboardService
             .ToList();
 
         return ApiResponse.Success(list);
+    }
+
+    public async Task<ApiResponse> GetTodayTasksAsync(DashboardQuery query)
+    {
+        var today = DateTimeHelper.VietnamNow().Date;
+        var todayEnd = today.AddDays(1);
+        var tasks = new List<DashboardTaskDto>();
+
+        // 1. Paddy Purchase Schedules
+        var scheduleQuery = _context.PaddyPurchaseSchedules
+            .Where(x => !x.IsDeleted && x.ScheduleDate >= today && x.ScheduleDate < todayEnd);
+
+        if (query.WarehouseId.HasValue)
+        {
+            scheduleQuery = scheduleQuery.Where(x => x.WarehouseId == query.WarehouseId.Value);
+        }
+
+        var schedules = await scheduleQuery
+            .Select(x => new
+            {
+                x.ScheduleDate,
+                FarmerName = x.Farmer.Name,
+                RiceVarietyName = x.RiceVariety != null ? x.RiceVariety.Name : "Lúa",
+                EstimatedQtyKg = x.EstimatedQtyKg ?? 0,
+                StatusCode = x.Status.Code,
+                x.Location
+            })
+            .ToListAsync();
+
+        foreach (var s in schedules)
+        {
+            var qtyTons = s.EstimatedQtyKg / 1000m;
+            tasks.Add(new DashboardTaskDto
+            {
+                Time = s.ScheduleDate.ToString("HH:mm"),
+                Type = "PURCHASE",
+                Title = $"Thu mua lúa - {s.FarmerName}",
+                Description = $"{s.Location ?? "Địa điểm thu mua"} - ~{qtyTons:0.##} tấn lúa {s.RiceVarietyName}",
+                Status = s.StatusCode == LookupCodes.PaddyPurchaseScheduleStatus.New ? "Chờ xử lý" : "Đã xác nhận"
+            });
+        }
+
+        // 2. Delivery & Retail Delivery Orders
+        var salesOrderQuery = _salesOrderRepository
+            .FindByCondition(x => !x.IsDeleted && x.ExpectedDeliveryDate >= today && x.ExpectedDeliveryDate < todayEnd, false);
+
+        if (query.WarehouseId.HasValue)
+        {
+            salesOrderQuery = salesOrderQuery.Where(x => x.WarehouseId == query.WarehouseId.Value);
+        }
+
+        var salesOrders = await salesOrderQuery
+            .Select(x => new
+            {
+                x.ExpectedDeliveryDate,
+                x.SOCode,
+                CustomerName = x.Customer.Name,
+                StatusName = x.Status.Name,
+                x.Channel,
+                Items = x.SalesOrderItems.Select(i => new { i.ProductVariant.Name, Quantity = i.QuantityOrdered })
+            })
+            .ToListAsync();
+
+        foreach (var so in salesOrders)
+        {
+            var itemsDesc = string.Join(", ", so.Items.Select(i => $"{i.Name} x{i.Quantity:0.##}"));
+            var isWholesale = so.Channel == LookupCodes.SalesOrderChannel.Wholesale;
+            tasks.Add(new DashboardTaskDto
+            {
+                Time = so.ExpectedDeliveryDate.HasValue ? so.ExpectedDeliveryDate.Value.ToString("HH:mm") : "00:00",
+                Type = "DELIVERY",
+                Title = isWholesale ? $"Giao hàng - {so.SOCode}" : $"Giao lẻ - {so.SOCode}",
+                Description = $"{so.CustomerName} - {itemsDesc}",
+                Status = (so.StatusName == SalesOrderStatusNames.New || so.StatusName == SalesOrderStatusNames.PendingConfirm) 
+                    ? "Chờ xử lý" 
+                    : "Đã xác nhận"
+            });
+        }
+
+        // 3. Inspections / Quality Alerts
+        var alertQuery = _alertRepository.FindByCondition(x => !x.IsDeleted && x.Status == AlertConstants.Status.Open && x.RelatedEntityType == AlertConstants.RelatedEntityType.PaddyLot, false);
+        if (query.WarehouseId.HasValue)
+        {
+            alertQuery = alertQuery.Where(x => x.WarehouseId == query.WarehouseId.Value);
+        }
+
+        var qualityAlerts = await alertQuery
+            .Select(x => new
+            {
+                x.CreatedDate,
+                LotCode = _context.PaddyLots.Where(p => p.Id == x.RelatedEntityId).Select(p => p.LotCode).FirstOrDefault() ?? "Lô lúa",
+                x.Message
+            })
+            .ToListAsync();
+
+        foreach (var a in qualityAlerts)
+        {
+            tasks.Add(new DashboardTaskDto
+            {
+                Time = a.CreatedDate.ToString("HH:mm"),
+                Type = "INSPECTION",
+                Title = $"Kiểm tra lô lúa {a.LotCode}",
+                Description = a.Message,
+                Status = "Chờ xử lý"
+            });
+        }
+
+        return ApiResponse.Success(tasks.OrderBy(t => t.Time).ToList());
+    }
+
+    public async Task<ApiResponse> GetPurchaseChartAsync(DashboardQuery query)
+    {
+        var today = DateTimeHelper.VietnamNow().Date;
+        var start = today.AddDays(-6);
+        var end = today.AddDays(1);
+
+        var receiptQuery = _context.PaddyPurchaseReceipts
+            .Where(x => !x.IsDeleted && x.ReceiptDate >= start && x.ReceiptDate < end);
+
+        if (query.WarehouseId.HasValue)
+        {
+            receiptQuery = receiptQuery.Where(x => x.WarehouseId == query.WarehouseId.Value);
+        }
+
+        var rawData = await receiptQuery
+            .Select(x => new
+            {
+                x.ReceiptDate,
+                x.ActualWeightKg,
+                x.AgreedPrice
+            })
+            .ToListAsync();
+
+        var days = Enumerable.Range(0, 7)
+            .Select(i => start.AddDays(i))
+            .ToList();
+
+        var chartData = days.Select(d =>
+        {
+            var dayReceipts = rawData.Where(r => r.ReceiptDate.Date == d.Date).ToList();
+            var volumeTons = dayReceipts.Sum(r => r.ActualWeightKg) / 1000m;
+            var dayWeightSum = dayReceipts.Sum(r => r.ActualWeightKg);
+            var avgPrice = dayWeightSum > 0 
+                ? dayReceipts.Sum(r => r.AgreedPrice * r.ActualWeightKg) / dayWeightSum 
+                : 0m;
+
+            return new ChartDataPointDto
+            {
+                DayOfWeek = GetVietnameseDayOfWeek(d.DayOfWeek),
+                VolumeTons = volumeTons,
+                AveragePrice = avgPrice
+            };
+        }).ToList();
+
+        return ApiResponse.Success(chartData);
+    }
+
+    private string GetVietnameseDayOfWeek(DayOfWeek day)
+    {
+        return day switch
+        {
+            DayOfWeek.Monday => "T2",
+            DayOfWeek.Tuesday => "T3",
+            DayOfWeek.Wednesday => "T4",
+            DayOfWeek.Thursday => "T5",
+            DayOfWeek.Friday => "T6",
+            DayOfWeek.Saturday => "T7",
+            DayOfWeek.Sunday => "CN",
+            _ => string.Empty
+        };
+    }
+
+    public async Task<ApiResponse> GetOperationalEfficiencyAsync(DashboardQuery query)
+    {
+        var dateValidation = ValidateAndPopulateDates(query);
+        if (dateValidation != null) return dateValidation;
+
+        var metrics = await GetOperationalEfficiencyInternalAsync(query);
+        return ApiResponse.Success(metrics);
+    }
+
+    private async Task<EfficiencyMetricsDto> GetOperationalEfficiencyInternalAsync(DashboardQuery query)
+    {
+        var fromDate = query.FromDate;
+        var toDate = query.ToDate;
+
+        // 1. Tỷ lệ giao đúng hạn
+        var completedStatusId = await GetCompletedSalesOrderStatusIdAsync();
+        var salesQuery = _salesOrderRepository
+            .FindByCondition(x => !x.IsDeleted && x.StatusId == completedStatusId &&
+                                  x.OrderDate >= fromDate && x.OrderDate < toDate, false);
+
+        if (query.WarehouseId.HasValue)
+        {
+            salesQuery = salesQuery.Where(x => x.WarehouseId == query.WarehouseId.Value);
+        }
+
+        var completedOrders = await salesQuery
+            .Select(x => new
+            {
+                x.ExpectedDeliveryDate,
+                MaxOutboundCompletedDate = x.OutboundOrders
+                    .Where(o => !o.IsDeleted && o.CompletedDate.HasValue)
+                    .Max(o => (DateTime?)o.CompletedDate)
+            })
+            .ToListAsync();
+
+        decimal onTimeRate = 0m;
+        if (completedOrders.Count > 0)
+        {
+            var onTimeCount = completedOrders.Count(x =>
+                x.ExpectedDeliveryDate.HasValue &&
+                (!x.MaxOutboundCompletedDate.HasValue || x.MaxOutboundCompletedDate.Value <= x.ExpectedDeliveryDate.Value)
+            );
+            onTimeRate = (decimal)onTimeCount / completedOrders.Count * 100m;
+        }
+
+        // 2. Thu hồi công nợ
+        var debtTransactions = await _debtTransactionRepository
+            .FindByCondition(x => !x.IsDeleted && x.TransactionDate >= fromDate && x.TransactionDate < toDate, false)
+            .ToListAsync();
+
+        decimal debtRecoveryRate = 0m;
+        var payments = debtTransactions.Where(x => x.TransactionType == LookupCodes.DebtTransactionType.Payment).Sum(x => x.Amount);
+        var charges = debtTransactions.Where(x => x.TransactionType == LookupCodes.DebtTransactionType.Charge).Sum(x => x.Amount);
+        if (payments + charges > 0)
+        {
+            debtRecoveryRate = payments / (payments + charges) * 100m;
+        }
+
+        // 3. Hao hụt kho
+        var millingQuery = _millingOrderRepository
+            .FindByCondition(x => !x.IsDeleted && x.CompletedAt.HasValue &&
+                                  x.CompletedAt.Value >= fromDate && x.CompletedAt.Value < toDate, false);
+
+        if (query.WarehouseId.HasValue)
+        {
+            millingQuery = millingQuery.Where(x => x.WarehouseId == query.WarehouseId.Value);
+        }
+
+        var millingData = await millingQuery
+            .Select(x => new { x.ComputedPaddyKg, LossKg = x.LossKg ?? 0 })
+            .ToListAsync();
+
+        decimal lossRate = 0m;
+        var totalPaddy = millingData.Sum(x => x.ComputedPaddyKg);
+        var totalLoss = millingData.Sum(x => x.LossKg);
+        if (totalPaddy > 0)
+        {
+            lossRate = totalLoss / totalPaddy * 100m;
+        }
+
+        return new EfficiencyMetricsDto
+        {
+            OnTimeDeliveryRate = Math.Round(onTimeRate, 1),
+            OnTimeDeliveryTarget = 95.0m,
+            DebtRecoveryRate = Math.Round(debtRecoveryRate, 1),
+            WarehouseLossRate = Math.Round(lossRate, 1),
+            WarehouseLossTarget = 1.0m
+        };
+    }
+
+    public async Task<ApiResponse> GetRecentAlertsAsync(DashboardQuery query)
+    {
+        var alertsQuery = _alertRepository.FindByCondition(x => !x.IsDeleted && x.Status == AlertConstants.Status.Open, false);
+
+        if (query.WarehouseId.HasValue)
+        {
+            alertsQuery = alertsQuery.Where(x => x.WarehouseId == query.WarehouseId.Value);
+        }
+
+        var alerts = await alertsQuery
+            .OrderByDescending(x => x.CreatedDate)
+            .Take(5)
+            .Select(x => new AlertItemDto
+            {
+                Id = x.Id,
+                Message = x.Message,
+                Severity = x.Severity,
+                CreatedAt = x.CreatedDate
+            })
+            .ToListAsync();
+
+        foreach (var a in alerts)
+        {
+            a.TimeAgo = GetTimeAgo(a.CreatedAt);
+        }
+
+        return ApiResponse.Success(alerts);
+    }
+
+    private string GetTimeAgo(DateTime dateTime)
+    {
+        var now = DateTimeHelper.VietnamNow();
+        var diff = now - dateTime;
+        if (diff.TotalSeconds < 0) return "Vừa xong";
+        if (diff.TotalMinutes < 1) return "Vừa xong";
+        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}p trước";
+        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h trước";
+        if (dateTime.Date == now.Date.AddDays(-1)) return "Hôm qua";
+        if (dateTime.Date == now.Date) return "Hôm nay";
+        return dateTime.ToString("dd/MM/yyyy");
+    }
+
+    private ApiResponse? ValidateAndPopulateDates(DashboardQuery query)
+    {
+        if (query.FromDate == default)
+        {
+            var now = DateTimeHelper.VietnamNow();
+            query.FromDate = new DateTime(now.Year, now.Month, 1);
+        }
+        if (query.ToDate == default)
+        {
+            query.ToDate = DateTimeHelper.VietnamNow();
+        }
+        if (query.FromDate > query.ToDate)
+        {
+            return ApiResponse.BadRequest("FromDate không được lớn hơn ToDate.", "DASHBOARD_400_01");
+        }
+        return null;
     }
 }

@@ -6,6 +6,9 @@ using System.Threading.Tasks;
 using Backend.Application.DTOs.CustomerReturns;
 using Backend.Application.Interfaces;
 using Backend.Application.Constants;
+using Backend.Domain.Abstractions;
+using Backend.Share.Services;
+using Backend.Application.BackgroundJobs.DebtDueOverdue;
 using Backend.Domain.Entities;
 using Backend.Share.Constants;
 using Backend.Share.Entities;
@@ -23,14 +26,18 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<CustomerReturnOrderService> _logger;
 
+    private readonly IScheduledJobService? _scheduledJobService;
+
     public CustomerReturnOrderService(
         IApplicationDbContext context,
         IHttpContextAccessor httpContextAccessor,
-        ILogger<CustomerReturnOrderService> logger)
+        ILogger<CustomerReturnOrderService> logger,
+        IScheduledJobService? scheduledJobService = null)
     {
         _context = context;
         _httpContextAccessor = httpContextAccessor;
         _logger = logger;
+        _scheduledJobService = scheduledJobService;
     }
 
     private int GetCurrentUserId()
@@ -977,6 +984,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 await _context.PartyDebts.AddAsync(partyDebt, cancellationToken);
             }
 
+            PartyDebt? payableDebt = null;
             decimal debtReduction = 0;
             decimal refundPending = approvedCredit;
 
@@ -1009,11 +1017,12 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     await _context.DebtTransactions.AddAsync(debtTx, cancellationToken);
                 }
 
+
                 if (refundPending > 0)
                 {
                     // #18: Khoản phải hoàn trả cho khách (vượt dư nợ) là công nợ hướng PAYABLE,
                     // KHÔNG đẩy số dư RECEIVABLE xuống âm. Tìm/tạo PartyDebt PAYABLE riêng cho khách.
-                    var payableDebt = await _context.PartyDebts.FirstOrDefaultAsync(d =>
+                    payableDebt = await _context.PartyDebts.FirstOrDefaultAsync(d =>
                         d.PartyType == LookupCodes.PartyType.Customer &&
                         d.PartyId == order.CustomerId &&
                         d.Direction == LookupCodes.DebtDirection.Payable &&
@@ -1076,6 +1085,19 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
             await _context.SaveChangesAsync(cancellationToken);
             await dbTransaction.CommitAsync(cancellationToken);
+
+            // Enqueue targeted background job evaluation for JOB-04 after transaction completes
+            if (_scheduledJobService != null)
+            {
+                if (partyDebt != null && debtReduction > 0)
+                {
+                    _scheduledJobService.Enqueue<IDebtDueAndOverdueReminderService>(s => s.EvaluatePartyDebtAsync(partyDebt.Id, CancellationToken.None));
+                }
+                if (payableDebt != null && refundPending > 0)
+                {
+                    _scheduledJobService.Enqueue<IDebtDueAndOverdueReminderService>(s => s.EvaluatePartyDebtAsync(payableDebt.Id, CancellationToken.None));
+                }
+            }
 
             return ApiResponse.Success(message: "Xác nhận đơn trả hàng thành công.");
         }

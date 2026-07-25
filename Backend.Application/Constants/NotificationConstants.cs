@@ -75,6 +75,23 @@ public static class NotificationConstants
         public const string QualityInspectionResult = "QUALITY_INSPECTION_RESULT";
         // Cảnh báo
         public const string LowStockAlert = "LOW_STOCK_ALERT";
+        public const string IntakeBottleneckAlert = "INTAKE_BOTTLENECK_ALERT";
+        public const string IntakeBottleneckConfigAlert = "INTAKE_BOTTLENECK_CONFIG_ALERT";
+        public const string InspectionDueAlert = "INSPECTION_DUE_ALERT";
+        public const string HighMoistureAlert = "HIGH_MOISTURE_ALERT";
+        public const string MouldRiskAlert = "MOULD_RISK_ALERT";
+        public const string LongStoredLotAlert = "LONG_STORED_LOT_ALERT";
+        public const string LotQualityRecheckConfigAlert = "JOB_03_CONFIG_ALERT";
+        public const string DebtDueSoonAlert = "DEBT_DUE_SOON_ALERT";
+        public const string DebtOverdueAlert = "DEBT_OVERDUE_ALERT";
+        public const string DebtConfigAlert = "DEBT_CONFIG_ALERT";
+        public const string DebtDataAnomalyAlert = "DEBT_DATA_ANOMALY_ALERT";
+    }
+
+    public static class ReferenceType
+    {
+        public const string Alert = "ALERT";
+        public const string System = "SYSTEM";
     }
 
     public sealed class Template
@@ -259,6 +276,83 @@ public static class NotificationConstants
                 Color = "#ef4444",
                 Title = "Cảnh báo tồn kho thấp",
                 Content = "Sản phẩm \"{0}\" tại {1} chỉ còn {2}, đã xuống dưới mức tồn tối thiểu {3}. Vui lòng lên kế hoạch bổ sung hàng."
+            },
+            [Code.IntakeBottleneckAlert] = new()
+            {
+                Category = Category.Purchasing,
+                Color = "#f59e0b",
+                Title = "Cảnh báo nghẽn tiếp nhận lúa",
+                Content = "{0}"
+            },
+            [Code.IntakeBottleneckConfigAlert] = new()
+            {
+                Category = Category.System,
+                Color = "#ef4444",
+                Title = "Thiếu cấu hình đánh giá nghẽn lịch thu mua",
+                Content = "{0}"
+            },
+            [Code.InspectionDueAlert] = new()
+            {
+                Category = Category.QualityInspection,
+                Color = "#ef4444",
+                Title = "Cảnh báo đến hạn kiểm định lại",
+                Content = "{0}"
+            },
+            [Code.HighMoistureAlert] = new()
+            {
+                Category = Category.QualityInspection,
+                Color = "#ef4444",
+                Title = "Cảnh báo độ ẩm lúa cao",
+                Content = "{0}"
+            },
+            [Code.MouldRiskAlert] = new()
+            {
+                Category = Category.QualityInspection,
+                Color = "#ef4444",
+                Title = "Cảnh báo rủi ro mốc lô hàng",
+                Content = "{0}"
+            },
+            [Code.LongStoredLotAlert] = new()
+            {
+                Category = Category.QualityInspection,
+                Color = "#ef4444",
+                Title = "Cảnh báo lô hàng lưu kho lâu ngày",
+                Content = "{0}"
+            },
+            [Code.LotQualityRecheckConfigAlert] = new()
+            {
+                Category = Category.System,
+                Color = "#ef4444",
+                Title = "Cấu hình JOB-03 không hợp lệ",
+                Content = "{0}"
+            },
+            [Code.DebtDueSoonAlert] = new()
+            {
+                Category = Category.System,
+                Color = "#f59e0b",
+                Title = "Cảnh báo công nợ sắp đến hạn",
+                Content = "{0}"
+            },
+            [Code.DebtOverdueAlert] = new()
+            {
+                Category = Category.System,
+                Color = "#ef4444",
+                Title = "Cảnh báo công nợ quá hạn",
+                Content = "{0}"
+            },
+            [Code.DebtConfigAlert] = new()
+            {
+                Category = Category.System,
+                Color = "#ef4444",
+                Title = "Cấu hình nhắc công nợ không hợp lệ",
+                Content = "{0}"
+            },
+            [Code.DebtDataAnomalyAlert] = new()
+            {
+                Category = Category.System,
+                Color = "#ef4444",
+                Title = "Dữ liệu công nợ không đồng nhất",
+                Content = "{0}"
             },
         };
 }
