@@ -1,6 +1,8 @@
 using Asp.Versioning;
 using Backend.Application.Interfaces;
 using Backend.Application.DTOs.Dashboard;
+using Backend.API.Utilities;
+using Backend.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -8,6 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Backend.API.Controllers
 {
     [Authorize]
+    [CustomAuthorize(Enums.Menu.DASHBOARD, Enums.Action.READ)]
     [ApiVersion(1)]
     [Route("api/v{version:apiVersion}/dashboard")]
     [ApiController]

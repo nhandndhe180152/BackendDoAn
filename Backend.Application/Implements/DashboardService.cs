@@ -11,8 +11,9 @@ using Backend.Share.Entities;
 using Backend.Share.Extensions;
 using Backend.Share.Helpers;
 using Microsoft.AspNetCore.Http;
+using System.Threading;
+using Backend.Application.BackgroundJobs.DebtDueOverdue;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 
 namespace Backend.Application.Implements;
 
@@ -29,8 +30,7 @@ public class DashboardService : IDashboardService
     private readonly IRepositoryBase<Customer, int> _customerRepository;
     private readonly IRepositoryBase<Farmer, int> _farmerRepository;
     private readonly IInventoryStateAggregationService _aggregationService;
-    private readonly IHttpContextAccessor _httpContextAccessor;
-    private readonly ILogger<DashboardService> _logger;
+    private readonly IDebtAgingCalculationService _agingService;
     private readonly IApplicationDbContext _context;
 
     public DashboardService(
@@ -45,8 +45,7 @@ public class DashboardService : IDashboardService
         IRepositoryBase<Customer, int> customerRepository,
         IRepositoryBase<Farmer, int> farmerRepository,
         IInventoryStateAggregationService aggregationService,
-        ILogger<DashboardService> logger,
-        IHttpContextAccessor httpContextAccessor,
+        IDebtAgingCalculationService agingService,
         IApplicationDbContext context)
     {
         _inventoryRepository = inventoryRepository;
@@ -60,8 +59,7 @@ public class DashboardService : IDashboardService
         _customerRepository = customerRepository;
         _farmerRepository = farmerRepository;
         _aggregationService = aggregationService;
-        _logger = logger;
-        _httpContextAccessor = httpContextAccessor;
+        _agingService = agingService;
         _context = context;
     }
 
@@ -92,6 +90,9 @@ public class DashboardService : IDashboardService
 
     public async Task<ApiResponse> GetSummaryAsync(DashboardQuery query)
     {
+        var dateValidation = ValidateAndPopulateDates(query);
+        if (dateValidation != null) return dateValidation;
+
         var fromDate = query.FromDate;
         var toDate   = query.ToDate;
 
@@ -138,35 +139,14 @@ public class DashboardService : IDashboardService
 
         // M4b: Bulk-load all CHARGE transactions for debts that have balance > 0 to prevent N+1 query
         var debtIdsWithBalance = debts.Where(x => x.CurrentBalance > 0).Select(x => x.Id).ToList();
-        var chargesByDebtId = debtIdsWithBalance.Count > 0
-            ? await _debtTransactionRepository
-                .FindByCondition(x =>
-                    !x.IsDeleted &&
-                    x.TransactionType == LookupCodes.DebtTransactionType.Charge &&
-                    debtIdsWithBalance.Contains(x.PartyDebtId), false)
-                .OrderByDescending(x => x.TransactionDate)
-                .ToListAsync()
-            : new List<DebtTransaction>();
-
-        var chargeMap = chargesByDebtId.GroupBy(x => x.PartyDebtId)
-            .ToDictionary(g => g.Key, g => g.ToList());
+        var agingResults = await _agingService.CalculatePartyDebtsAgingBatchAsync(debtIdsWithBalance, nowLimit, CancellationToken.None);
 
         foreach (var debt in debts.Where(x => x.CurrentBalance > 0))
         {
             decimal overdue = 0;
-            if (chargeMap.TryGetValue(debt.Id, out var charges))
+            if (agingResults.TryGetValue(debt.Id, out var aging))
             {
-                decimal remaining = debt.CurrentBalance;
-                foreach (var charge in charges)
-                {
-                    if (remaining <= 0) break;
-                    var unpaidAmount = Math.Min(charge.Amount, remaining);
-                    if (charge.DueDate.HasValue && charge.DueDate.Value < nowLimit)
-                    {
-                        overdue += unpaidAmount;
-                    }
-                    remaining -= unpaidAmount;
-                }
+                overdue = aging.OverdueAmount;
             }
 
             if (debt.Direction == LookupCodes.DebtDirection.Payable) overduePayable += overdue;
@@ -267,7 +247,8 @@ public class DashboardService : IDashboardService
         var thirtyDaysAgo = nowLimit.AddDays(-30);
         var overdueLotCount = await _paddyLotRepository
             .FindByCondition(x => !x.IsDeleted && x.RemainingWeightKg > 0 && x.Status.IsSellable &&
-                                 (!x.QualityInspections.Any() || x.QualityInspections.Max(q => q.InspectedAt) < thirtyDaysAgo), false)
+                                 (!x.QualityInspections.Any(q => !q.IsDeleted) || 
+                                  x.QualityInspections.Where(q => !q.IsDeleted).Max(q => q.InspectedAt) < thirtyDaysAgo), false)
             .CountAsync();
 
         // 6. Recent Alerts (Top 5)
@@ -613,16 +594,7 @@ public class DashboardService : IDashboardService
 
         // M4: Bulk-load all CHARGE transactions for debts that have balance > 0
         var debtIdsWithBalance = debts.Where(d => d.CurrentBalance > 0).Select(d => d.Id).ToList();
-        var chargesByDebtId = await _debtTransactionRepository
-            .FindByCondition(x =>
-                !x.IsDeleted &&
-                x.TransactionType == LookupCodes.DebtTransactionType.Charge &&
-                debtIdsWithBalance.Contains(x.PartyDebtId), false)
-            .OrderByDescending(x => x.TransactionDate)
-            .ToListAsync();
-
-        var chargeMap = chargesByDebtId.GroupBy(x => x.PartyDebtId)
-            .ToDictionary(g => g.Key, g => g.ToList());
+        var agingResults = await _agingService.CalculatePartyDebtsAgingBatchAsync(debtIdsWithBalance, nowLimit, CancellationToken.None);
 
         var report = new List<TwoWayDebtReportDto>(debts.Count);
 
@@ -636,17 +608,9 @@ public class DashboardService : IDashboardService
             };
 
             decimal overdue = 0;
-            if (debt.CurrentBalance > 0 && chargeMap.TryGetValue(debt.Id, out var charges))
+            if (debt.CurrentBalance > 0 && agingResults.TryGetValue(debt.Id, out var aging))
             {
-                decimal remaining = debt.CurrentBalance;
-                foreach (var charge in charges)
-                {
-                    if (remaining <= 0) break;
-                    var unpaidAmount = Math.Min(charge.Amount, remaining);
-                    if (charge.DueDate.HasValue && charge.DueDate.Value < nowLimit)
-                        overdue += unpaidAmount;
-                    remaining -= unpaidAmount;
-                }
+                overdue = aging.OverdueAmount;
             }
 
             report.Add(new TwoWayDebtReportDto
@@ -665,6 +629,9 @@ public class DashboardService : IDashboardService
 
     public async Task<ApiResponse> GetMillingYieldReportAsync(DashboardQuery query)
     {
+        var dateValidation = ValidateAndPopulateDates(query);
+        if (dateValidation != null) return dateValidation;
+
         var baseQuery = _millingOrderRepository
             .FindByCondition(x => !x.IsDeleted && x.CompletedAt.HasValue &&
                                   x.CompletedAt.Value >= query.FromDate && x.CompletedAt.Value < query.ToDate, false);
@@ -696,6 +663,9 @@ public class DashboardService : IDashboardService
 
     public async Task<ApiResponse> GetSalesRevenueReportAsync(DashboardQuery query)
     {
+        var dateValidation = ValidateAndPopulateDates(query);
+        if (dateValidation != null) return dateValidation;
+
         // H2: resolve status by Name, not hard-coded ID
         var completedStatusId = await GetCompletedSalesOrderStatusIdAsync();
         var baseQuery = _salesOrderRepository
@@ -846,7 +816,7 @@ public class DashboardService : IDashboardService
                 Type = "PURCHASE",
                 Title = $"Thu mua lúa - {s.FarmerName}",
                 Description = $"{s.Location ?? "Địa điểm thu mua"} - ~{qtyTons:0.##} tấn lúa {s.RiceVarietyName}",
-                Status = s.StatusCode == "NEW" ? "Chờ xử lý" : "Đã xác nhận"
+                Status = s.StatusCode == LookupCodes.PaddyPurchaseScheduleStatus.New ? "Chờ xử lý" : "Đã xác nhận"
             });
         }
 
@@ -874,7 +844,7 @@ public class DashboardService : IDashboardService
         foreach (var so in salesOrders)
         {
             var itemsDesc = string.Join(", ", so.Items.Select(i => $"{i.Name} x{i.Quantity:0.##}"));
-            var isWholesale = so.Channel == "WHOLESALE";
+            var isWholesale = so.Channel == LookupCodes.SalesOrderChannel.Wholesale;
             tasks.Add(new DashboardTaskDto
             {
                 Time = so.ExpectedDeliveryDate.HasValue ? so.ExpectedDeliveryDate.Value.ToString("HH:mm") : "00:00",
@@ -949,7 +919,10 @@ public class DashboardService : IDashboardService
         {
             var dayReceipts = rawData.Where(r => r.ReceiptDate.Date == d.Date).ToList();
             var volumeTons = dayReceipts.Sum(r => r.ActualWeightKg) / 1000m;
-            var avgPrice = dayReceipts.Count > 0 ? dayReceipts.Average(r => r.AgreedPrice) : 0m;
+            var dayWeightSum = dayReceipts.Sum(r => r.ActualWeightKg);
+            var avgPrice = dayWeightSum > 0 
+                ? dayReceipts.Sum(r => r.AgreedPrice * r.ActualWeightKg) / dayWeightSum 
+                : 0m;
 
             return new ChartDataPointDto
             {
@@ -979,6 +952,9 @@ public class DashboardService : IDashboardService
 
     public async Task<ApiResponse> GetOperationalEfficiencyAsync(DashboardQuery query)
     {
+        var dateValidation = ValidateAndPopulateDates(query);
+        if (dateValidation != null) return dateValidation;
+
         var metrics = await GetOperationalEfficiencyInternalAsync(query);
         return ApiResponse.Success(metrics);
     }
@@ -1104,5 +1080,23 @@ public class DashboardService : IDashboardService
         if (dateTime.Date == now.Date.AddDays(-1)) return "Hôm qua";
         if (dateTime.Date == now.Date) return "Hôm nay";
         return dateTime.ToString("dd/MM/yyyy");
+    }
+
+    private ApiResponse? ValidateAndPopulateDates(DashboardQuery query)
+    {
+        if (query.FromDate == default)
+        {
+            var now = DateTimeHelper.VietnamNow();
+            query.FromDate = new DateTime(now.Year, now.Month, 1);
+        }
+        if (query.ToDate == default)
+        {
+            query.ToDate = DateTimeHelper.VietnamNow();
+        }
+        if (query.FromDate > query.ToDate)
+        {
+            return ApiResponse.BadRequest("FromDate không được lớn hơn ToDate.", "DASHBOARD_400_01");
+        }
+        return null;
     }
 }

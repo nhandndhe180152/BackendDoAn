@@ -385,8 +385,7 @@ public class FcmNotificationRetryService : IFcmNotificationRetryService
             outcome.Classification = classification;
             outcome.ErrorMessage = ex.Message;
             
-            var errorCodeProp = ex.GetType().GetProperty("MessagingErrorCode");
-            outcome.ErrorCode = errorCodeProp != null ? errorCodeProp.GetValue(ex)?.ToString() : "Exception";
+            outcome.ErrorCode = _classifier.GetErrorCode(ex) ?? "Exception";
 
             // Extract Retry-After if available (best-effort)
             var msgLower = ex.Message.ToLowerInvariant();

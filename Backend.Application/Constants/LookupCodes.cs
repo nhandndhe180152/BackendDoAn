@@ -88,4 +88,21 @@ public static class LookupCodes
         public const string SaleCharge = "SALE_CHARGE";
         public const string Payment = "PAYMENT";
     }
+
+    public static class PaddyPurchaseScheduleStatus
+    {
+        public const string New = "NEW";
+        public const string Confirmed = "CONFIRMED";
+        public const string Collecting = "COLLECTING";
+        public const string Weighed = "WEIGHED";
+        public const string Stocked = "STOCKED";
+        public const string Cancelled = "CANCELLED";
+        public const string PartiallyStocked = "PARTIALLY_STOCKED";
+    }
+
+    public static class SalesOrderChannel
+    {
+        public const string Direct = "DIRECT";
+        public const string Wholesale = "WHOLESALE";
+    }
 }
