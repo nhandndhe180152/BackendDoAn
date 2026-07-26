@@ -28,4 +28,5 @@ public class PaddyLotDetailDto
     public string? QualityStatus { get; set; }
     public DateTime CreatedDate { get; set; }
     public DateTime? LastModifiedDate { get; set; }
+    public string? LocationCode { get; set; }
 }

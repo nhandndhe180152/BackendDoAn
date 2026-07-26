@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Backend.Application.DTOs.PaddyLots;
 using Backend.Application.Implements;
+using Backend.Application.Interfaces;
 using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
@@ -23,8 +25,14 @@ namespace Backend.UnitTest.Services.PaddyLot;
 public class PaddyLotServiceTests
 {
     private readonly Mock<IPaddyLotRepository> _repo = new();
+    private readonly Mock<IApplicationDbContext> _contextMock = new();
 
-    private PaddyLotService Sut() => new(_repo.Object);
+    public PaddyLotServiceTests()
+    {
+        _contextMock.Setup(c => c.Inventories).Returns(() => MockDbSet(new List<Domain.Entities.Inventory>()).Object);
+    }
+
+    private PaddyLotService Sut() => new(_repo.Object, _contextMock.Object);
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -92,9 +100,25 @@ public class PaddyLotServiceTests
                 It.IsAny<Expression<Func<Domain.Entities.PaddyLot, object>>[]>()))
              .Returns(new List<Domain.Entities.PaddyLot> { lot }.AsQueryable().BuildMock());
 
+        var inv = new Domain.Entities.Inventory
+        {
+            Id = 10,
+            PaddyLotId = 5,
+            LocationId = 200,
+            Location = new Location { Id = 200, SlotCode = "LOC-200" },
+            QuantityOnHand = 500,
+            IsDeleted = false
+        };
+
+        _contextMock.Setup(c => c.Inventories)
+            .Returns(() => MockDbSet(new List<Domain.Entities.Inventory> { inv }).Object);
+
         var result = await Sut().GetByIdAsync(5);
 
         result.Status.Should().Be(200);
+        var dto = result.Resources.Should().BeOfType<PaddyLotDetailDto>().Subject;
+        dto.LocationId.Should().Be(200);
+        dto.LocationCode.Should().Be("LOC-200");
     }
 
     // ── UpdateAsync ──────────────────────────────────────────────────────────
@@ -178,5 +202,26 @@ public class PaddyLotServiceTests
     {
         var result = await Sut().GetPagedAsync(new SearchQuery());
         result.Status.Should().Be(501);
+    }
+
+    private static Mock<DbSet<T>> MockDbSet<T>(List<T> list) where T : class
+    {
+        var mockQueryable = list.AsQueryable().BuildMock();
+        var mockDbSet = new Mock<DbSet<T>>();
+
+        mockDbSet.As<IQueryable<T>>().Setup(m => m.Provider).Returns(mockQueryable.Provider);
+        mockDbSet.As<IQueryable<T>>().Setup(m => m.Expression).Returns(mockQueryable.Expression);
+        mockDbSet.As<IQueryable<T>>().Setup(m => m.ElementType).Returns(mockQueryable.ElementType);
+        mockDbSet.As<IQueryable<T>>().Setup(m => m.GetEnumerator()).Returns(() => mockQueryable.GetEnumerator());
+
+        mockDbSet.As<IAsyncEnumerable<T>>()
+            .Setup(m => m.GetAsyncEnumerator(It.IsAny<CancellationToken>()))
+            .Returns(((IAsyncEnumerable<T>)mockQueryable).GetAsyncEnumerator(default));
+
+        mockDbSet.Setup(d => d.Add(It.IsAny<T>())).Callback<T>(list.Add);
+        mockDbSet.Setup(d => d.Update(It.IsAny<T>()));
+        mockDbSet.Setup(d => d.Remove(It.IsAny<T>())).Callback<T>(t => list.Remove(t));
+
+        return mockDbSet;
     }
 }

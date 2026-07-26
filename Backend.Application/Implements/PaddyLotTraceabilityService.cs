@@ -492,33 +492,55 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
             }
         }
 
+        // Batch query active inventories for location mapping
+        var activeInvs = await _context.Inventories
+            .AsNoTracking()
+            .Include(i => i.Location)
+            .Where(i => allLotIds.Contains(i.PaddyLotId!.Value) && !i.IsDeleted && i.QuantityOnHand > 0)
+            .ToListAsync(cancellationToken);
+
+        var invGroups = activeInvs
+            .GroupBy(i => i.PaddyLotId!.Value)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
         // Map Related Lots
-        var relatedLotsList = lotMap.Values.Select(l => new TraceabilityLotDto
+        var relatedLotsList = lotMap.Values.Select(l => 
         {
-            Id = l.Id,
-            LotCode = l.LotCode,
-            LotType = l.LotType,
-            RelationRole = lotRoleMap.GetValueOrDefault(l.Id, "MILLING_OUTPUT"),
-            ProductVariantId = l.ProductVariantId,
-            Sku = l.ProductVariant?.SKU,
-            ProductVariantName = l.ProductVariant?.Name,
-            RiceVarietyId = l.RiceVarietyId,
-            RiceVarietyName = l.RiceVariety?.Name,
-            StatusId = l.StatusId,
-            StatusName = l.Status?.Name,
-            IsSellable = l.Status?.IsSellable ?? false,
-            IsQuarantined = l.Status?.Code == LotStatusCodeConstants.Quarantine,
-            WarehouseId = l.WarehouseId,
-            WarehouseCode = l.Warehouse?.Code,
-            WarehouseName = l.Warehouse?.Name,
-            LocationId = l.LocationId,
-            LocationCode = l.Location != null ? (l.Location.SlotCode ?? l.Location.QrCode) : null,
-            InboundDate = l.InboundDate,
-            InitialWeightKg = l.InitialWeightKg,
-            RemainingWeightKg = l.RemainingWeightKg,
-            QualityStatus = l.QualityStatus,
-            SourceReceiptId = l.SourceReceiptId,
-            SourceMillingOrderId = l.SourceMillingOrderId
+            var locationId = l.LocationId;
+            var locationCode = l.Location != null ? (l.Location.SlotCode ?? l.Location.QrCode) : null;
+            if (invGroups.TryGetValue(l.Id, out var invs) && invs.Any())
+            {
+                locationId = invs.First().LocationId;
+                locationCode = string.Join(", ", invs.Select(x => x.Location?.SlotCode ?? x.Location?.QrCode).Distinct().Where(c => c != null));
+            }
+
+            return new TraceabilityLotDto
+            {
+                Id = l.Id,
+                LotCode = l.LotCode,
+                LotType = l.LotType,
+                RelationRole = lotRoleMap.GetValueOrDefault(l.Id, "MILLING_OUTPUT"),
+                ProductVariantId = l.ProductVariantId,
+                Sku = l.ProductVariant?.SKU,
+                ProductVariantName = l.ProductVariant?.Name,
+                RiceVarietyId = l.RiceVarietyId,
+                RiceVarietyName = l.RiceVariety?.Name,
+                StatusId = l.StatusId,
+                StatusName = l.Status?.Name,
+                IsSellable = l.Status?.IsSellable ?? false,
+                IsQuarantined = l.Status?.Code == LotStatusCodeConstants.Quarantine,
+                WarehouseId = l.WarehouseId,
+                WarehouseCode = l.Warehouse?.Code,
+                WarehouseName = l.Warehouse?.Name,
+                LocationId = locationId,
+                LocationCode = locationCode,
+                InboundDate = l.InboundDate,
+                InitialWeightKg = l.InitialWeightKg,
+                RemainingWeightKg = l.RemainingWeightKg,
+                QualityStatus = l.QualityStatus,
+                SourceReceiptId = l.SourceReceiptId,
+                SourceMillingOrderId = l.SourceMillingOrderId
+            };
         }).ToList();
 
         // 5. Build Timeline
