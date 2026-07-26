@@ -69,14 +69,25 @@ public class MillingOrderServiceTests
                 It.IsAny<Expression<Func<Backend.Domain.Entities.MillingOrder, object>>[]>()))
              .Returns(new List<Backend.Domain.Entities.MillingOrder> { order }.AsQueryable().BuildMock());
 
+        _statusRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<MillingOrderStatus, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<MillingOrderStatus, object>>[]>()))
+             .ReturnsAsync((Expression<Func<MillingOrderStatus, bool>> expr, bool noTracking, Expression<Func<MillingOrderStatus, object>>[] includes) => {
+                 var func = expr.Compile();
+                 if (func(new MillingOrderStatus { Code = LookupCodes.MillingOrderStatus.Completed }))
+                     return new MillingOrderStatus { Id = 5, Code = LookupCodes.MillingOrderStatus.Completed };
+                 return new MillingOrderStatus { Id = 4, Code = LookupCodes.MillingOrderStatus.InProgress };
+             });
+
         var dto = new CompleteMillingOrderDto
         {
             ActualYieldRate = 70m,
             LossKg = 15m,
             Outputs = new List<MillingOrderOutputItemDto>
             {
-                new() { OutputWeightKg = 70m, OutputType = "RICE", IsByproduct = false, ProductVariantId = 1 },
-                new() { OutputWeightKg = 20m, OutputType = "BYPRODUCT", IsByproduct = true, ProductVariantId = 2 }
+                new() { OutputWeightKg = 70m, OutputType = "RICE", IsByproduct = false, ProductVariantId = 1, LocationId = 1 },
+                new() { OutputWeightKg = 20m, OutputType = "BROKEN", IsByproduct = true, ProductVariantId = 2, LocationId = 1 }
             }
         };
 
@@ -159,7 +170,7 @@ public class MillingOrderServiceTests
             Outputs = new List<MillingOrderOutputItemDto>
             {
                 new() { OutputWeightKg = 70m, OutputType = "RICE", IsByproduct = false, ProductVariantId = 1, LocationId = 1 },
-                new() { OutputWeightKg = 25m, OutputType = "BYPRODUCT", IsByproduct = true, ProductVariantId = 2, LocationId = 1 }
+                new() { OutputWeightKg = 25m, OutputType = "BROKEN", IsByproduct = true, ProductVariantId = 2, LocationId = 1 }
             }
         };
 

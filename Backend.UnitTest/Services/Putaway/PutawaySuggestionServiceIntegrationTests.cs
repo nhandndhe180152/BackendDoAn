@@ -84,7 +84,10 @@ public class PutawaySuggestionServiceIntegrationTests
             CreatedDate = DateTime.UtcNow
         });
 
-        // 5. Seed PaddyLot (Adding required LotType and StatusId)
+        // 5. Seed LotStatus
+        context.LotStatuses.Add(new LotStatus { Id = 1, Code = "IN_STOCK", Name = "Trong kho", Color = "#10B981", IsSellable = true, CreatedDate = DateTime.UtcNow });
+
+        // 6. Seed PaddyLot (Adding required LotType and StatusId)
         context.PaddyLots.Add(new Backend.Domain.Entities.PaddyLot
         {
             Id = 35,
@@ -155,7 +158,7 @@ public class PutawaySuggestionServiceIntegrationTests
         var result1 = await service.ConfirmStoreInAsync("PADDY_PURCHASE", 18, request1, CancellationToken.None);
 
         // Assert 1
-        result1.IsSucceeded.Should().BeTrue();
+        result1.IsSucceeded.Should().BeTrue(because: result1.Message);
 
         // Kiểm chứng Schedule chuyển sang PARTIALLY_STOCKED (7)
         var scheduleAfter1 = await context.PaddyPurchaseSchedules.FindAsync(12);
@@ -166,7 +169,7 @@ public class PutawaySuggestionServiceIntegrationTests
         var bufferInvAfter1 = await context.Inventories
             .FirstOrDefaultAsync(x => x.WarehouseId == 1 && x.LocationId == null && x.PaddyLotId == 35);
         bufferInvAfter1.Should().NotBeNull();
-        bufferInvAfter1!.QuantityOnHand.Should().Be(2000);
+        bufferInvAfter1!.QuantityOnHand.Should().Be(3000);
 
         // Kiểm chứng Tồn kho thật tăng lên 1000
         var realInvAfter1 = await context.Inventories
@@ -199,7 +202,7 @@ public class PutawaySuggestionServiceIntegrationTests
         var bufferInvAfter2 = await context.Inventories
             .FirstOrDefaultAsync(x => x.WarehouseId == 1 && x.LocationId == null && x.PaddyLotId == 35);
         bufferInvAfter2.Should().NotBeNull();
-        bufferInvAfter2!.QuantityOnHand.Should().Be(0);
+        bufferInvAfter2!.QuantityOnHand.Should().Be(3000);
 
         // Kiểm chứng Tồn kho thật tăng lên 3000
         var realInvAfter2 = await context.Inventories

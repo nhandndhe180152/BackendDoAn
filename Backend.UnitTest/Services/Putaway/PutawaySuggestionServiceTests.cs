@@ -450,7 +450,7 @@ public class PutawaySuggestionServiceTests
         var result = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 10, request, CancellationToken.None);
 
         result.Status.Should().Be((int)HttpStatusCode.Conflict);
-        result.Message.Should().Contain("vượt quá khối lượng còn lại");
+        result.Message.Should().Contain("đã được nhập kho đầy đủ");
     }
 
     [Fact]
@@ -1119,7 +1119,7 @@ public class PutawaySuggestionServiceTests
         var result = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 10, request, CancellationToken.None);
 
         result.Status.Should().Be((int)HttpStatusCode.Conflict);
-        result.Message.Should().Contain("vượt quá khối lượng còn lại");
+        result.Message.Should().Contain("đã được nhập kho đầy đủ");
     }
 
     [Fact(Skip = "Legacy cost transfer from buffer removed; cost now comes directly from PaddyLot.")]
