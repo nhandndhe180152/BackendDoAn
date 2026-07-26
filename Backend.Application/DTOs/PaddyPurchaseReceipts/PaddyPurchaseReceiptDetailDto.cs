@@ -26,6 +26,9 @@ public class PaddyPurchaseReceiptDetailDto
     public DateTime ReceiptDate { get; set; }
     public int? PaddyLotId { get; set; }
     public bool IsConfirmed { get; set; }
+    public decimal StoredWeightKg { get; set; }
+    public decimal RemainingWeightKg { get; set; }
+    public bool IsFullyStored { get; set; }
     public DateTime CreatedDate { get; set; }
     public DateTime? LastModifiedDate { get; set; }
 }

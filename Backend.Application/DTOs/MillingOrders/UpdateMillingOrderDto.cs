@@ -9,8 +9,12 @@ public class UpdateMillingOrderDto
     public int WarehouseId { get; set; }
     public string? Reason { get; set; }
     public int? SalesOrderId { get; set; }
+    public int? RiceVarietyId { get; set; }
+    public decimal? MoisturePercent { get; set; }
     public decimal ExpectedYield { get; set; }
     public decimal TargetRiceKg { get; set; }
+    public decimal? MillingCost { get; set; }
+    public decimal? IncidentalCost { get; set; }
     public DateTime? ExpectedCompletionDate { get; set; }
     public int? UpdatedBy { get; set; }
 }

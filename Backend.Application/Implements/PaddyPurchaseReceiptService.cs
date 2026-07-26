@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Backend.Application.BackgroundJobs.DebtDueOverdue;
 using Backend.Share.Services;
@@ -21,7 +22,7 @@ namespace Backend.Application.Implements;
 
 /// <summary>
 /// Nghiệp vụ phiếu mua lúa.
-/// ConfirmReceiptAsync: chốt phiếu → sinh lô, tạo InboundOrder, cập nhật tồn, ghi công nợ.
+/// ConfirmReceiptAsync: chốt phiếu → sinh lô, tạo InboundOrder Draft và ghi công nợ.
 /// </summary>
 public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 {
@@ -204,7 +205,8 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
     }
 
     /// <summary>
-    /// Chốt phiếu: sinh PaddyLot, tạo InboundOrder + Item, cập nhật tồn, ghi công nợ.
+    /// Chốt phiếu: sinh PaddyLot, tạo InboundOrder Draft + Item và ghi công nợ.
+    /// Tồn kho chỉ tăng khi Inbound xác nhận Put-away.
     /// </summary>
     public async Task<ApiResponse> ConfirmReceiptAsync(int receiptId, int confirmedById)
     {
@@ -247,9 +249,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             // Xác định Id của Variant lúa mặc định
             var productVariantId = await GetDefaultPaddyVariantIdAsync(receipt);
 
-            // 4. KHỞI TẠO LÔ HÀNG (PaddyLot):
-            // - Đặt RemainingWeightKg (khối lượng còn lại) bằng ActualWeightKg của phiếu cân đầu vào.
-            // - Đây là nguồn dữ liệu gốc của Lô hàng (Dashboard/Reports đọc trực tiếp từ đây).
+            // Lô đã được định danh nhưng chưa nằm trong tồn kho vật lý.
             var lot = new PaddyLot
             {
                 OrganizationId = receipt.OrganizationId,
@@ -262,9 +262,9 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                 WarehouseId = receipt.WarehouseId,
                 InboundDate = receipt.ReceiptDate,
                 InitialWeightKg = receipt.ActualWeightKg,
-                RemainingWeightKg = receipt.ActualWeightKg,
+                RemainingWeightKg = 0m,
                 CostPricePerKg = receipt.ActualWeightKg > 0 ? receipt.TotalAmount / receipt.ActualWeightKg : 0,
-                QualityStatus = receipt.QualityJson,
+                QualityStatus = MapQualityStatus(receipt.QualityJson),
                 QrCode = "PL-" + Guid.NewGuid().ToString("N").ToUpper(),
                 CreatedBy = confirmedById,
                 CreatedDate = now
@@ -275,7 +275,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
             // 5. TẠO PHIẾU NHẬP KHO (InboundOrder) liên kết với receipt
             var inboundStatus = await _inboundOrderStatusRepository
-                .FirstOrDefaultAsync(x => x.Name == InboundOrderStatusNames.Confirmed && !x.IsDeleted)
+                .FirstOrDefaultAsync(x => x.Name == InboundOrderStatusNames.Draft && !x.IsDeleted)
                 ?? await _inboundOrderStatusRepository.FirstOrDefaultAsync(x => !x.IsDeleted)
                 ?? throw new InvalidOperationException("Không tìm thấy InboundOrderStatus.");
 
@@ -300,7 +300,8 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                 OrganizationId = receipt.OrganizationId,
                 SourceType = "RECEIPT",
                 TotalAssetValue = receipt.TotalAmount,
-                CompletedDate = receipt.ReceiptDate,
+                ExpectedDate = receipt.ReceiptDate,
+                CompletedDate = null,
                 Note = $"Nhập lúa từ phiếu mua {receipt.ReceiptCode}",
                 CreatedBy = confirmedById,
                 CreatedDate = now
@@ -316,7 +317,8 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                 ProductVariantId = lot.ProductVariantId,
                 PaddyLotId = lot.Id,
                 QuantityOrdered = receipt.ActualWeightKg,
-                QuantityReceived = receipt.ActualWeightKg,
+                QuantityReceived = 0m,
+                ExpectedWeightKg = receipt.ActualWeightKg,
                 ActualWeightKg = receipt.ActualWeightKg,
                 UnitCostPrice = lot.CostPricePerKg,
                 CreatedBy = confirmedById,
@@ -326,18 +328,15 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             await _inboundOrderItemRepository.CreateAsync(item);
             await _inboundOrderItemRepository.SaveChangesAsync();
 
-            // 7. CẬP NHẬT TỒN KHO KHU ĐỆM (Inventory):
-            // Luôn đưa tồn vào khu vực đệm (LocationId = null) với đúng PaddyLotId.
-            // Tồn kho vị trí thật sẽ được cập nhật khi thực hiện store-in.
-            await UpsertInventoryToBufferAsync(lot, receipt, inboundOrder.Id, item.Id, confirmedById, now);
+            // Không tạo tồn khu đệm và không tạo InventoryTransaction tại bước chốt.
 
-            // 8. GHI NHẬN CÔNG NỢ (Record Debt) nếu số tiền nợ (DebtAmount) > 0
+            // 7. GHI NHẬN CÔNG NỢ (Record Debt) nếu số tiền nợ (DebtAmount) > 0
             if (receipt.DebtAmount > 0)
             {
                 await RecordDebtAsync(receipt, confirmedById, now);
             }
 
-            // 9. Cập nhật trạng thái lịch hẹn khi chốt phiếu: Lịch hẹn sẽ tự động chuyển sang WEIGHED (Đã cân)
+            // 8. Lịch chỉ chuyển sang WEIGHED; STOCKED chỉ sau khi Inbound xác nhận đủ.
             if (receipt.ScheduleId.HasValue)
             {
                 await UpdateScheduleStatusAsync(receipt.ScheduleId.Value, confirmedById);
@@ -511,10 +510,19 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         var receiptWeights = new List<(decimal StoredWeightKg, decimal ActualWeightKg)>();
         foreach (var r in receipts)
         {
-            // Tìm tổng khối lượng đã cất kho thật của phiếu này
-            var totalStoredWeight = await _putawayDecisionRepository
-                .FindByCondition(x => x.ReferenceType == "PADDY_PURCHASE" && x.ReferenceId == r.Id)
-                .SumAsync(x => x.RequiredWeightKg);
+            // Put-away của lúa mua được thực hiện trong Inbound. Lượng đã nhập kho là
+            // tổng QuantityReceived của các dòng thuộc phiếu Inbound liên kết receipt.
+            var inboundOrder = await _inboundOrderRepository
+                .FindByCondition(x =>
+                    x.PaddyPurchaseReceiptId == r.Id &&
+                    !x.IsDeleted,
+                    false)
+                .Include(x => x.InboundOrderItems)
+                .FirstOrDefaultAsync();
+
+            var totalStoredWeight = inboundOrder?.InboundOrderItems
+                .Where(x => !x.IsDeleted)
+                .Sum(x => x.QuantityReceived) ?? 0m;
 
             receiptWeights.Add((totalStoredWeight, r.ActualWeightKg));
         }
@@ -534,63 +542,29 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         }
     }
 
-    private async Task UpsertInventoryToBufferAsync(PaddyLot lot, PaddyPurchaseReceipt receipt,
-        int inboundOrderId, int inboundItemId, int userId, DateTime now)
+    private static string? MapQualityStatus(string? qualityJson)
     {
-        // Khi chốt phiếu, luôn đưa tồn vào khu vực đệm (LocationId = null)
-        var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
-            lot.ProductVariantId, lot.WarehouseId, null, lot.Id);
+        if (string.IsNullOrWhiteSpace(qualityJson)) return null;
 
-        if (inventory == null)
+        try
         {
-            inventory = new Inventory
-            {
-                WarehouseId = lot.WarehouseId,
-                LocationId = null, // khu đệm
-                ProductVariantId = lot.ProductVariantId,
-                PaddyLotId = lot.Id,
-                CostPrice = lot.CostPricePerKg,
-                QuantityOnHand = 0,
-                QuantityReserved = 0,
-                CreatedDate = now,
-                CreatedBy = userId
-            };
-            await _inventoryRepository.CreateAsync(inventory);
-            await _inventoryRepository.SaveChangesAsync();
+            using var document = JsonDocument.Parse(qualityJson);
+            if (!document.RootElement.TryGetProperty("grade", out var gradeElement)) return null;
+            var grade = gradeElement.GetString()?.Trim().ToUpperInvariant();
+            if (string.IsNullOrWhiteSpace(grade)) return null;
+
+            return grade.Contains("KHÔNG ĐẠT") ||
+                   grade.Contains("KHONG DAT") ||
+                   grade.Contains("CÁCH LY") ||
+                   grade.Contains("CACH LY") ||
+                   grade.Contains("CẦN XỬ LÝ") ||
+                   grade.Contains("CAN XU LY")
+                ? QualityStatusConstants.Failed
+                : QualityStatusConstants.Passed;
         }
-
-        var before = inventory.QuantityOnHand;
-        // #12: Tồn đệm luôn được tạo mới theo PaddyLotId (mỗi lần chốt sinh 1 lô mới),
-        // nên giá vốn luôn lấy trực tiếp từ lô. (Bỏ nhánh bình quân gia quyền không bao giờ chạy.)
-        inventory.CostPrice = lot.CostPricePerKg;
-
-        inventory.QuantityOnHand += receipt.ActualWeightKg;
-        inventory.LastModifiedDate = now;
-        inventory.UpdatedBy = userId;
-
-        await _inventoryRepository.UpdateAsync(inventory);
-
-        var tx = new InventoryTransaction
+        catch (JsonException)
         {
-            InventoryId = inventory.Id,
-            WarehouseId = lot.WarehouseId,
-            LocationId = null, // khu đệm
-            ProductVariantId = lot.ProductVariantId,
-            PaddyLotId = lot.Id,
-            TransactionType = InventoryTransactionTypeConstants.Import,
-            ReferenceType = InventoryReferenceTypeConstants.PaddyPurchase,
-            ReferenceId = inboundOrderId,
-            ReferenceItemId = inboundItemId,
-            Quantity = receipt.ActualWeightKg,
-            BeforeQuantity = before,
-            AfterQuantity = inventory.QuantityOnHand,
-            WeightKg = receipt.ActualWeightKg,
-            Note = $"Nhập lúa vào khu vực đệm lô {lot.LotCode}",
-            CreatedDate = now,
-            CreatedBy = userId
-        };
-
-        await _inventoryTransactionRepository.CreateAsync(tx);
-        await _inventoryTransactionRepository.SaveChangesAsync();
+            return null;
+        }
     }
 }

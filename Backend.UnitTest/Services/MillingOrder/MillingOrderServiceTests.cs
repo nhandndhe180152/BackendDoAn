@@ -29,6 +29,8 @@ public class MillingOrderServiceTests
     private readonly Mock<IInventoryRepository>                 _invRepo      = new();
     private readonly Mock<IInventoryTransactionRepository>      _invTxRepo    = new();
     private readonly Mock<ILocationRepository>                  _locationRepo = new();
+    private readonly Mock<IMillingYieldConfigRepository>        _yieldRepo    = new();
+    private readonly Mock<IRepositoryBase<Alert, int>>           _alertRepo    = new();
     private readonly Mock<INotificationDispatcher>              _dispatcher   = new();
 
     private MillingOrderService Sut() => new(
@@ -41,6 +43,8 @@ public class MillingOrderServiceTests
         _invRepo.Object,
         _invTxRepo.Object,
         _locationRepo.Object,
+        _yieldRepo.Object,
+        _alertRepo.Object,
         _dispatcher.Object);
 
     [Fact]
@@ -51,9 +55,11 @@ public class MillingOrderServiceTests
         {
             Id = 1,
             Status = new MillingOrderStatus { Code = LookupCodes.MillingOrderStatus.InProgress },
+            YieldRateUsed = 0.70m,
+            TotalRiceOutputKg = 70m,
             MillingOrderInputs = new List<MillingOrderInput>
             {
-                new() { ConsumedWeightKg = 100m }
+                new() { PaddyLotId = 1, LocationId = 1, ReservedWeightKg = 100m }
             }
         };
 
@@ -63,14 +69,25 @@ public class MillingOrderServiceTests
                 It.IsAny<Expression<Func<Backend.Domain.Entities.MillingOrder, object>>[]>()))
              .Returns(new List<Backend.Domain.Entities.MillingOrder> { order }.AsQueryable().BuildMock());
 
+        _statusRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<MillingOrderStatus, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<MillingOrderStatus, object>>[]>()))
+             .ReturnsAsync((Expression<Func<MillingOrderStatus, bool>> expr, bool noTracking, Expression<Func<MillingOrderStatus, object>>[] includes) => {
+                 var func = expr.Compile();
+                 if (func(new MillingOrderStatus { Code = LookupCodes.MillingOrderStatus.Completed }))
+                     return new MillingOrderStatus { Id = 5, Code = LookupCodes.MillingOrderStatus.Completed };
+                 return new MillingOrderStatus { Id = 4, Code = LookupCodes.MillingOrderStatus.InProgress };
+             });
+
         var dto = new CompleteMillingOrderDto
         {
             ActualYieldRate = 70m,
             LossKg = 15m,
             Outputs = new List<MillingOrderOutputItemDto>
             {
-                new() { OutputWeightKg = 70m, OutputType = "RICE", IsByproduct = false, ProductVariantId = 1 },
-                new() { OutputWeightKg = 20m, OutputType = "BYPRODUCT", IsByproduct = true, ProductVariantId = 2 }
+                new() { OutputWeightKg = 70m, OutputType = "RICE", IsByproduct = false, ProductVariantId = 1, LocationId = 1 },
+                new() { OutputWeightKg = 20m, OutputType = "BROKEN", IsByproduct = true, ProductVariantId = 2, LocationId = 1 }
             }
         };
 
@@ -90,9 +107,11 @@ public class MillingOrderServiceTests
         {
             Id = 1,
             Status = new MillingOrderStatus { Code = LookupCodes.MillingOrderStatus.InProgress },
+            YieldRateUsed = 0.70m,
+            TotalRiceOutputKg = 70m,
             MillingOrderInputs = new List<MillingOrderInput>
             {
-                new() { PaddyLotId = 1, ConsumedWeightKg = 100m }
+                new() { PaddyLotId = 1, LocationId = 1, ReservedWeightKg = 100m }
             }
         };
 
@@ -130,6 +149,10 @@ public class MillingOrderServiceTests
         _orderRepo.Setup(r => r.BeginTransactionAsync()).ReturnsAsync(new Mock<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction>().Object);
         _locationRepo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<Expression<Func<Location, bool>>>(), It.IsAny<bool>(), It.IsAny<Expression<Func<Location, object>>[]>()))
             .ReturnsAsync(new Location { Id = 1 });
+        _locationRepo.Setup(r => r.UpdateCapacitySafetyAsync(
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<decimal>(),
+                It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<int>()))
+            .ReturnsAsync(1);
 
         _invRepo.Setup(r => r.GetByVariantWarehouseLocationAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int?>(), It.IsAny<int?>()))
             .ReturnsAsync(new Backend.Domain.Entities.Inventory { Id = 1, QuantityOnHand = 100m, QuantityReserved = 100m });
@@ -138,6 +161,7 @@ public class MillingOrderServiceTests
 
         _outputRepo.Setup(r => r.CreateAsync(It.IsAny<MillingOrderOutput>())).Returns(Task.CompletedTask);
         _outputRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
+        _alertRepo.Setup(r => r.CreateAsync(It.IsAny<Alert>())).Returns(Task.CompletedTask);
 
         var dto = new CompleteMillingOrderDto
         {
@@ -146,7 +170,7 @@ public class MillingOrderServiceTests
             Outputs = new List<MillingOrderOutputItemDto>
             {
                 new() { OutputWeightKg = 70m, OutputType = "RICE", IsByproduct = false, ProductVariantId = 1, LocationId = 1 },
-                new() { OutputWeightKg = 25m, OutputType = "BYPRODUCT", IsByproduct = true, ProductVariantId = 2, LocationId = 1 }
+                new() { OutputWeightKg = 25m, OutputType = "BROKEN", IsByproduct = true, ProductVariantId = 2, LocationId = 1 }
             }
         };
 
