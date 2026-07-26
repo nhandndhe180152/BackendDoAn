@@ -24,6 +24,12 @@ public class MillingOrderDetailDto
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public decimal? TotalCost { get; set; }
+    /// <summary>
+    /// Chi phí vận hành đã khai báo trước khi hoàn tất. Schema hiện tại chỉ
+    /// có TotalCost nên giá trị này là tổng chi phí xay + phát sinh.
+    /// </summary>
+    public decimal? MillingCost { get; set; }
+    public decimal? IncidentalCost { get; set; }
     public List<MillingOrderInputDetailDto> Inputs { get; set; } = new();
     public List<MillingOrderOutputDetailDto> Outputs { get; set; } = new();
     public DateTime CreatedDate { get; set; }
