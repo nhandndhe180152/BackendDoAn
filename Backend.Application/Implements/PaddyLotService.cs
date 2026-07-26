@@ -19,10 +19,14 @@ namespace Backend.Application.Implements;
 public class PaddyLotService : IPaddyLotService
 {
     private readonly IPaddyLotRepository _paddyLotRepository;
+    private readonly IApplicationDbContext _context;
 
-    public PaddyLotService(IPaddyLotRepository paddyLotRepository)
+    public PaddyLotService(
+        IPaddyLotRepository paddyLotRepository,
+        IApplicationDbContext context)
     {
         _paddyLotRepository = paddyLotRepository;
+        _context = context;
     }
 
     public async Task<ApiResponse> CreateAsync(CreatePaddyLotDto obj)
@@ -64,7 +68,23 @@ public class PaddyLotService : IPaddyLotService
         if (entity == null)
             return ApiResponse.NotFound();
 
-        return ApiResponse.Success(entity.ToDto());
+        var dto = entity.ToDto();
+
+        var activeInvs = await _context.Inventories
+            .Include(x => x.Location)
+            .Where(x => x.PaddyLotId == id && !x.IsDeleted && x.QuantityOnHand > 0)
+            .ToListAsync();
+
+        if (activeInvs.Any())
+        {
+            dto.LocationId = activeInvs.First().LocationId;
+            dto.LocationCode = string.Join(", ", activeInvs
+                .Select(x => x.Location?.SlotCode ?? x.Location?.QrCode)
+                .Distinct()
+                .Where(c => c != null));
+        }
+
+        return ApiResponse.Success(dto);
     }
 
     public async Task<ApiResponse> GetPagedAsync(DTParameter parameters)

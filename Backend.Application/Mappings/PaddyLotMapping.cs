@@ -71,6 +71,7 @@ public static class PaddyLotMapping
             WarehouseId = entity.WarehouseId,
             WarehouseName = entity.Warehouse?.Name,
             LocationId = entity.LocationId,
+            LocationCode = entity.Location != null ? (entity.Location.SlotCode ?? entity.Location.QrCode) : null,
             InboundDate = entity.InboundDate,
             InitialWeightKg = entity.InitialWeightKg,
             RemainingWeightKg = entity.RemainingWeightKg,

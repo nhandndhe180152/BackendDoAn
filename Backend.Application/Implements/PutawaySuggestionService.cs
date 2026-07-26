@@ -812,6 +812,16 @@ public class PutawaySuggestionService : IPutawaySuggestionService
                 lot!.RemainingWeightKg = Math.Min(
                     lot.InitialWeightKg,
                     lot.RemainingWeightKg + request.WeightKg);
+
+                if (lot.LocationId == null)
+                {
+                    lot.LocationId = request.SelectedLocationId;
+                }
+                else if (lot.LocationId != request.SelectedLocationId)
+                {
+                    lot.LocationId = null; // Split lot
+                }
+
                 var targetLotStatusCode = paddyRequiresQuarantine
                     ? LotStatusCodeConstants.Quarantine
                     : LotStatusCodeConstants.InStock;
