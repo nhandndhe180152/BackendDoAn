@@ -42,7 +42,10 @@ public record PutawaySuggestionDto(
 
 public record SplitSuggestionDto(
     int LocationId,
-    decimal WeightKg);
+    decimal WeightKg,
+    string LocationCode,
+    string ZoneName,
+    decimal FreeCapacityKg);
 
 public record PutawaySuggestionsResponse(
     bool HasSuggestion,
@@ -59,21 +62,28 @@ public class ConfirmStoreInRequest
 {
     [Required]
     public int ProductVariantId { get; set; }
-    
+
     public int? PaddyLotId { get; set; }
-    
+
     [Required]
     public int SelectedLocationId { get; set; }
-    
+
     public int? SuggestedLocationId { get; set; }
-    
+
     [Range(0.001, double.MaxValue, ErrorMessage = "Khối lượng phải lớn hơn 0.")]
     public decimal WeightKg { get; set; }
-    
+
     public int? BagCount { get; set; }
-    
+
     public string? OverrideReason { get; set; }
 }
+
+public record ConfirmPaddyStoreInResult(
+    int ReceiptId,
+    int LotId,
+    decimal StoredWeightKg,
+    decimal RemainingWeightKg,
+    bool IsFullyStored);
 
 public class PutawayRuleConfigDto
 {

@@ -82,6 +82,9 @@ public class InboundOrderListDto
     public DateTime? ExpectedDate { get; set; }
     public DateTime? CompletedDate { get; set; }
     public string? Note { get; set; }
+    public string? SourceType { get; set; }
+    public int? PaddyPurchaseReceiptId { get; set; }
+    public string? PaddyPurchaseReceiptCode { get; set; }
     public DateTime CreatedDate { get; set; }
 }
 
@@ -99,6 +102,9 @@ public class InboundOrderDetailDto
     public DateTime? ExpectedDate { get; set; }
     public DateTime? CompletedDate { get; set; }
     public string? Note { get; set; }
+    public string? SourceType { get; set; }
+    public int? PaddyPurchaseReceiptId { get; set; }
+    public string? PaddyPurchaseReceiptCode { get; set; }
     public DateTime CreatedDate { get; set; }
     public List<InboundOrderItemDto> Items { get; set; } = new();
 
@@ -111,6 +117,9 @@ public class InboundOrderItemDto
     public int Id { get; set; }
     public int InboundOrderId { get; set; }
     public int? ProductVariantId { get; set; }
+    public int? PaddyLotId { get; set; }
+    public string? PaddyLotCode { get; set; }
+    public string? PaddyQualityStatus { get; set; }
     public string? ProductVariantName { get; set; }
     public string? SKU { get; set; }
     public decimal QuantityOrdered { get; set; }
@@ -130,7 +139,7 @@ public class InboundOrderItemDto
     public int? ConfirmedLocationId { get; set; }
     public string? ConfirmedLocationCode { get; set; }
     public string? PutawayOverrideReason { get; set; }
-    public int? QuantityEntered { get; set; }
+    public decimal? QuantityEntered { get; set; }
 }
 
 public class StartReceiptDto
@@ -147,8 +156,8 @@ public class ScanQrDto
 
 public class RecordQuantityDto
 {
-    [Range(1, int.MaxValue)]
-    public int QuantityReceived { get; set; }
+    [Range(0.001, double.MaxValue)]
+    public decimal QuantityReceived { get; set; }
     public string? Note { get; set; }
 }
 
@@ -178,6 +187,7 @@ public class SelectPutawayDto
     public int LocationId { get; set; }
     public bool IsOverride { get; set; }
     public string? OverrideReason { get; set; }
+    public decimal? WeightKg { get; set; }
 }
 
 public class ConfirmReceiptDto
@@ -246,8 +256,11 @@ public class PutawaySuggestionDto
     public string? ShelfLevel { get; set; }
     public string? SlotCode { get; set; }
     public double Score { get; set; }
-    public int AvailableCapacity { get; set; }
-    public int CurrentOccupancy { get; set; }
+    public decimal AvailableCapacity { get; set; }
+    public decimal CurrentOccupancy { get; set; }
+    public decimal RecommendedWeightKg { get; set; }
+    public bool CanFitWhole { get; set; }
+    public bool IsQuarantine { get; set; }
     public int Priority { get; set; }
     public bool CategoryMatch { get; set; }
     public Dictionary<string, double> ScoreBreakdown { get; set; } = new();

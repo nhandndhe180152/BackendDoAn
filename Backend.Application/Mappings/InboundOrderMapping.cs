@@ -57,6 +57,9 @@ public static class InboundOrderMapping
             ExpectedDate = entity.ExpectedDate,
             CompletedDate = entity.CompletedDate,
             Note = entity.Note,
+            SourceType = entity.SourceType,
+            PaddyPurchaseReceiptId = entity.PaddyPurchaseReceiptId,
+            PaddyPurchaseReceiptCode = entity.PaddyPurchaseReceipt?.ReceiptCode,
             CreatedDate = entity.CreatedDate
         };
     }
@@ -77,6 +80,9 @@ public static class InboundOrderMapping
             ExpectedDate = entity.ExpectedDate,
             CompletedDate = entity.CompletedDate,
             Note = entity.Note,
+            SourceType = entity.SourceType,
+            PaddyPurchaseReceiptId = entity.PaddyPurchaseReceiptId,
+            PaddyPurchaseReceiptCode = entity.PaddyPurchaseReceipt?.ReceiptCode,
             CreatedDate = entity.CreatedDate,
             Items = entity.InboundOrderItems?.Select(x => x.ToDto()).ToList() ?? new()
         };
@@ -89,6 +95,9 @@ public static class InboundOrderMapping
             Id = entity.Id,
             InboundOrderId = entity.InboundOrderId,
             ProductVariantId = entity.ProductVariantId,
+            PaddyLotId = entity.PaddyLotId,
+            PaddyLotCode = entity.PaddyLot?.LotCode,
+            PaddyQualityStatus = entity.PaddyLot?.QualityStatus,
             ProductVariantName = entity.ProductVariant?.Name,
             SKU = entity.ProductVariant?.SKU,
             QuantityOrdered = entity.QuantityOrdered,
@@ -200,6 +209,6 @@ public class InboundReceiptState
     public int? ConfirmedLocationId { get; set; }
     public string? ConfirmedLocationCode { get; set; }
     public string? PutawayOverrideReason { get; set; }
-    public int? QuantityEntered { get; set; }
+    public decimal? QuantityEntered { get; set; }
     public string? OriginalNote { get; set; }
 }

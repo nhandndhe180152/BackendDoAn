@@ -188,6 +188,11 @@ public class InboundOrderService : IInboundOrderService
                 ExpectedDate = x.ExpectedDate,
                 CompletedDate = x.CompletedDate,
                 Note = x.Note,
+                SourceType = x.SourceType,
+                PaddyPurchaseReceiptId = x.PaddyPurchaseReceiptId,
+                PaddyPurchaseReceiptCode = x.PaddyPurchaseReceipt != null
+                    ? x.PaddyPurchaseReceipt.ReceiptCode
+                    : null,
                 CreatedDate = x.CreatedDate
             });
 
@@ -321,6 +326,14 @@ public class InboundOrderService : IInboundOrderService
             if (item.ProductVariantId.HasValue)
             {
                 item.ProductVariant = await _productVariantRepository.FirstOrDefaultAsync(v => v.Id == item.ProductVariantId.Value && !v.IsDeleted, false, v => v.Product);
+            }
+
+            if (item.PaddyLotId.HasValue)
+            {
+                item.PaddyLot = await _paddyLotRepository.FirstOrDefaultAsync(
+                    lot => lot.Id == item.PaddyLotId.Value && !lot.IsDeleted,
+                    false,
+                    lot => lot.Status);
             }
         }
 
@@ -949,7 +962,16 @@ public class InboundOrderService : IInboundOrderService
         if (!state.QuantityEntered.HasValue || state.QuantityEntered.Value <= 0)
             return ApiResponse.UnprocessableEntity("Vui lòng ghi nhận số lượng trước khi đề xuất vị trí cất hàng.", ApiCodeConstants.Common.UnprocessableEntity);
 
-        // Putaway suggestions scoring configuration
+        var lot = item.PaddyLotId.HasValue
+            ? await _paddyLotRepository.FirstOrDefaultAsync(
+                x => x.Id == item.PaddyLotId.Value && !x.IsDeleted,
+                false,
+                x => x.Status)
+            : null;
+        var requiresQuarantine = lot != null &&
+            (lot.QualityStatus == QualityStatusConstants.Failed ||
+             lot.Status?.Code == LotStatusCodeConstants.Quarantine);
+
         double catMatchW = 0.40;
         double capFitW = 0.30;
         double occW = 0.20;
@@ -979,23 +1001,34 @@ public class InboundOrderService : IInboundOrderService
         var receiptQty = state.QuantityEntered.Value;
         var pcatId = item.ProductVariant?.Product?.ProductCategoryId;
 
-        // Fetch candidate locations
+        // Một receipt có thể tách qua nhiều vị trí. Vì vậy chỉ yêu cầu vị trí còn trống,
+        // không loại vị trí chỉ vì không chứa trọn toàn bộ lượng còn lại.
         var candidates = await _locationRepository.FindByConditionAsync(x =>
             x.WarehouseId == order.WarehouseId &&
             x.IsActive &&
             !x.IsDeleted &&
-            !x.IsQuarantine &&
+            x.IsQuarantine == requiresQuarantine &&
             x.MaxCapacity.HasValue && x.MaxCapacity.Value > 0 &&
-            (x.CurrentOccupancy + receiptQty) <= x.MaxCapacity.Value &&
-            (x.AllowedCategoryId == null || (pcatId.HasValue && x.AllowedCategoryId.Value == pcatId.Value))
+            x.CurrentOccupancy < x.MaxCapacity.Value &&
+            (x.AllowedCategoryId == null || (pcatId.HasValue && x.AllowedCategoryId.Value == pcatId.Value)) &&
+            (x.CurrentProductVariantId == null || x.CurrentProductVariantId == item.ProductVariantId)
         );
 
         if (!candidates.Any())
         {
-            return ApiResponse.Success(new List<PutawaySuggestionDto>(), "Không tìm thấy vị trí cất hàng phù hợp đủ sức chứa.");
+            var message = requiresQuarantine
+                ? "Không tìm thấy vị trí cách ly phù hợp còn sức chứa."
+                : "Không tìm thấy vị trí cất hàng phù hợp còn sức chứa.";
+            return ApiResponse.Success(new List<PutawaySuggestionDto>(), message);
         }
 
-        var maxPriority = candidates.Max(x => x.Priority);
+        if (candidates.Any(x => x.Priority < 0 || x.Priority > 100))
+        {
+            return ApiResponse.UnprocessableEntity(
+                "Độ ưu tiên vị trí không hợp lệ. Giá trị hợp lệ từ 0 đến 100.",
+                ApiCodeConstants.Common.UnprocessableEntity);
+        }
+
         var suggestions = new List<PutawaySuggestionDto>();
 
         foreach (var loc in candidates)
@@ -1009,14 +1042,12 @@ public class InboundOrderService : IInboundOrderService
                 catScore = 1.00;
             }
 
-            // Capacity fit score
-            double fitScore = 1.0 - ((double)(availCap - (decimal)receiptQty) / (double)loc.MaxCapacity.Value);
+            // Ưu tiên vị trí chứa vừa lượng cần xếp, nhưng vẫn trả vị trí có thể chứa một phần.
+            double fitScore = (double)Math.Min(receiptQty, availCap) /
+                              (double)Math.Max(receiptQty, availCap);
 
-            // Low occupancy score
             double occScore = 1.0 - ((double)loc.CurrentOccupancy / (double)loc.MaxCapacity.Value);
-
-            // Priority score
-            double pScore = maxPriority > 0 ? (double)loc.Priority / maxPriority : 0.0;
+            double pScore = Math.Clamp(loc.Priority / 100.0, 0.0, 1.0);
 
             var finalScore = (catMatchW * catScore) + (capFitW * fitScore) + (occW * occScore) + (priW * pScore);
 
@@ -1028,10 +1059,13 @@ public class InboundOrderService : IInboundOrderService
                 ShelfLevel = loc.ShelfLevel,
                 SlotCode = loc.SlotCode,
                 Score = Math.Round(finalScore, 4),
-                AvailableCapacity = (int)availCap,
-                CurrentOccupancy = (int)loc.CurrentOccupancy,
+                AvailableCapacity = availCap,
+                CurrentOccupancy = loc.CurrentOccupancy,
                 Priority = loc.Priority,
                 CategoryMatch = loc.AllowedCategoryId.HasValue,
+                RecommendedWeightKg = Math.Min(receiptQty, availCap),
+                CanFitWhole = availCap >= receiptQty,
+                IsQuarantine = loc.IsQuarantine,
                 ScoreBreakdown = new Dictionary<string, double>
                 {
                     { "CategoryMatch", Math.Round(catMatchW * catScore, 4) },
@@ -1049,7 +1083,10 @@ public class InboundOrderService : IInboundOrderService
             .ThenBy(x => x.LocationId)
             .ToList();
 
-        return ApiResponse.Success(sorted);
+        var responseMessage = sorted.Any(x => x.CanFitWhole)
+            ? "Đã tìm thấy vị trí phù hợp."
+            : "Không có vị trí chứa trọn lô; hệ thống đề xuất tách lô theo sức chứa còn lại.";
+        return ApiResponse.Success(sorted, responseMessage);
     }
 
     public async Task<ApiResponse> SelectPutawayAsync(int orderId, int receiptId, SelectPutawayDto dto)
@@ -1076,15 +1113,37 @@ public class InboundOrderService : IInboundOrderService
         if (loc == null)
             return ApiResponse.NotFound("Vị trí lưu trữ không tồn tại hoặc đã bị khóa.", ApiCodeConstants.Common.NotFound);
 
-        if (loc.IsQuarantine)
-            return ApiResponse.UnprocessableEntity("Không cho phép chọn vị trí cách ly (Quarantine) để cất hàng nhập thông thường.", ApiCodeConstants.Common.UnprocessableEntity);
-
         if (loc.WarehouseId != order.WarehouseId)
             return ApiResponse.UnprocessableEntity("Vị trí lưu trữ không thuộc kho hàng của phiếu nhập này.", ApiCodeConstants.Common.UnprocessableEntity);
 
-        var qty = state.QuantityEntered ?? 0;
+        var lot = item.PaddyLotId.HasValue
+            ? await _paddyLotRepository.FirstOrDefaultAsync(
+                x => x.Id == item.PaddyLotId.Value && !x.IsDeleted,
+                false,
+                x => x.Status)
+            : null;
+        var requiresQuarantine = lot != null &&
+            (lot.QualityStatus == QualityStatusConstants.Failed ||
+             lot.Status?.Code == LotStatusCodeConstants.Quarantine);
+
+        if (loc.IsQuarantine != requiresQuarantine)
+        {
+            var message = requiresQuarantine
+                ? "Lô không đạt chất lượng chỉ được xếp vào khu cách ly."
+                : "Lô đạt chất lượng không được xếp vào khu cách ly.";
+            return ApiResponse.UnprocessableEntity(message, ApiCodeConstants.Common.UnprocessableEntity);
+        }
+
+        var remaining = item.QuantityOrdered - item.QuantityReceived;
+        var qty = dto.WeightKg ?? state.QuantityEntered ?? 0;
+        if (qty <= 0 || qty > remaining)
+            return ApiResponse.UnprocessableEntity("Khối lượng xếp phải lớn hơn 0 và không vượt quá lượng còn lại của dòng hàng.", ApiCodeConstants.Common.UnprocessableEntity);
+
         if (loc.MaxCapacity.HasValue && (loc.CurrentOccupancy + qty) > loc.MaxCapacity.Value)
             return ApiResponse.UnprocessableEntity("Vị trí lưu trữ đã vượt quá sức chứa tối đa.", ApiCodeConstants.Common.UnprocessableEntity);
+
+        if (loc.CurrentProductVariantId.HasValue && loc.CurrentProductVariantId != item.ProductVariantId)
+            return ApiResponse.UnprocessableEntity("Vị trí đang chứa một sản phẩm khác.", ApiCodeConstants.Common.UnprocessableEntity);
 
         var pcatId = item.ProductVariant?.Product?.ProductCategoryId;
         if (loc.AllowedCategoryId.HasValue && pcatId.HasValue && loc.AllowedCategoryId.Value != pcatId.Value)
@@ -1111,6 +1170,7 @@ public class InboundOrderService : IInboundOrderService
         state.ConfirmedLocationId = dto.LocationId;
         state.ConfirmedLocationCode = $"{loc.ZoneName}-{loc.ShelfRow}-{loc.ShelfLevel}-{loc.SlotCode}";
         state.PutawayOverrideReason = dto.IsOverride ? dto.OverrideReason : null;
+        state.QuantityEntered = qty;
         state.ReceiptStatus = "PutawaySelected";
 
         item.SaveReceiptState(state);
@@ -1159,16 +1219,33 @@ public class InboundOrderService : IInboundOrderService
                 return ApiResponse.UnprocessableEntity("Receipt phải ở trạng thái PutawaySelected để xác nhận nhập kho.", ApiCodeConstants.Common.UnprocessableEntity);
 
             var loc = await _locationRepository.FirstOrDefaultAsync(x => x.Id == state.ConfirmedLocationId.Value && !x.IsDeleted && x.IsActive, true);
-            if (loc == null || loc.IsQuarantine)
-                return ApiResponse.UnprocessableEntity("Vị trí lưu trữ không còn khả dụng hoặc đã bị đưa vào khu cách ly.", ApiCodeConstants.Common.UnprocessableEntity);
+            if (loc == null)
+                return ApiResponse.UnprocessableEntity("Vị trí lưu trữ không còn khả dụng.", ApiCodeConstants.Common.UnprocessableEntity);
+
+            var paddyLotId = item.PaddyLotId;
+            var lot = paddyLotId.HasValue
+                ? await _paddyLotRepository.FirstOrDefaultAsync(
+                    x => x.Id == paddyLotId.Value && !x.IsDeleted,
+                    true,
+                    x => x.Status)
+                : null;
+            var requiresQuarantine = lot != null &&
+                (lot.QualityStatus == QualityStatusConstants.Failed ||
+                 lot.Status?.Code == LotStatusCodeConstants.Quarantine);
+
+            if (loc.IsQuarantine != requiresQuarantine)
+                return ApiResponse.UnprocessableEntity("Tính chất cách ly của vị trí không còn phù hợp với lô hàng.", ApiCodeConstants.Common.UnprocessableEntity);
 
             var qty = state.QuantityEntered ?? 0;
+            var remaining = item.QuantityOrdered - item.QuantityReceived;
+            if (qty <= 0 || qty > remaining)
+                return ApiResponse.UnprocessableEntity("Khối lượng xác nhận không hợp lệ hoặc vượt quá lượng còn lại.", ApiCodeConstants.Common.UnprocessableEntity);
+
             if (loc.MaxCapacity.HasValue && (loc.CurrentOccupancy + qty) > loc.MaxCapacity.Value)
                 return ApiResponse.UnprocessableEntity("Vị trí lưu trữ hiện đã hết sức chứa.", ApiCodeConstants.Common.UnprocessableEntity);
 
             // Recheck RowVersion/concurrency: fetch inventory with tracking
             // RC-3 fix: phải bao gồm PaddyLotId trong điều kiện tìm — khớp unique index (variant, warehouse, location, lot)
-            var paddyLotId = item.PaddyLotId; // nullable, null nếu không phải lô lúa
             var inventory = await _inventoryRepository.FirstOrDefaultAsync(x =>
                 x.WarehouseId == order.WarehouseId &&
                 x.LocationId == loc.Id &&
@@ -1224,13 +1301,35 @@ public class InboundOrderService : IInboundOrderService
 
             // Increase Location occupancy
             loc.CurrentOccupancy += qty;
+            loc.CurrentProductVariantId ??= item.ProductVariantId;
             await _locationRepository.UpdateAsync(loc);
 
             // Update item quantity received and weights
             item.QuantityReceived += qty;
-            state.ReceiptStatus = "Confirmed";
+            var isLineComplete = item.QuantityReceived >= item.QuantityOrdered;
+            state.ReceiptStatus = isLineComplete ? "Confirmed" : "PartiallyReceived";
             item.SaveReceiptState(state);
             await _inboundOrderItemRepository.UpdateAsync(item);
+
+            if (lot != null)
+            {
+                lot.RemainingWeightKg = Math.Min(lot.InitialWeightKg, lot.RemainingWeightKg + qty);
+                // LocationId của PaddyLot chỉ đại diện được một vị trí. Với lô tách,
+                // để null và dùng Inventory theo từng Location làm nguồn dữ liệu đúng.
+                lot.LocationId = isLineComplete && item.QuantityReceived == qty
+                    ? loc.Id
+                    : null;
+                var targetLotStatusCode = requiresQuarantine
+                    ? LotStatusCodeConstants.Quarantine
+                    : LotStatusCodeConstants.InStock;
+                var targetLotStatus = await _lotStatusRepository.FirstOrDefaultAsync(
+                    x => x.Code == targetLotStatusCode && !x.IsDeleted);
+                if (targetLotStatus != null)
+                    lot.StatusId = targetLotStatus.Id;
+                lot.LastModifiedDate = DateTimeHelper.VietnamNow();
+                lot.UpdatedBy = GetCurrentUserId();
+                await _paddyLotRepository.UpdateAsync(lot);
+            }
 
             // Create Inventory Transaction record
             var invTrans = new InventoryTransaction
@@ -1239,14 +1338,15 @@ public class InboundOrderService : IInboundOrderService
                 WarehouseId = order.WarehouseId,
                 LocationId = loc.Id,
                 ProductVariantId = item.ProductVariantId,
-                TransactionType = "INBOUND_RECEIVE",
-                ReferenceType = "InboundReceipt",
-                ReferenceId = item.Id,
+                PaddyLotId = paddyLotId,
+                TransactionType = InventoryTransactionTypeConstants.Import,
+                ReferenceType = InventoryReferenceTypeConstants.InboundOrder,
+                ReferenceId = order.Id,
                 ReferenceItemId = item.Id,
                 Quantity = qty,
                 BeforeQuantity = oldQty,
                 AfterQuantity = inventory.QuantityOnHand,
-                WeightKg = item.ActualWeightKg,
+                WeightKg = qty,
                 Note = state.OriginalNote,
                 CreatedBy = GetCurrentUserId(),
                 CreatedDate = DateTime.Now
