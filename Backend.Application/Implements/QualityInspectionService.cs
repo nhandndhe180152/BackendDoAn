@@ -429,47 +429,306 @@ public class QualityInspectionService : IQualityInspectionService
             }
         }
 
-        entity.PaddyLotId = obj.PaddyLotId;
-        entity.InspectorId = obj.InspectorId;
-        entity.InspectedAt = obj.InspectedAt;
-        entity.MoisturePercent = obj.MoisturePercent;
-        entity.ImpurityPercent = obj.ImpurityPercent;
-        entity.MoldLevel = obj.MoldLevel?.Trim();
-        entity.PestLevel = obj.PestLevel?.Trim();
-        entity.PackagingStatus = obj.PackagingStatus?.Trim();
-        entity.PassedInspection = obj.PassedInspection;
-        entity.Handling = obj.Handling?.Trim();
-        entity.Note = obj.Note?.Trim();
-        entity.UpdatedBy = obj.UpdatedBy;
-        entity.LastModifiedDate = DateTimeHelper.VietnamNow();
+        var lot = await _paddyLotRepository.GetByIdAsync(obj.PaddyLotId);
+        if (lot == null || lot.IsDeleted)
+            return ApiResponse.NotFound(message: "Không tìm thấy lô lúa/gạo.");
 
-        await _repo.UpdateAsync(entity);
-        await _repo.SaveChangesAsync();
-
-        // Đồng bộ QualityStatus về lô lúa/gạo (#14: giữ nhất quán khi phiếu bị cập nhật)
-        // C2: Nếu phiếu đã tách lô cách ly (wasSplit = true), BỎ QUA việc ghi đè trạng thái lô gốc.
-        if (!wasSplit)
+        // B8. Validate đầu vào AffectedWeightKg
+        if (!wasSplit && obj.AffectedWeightKg.HasValue)
         {
-            var lot = await _paddyLotRepository.GetByIdAsync(obj.PaddyLotId);
-            if (lot != null && !lot.IsDeleted)
+            if (obj.AffectedWeightKg.Value < 0)
+                return ApiResponse.BadRequest(message: "Khối lượng bị ảnh hưởng không được nhỏ hơn 0.");
+            if (obj.AffectedWeightKg.Value == 0)
+                return ApiResponse.BadRequest(message: "Khối lượng bị ảnh hưởng phải lớn hơn 0.");
+            if (obj.AffectedWeightKg.Value >= lot.RemainingWeightKg)
+                return ApiResponse.BadRequest(message: $"Khối lượng bị ảnh hưởng ({obj.AffectedWeightKg.Value} kg) phải nhỏ hơn khối lượng còn lại của lô hàng ({lot.RemainingWeightKg} kg).");
+        }
+
+        bool isSplit = false;
+        PaddyLot? childLot = null;
+        var now = DateTimeHelper.VietnamNow();
+
+        await using var tx = await _repo.BeginTransactionAsync();
+        try
+        {
+            var parentInventories = await _inventoryRepository
+                .FindByCondition(x => x.PaddyLotId == lot.Id && !x.IsDeleted)
+                .ToListAsync();
+
+            // Nếu đánh giá không đạt (PassedInspection == false) và số lượng bị ảnh hưởng hợp lệ (0 < AffectedWeightKg < RemainingWeightKg) và chưa từng split
+            if (!wasSplit && !obj.PassedInspection && obj.AffectedWeightKg.HasValue && obj.AffectedWeightKg.Value > 0 && obj.AffectedWeightKg.Value < lot.RemainingWeightKg)
             {
-                lot.QualityStatus = obj.PassedInspection ? QualityStatusConstants.Passed : QualityStatusConstants.Failed;
-                lot.LastModifiedDate = entity.LastModifiedDate;
+                // B1. Kiểm tra tổng tồn kho khả dụng trước khi tách
+                decimal totalAvailable = parentInventories.Sum(x => Math.Max(0, x.QuantityOnHand - x.QuantityReserved));
+                if (totalAvailable < obj.AffectedWeightKg.Value)
+                {
+                    return ApiResponse.BadRequest(message: $"Không đủ tồn kho khả dụng để thực hiện tách lô cách ly (Tồn kho khả dụng: {totalAvailable} kg, Cần tách: {obj.AffectedWeightKg.Value} kg).");
+                }
+
+                isSplit = true;
+
+                entity.PaddyLotId = obj.PaddyLotId;
+                entity.InspectorId = obj.InspectorId;
+                entity.InspectedAt = obj.InspectedAt;
+                entity.MoisturePercent = obj.MoisturePercent;
+                entity.ImpurityPercent = obj.ImpurityPercent;
+                entity.MoldLevel = obj.MoldLevel?.Trim();
+                entity.PestLevel = obj.PestLevel?.Trim();
+                entity.PackagingStatus = obj.PackagingStatus?.Trim();
+                entity.PassedInspection = obj.PassedInspection;
+                entity.Handling = obj.Handling?.Trim();
+                entity.Note = obj.Note?.Trim();
+                entity.UpdatedBy = obj.UpdatedBy;
+                entity.LastModifiedDate = now;
+                entity.AffectedWeightKg = obj.AffectedWeightKg;
+
+                await _repo.UpdateAsync(entity);
+                await _repo.SaveChangesAsync();
+
+                // 1. Tạo LotCode mới: nối đuôi -Q1, -Q2,...
+                string childLotCode = $"{lot.LotCode}-Q1";
+                int quarantineIndex = 1;
+                while (await _context.PaddyLots.AsNoTracking().AnyAsync(x => x.LotCode == childLotCode && x.OrganizationId == lot.OrganizationId))
+                {
+                    quarantineIndex++;
+                    childLotCode = $"{lot.LotCode}-Q{quarantineIndex}";
+                }
+
+                // 2. Tìm trạng thái QUARANTINE cho lô mới
+                var quarantineStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.Quarantine && !x.IsDeleted);
+                if (quarantineStatus == null)
+                    throw new InvalidOperationException("Không tìm thấy trạng thái LotStatus 'QUARANTINE' trong hệ thống.");
+
+                // 3. Khởi tạo lô con (childLot) và copy các trường truy xuất nguồn gốc
+                childLot = new PaddyLot
+                {
+                    OrganizationId = lot.OrganizationId,
+                    LotCode = childLotCode,
+                    LotType = lot.LotType,
+                    ProductVariantId = lot.ProductVariantId,
+                    RiceVarietyId = lot.RiceVarietyId,
+                    StatusId = quarantineStatus.Id,
+                    WarehouseId = lot.WarehouseId,
+                    LocationId = lot.LocationId,
+                    InboundDate = lot.InboundDate,
+                    InitialWeightKg = obj.AffectedWeightKg.Value,
+                    RemainingWeightKg = obj.AffectedWeightKg.Value,
+                    CostPricePerKg = lot.CostPricePerKg,
+                    QualityStatus = QualityStatusConstants.Failed,
+                    QrCode = "PL-" + Guid.NewGuid().ToString("N").ToUpper(),
+                    QrImageUrl = lot.QrImageUrl,
+                    ParentLotId = lot.Id,
+                    SourceReceiptId = null,
+                    SourceMillingOrderId = lot.SourceMillingOrderId,
+                    CreatedBy = obj.UpdatedBy,
+                    CreatedDate = now
+                };
+
+                await _paddyLotRepository.CreateAsync(childLot);
+                await _paddyLotRepository.SaveChangesAsync();
+
+                // 4. Trừ số lượng ở lô gốc
+                lot.RemainingWeightKg -= obj.AffectedWeightKg.Value;
+                lot.QualityStatus = QualityStatusConstants.Passed; // Lô gốc phần còn lại là Đạt chất lượng
+
+                var inStockStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.InStock && !x.IsDeleted);
+                if (inStockStatus != null && lot.StatusId != inStockStatus.Id)
+                {
+                    lot.StatusId = inStockStatus.Id;
+                }
+
+                lot.LastModifiedDate = now;
+                lot.UpdatedBy = obj.UpdatedBy;
                 await _paddyLotRepository.UpdateAsync(lot);
                 await _paddyLotRepository.SaveChangesAsync();
             }
-        }
-
-        try
-        {
-            if (_scheduledJobService != null)
+            else
             {
-                _scheduledJobService.Enqueue<ILotQualityRecheckService>(s => s.EvaluateLotAsync(entity.PaddyLotId, CancellationToken.None));
+                entity.PaddyLotId = obj.PaddyLotId;
+                entity.InspectorId = obj.InspectorId;
+                entity.InspectedAt = obj.InspectedAt;
+                entity.MoisturePercent = obj.MoisturePercent;
+                entity.ImpurityPercent = obj.ImpurityPercent;
+                entity.MoldLevel = obj.MoldLevel?.Trim();
+                entity.PestLevel = obj.PestLevel?.Trim();
+                entity.PackagingStatus = obj.PackagingStatus?.Trim();
+                entity.PassedInspection = obj.PassedInspection;
+                entity.Handling = obj.Handling?.Trim();
+                entity.Note = obj.Note?.Trim();
+                entity.UpdatedBy = obj.UpdatedBy;
+                entity.LastModifiedDate = now;
+                entity.AffectedWeightKg = obj.AffectedWeightKg;
+
+                await _repo.UpdateAsync(entity);
+                await _repo.SaveChangesAsync();
+
+                // Luồng All-or-nothing cũ
+                if (!wasSplit)
+                {
+                    lot.QualityStatus = obj.PassedInspection ? QualityStatusConstants.Passed : QualityStatusConstants.Failed;
+
+                    if (obj.PassedInspection)
+                    {
+                        var inStockStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.InStock && !x.IsDeleted);
+                        if (inStockStatus != null)
+                        {
+                            lot.StatusId = inStockStatus.Id;
+                        }
+                    }
+                    else
+                    {
+                        var quarantineStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.Quarantine && !x.IsDeleted);
+                        if (quarantineStatus != null)
+                        {
+                            lot.StatusId = quarantineStatus.Id;
+                        }
+
+                        // Ghi nhận giao dịch điều chỉnh khi cả lô fail -> QUARANTINE để nhất quán tồn kho
+                        foreach (var inv in parentInventories)
+                        {
+                            var txQuarantine = new InventoryTransaction
+                            {
+                                InventoryId = inv.Id,
+                                WarehouseId = inv.WarehouseId,
+                                LocationId = inv.LocationId,
+                                ProductVariantId = inv.ProductVariantId,
+                                PaddyLotId = lot.Id,
+                                TransactionType = InventoryTransactionTypeConstants.ManualAdjust,
+                                ReferenceType = InventoryReferenceTypeConstants.QualityInspectionQuarantine,
+                                ReferenceId = entity.Id,
+                                Quantity = 0,
+                                BeforeQuantity = inv.QuantityOnHand,
+                                AfterQuantity = inv.QuantityOnHand,
+                                Note = "Toàn bộ lô hàng chuyển sang trạng thái CÁCH LY do kiểm định không đạt",
+                                CreatedBy = obj.UpdatedBy,
+                                CreatedDate = now
+                            };
+                            await _inventoryTransactionRepository.CreateAsync(txQuarantine);
+                        }
+                        await _inventoryTransactionRepository.SaveChangesAsync();
+                    }
+
+                    lot.LastModifiedDate = now;
+                    lot.UpdatedBy = obj.UpdatedBy;
+                    await _paddyLotRepository.UpdateAsync(lot);
+                    await _paddyLotRepository.SaveChangesAsync();
+                }
+            }
+
+            // 6. Xử lý Tồn kho (Inventory) và Giao dịch tồn kho (InventoryTransaction) nếu xảy ra Tách lô
+            if (isSplit && childLot != null)
+            {
+                decimal remainingToDeduct = obj.AffectedWeightKg!.Value;
+
+                foreach (var parentInv in parentInventories.OrderByDescending(x => x.QuantityOnHand - x.QuantityReserved))
+                {
+                    if (remainingToDeduct <= 0) break;
+
+                    decimal parentAvailable = Math.Max(0, parentInv.QuantityOnHand - parentInv.QuantityReserved);
+                    decimal deductQty = Math.Min(parentAvailable, remainingToDeduct);
+                    if (deductQty <= 0) continue;
+
+                    parentInv.QuantityOnHand -= deductQty;
+                    parentInv.LastModifiedDate = now;
+                    parentInv.UpdatedBy = obj.UpdatedBy;
+                    await _inventoryRepository.UpdateAsync(parentInv);
+
+                    var childInv = await _inventoryRepository.FirstOrDefaultAsync(x => x.PaddyLotId == childLot.Id 
+                        && x.WarehouseId == parentInv.WarehouseId 
+                        && x.LocationId == parentInv.LocationId 
+                        && !x.IsDeleted);
+
+                    if (childInv != null)
+                    {
+                        childInv.QuantityOnHand += deductQty;
+                        childInv.LastModifiedDate = now;
+                        childInv.UpdatedBy = obj.UpdatedBy;
+                        await _inventoryRepository.UpdateAsync(childInv);
+                    }
+                    else
+                    {
+                        childInv = new Inventory
+                        {
+                            WarehouseId = parentInv.WarehouseId,
+                            LocationId = parentInv.LocationId,
+                            ProductVariantId = parentInv.ProductVariantId,
+                            PaddyLotId = childLot.Id,
+                            CostPrice = parentInv.CostPrice,
+                            QuantityOnHand = deductQty,
+                            QuantityReserved = 0,
+                            CreatedDate = now,
+                            CreatedBy = obj.UpdatedBy
+                        };
+                        await _inventoryRepository.CreateAsync(childInv);
+                    }
+                    await _inventoryRepository.SaveChangesAsync();
+
+                    remainingToDeduct -= deductQty;
+
+                    var txOut = new InventoryTransaction
+                    {
+                        InventoryId = parentInv.Id,
+                        WarehouseId = parentInv.WarehouseId,
+                        LocationId = parentInv.LocationId,
+                        ProductVariantId = parentInv.ProductVariantId,
+                        PaddyLotId = lot.Id,
+                        TransactionType = InventoryTransactionTypeConstants.ManualAdjust,
+                        ReferenceType = InventoryReferenceTypeConstants.QualityInspectionSplit,
+                        ReferenceId = entity.Id,
+                        Quantity = deductQty,
+                        BeforeQuantity = parentInv.QuantityOnHand + deductQty,
+                        AfterQuantity = parentInv.QuantityOnHand,
+                        Note = $"Trừ tồn do tách lô cách ly {childLot.LotCode}",
+                        CreatedBy = obj.UpdatedBy,
+                        CreatedDate = now
+                    };
+                    await _inventoryTransactionRepository.CreateAsync(txOut);
+
+                    var txIn = new InventoryTransaction
+                    {
+                        InventoryId = childInv.Id,
+                        WarehouseId = childInv.WarehouseId,
+                        LocationId = childInv.LocationId,
+                        ProductVariantId = parentInv.ProductVariantId,
+                        PaddyLotId = childLot.Id,
+                        TransactionType = InventoryTransactionTypeConstants.ManualAdjust,
+                        ReferenceType = InventoryReferenceTypeConstants.QualityInspectionSplit,
+                        ReferenceId = entity.Id,
+                        Quantity = deductQty,
+                        BeforeQuantity = childInv.QuantityOnHand - deductQty,
+                        AfterQuantity = childInv.QuantityOnHand,
+                        Note = $"Nhập tồn do tách lô cách ly từ lô gốc {lot.LotCode}",
+                        CreatedBy = obj.UpdatedBy,
+                        CreatedDate = now
+                    };
+                    await _inventoryTransactionRepository.CreateAsync(txIn);
+                }
+
+                await _inventoryTransactionRepository.SaveChangesAsync();
+            }
+
+            await tx.CommitAsync();
+
+            try
+            {
+                if (_scheduledJobService != null)
+                {
+                    _scheduledJobService.Enqueue<ILotQualityRecheckService>(s => s.EvaluateLotAsync(entity.PaddyLotId, CancellationToken.None));
+                    if (isSplit && childLot != null)
+                    {
+                        _scheduledJobService.Enqueue<ILotQualityRecheckService>(s => s.EvaluateLotAsync(childLot.Id, CancellationToken.None));
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore to avoid disrupting business flow
             }
         }
         catch
         {
-            // Ignore to avoid disrupting business flow
+            await tx.RollbackAsync();
+            throw;
         }
 
         return ApiResponse.Success(entity.Id, "Cập nhật phiếu kiểm tra thành công.");

@@ -170,6 +170,7 @@ public class QualityInspectionServiceTests
         _lotRepo.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(lot);
         _lotRepo.Setup(r => r.UpdateAsync(lot)).Returns(Task.CompletedTask);
         _lotRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
+        SetupTransaction(_repo);
 
         var dto = new UpdateQualityInspectionDto
         {
@@ -197,6 +198,7 @@ public class QualityInspectionServiceTests
         _lotRepo.Setup(r => r.GetByIdAsync(6)).ReturnsAsync(lot);
         _lotRepo.Setup(r => r.UpdateAsync(lot)).Returns(Task.CompletedTask);
         _lotRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
+        SetupTransaction(_repo);
 
         var dto = new UpdateQualityInspectionDto
         {
@@ -550,6 +552,9 @@ public class QualityInspectionServiceTests
         };
         _repo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(existing);
 
+        var lot = new PaddyLotEntity { Id = 5, IsDeleted = false, RemainingWeightKg = 5000 };
+        _lotRepo.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(lot);
+
         var dto = new UpdateQualityInspectionDto
         {
             Id = 1,
@@ -575,6 +580,10 @@ public class QualityInspectionServiceTests
             Id = 1, PaddyLotId = 5, PassedInspection = false, AffectedWeightKg = 3000, Note = "Old" 
         };
         _repo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(existing);
+
+        var lot = new PaddyLotEntity { Id = 5, IsDeleted = false, RemainingWeightKg = 5000 };
+        _lotRepo.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(lot);
+        SetupTransaction(_repo);
 
         var dto = new UpdateQualityInspectionDto
         {

@@ -194,6 +194,10 @@ public class SalesOrderService : ISalesOrderService
         if (dto.Items == null || !dto.Items.Any())
             return ApiResponse.BadRequest("Đơn bán phải có ít nhất 1 dòng sản phẩm.", ApiCodeConstants.SalesOrder.InvalidRequest);
 
+        var duplicateItems = dto.Items.GroupBy(x => x.ProductVariantId).FirstOrDefault(g => g.Count() > 1);
+        if (duplicateItems != null)
+            return ApiResponse.BadRequest("Không được thêm trùng cùng một biến thể sản phẩm (SKU) trên đơn bán.", ApiCodeConstants.SalesOrder.InvalidRequest);
+
         var now    = DateTimeHelper.VietnamNow();
         var userId = GetCurrentUserId();
         var orgId  = await GetCurrentOrganizationIdAsync();
@@ -298,6 +302,10 @@ public class SalesOrderService : ISalesOrderService
 
         if (dto.Items.Any())
         {
+            var duplicateItems = dto.Items.GroupBy(x => x.ProductVariantId).FirstOrDefault(g => g.Count() > 1);
+            if (duplicateItems != null)
+                return ApiResponse.BadRequest("Không được thêm trùng cùng một biến thể sản phẩm (SKU) trên đơn bán.", ApiCodeConstants.SalesOrder.InvalidRequest);
+
             // Xóa items cũ
             foreach (var old in so.SalesOrderItems.ToList())
             {

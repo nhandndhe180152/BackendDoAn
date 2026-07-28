@@ -972,10 +972,10 @@ public class InboundOrderService : IInboundOrderService
             (lot.QualityStatus == QualityStatusConstants.Failed ||
              lot.Status?.Code == LotStatusCodeConstants.Quarantine);
 
-        double catMatchW = 0.40;
-        double capFitW = 0.30;
-        double occW = 0.20;
-        double priW = 0.10;
+        double catMatchW = (double)CommonConstants.SystemConfig.DEFAULT_PUTAWAY_CATEGORY_MATCH_WEIGHT;
+        double capFitW   = (double)CommonConstants.SystemConfig.DEFAULT_PUTAWAY_CAPACITY_FIT_WEIGHT;
+        double occW      = (double)CommonConstants.SystemConfig.DEFAULT_PUTAWAY_OCCUPANCY_WEIGHT;
+        double priW      = (double)CommonConstants.SystemConfig.DEFAULT_PUTAWAY_PRIORITY_WEIGHT;
 
         var whCatMatchStr = await _systemConfigRepository.GetValueByKey($"PutawayCategoryMatchWeight:{order.WarehouseId}");
         var whCapFitStr = await _systemConfigRepository.GetValueByKey($"PutawayCapacityFitWeight:{order.WarehouseId}");
