@@ -104,4 +104,50 @@ public class SalesOrderServiceTests
 
         result.Status.Should().Be(409);
     }
+
+    [Fact]
+    public async Task CreateAsync_DuplicateItems_ReturnsBadRequest()
+    {
+        var dto = new CreateSalesOrderDto
+        {
+            CustomerId = 1,
+            Items = new List<CreateSalesOrderItemDto>
+            {
+                new() { ProductVariantId = 102, QuantityOrdered = 100 },
+                new() { ProductVariantId = 102, QuantityOrdered = 50 }
+            }
+        };
+
+        var result = await Sut().CreateAsync(dto);
+
+        result.Status.Should().Be(400);
+        result.Message.Should().Contain("trùng");
+    }
+
+    [Fact]
+    public async Task UpdateAsync_DuplicateItems_ReturnsBadRequest()
+    {
+        var so = new global::Backend.Domain.Entities.SalesOrder
+        {
+            Id = 1,
+            Status = new SalesOrderStatus { Name = SalesOrderStatusNames.New }
+        };
+        _soRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(so);
+
+        var dto = new UpdateSalesOrderDto
+        {
+            Id = 1,
+            Items = new List<UpdateSalesOrderItemDto>
+            {
+                new() { ProductVariantId = 102, QuantityOrdered = 100 },
+                new() { ProductVariantId = 102, QuantityOrdered = 50 }
+            }
+        };
+
+        var result = await Sut().UpdateAsync(dto);
+
+        result.Status.Should().Be(400);
+        result.Message.Should().Contain("trùng");
+    }
 }
+
