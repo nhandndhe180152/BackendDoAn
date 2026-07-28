@@ -161,6 +161,35 @@ public class DebtDueAndOverdueReminderTests
     }
 
     [Fact]
+    public void CalculateDebtDocuments_TargetedPayment_PaysSelectedDocumentBeforeFifo()
+    {
+        var calcService = new DebtAgingCalculationService(
+            null!,
+            new DebtTransactionEffectResolver());
+        var debt = new PartyDebt
+        {
+            Id = 1,
+            PartyType = "CUSTOMER",
+            PartyId = 1,
+            Direction = "RECEIVABLE",
+            CurrentBalance = 12000000m,
+            IsActive = true
+        };
+        var transactions = new List<DebtTransaction>
+        {
+            new() { Id = 1, PartyDebtId = 1, TransactionType = "CHARGE", Amount = 10000000m, RefType = "OUTBOUND_ORDER", RefId = 10, TransactionDate = new DateTime(2026, 7, 1), DueDate = new DateTime(2026, 7, 10) },
+            new() { Id = 2, PartyDebtId = 1, TransactionType = "CHARGE", Amount = 10000000m, RefType = "OUTBOUND_ORDER", RefId = 20, TransactionDate = new DateTime(2026, 7, 2), DueDate = new DateTime(2026, 7, 11) },
+            new() { Id = 3, PartyDebtId = 1, TransactionType = "PAYMENT", Amount = 8000000m, RefType = "OUTBOUND_ORDER", RefId = 20, TransactionDate = new DateTime(2026, 7, 3) }
+        };
+
+        var documents = calcService.CalculateDebtDocuments(debt, transactions);
+
+        documents.Single(x => x.RefId == 10).OutstandingAmount.Should().Be(10000000m);
+        documents.Single(x => x.RefId == 20).OutstandingAmount.Should().Be(2000000m);
+        documents.Sum(x => x.OutstandingAmount).Should().Be(debt.CurrentBalance);
+    }
+
+    [Fact]
     public void EvaluateRules_DueSoonAndOverdue_CorrectSeverityAndMetadata()
     {
         // Arrange

@@ -246,7 +246,7 @@ public class StockTakeService : IStockTakeService
         // Quyền duyệt/từ chối kiểm kê: Chủ kho (duyệt điều chỉnh tồn) hoặc Quản trị viên.
         if (!currentRoleIds.Contains(CommonConstants.Role.ADMIN) && !currentRoleIds.Contains(CommonConstants.Role.OWNER))
         {
-            return ApiResponse.Forbidden();
+            return ApiResponse.Forbidden(message: "Forbidden");
         }
 
         var existData = await _stockTakeRepository.FindByCondition(x => !x.IsDeleted && x.Id == id)
@@ -362,7 +362,7 @@ public class StockTakeService : IStockTakeService
         // Quyền duyệt/từ chối kiểm kê: Chủ kho (duyệt điều chỉnh tồn) hoặc Quản trị viên.
         if (!currentRoleIds.Contains(CommonConstants.Role.ADMIN) && !currentRoleIds.Contains(CommonConstants.Role.OWNER))
         {
-            return ApiResponse.Forbidden();
+            return ApiResponse.Forbidden(message: "Forbidden");
         }
 
         var existData = await _stockTakeRepository.FindByCondition(x => !x.IsDeleted && x.Id == id).FirstOrDefaultAsync();

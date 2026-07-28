@@ -3,6 +3,7 @@ using Asp.Versioning;
 using Backend.API.Utilities;
 using Backend.Application.DTOs.PartyDebts;
 using Backend.Application.Interfaces;
+using Backend.Domain.DTParameters;
 using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -39,9 +40,33 @@ namespace Backend.API.Controllers
 
         /// <summary>POST /party-debts/paged-advanced — danh sách phân trang</summary>
         [HttpPost("paged-advanced")]
-        public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)
+        public async Task<IActionResult> GetPagedAsync([FromBody] PartyDebtDTParameters parameters)
         {
             var result = await _partyDebtService.GetPagedAsync(parameters);
+            return BaseResult(result);
+        }
+
+        /// <summary>GET /party-debts/summary — tổng quan phải thu, phải trả và quá hạn.</summary>
+        [HttpGet("summary")]
+        public async Task<IActionResult> GetSummaryAsync()
+        {
+            var result = await _partyDebtService.GetSummaryAsync();
+            return BaseResult(result);
+        }
+
+        /// <summary>POST /party-debts/documents/paged — công nợ chi tiết theo chứng từ nguồn.</summary>
+        [HttpPost("documents/paged")]
+        public async Task<IActionResult> GetDocumentsAsync([FromBody] DebtDocumentDTParameters parameters)
+        {
+            var result = await _partyDebtService.GetDocumentsAsync(parameters);
+            return BaseResult(result);
+        }
+
+        /// <summary>POST /party-debts/transactions/paged-advanced — lịch sử giao dịch toàn hệ thống.</summary>
+        [HttpPost("transactions/paged-advanced")]
+        public async Task<IActionResult> GetAllTransactionsAsync([FromBody] DebtTransactionDTParameters parameters)
+        {
+            var result = await _partyDebtService.GetAllTransactionsAsync(parameters);
             return BaseResult(result);
         }
 

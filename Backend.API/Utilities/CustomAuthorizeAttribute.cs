@@ -68,7 +68,7 @@ public class CustomAuthorizeAttribute : Attribute, IAsyncAuthorizationFilter
                             roleIds.Contains(x.RoleId));
                     if (!isAllowed)
                     {
-                        var response = ApiResponse.Forbidden(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.Forbidden), ApiCodeConstants.Common.Forbidden);
+                        var response = ApiResponse.Forbidden(message: ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.Forbidden), code: ApiCodeConstants.Common.Forbidden);
                         context.Result = new ObjectResult(response)
                         {
                             StatusCode = (int)HttpStatusCode.Forbidden
@@ -78,7 +78,7 @@ public class CustomAuthorizeAttribute : Attribute, IAsyncAuthorizationFilter
                 }
                 else
                 {
-                    var response = ApiResponse.Forbidden(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.Forbidden), ApiCodeConstants.Common.Forbidden);
+                    var response = ApiResponse.Forbidden(message: ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.Forbidden), code: ApiCodeConstants.Common.Forbidden);
                     context.Result = new ObjectResult(response)
                     {
                         StatusCode = (int)HttpStatusCode.Forbidden

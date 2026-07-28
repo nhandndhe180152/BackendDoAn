@@ -86,8 +86,8 @@ namespace Backend.API.Controllers
             if (!CanManageMillingOrder())
             {
                 return BaseResult(ApiResponse.Forbidden(
-                    "Bạn không có quyền tạo lệnh xay xát.",
-                    ApiCodeConstants.Common.Forbidden));
+                    message: "Bạn không có quyền tạo lệnh xay xát.",
+                    code: ApiCodeConstants.Common.Forbidden));
             }
 
             dto.CreatedBy = this.GetLoggedInUserId();
@@ -101,8 +101,8 @@ namespace Backend.API.Controllers
             if (!CanManageMillingOrder())
             {
                 return BaseResult(ApiResponse.Forbidden(
-                    "Bạn không có quyền chỉnh sửa lệnh xay xát.",
-                    ApiCodeConstants.Common.Forbidden));
+                    message: "Bạn không có quyền chỉnh sửa lệnh xay xát.",
+                    code: ApiCodeConstants.Common.Forbidden));
             }
 
             dto.UpdatedBy = this.GetLoggedInUserId();
@@ -116,8 +116,8 @@ namespace Backend.API.Controllers
             if (!CanHandleMillingInventory())
             {
                 return BaseResult(ApiResponse.Forbidden(
-                    "Bạn không có quyền giữ lúa cho lệnh xay.",
-                    ApiCodeConstants.Common.Forbidden));
+                    message: "Bạn không có quyền giữ lúa cho lệnh xay.",
+                    code: ApiCodeConstants.Common.Forbidden));
             }
 
             var userId = this.GetLoggedInUserId();
@@ -131,8 +131,8 @@ namespace Backend.API.Controllers
             if (!CanManageMillingOrder())
             {
                 return BaseResult(ApiResponse.Forbidden(
-                    "Bạn không có quyền bắt đầu lệnh xay.",
-                    ApiCodeConstants.Common.Forbidden));
+                    message: "Bạn không có quyền bắt đầu lệnh xay.",
+                    code: ApiCodeConstants.Common.Forbidden));
             }
 
             var userId = this.GetLoggedInUserId();
@@ -146,8 +146,8 @@ namespace Backend.API.Controllers
             if (!CanHandleMillingInventory())
             {
                 return BaseResult(ApiResponse.Forbidden(
-                    "Bạn không có quyền hoàn tất và nhập kho kết quả xay.",
-                    ApiCodeConstants.Common.Forbidden));
+                    message: "Bạn không có quyền hoàn tất và nhập kho kết quả xay.",
+                    code: ApiCodeConstants.Common.Forbidden));
             }
 
             var userId = this.GetLoggedInUserId();
@@ -161,8 +161,8 @@ namespace Backend.API.Controllers
             if (!CanManageMillingOrder())
             {
                 return BaseResult(ApiResponse.Forbidden(
-                    "Bạn không có quyền hủy lệnh xay.",
-                    ApiCodeConstants.Common.Forbidden));
+                    message: "Bạn không có quyền hủy lệnh xay.",
+                    code: ApiCodeConstants.Common.Forbidden));
             }
 
             var userId = this.GetLoggedInUserId();
@@ -176,8 +176,8 @@ namespace Backend.API.Controllers
             if (!IsAdminOrOwner())
             {
                 return BaseResult(ApiResponse.Forbidden(
-                    "Chỉ Admin hoặc Chủ cơ sở mới có quyền xóa lệnh xay.",
-                    ApiCodeConstants.Common.Forbidden));
+                    message: "Chỉ Admin hoặc Chủ cơ sở mới có quyền xóa lệnh xay.",
+                    code: ApiCodeConstants.Common.Forbidden));
             }
 
             var result = await _millingOrderService.SoftDeleteAsync(id);

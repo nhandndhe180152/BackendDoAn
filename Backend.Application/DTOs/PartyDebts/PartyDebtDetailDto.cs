@@ -8,6 +8,8 @@ public class PartyDebtDetailDto
     public int? OrganizationId { get; set; }
     public string PartyType { get; set; } = null!;
     public int PartyId { get; set; }
+    public string PartyCode { get; set; } = string.Empty;
+    public string PartyName { get; set; } = string.Empty;
     public string Direction { get; set; } = null!;
     public decimal OpeningBalance { get; set; }
     public decimal CurrentBalance { get; set; }
@@ -21,4 +23,17 @@ public class PartyDebtDetailDto
     public decimal OverdueAmount { get; set; }
     public DateTime? OldestOverdueDate { get; set; }
     public int MaxDaysOverdue { get; set; }
+}
+
+public class PartyDebtSummaryDto
+{
+    public decimal TotalPayable { get; set; }
+    public decimal TotalReceivable { get; set; }
+    public decimal TotalOverduePayable { get; set; }
+    public decimal TotalOverdueReceivable { get; set; }
+    public int OverLimitCustomerCount { get; set; }
+    public int ActiveDebtCount { get; set; }
+    public int OpenDocumentCount { get; set; }
+    public int OverdueDocumentCount { get; set; }
+    public decimal NetProjectedCashFlow { get; set; }
 }

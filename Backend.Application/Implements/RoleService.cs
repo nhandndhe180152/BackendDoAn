@@ -281,7 +281,7 @@ public class RoleService : IRoleService
         // (ADMIN/OWNER/PURCHASING/WAREHOUSE/MILLING/SALES): xoá sẽ làm hỏng gửi thông báo theo role & phân quyền.
         var role = await _roleRepository.GetByIdAsync(id);
         if (role != null && !string.IsNullOrEmpty(role.Code) && CommonConstants.Role.SystemCodes.Contains(role.Code))
-            return ApiResponse.Forbidden(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.Forbidden), ApiCodeConstants.Common.Forbidden);
+            return ApiResponse.Forbidden(message: ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.Forbidden), code: ApiCodeConstants.Common.Forbidden);
 
         var isDeleted = await _roleRepository.SoftDeleteAsync(id);
         if (!isDeleted)

@@ -122,7 +122,7 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
     {
         var user = _httpContextAccessor.HttpContext?.User;
         if (user == null)
-            return ApiResponse.Forbidden("Chưa xác thực người dùng.", "UNAUTHORIZED");
+            return ApiResponse.Forbidden(message: "Chưa xác thực người dùng.", code: "UNAUTHORIZED");
 
         var roleIdsStr = user.FindFirst(Backend.Share.Constants.ClaimNames.ROLE_IDS)?.Value;
         bool isAdmin = false;
@@ -137,7 +137,7 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
         var officeIdStr = user.FindFirst(ClaimNames.OFFICE_ID)?.Value;
         if (!int.TryParse(officeIdStr, out var userOrgId))
         {
-            return ApiResponse.Forbidden("Tài khoản không được liên kết với tổ chức hợp lệ.", "ORGANIZATION_ACCESS_DENIED");
+            return ApiResponse.Forbidden(message: "Tài khoản không được liên kết với tổ chức hợp lệ.", code: "ORGANIZATION_ACCESS_DENIED");
         }
 
         if (requestedLot.OrganizationId.HasValue && requestedLot.OrganizationId.Value != userOrgId)
