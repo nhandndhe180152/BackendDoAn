@@ -7,6 +7,7 @@ using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers
 {
@@ -24,7 +25,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost]
-        //[CustomAuthorize(Enums.Menu.ROLE,Enums.Action.CREATE)]
+        [CustomAuthorize(Enums.Menu.ROLE, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreateRoleDto obj)
         {
             obj.CreatedBy = this.GetLoggedInUserId();
@@ -34,6 +35,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet]
+        [CustomAuthorize(Enums.Menu.ROLE, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _roleService.GetAllAsync();
@@ -42,7 +44,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}")]
-        //[CustomAuthorize(Enums.Menu.ROLE, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.ROLE, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var data = await _roleService.GetByIdAsync(id);
@@ -51,7 +53,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged")]
-        //[CustomAuthorize(Enums.Menu.ROLE, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.ROLE, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] SearchQuery query)
         {
             var data = await _roleService.GetPagedAsync(query);
@@ -60,7 +62,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged-advanced")]
-        //[CustomAuthorize(Enums.Menu.ROLE, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.ROLE, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)
         {
             var data = await _roleService.GetPagedAsync(parameters);
@@ -69,7 +71,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpDelete("{id}")]
-        //[CustomAuthorize(Enums.Menu.ROLE, Enums.Action.DELETE)]
+        [CustomAuthorize(Enums.Menu.ROLE, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var data = await _roleService.SoftDeleteAsync(id);
@@ -78,7 +80,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut]
-        //[CustomAuthorize(Enums.Menu.ROLE, Enums.Action.UPDATE)]
+        [CustomAuthorize(Enums.Menu.ROLE, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateRoleDto obj)
         {
             obj.UpdatedBy = this.GetLoggedInUserId();
@@ -88,7 +90,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{roleId}/permissons")]
-        //[CustomAuthorize(Enums.Menu.ROLE, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.ROLE, Enums.Action.READ)]
         public async Task<IActionResult> GetPermissionAsync(int roleId)
         {
             var result = await _roleService.GetPermissionAsync(roleId);
@@ -97,7 +99,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut("{roleId}/permissons")]
-        //[CustomAuthorize(Enums.Menu.ROLE, Enums.Action.UPDATE)]
+        [CustomAuthorize(Enums.Menu.ROLE, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdatePermissionAsync(int roleId, [FromBody] List<UpdatePermissionDto> objs)
         {
             var userId = this.GetLoggedInUserId();
@@ -113,6 +115,7 @@ namespace Backend.API.Controllers
 
         [AllowAnonymous]
         [HttpGet("available-for-register")]
+        [CustomAuthorize(Enums.Menu.ROLE, Enums.Action.READ)]
         public async Task<IActionResult> GetByAdminRegister()
         {
             var result = await _roleService.GetByAdminRegister();
@@ -120,6 +123,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("available-for-user-management")]
+        [CustomAuthorize(Enums.Menu.ROLE, Enums.Action.READ)]
         public async Task<IActionResult> ListRoleForUserManagementAsync()
         {
             var result = await _roleService.GetListRoleForUserManagementAsync();

@@ -7,6 +7,7 @@ using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers
 {
@@ -27,6 +28,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet]
+        [CustomAuthorize(Enums.Menu.MILLING_YIELD_CONFIGS, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _millingYieldConfigService.GetAllAsync();
@@ -34,6 +36,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged-advanced")]
+        [CustomAuthorize(Enums.Menu.MILLING_YIELD_CONFIGS, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)
         {
             var result = await _millingYieldConfigService.GetPagedAsync(parameters);
@@ -41,6 +44,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}")]
+        [CustomAuthorize(Enums.Menu.MILLING_YIELD_CONFIGS, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var result = await _millingYieldConfigService.GetByIdAsync(id);
@@ -48,6 +52,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost]
+        [CustomAuthorize(Enums.Menu.MILLING_YIELD_CONFIGS, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreateMillingYieldConfigDto dto)
         {
             dto.CreatedBy = this.GetLoggedInUserId();
@@ -56,6 +61,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut]
+        [CustomAuthorize(Enums.Menu.MILLING_YIELD_CONFIGS, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateMillingYieldConfigDto dto)
         {
             dto.UpdatedBy = this.GetLoggedInUserId();
@@ -64,6 +70,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpDelete("{id}")]
+        [CustomAuthorize(Enums.Menu.MILLING_YIELD_CONFIGS, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var result = await _millingYieldConfigService.SoftDeleteAsync(id);

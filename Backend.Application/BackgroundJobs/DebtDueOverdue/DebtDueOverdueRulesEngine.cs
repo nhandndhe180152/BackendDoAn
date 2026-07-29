@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Backend.Application.Constants;
 using Backend.Domain.Entities;
 
@@ -7,6 +8,14 @@ namespace Backend.Application.BackgroundJobs.DebtDueOverdue;
 
 public class DebtDueOverdueRulesEngine : IDebtDueOverdueRulesEngine
 {
+    // Định dạng tiền cố định kiểu VN (phân tách nghìn = "."), KHÔNG phụ thuộc culture của server
+    // để message reminder luôn nhất quán (vd 5.000.000 VNĐ) trên mọi máy.
+    private static readonly NumberFormatInfo VnCurrencyFormat = new()
+    {
+        NumberGroupSeparator = ".",
+        NumberDecimalSeparator = ",",
+        NumberGroupSizes = new[] { 3 }
+    };
     public List<DebtDueOverdueRuleEvaluation> Evaluate(
         PartyDebt partyDebt,
         string partyName,
@@ -58,7 +67,7 @@ public class DebtDueOverdueRulesEngine : IDebtDueOverdueRulesEngine
 
         string message = "";
         string dueDateStr = agingResult.NearestDueDate?.ToString("dd/MM/yyyy") ?? "";
-        string amountStr = amount.ToString("N0") + " VNĐ";
+        string amountStr = amount.ToString("N0", VnCurrencyFormat) + " VNĐ";
 
         if (partyDebt.Direction == LookupCodes.DebtDirection.Payable)
         {
@@ -121,7 +130,7 @@ public class DebtDueOverdueRulesEngine : IDebtDueOverdueRulesEngine
 
         string message = "";
         string oldestDueDateStr = agingResult.OldestOverdueDate?.ToString("dd/MM/yyyy") ?? "";
-        string amountStr = amount.ToString("N0") + " VNĐ";
+        string amountStr = amount.ToString("N0", VnCurrencyFormat) + " VNĐ";
 
         if (partyDebt.Direction == LookupCodes.DebtDirection.Payable)
         {

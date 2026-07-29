@@ -10,6 +10,7 @@ using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers
 {
@@ -43,6 +44,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet]
+        [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _paddyLotService.GetAllAsync();
@@ -50,6 +52,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged-advanced")]
+        [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)
         {
             var result = await _paddyLotService.GetPagedAsync(parameters);
@@ -57,6 +60,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}")]
+        [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var result = await _paddyLotService.GetByIdAsync(id);
@@ -64,6 +68,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost]
+        [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreatePaddyLotDto dto)
         {
             dto.CreatedBy = this.GetLoggedInUserId();
@@ -72,6 +77,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut]
+        [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdatePaddyLotDto dto)
         {
             dto.UpdatedBy = this.GetLoggedInUserId();
@@ -80,6 +86,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpDelete("{id}")]
+        [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var result = await _paddyLotService.SoftDeleteAsync(id);
@@ -87,6 +94,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("{id}/qr/ensure")]
+        [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.UPDATE)]
         public async Task<IActionResult> EnsureQrAsync(int id, CancellationToken cancellationToken)
         {
             try
@@ -105,6 +113,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("{id}/qr/regenerate")]
+        [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.UPDATE)]
         public async Task<IActionResult> RegenerateQrAsync(int id, [FromBody] RegenerateQrRequestDto dto, CancellationToken cancellationToken)
         {
             var userId = this.GetLoggedInUserId();
@@ -133,6 +142,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}/qr/image")]
+        [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.READ)]
         public async Task<IActionResult> GetQrImageAsync(int id, CancellationToken cancellationToken = default)
         {
             try
@@ -160,6 +170,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}/label")]
+        [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.READ)]
         public async Task<IActionResult> GetLabelPdfAsync(int id, [FromQuery] string template = "MEDIUM", [FromQuery] int copies = 1, CancellationToken cancellationToken = default)
         {
             if (copies < 1 || copies > 10)
@@ -183,6 +194,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id:int}/traceability")]
+        [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.READ)]
         public async Task<IActionResult> GetTraceabilityByIdAsync(
             int id,
             [FromQuery] bool includeTimeline = true,
@@ -205,6 +217,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("code/{lotCode}/traceability")]
+        [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.READ)]
         public async Task<IActionResult> GetTraceabilityByCodeAsync(
             string lotCode,
             [FromQuery] bool includeTimeline = true,

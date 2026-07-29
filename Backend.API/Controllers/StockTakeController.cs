@@ -6,6 +6,7 @@ using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers
 {
@@ -23,6 +24,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _stockTakeService.GetAllAsync();
@@ -30,6 +32,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged-advanced")]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)
         {
             var result = await _stockTakeService.GetPagedAsync(parameters);
@@ -37,6 +40,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}")]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var result = await _stockTakeService.GetByIdAsync(id);
@@ -44,6 +48,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreateStockTakeDto dto)
         {
             dto.CreatedBy = this.GetLoggedInUserId();
@@ -52,6 +57,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateStockTakeDto dto)
         {
             dto.UpdatedBy = this.GetLoggedInUserId();
@@ -60,6 +66,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpDelete("{id}")]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var result = await _stockTakeService.SoftDeleteAsync(id);
@@ -67,6 +74,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("{id}/approve")]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.UPDATE)]
         public async Task<IActionResult> ApproveAsync(int id, [FromBody] ApproveStockTakeDto dto)
         {
             var result = await _stockTakeService.ApproveAsync(id, dto.ApproveNote, this.GetLoggedInUserId());
@@ -74,6 +82,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("{id}/reject")]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.UPDATE)]
         public async Task<IActionResult> RejectAsync(int id, [FromBody] RejectStockTakeDto dto)
         {
             var result = await _stockTakeService.RejectAsync(id, dto.Reason, this.GetLoggedInUserId());
