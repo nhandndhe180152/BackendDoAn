@@ -34,7 +34,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet]
-        [CustomAuthorize(Enums.Menu.ACTIONS, Enums.Action.READ)]
+        // [CustomAuthorize(Enums.Menu.ACTIONS, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _actionService.GetAllAsync();
@@ -43,7 +43,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}")]
-        [CustomAuthorize(Enums.Menu.ACTIONS, Enums.Action.READ)]
+        // [CustomAuthorize(Enums.Menu.ACTIONS, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var result = await _actionService.GetByIdAsync(id);
