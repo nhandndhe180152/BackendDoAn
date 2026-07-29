@@ -100,19 +100,27 @@ public class InboundOrderServiceTests
     [Fact]
     public async Task GetByIdAsync_NotFound_Returns404()
     {
-        _inboundOrderRepository.Setup(r => r.FirstOrDefaultAsync(
+        var orders = new List<InboundOrder>();
+        _inboundOrderRepository.Setup(r => r.FindByCondition(
             It.IsAny<Expression<Func<InboundOrder, bool>>>(),
             It.IsAny<bool>(),
             It.IsAny<Expression<Func<InboundOrder, object>>[]>()))
-            .ReturnsAsync((InboundOrder?)null);
+            .Returns(orders.AsQueryable().BuildMock());
 
         var result = await Sut().GetByIdAsync(999);
         result.Status.Should().Be(404);
     }
 
     [Fact]
-    public async Task CreateAsync_NoItems_Returns400()
+    public async Task CreateAsync_NoItems_Returns422()
     {
+        var warehouse = new Backend.Domain.Entities.Warehouse { Id = 1, IsActive = true, IsDeleted = false };
+        _warehouseRepository.Setup(r => r.FirstOrDefaultAsync(
+            It.IsAny<Expression<Func<Backend.Domain.Entities.Warehouse, bool>>>(),
+            It.IsAny<bool>(),
+            It.IsAny<Expression<Func<Backend.Domain.Entities.Warehouse, object>>[]>()))
+            .ReturnsAsync(warehouse);
+
         var dto = new CreateInboundOrderDto
         {
             WarehouseId = 1,
@@ -121,7 +129,7 @@ public class InboundOrderServiceTests
         };
 
         var result = await Sut().CreateAsync(dto);
-        result.Status.Should().Be(400);
+        result.Status.Should().Be(422);
     }
 
     [Fact]
