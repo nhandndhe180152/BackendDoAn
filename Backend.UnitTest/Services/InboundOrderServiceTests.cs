@@ -26,7 +26,7 @@ namespace Backend.UnitTest.Services;
 [Trait("Service", "InboundOrder")]
 public class InboundOrderServiceTests
 {
-    private readonly Mock<IRepositoryBase<InboundOrder, int>> _inboundOrderRepository = new();
+    private readonly Mock<IRepositoryBase<Backend.Domain.Entities.InboundOrder, int>> _inboundOrderRepository = new();
     private readonly Mock<IInboundOrderItemRepository> _inboundOrderItemRepository = new();
     private readonly Mock<IRepositoryBase<InboundOrderStatus, int>> _inboundOrderStatusRepository = new();
     private readonly Mock<IWarehouseRepository> _warehouseRepository = new();
@@ -100,11 +100,11 @@ public class InboundOrderServiceTests
     [Fact]
     public async Task GetByIdAsync_NotFound_Returns404()
     {
-        var orders = new List<InboundOrder>();
+        var orders = new List<Backend.Domain.Entities.InboundOrder>();
         _inboundOrderRepository.Setup(r => r.FindByCondition(
-            It.IsAny<Expression<Func<InboundOrder, bool>>>(),
+            It.IsAny<Expression<Func<Backend.Domain.Entities.InboundOrder, bool>>>(),
             It.IsAny<bool>(),
-            It.IsAny<Expression<Func<InboundOrder, object>>[]>()))
+            It.IsAny<Expression<Func<Backend.Domain.Entities.InboundOrder, object>>[]>()))
             .Returns(orders.AsQueryable().BuildMock());
 
         var result = await Sut().GetByIdAsync(999);
@@ -136,10 +136,10 @@ public class InboundOrderServiceTests
     public async Task GetPutawaySuggestionsAsync_InboundOrderNotFound_Returns404()
     {
         _inboundOrderRepository.Setup(r => r.FirstOrDefaultAsync(
-            It.IsAny<Expression<Func<InboundOrder, bool>>>(),
+            It.IsAny<Expression<Func<Backend.Domain.Entities.InboundOrder, bool>>>(),
             It.IsAny<bool>(),
-            It.IsAny<Expression<Func<InboundOrder, object>>[]>()))
-            .ReturnsAsync((InboundOrder?)null);
+            It.IsAny<Expression<Func<Backend.Domain.Entities.InboundOrder, object>>[]>()))
+            .ReturnsAsync((Backend.Domain.Entities.InboundOrder?)null);
 
         var result = await Sut().GetPutawaySuggestionsAsync(1, 1);
         result.Status.Should().Be(404);
@@ -148,11 +148,11 @@ public class InboundOrderServiceTests
     [Fact]
     public async Task GetPutawaySuggestionsAsync_ReceiptItemNotFound_Returns404()
     {
-        var order = new InboundOrder { Id = 1, WarehouseId = 1 };
+        var order = new Backend.Domain.Entities.InboundOrder { Id = 1, WarehouseId = 1 };
         _inboundOrderRepository.Setup(r => r.FirstOrDefaultAsync(
-            It.IsAny<Expression<Func<InboundOrder, bool>>>(),
+            It.IsAny<Expression<Func<Backend.Domain.Entities.InboundOrder, bool>>>(),
             It.IsAny<bool>(),
-            It.IsAny<Expression<Func<InboundOrder, object>>[]>()))
+            It.IsAny<Expression<Func<Backend.Domain.Entities.InboundOrder, object>>[]>()))
             .ReturnsAsync(order);
 
         _inboundOrderItemRepository.Setup(r => r.FirstOrDefaultAsync(
@@ -169,11 +169,11 @@ public class InboundOrderServiceTests
     public async Task GetPutawaySuggestionsAsync_HasCandidateLocations_ScoresThemWithCorrectWeights()
     {
         // Arrange
-        var order = new InboundOrder { Id = 1, WarehouseId = 1 };
+        var order = new Backend.Domain.Entities.InboundOrder { Id = 1, WarehouseId = 1 };
         _inboundOrderRepository.Setup(r => r.FirstOrDefaultAsync(
-            It.IsAny<Expression<Func<InboundOrder, bool>>>(),
+            It.IsAny<Expression<Func<Backend.Domain.Entities.InboundOrder, bool>>>(),
             It.IsAny<bool>(),
-            It.IsAny<Expression<Func<InboundOrder, object>>[]>()))
+            It.IsAny<Expression<Func<Backend.Domain.Entities.InboundOrder, object>>[]>()))
             .ReturnsAsync(order);
 
         var item = new InboundOrderItem

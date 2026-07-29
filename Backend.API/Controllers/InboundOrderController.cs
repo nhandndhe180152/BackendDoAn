@@ -57,6 +57,20 @@ public class InboundOrderController : BaseController
         return BaseResult(result);
     }
 
+    /// Danh sách phiếu nhập lúa/gạo đang chờ xếp kho — 1 request thay cho list + N getById ở màn Store-in.
+    [HttpGet("putaway-pending")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.READ)]
+    public async Task<IActionResult> GetPutawayPendingAsync()
+    {
+        if (!IsInboundOperator())
+        {
+            return BaseResult(ApiResponse.Forbidden("Vai trò hiện tại không có quyền xử lý xếp kho.", ApiCodeConstants.Common.Forbidden));
+        }
+
+        var result = await _inboundOrderService.GetPutawayPendingAsync();
+        return BaseResult(result);
+    }
+
     [HttpGet("{id}")]
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.READ)]
     public async Task<IActionResult> GetByIdAsync(int id)
