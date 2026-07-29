@@ -222,6 +222,138 @@ public class QualityInspectionServiceTests
         _lotRepo.Verify(r => r.UpdateAsync(It.IsAny<PaddyLotEntity>()), Times.Never);
     }
 
+    [Fact]
+    public async Task UpdateAsync_FailedInspectionWithPartialAffectedWeight_SplitsLotAndAdjustsInventory()
+    {
+        // Arrange
+        var existing = new Domain.Entities.QualityInspection
+        {
+            Id = 11,
+            PaddyLotId = 5,
+            PassedInspection = true, // was not split
+            AffectedWeightKg = null,
+            IsDeleted = false
+        };
+        _repo.Setup(r => r.GetByIdAsync(11)).ReturnsAsync(existing);
+
+        var parentLot = new PaddyLotEntity
+        {
+            Id = 5,
+            LotCode = "LOT-5",
+            InitialWeightKg = 10000,
+            RemainingWeightKg = 10000,
+            LotType = "PADDY",
+            ProductVariantId = 1,
+            WarehouseId = 2,
+            LocationId = 3,
+            InboundDate = DateTime.UtcNow,
+            CostPricePerKg = 12000,
+            StatusId = 1
+        };
+        _lotRepo.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(parentLot);
+        SetupTransaction(_repo);
+
+        var quarantineStatus = new LotStatus { Id = 2, Code = "QUARANTINE" };
+        var inStockStatus = new LotStatus { Id = 3, Code = "IN_STOCK" };
+
+        _lotStatusRepo.Setup(r => r.FirstOrDefaultAsync(
+            It.IsAny<Expression<Func<LotStatus, bool>>>(),
+            It.IsAny<bool>(),
+            It.IsAny<Expression<Func<LotStatus, object>>[]>()))
+            .ReturnsAsync((Expression<Func<LotStatus, bool>> predicate, bool trackChanges, Expression<Func<LotStatus, object>>[] includes) => {
+                var str = predicate.ToString();
+                if (str.Contains("QUARANTINE")) return quarantineStatus;
+                if (str.Contains("IN_STOCK")) return inStockStatus;
+                return null;
+            });
+
+        var parentInv = new InventoryEntity
+        {
+            Id = 10,
+            PaddyLotId = 5,
+            QuantityOnHand = 10000,
+            QuantityReserved = 0,
+            CostPrice = 12000,
+            WarehouseId = 2,
+            LocationId = 3,
+            ProductVariantId = 1
+        };
+        var inventories = new List<InventoryEntity> { parentInv };
+
+        _inventoryRepo.Setup(r => r.FindByCondition(
+            It.IsAny<Expression<Func<InventoryEntity, bool>>>(),
+            It.IsAny<bool>()))
+            .Returns(inventories.AsQueryable().BuildMock());
+
+        _repo.Setup(r => r.UpdateAsync(It.IsAny<Domain.Entities.QualityInspection>()))
+            .Returns(Task.CompletedTask);
+        _repo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
+        _lotRepo.Setup(r => r.CreateAsync(It.IsAny<PaddyLotEntity>()))
+            .Callback<PaddyLotEntity>(child => child.Id = 6) // assign ID
+            .Returns(Task.CompletedTask);
+        _lotRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
+        _lotRepo.Setup(r => r.UpdateAsync(parentLot)).Returns(Task.CompletedTask);
+        _inventoryRepo.Setup(r => r.UpdateAsync(parentInv)).Returns(Task.CompletedTask);
+        _inventoryRepo.Setup(r => r.CreateAsync(It.IsAny<InventoryEntity>())).Returns(Task.CompletedTask);
+        _inventoryRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
+        _inventoryTxRepo.Setup(r => r.CreateAsync(It.IsAny<InventoryTransaction>())).Returns(Task.CompletedTask);
+        _inventoryTxRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
+
+        var dto = new UpdateQualityInspectionDto
+        {
+            Id = 11,
+            PaddyLotId = 5,
+            PassedInspection = false,
+            AffectedWeightKg = 3000,
+            InspectedAt = DateTime.UtcNow
+        };
+
+        // Act
+        var result = await Sut().UpdateAsync(dto);
+
+        // Assert
+        result.Status.Should().Be(200);
+
+        // Parent lot checks
+        parentLot.RemainingWeightKg.Should().Be(7000);
+        parentLot.InitialWeightKg.Should().Be(10000);
+        parentLot.QualityStatus.Should().Be("PASSED");
+        parentLot.StatusId.Should().Be(3); // IN_STOCK
+
+        // Parent inventory checks
+        parentInv.QuantityOnHand.Should().Be(7000);
+
+        // Verify child lot created
+        _lotRepo.Verify(r => r.CreateAsync(It.Is<PaddyLotEntity>(c =>
+            c.LotCode == "LOT-5-Q1" &&
+            c.ParentLotId == 5 &&
+            c.InitialWeightKg == 3000 &&
+            c.RemainingWeightKg == 3000 &&
+            c.StatusId == 2 && // QUARANTINE
+            c.QualityStatus == QualityStatusConstants.Failed
+        )), Times.Once);
+
+        // Verify child inventory created
+        _inventoryRepo.Verify(r => r.CreateAsync(It.Is<InventoryEntity>(i =>
+            i.PaddyLotId == 6 &&
+            i.QuantityOnHand == 3000
+        )), Times.Once);
+
+        // Verify transactions created with MANUAL_ADJUST
+        _inventoryTxRepo.Verify(r => r.CreateAsync(It.Is<InventoryTransaction>(t =>
+            t.PaddyLotId == 5 &&
+            t.TransactionType == InventoryTransactionTypeConstants.ManualAdjust &&
+            t.Quantity == 3000 &&
+            t.ReferenceType == InventoryReferenceTypeConstants.QualityInspectionSplit
+        )), Times.Once);
+        _inventoryTxRepo.Verify(r => r.CreateAsync(It.Is<InventoryTransaction>(t =>
+            t.PaddyLotId == 6 &&
+            t.TransactionType == InventoryTransactionTypeConstants.ManualAdjust &&
+            t.Quantity == 3000 &&
+            t.ReferenceType == InventoryReferenceTypeConstants.QualityInspectionSplit
+        )), Times.Once);
+    }
+
     // ── GetByIdAsync ─────────────────────────────────────────────────────────
 
     [Fact]
