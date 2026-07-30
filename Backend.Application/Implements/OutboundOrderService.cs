@@ -268,7 +268,7 @@ public class OutboundOrderService : IOutboundOrderService
                             CreatedDate = now,
                             CreatedBy = userId
                         };
-                        await _inventoryTransactionRepository.CreateAsync(unreserveTx);
+                        await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(unreserveTx);
                     }
                     remainingToUnreserve -= take;
                 }
@@ -585,7 +585,7 @@ public class OutboundOrderService : IOutboundOrderService
                         CreatedDate      = now,
                         CreatedBy        = userId
                     };
-                    await _inventoryTransactionRepository.CreateAsync(txn);
+                    await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(txn);
 
                     totalDispatchedValue += alloc.QuantityPicked * alloc.UnitCostPrice;
                     
@@ -885,7 +885,7 @@ public class OutboundOrderService : IOutboundOrderService
                             CreatedDate = now,
                             CreatedBy = userId
                         };
-                        await _inventoryTransactionRepository.CreateAsync(txn);
+                        await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(txn);
                     }
 
                     // Hoàn trả tồn lô lúa/gạo nếu có

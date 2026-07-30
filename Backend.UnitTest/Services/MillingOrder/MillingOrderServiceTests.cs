@@ -157,7 +157,7 @@ public class MillingOrderServiceTests
         _invRepo.Setup(r => r.GetByVariantWarehouseLocationAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int?>(), It.IsAny<int?>()))
             .ReturnsAsync(new Backend.Domain.Entities.Inventory { Id = 1, QuantityOnHand = 100m, QuantityReserved = 100m });
         _invRepo.Setup(r => r.UpdateAsync(It.IsAny<Backend.Domain.Entities.Inventory>())).Returns(Task.CompletedTask);
-        _invTxRepo.Setup(r => r.CreateAsync(It.IsAny<InventoryTransaction>())).Returns(Task.CompletedTask);
+        _invTxRepo.Setup(r => r.CreateWithColumnTotalsAsync(It.IsAny<InventoryTransaction>())).Returns(Task.CompletedTask);
 
         _outputRepo.Setup(r => r.CreateAsync(It.IsAny<MillingOrderOutput>())).Returns(Task.CompletedTask);
         _outputRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);

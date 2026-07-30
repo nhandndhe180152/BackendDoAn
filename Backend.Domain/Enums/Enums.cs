@@ -86,6 +86,19 @@ public static class Enums
             SALE_ORDERS = 65,
             DEBTS = 67,
             PADDY_LOTS = 69,
+
+            // ── Bảng trạng thái (lookup) — Id số chỉ để đọc hiểu, quyền resolve theo Code = TÊN thành viên ──
+            INBOUND_ORDER_STATUS = 70,
+            OUTBOUND_ORDER_STATUS = 71,
+            STOCK_TAKE_STATUS = 72,
+            CUSTOMER_RETURN_ORDER_STATUS = 73,
+            RETURN_TO_SUPPLIER_ORDER_STATUS = 74,
+            PADDY_PURCHASE_SCHEDULE_STATUS = 75,
+            LOT_STATUS = 76,
+            MILLING_ORDER_STATUS = 77,
+            STOCK_TRANSFER_STATUS = 78,
+            SALES_ORDER_STATUS = 79,
+            PURCHASE_ORDER_STATUS = 80,
         }
 
         public enum Role

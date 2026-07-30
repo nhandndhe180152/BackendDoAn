@@ -296,7 +296,7 @@ public class QualityInspectionServiceTests
         _inventoryRepo.Setup(r => r.UpdateAsync(parentInv)).Returns(Task.CompletedTask);
         _inventoryRepo.Setup(r => r.CreateAsync(It.IsAny<InventoryEntity>())).Returns(Task.CompletedTask);
         _inventoryRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
-        _inventoryTxRepo.Setup(r => r.CreateAsync(It.IsAny<InventoryTransaction>())).Returns(Task.CompletedTask);
+        _inventoryTxRepo.Setup(r => r.CreateWithColumnTotalsAsync(It.IsAny<InventoryTransaction>())).Returns(Task.CompletedTask);
         _inventoryTxRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
 
         var dto = new UpdateQualityInspectionDto
@@ -340,13 +340,13 @@ public class QualityInspectionServiceTests
         )), Times.Once);
 
         // Verify transactions created with MANUAL_ADJUST
-        _inventoryTxRepo.Verify(r => r.CreateAsync(It.Is<InventoryTransaction>(t =>
+        _inventoryTxRepo.Verify(r => r.CreateWithColumnTotalsAsync(It.Is<InventoryTransaction>(t =>
             t.PaddyLotId == 5 &&
             t.TransactionType == InventoryTransactionTypeConstants.ManualAdjust &&
             t.Quantity == 3000 &&
             t.ReferenceType == InventoryReferenceTypeConstants.QualityInspectionSplit
         )), Times.Once);
-        _inventoryTxRepo.Verify(r => r.CreateAsync(It.Is<InventoryTransaction>(t =>
+        _inventoryTxRepo.Verify(r => r.CreateWithColumnTotalsAsync(It.Is<InventoryTransaction>(t =>
             t.PaddyLotId == 6 &&
             t.TransactionType == InventoryTransactionTypeConstants.ManualAdjust &&
             t.Quantity == 3000 &&
@@ -464,7 +464,7 @@ public class QualityInspectionServiceTests
         _inventoryRepo.Setup(r => r.UpdateAsync(parentInv)).Returns(Task.CompletedTask);
         _inventoryRepo.Setup(r => r.CreateAsync(It.IsAny<InventoryEntity>())).Returns(Task.CompletedTask);
         _inventoryRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
-        _inventoryTxRepo.Setup(r => r.CreateAsync(It.IsAny<InventoryTransaction>())).Returns(Task.CompletedTask);
+        _inventoryTxRepo.Setup(r => r.CreateWithColumnTotalsAsync(It.IsAny<InventoryTransaction>())).Returns(Task.CompletedTask);
         _inventoryTxRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
 
         var dto = new CreateQualityInspectionDto
@@ -507,13 +507,13 @@ public class QualityInspectionServiceTests
         )), Times.Once);
 
         // Verify transactions created with MANUAL_ADJUST (B5)
-        _inventoryTxRepo.Verify(r => r.CreateAsync(It.Is<InventoryTransaction>(t => 
+        _inventoryTxRepo.Verify(r => r.CreateWithColumnTotalsAsync(It.Is<InventoryTransaction>(t => 
             t.PaddyLotId == 5 && 
             t.TransactionType == InventoryTransactionTypeConstants.ManualAdjust && 
             t.Quantity == 3000 &&
             t.ReferenceType == InventoryReferenceTypeConstants.QualityInspectionSplit
         )), Times.Once);
-        _inventoryTxRepo.Verify(r => r.CreateAsync(It.Is<InventoryTransaction>(t => 
+        _inventoryTxRepo.Verify(r => r.CreateWithColumnTotalsAsync(It.Is<InventoryTransaction>(t => 
             t.PaddyLotId == 6 && 
             t.TransactionType == InventoryTransactionTypeConstants.ManualAdjust && 
             t.Quantity == 3000 &&
@@ -665,7 +665,7 @@ public class QualityInspectionServiceTests
 
         // Assert
         result.Status.Should().BeOneOf(200, 201);
-        _inventoryTxRepo.Verify(r => r.CreateAsync(It.Is<InventoryTransaction>(t => 
+        _inventoryTxRepo.Verify(r => r.CreateWithColumnTotalsAsync(It.Is<InventoryTransaction>(t => 
             t.PaddyLotId == 5 && 
             t.TransactionType == InventoryTransactionTypeConstants.ManualAdjust && 
             t.ReferenceType == InventoryReferenceTypeConstants.QualityInspectionQuarantine &&

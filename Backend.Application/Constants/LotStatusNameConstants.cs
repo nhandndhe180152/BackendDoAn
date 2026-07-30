@@ -7,6 +7,7 @@ namespace Backend.Application.Constants;
 /// </summary>
 public static class LotStatusNameConstants
 {
+    public const string AwaitingQc     = "Chờ kiểm định";
     public const string PendingInbound = "Chờ nhập";
     public const string InStock        = "Đang lưu kho";
     public const string Processing     = "Chờ xử lý";

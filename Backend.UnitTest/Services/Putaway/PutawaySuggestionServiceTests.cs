@@ -763,7 +763,7 @@ public class PutawaySuggestionServiceTests
         res.IsSucceeded.Should().BeTrue(res.Message);
         inventoryRepoMock.Verify(r => r.CreateAsync(It.IsAny<Backend.Domain.Entities.Inventory>()), Times.Never);
         inventoryTransactionRepoMock.Verify(
-            r => r.CreateAsync(It.IsAny<InventoryTransaction>()),
+            r => r.CreateWithColumnTotalsAsync(It.IsAny<InventoryTransaction>()),
             Times.Never);
         // Verify update schedule status was called to transition schedule status to WEIGHED (4)
         scheduleRepoMock.Verify(r => r.UpdateAsync(It.Is<Backend.Domain.Entities.PaddyPurchaseSchedule>(s => s.StatusId == 4)), Times.Once);

@@ -785,6 +785,15 @@ public class PutawaySuggestionService : IPutawaySuggestionService
                 CreatedBy = userId,
                 CreatedDate = now
             };
+            // Quy đổi Before/After sang TỔNG TỒN CỦA CỘT (cộng tồn các dòng khác cùng vị trí).
+            if (txn.LocationId.HasValue)
+            {
+                var otherOnHand = await _context.Inventories
+                    .Where(i => i.LocationId == txn.LocationId.Value && !i.IsDeleted && i.Id != txn.InventoryId)
+                    .SumAsync(i => i.QuantityOnHand, cancellationToken);
+                txn.BeforeQuantity += otherOnHand;
+                txn.AfterQuantity += otherOnHand;
+            }
             _context.InventoryTransactions.Add(txn);
 
             // 8. Lưu PutawayDecision

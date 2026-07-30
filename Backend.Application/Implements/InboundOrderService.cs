@@ -407,7 +407,12 @@ public class InboundOrderService : IInboundOrderService
                      && (x.SourceType == "RECEIPT" || x.SourceType == "PADDY_PURCHASE" || x.PaddyPurchaseReceiptId != null)
                      && x.InboundOrderStatus.Name != InboundOrderStatusNames.Confirmed
                      && x.InboundOrderStatus.Name != InboundOrderStatusNames.Cancelled
-                     && x.InboundOrderStatus.Name != InboundOrderStatusNames.Rejected,
+                     && x.InboundOrderStatus.Name != InboundOrderStatusNames.Rejected
+                     // Ẩn lô đang CHỜ KIỂM ĐỊNH (AWAITING_QC): phải kiểm tra chất lượng xong mới được xếp kho.
+                     && !x.InboundOrderItems.Any(i =>
+                            i.PaddyLot != null
+                            && i.PaddyLot.Status != null
+                            && i.PaddyLot.Status.Code == LotStatusCodeConstants.AwaitingQc),
                 false,
                 x => x.Warehouse,
                 x => x.Supplier,
@@ -1370,8 +1375,13 @@ public class InboundOrderService : IInboundOrderService
 
             await _inventoryRepository.UpdateAsync(inventory);
 
-            // Increase Location occupancy
-            loc.CurrentOccupancy += qty;
+            // Đồng bộ sức chứa = TỔNG TỒN THỰC tại vị trí (self-healing), thay vì cộng dồn ±qty
+            // để tránh lệch/nhân đôi CurrentOccupancy khi có confirm lặp hoặc dữ liệu cũ.
+            // Lấy tổng tồn của các dòng KHÁC tại vị trí (DB đã chuẩn) + giá trị dòng hiện tại (in-memory đã +qty).
+            var otherInvSumConfirm = await _inventoryRepository
+                .FindByCondition(x => x.LocationId == loc.Id && !x.IsDeleted && x.Id != inventory.Id)
+                .SumAsync(x => x.QuantityOnHand);
+            loc.CurrentOccupancy = otherInvSumConfirm + inventory.QuantityOnHand;
             loc.CurrentProductVariantId ??= item.ProductVariantId;
             await _locationRepository.UpdateAsync(loc);
 
@@ -1423,7 +1433,7 @@ public class InboundOrderService : IInboundOrderService
                 CreatedDate = DateTime.Now
             };
 
-            await _inventoryTransactionRepository.CreateAsync(invTrans);
+            await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(invTrans);
 
             await _inboundOrderRepository.SaveChangesAsync();
 
@@ -1557,11 +1567,14 @@ public class InboundOrderService : IInboundOrderService
             inventory.UpdatedBy = GetCurrentUserId();
             await _inventoryRepository.UpdateAsync(inventory);
 
-            // Trả lại sức chứa vị trí
+            // Trả lại sức chứa vị trí — đồng bộ = TỔNG TỒN THỰC tại vị trí (self-healing) thay vì trừ dồn.
             var loc = await _locationRepository.FirstOrDefaultAsync(x => x.Id == locId && !x.IsDeleted, true);
             if (loc != null)
             {
-                loc.CurrentOccupancy = System.Math.Max(0m, loc.CurrentOccupancy - qty);
+                var otherInvSumReverse = await _inventoryRepository
+                    .FindByCondition(x => x.LocationId == loc.Id && !x.IsDeleted && x.Id != inventory.Id)
+                    .SumAsync(x => x.QuantityOnHand);
+                loc.CurrentOccupancy = System.Math.Max(0m, otherInvSumReverse + inventory.QuantityOnHand);
                 await _locationRepository.UpdateAsync(loc);
             }
 
@@ -1596,7 +1609,7 @@ public class InboundOrderService : IInboundOrderService
                 CreatedBy = GetCurrentUserId(),
                 CreatedDate = DateTime.Now
             };
-            await _inventoryTransactionRepository.CreateAsync(invTrans);
+            await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(invTrans);
 
             // Hoàn lại số lượng đã nhận của dòng và đưa state về PutawaySelected để thao tác lại
             item.QuantityReceived = System.Math.Max(0m, item.QuantityReceived - qty);
