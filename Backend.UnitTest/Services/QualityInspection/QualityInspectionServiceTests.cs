@@ -38,11 +38,15 @@ public class QualityInspectionServiceTests
     private readonly Mock<INotificationDispatcher> _notificationDispatcher = new();
     private readonly List<PaddyLotEntity> _paddyLots = new();
     private readonly List<InboundOrderItem> _inboundOrderItems = new();
+    private readonly List<InboundOrderStatus> _inboundOrderStatuses = new();
+    private readonly List<Backend.Domain.Entities.InboundOrder> _inboundOrders = new();
 
     public QualityInspectionServiceTests()
     {
         _context.Setup(c => c.PaddyLots).Returns(() => MockDbSet(_paddyLots).Object);
         _context.Setup(c => c.InboundOrderItems).Returns(() => MockDbSet(_inboundOrderItems).Object);
+        _context.Setup(c => c.InboundOrderStatuses).Returns(() => MockDbSet(_inboundOrderStatuses).Object);
+        _context.Setup(c => c.InboundOrders).Returns(() => MockDbSet(_inboundOrders).Object);
         _inventoryRepo.Setup(r => r.FindByCondition(It.IsAny<Expression<Func<InventoryEntity, bool>>>(), It.IsAny<bool>()))
             .Returns(new List<InventoryEntity>().AsQueryable().BuildMock());
     }
