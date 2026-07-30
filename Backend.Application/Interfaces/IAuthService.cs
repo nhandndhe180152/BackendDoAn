@@ -21,5 +21,10 @@ public interface IAuthService
     Task<ApiResponse> AdminCreateEndUser(CreateEndUserDto obj);
     Task<ApiResponse> GetCurrentUserDecentralization();
     Task<ApiResponse> GetCurrentUserMenusAsync(int userId);
+    /// <summary>
+    /// Trả về toàn bộ "phiên" của user hiện tại (profile + roles + permissions + menus + mustChangePassword)
+    /// — cùng shape với userInfo lúc đăng nhập — để FE nạp vào bộ nhớ mà KHÔNG cần lưu ở localStorage.
+    /// </summary>
+    Task<ApiResponse> GetCurrentUserSessionAsync(int userId);
     Task<ApiResponse> ResendActivationMailAsync(ResendActivationMailDto dto);
 }

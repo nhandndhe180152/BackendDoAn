@@ -10,6 +10,7 @@ public interface INotificationService : IServiceBase<int, CreateNotificationDto,
 {
     public Task<ApiResponse> GetPagedByUserAsync(int userId, UserNotificationsSearchQuery query);
     Task<ApiResponse> UpdateStatusAsync(int userNoficationId, bool isRead);
+    Task<ApiResponse> MarkAllReadAsync();
     Task<ApiResponse> SoftDeleteUserNotificationAsync(int userNoficationId);
     Task<ApiResponse> TestFireBase(int userId);
 }
