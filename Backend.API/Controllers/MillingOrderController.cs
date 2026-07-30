@@ -7,6 +7,7 @@ using Backend.Application.Interfaces;
 using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers
 {
@@ -52,6 +53,7 @@ namespace Backend.API.Controllers
                 CommonConstants.Role.OWNER);
 
         [HttpGet]
+        [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _millingOrderService.GetAllAsync();
@@ -60,6 +62,7 @@ namespace Backend.API.Controllers
 
         /// <summary>Gap 2: Danh sách lệnh xay gắn với một đơn bán (điều phối xay-theo-đơn).</summary>
         [HttpGet("by-sales-order/{salesOrderId}")]
+        [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.READ)]
         public async Task<IActionResult> GetBySalesOrderAsync(int salesOrderId)
         {
             var result = await _millingOrderService.GetBySalesOrderAsync(salesOrderId);
@@ -67,6 +70,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged-advanced")]
+        [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)
         {
             var result = await _millingOrderService.GetPagedAsync(parameters);
@@ -74,6 +78,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}")]
+        [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var result = await _millingOrderService.GetByIdAsync(id);
@@ -81,6 +86,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost]
+        [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreateMillingOrderDto dto)
         {
             if (!CanManageMillingOrder())
@@ -96,6 +102,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut]
+        [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateMillingOrderDto dto)
         {
             if (!CanManageMillingOrder())
@@ -111,6 +118,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("{id}/reserve")]
+        [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.UPDATE)]
         public async Task<IActionResult> ReserveAsync(int id, [FromBody] ReserveMillingOrderDto dto)
         {
             if (!CanHandleMillingInventory())
@@ -126,6 +134,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("{id}/start")]
+        [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.UPDATE)]
         public async Task<IActionResult> StartAsync(int id)
         {
             if (!CanManageMillingOrder())
@@ -141,6 +150,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("{id}/complete")]
+        [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.UPDATE)]
         public async Task<IActionResult> CompleteAsync(int id, [FromBody] CompleteMillingOrderDto dto)
         {
             if (!CanHandleMillingInventory())
@@ -156,6 +166,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("{id}/cancel")]
+        [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.UPDATE)]
         public async Task<IActionResult> CancelAsync(int id)
         {
             if (!CanManageMillingOrder())
@@ -171,6 +182,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpDelete("{id}")]
+        [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             if (!IsAdminOrOwner())

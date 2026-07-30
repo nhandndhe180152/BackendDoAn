@@ -7,6 +7,7 @@ using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers
 {
@@ -27,6 +28,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet]
+        [CustomAuthorize(Enums.Menu.FARMERS, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _farmerService.GetAllAsync();
@@ -34,6 +36,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged-advanced")]
+        [CustomAuthorize(Enums.Menu.FARMERS, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)
         {
             var result = await _farmerService.GetPagedAsync(parameters);
@@ -41,6 +44,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}")]
+        [CustomAuthorize(Enums.Menu.FARMERS, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var result = await _farmerService.GetByIdAsync(id);
@@ -48,6 +52,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost]
+        [CustomAuthorize(Enums.Menu.FARMERS, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreateFarmerDto dto)
         {
             dto.CreatedBy = this.GetLoggedInUserId();
@@ -56,6 +61,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut]
+        [CustomAuthorize(Enums.Menu.FARMERS, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateFarmerDto dto)
         {
             dto.UpdatedBy = this.GetLoggedInUserId();
@@ -64,6 +70,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpDelete("{id}")]
+        [CustomAuthorize(Enums.Menu.FARMERS, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var result = await _farmerService.SoftDeleteAsync(id);

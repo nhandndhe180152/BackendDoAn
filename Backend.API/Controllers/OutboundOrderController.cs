@@ -3,6 +3,8 @@ using Backend.Application.DTOs.OutboundOrders;
 using Backend.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Backend.API.Utilities;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers;
 
@@ -22,6 +24,7 @@ public class OutboundOrderController : BaseController
     // ── Queries ─────────────────────────────────────────────────────────
 
     [HttpPost("paged")]
+    [CustomAuthorize(Enums.Menu.OUTBOUND_ORDERS, Enums.Action.READ)]
     public async Task<IActionResult> GetPagedAsync([FromBody] OutboundOrderPagedQuery query)
     {
         var result = await _outboundOrderService.GetPagedAsync(query);
@@ -29,6 +32,7 @@ public class OutboundOrderController : BaseController
     }
 
     [HttpGet("{id}")]
+    [CustomAuthorize(Enums.Menu.OUTBOUND_ORDERS, Enums.Action.READ)]
     public async Task<IActionResult> GetByIdAsync(int id)
     {
         var result = await _outboundOrderService.GetByIdAsync(id);
@@ -41,6 +45,7 @@ public class OutboundOrderController : BaseController
     /// Phân bổ lot/vị trí kho cho từng dòng sản phẩm → PICKING.
     /// </summary>
     [HttpPost("{id}/allocate")]
+    [CustomAuthorize(Enums.Menu.OUTBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> AllocateAsync(int id, [FromBody] AllocateOutboundDto dto)
     {
         var result = await _outboundOrderService.AllocateAsync(id, dto);
@@ -51,6 +56,7 @@ public class OutboundOrderController : BaseController
     /// Cập nhật số lượng thực tế đã lấy cho từng allocation.
     /// </summary>
     [HttpPost("{id}/pick")]
+    [CustomAuthorize(Enums.Menu.OUTBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> PickAsync(int id, [FromBody] PickOutboundDto dto)
     {
         var result = await _outboundOrderService.PickAsync(id, dto);
@@ -61,6 +67,7 @@ public class OutboundOrderController : BaseController
     /// Xác nhận đóng gói xong → PACKED. Validate tất cả items đã pick đủ.
     /// </summary>
     [HttpPost("{id}/confirm-packing")]
+    [CustomAuthorize(Enums.Menu.OUTBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> ConfirmPackingAsync(int id, [FromBody] Backend.Application.DTOs.OutboundOrders.ConfirmPackingDto dto)
     {
         var result = await _outboundOrderService.ConfirmPackingAsync(id, dto);
@@ -73,6 +80,7 @@ public class OutboundOrderController : BaseController
     /// tạo PartyDebt/DebtTransaction nếu khách chưa trả đủ.
     /// </summary>
     [HttpPost("{id}/confirm-dispatch")]
+    [CustomAuthorize(Enums.Menu.OUTBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> ConfirmDispatchAsync(int id, [FromBody] ConfirmDispatchDto dto)
     {
         var result = await _outboundOrderService.ConfirmDispatchAsync(id, dto);
@@ -83,6 +91,7 @@ public class OutboundOrderController : BaseController
     /// Xác nhận giao hàng thành công (DISPATCHED → COMPLETED).
     /// </summary>
     [HttpPost("{id}/complete-delivery")]
+    [CustomAuthorize(Enums.Menu.OUTBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> CompleteDeliveryAsync(int id, [FromBody] CompleteDeliveryDto dto)
     {
         var result = await _outboundOrderService.CompleteDeliveryAsync(id, dto);
@@ -93,6 +102,7 @@ public class OutboundOrderController : BaseController
     /// Xác nhận giao hàng thất bại (DISPATCHED → DELIVERY_FAILED).
     /// </summary>
     [HttpPost("{id}/fail-delivery")]
+    [CustomAuthorize(Enums.Menu.OUTBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> FailDeliveryAsync(int id, [FromBody] FailDeliveryDto dto)
     {
         var result = await _outboundOrderService.FailDeliveryAsync(id, dto);
@@ -103,6 +113,7 @@ public class OutboundOrderController : BaseController
     /// Hủy phiếu xuất. Giải phóng QuantityReserved nếu đang PICKING/PACKED.
     /// </summary>
     [HttpPost("{id}/cancel")]
+    [CustomAuthorize(Enums.Menu.OUTBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> CancelAsync(int id)
     {
         var result = await _outboundOrderService.CancelAsync(id);

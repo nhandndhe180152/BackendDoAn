@@ -39,24 +39,53 @@ public static class Enums
             OTHER = 2
         }
 
+        /// <summary>
+        /// Mã menu — TÊN thành viên phải TRÙNG cột Code của bảng Menu trong DB
+        /// (CustomAuthorize resolve quyền theo Code qua ISystemLookup, không theo Id số).
+        /// Giá trị số = Id menu hiện tại trong DB, chỉ để tra cứu/đọc hiểu.
+        /// </summary>
         public enum Menu
         {
             DASHBOARD = 1,
-            REPORT,
             USER = 4,
             USER_STATUS = 5,
             ROLE = 6,
-            SYSTEM_SETTINGS = 7,
-            MENU_LIST = 10,
-            NOTIFICATION_CATEGORY = 19,
-            SYSTEM_CONFIG,
+            SYSTEM_SETTINGS = 7,          // /admin/system-config
             ACTIVITY_LOGS = 8,
+            AUDIT_LOGS = 9,
+            MENU_LIST = 10,
+            ACTIONS = 11,
             NOTIFICATION = 18,
-            NOTIFICATION_TYPE = 20,
-            PRODUCT = 30,
-            PRODUCT_CATEGORY = 31,
-            PRODUCT_VARIANT = 32,
-            PRODUCT_ATTRIBUTE = 33,
+            NOTIFICATION_CATEGORY = 19,
+            NOTIFICATION_TYPE = 20,       // /admin/notification-types
+            USER_DEVICE = 27,
+            USER_VERIFICATION_TOKEN = 28,
+            PRODUCT = 31,                 // /admin/products
+            INBOUND_ORDERS = 32,
+            OUTBOUND_ORDERS = 33,         // /admin/outbound-orders
+            STOCKTAKE = 34,
+            REPORTS = 36,
+            ALERTS = 37,
+            PRODUCT_VARIANTS = 38,
+            SUPPLIERS = 40,
+            UNIT_OF_MEASURES = 41,
+            WAREHOUSES = 42,
+            PRODUCT_ATTRIBUTES = 44,      // /admin/product-attributes
+            FARMERS = 45,
+            CUSTOMERS = 46,
+            RICE_VARIETIES = 47,
+            ORGANIZATIONS = 48,
+            MILLING_YIELD_CONFIGS = 49,
+            STOCK_ALERT_CONFIGS = 50,
+            RICE_PURCHASE = 51,
+            INVENTORIES = 54,
+            PRODUCT_CATEGORIES = 55,      // /admin/product-categories
+            WAREHOUSE_MAP = 57,
+            QUALITY_INSPECTIONS = 60,
+            MILLING_ORDERS = 61,
+            SALE_ORDERS = 65,
+            DEBTS = 67,
+            PADDY_LOTS = 69,
         }
 
         public enum Role

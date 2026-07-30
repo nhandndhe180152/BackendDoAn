@@ -7,6 +7,7 @@ using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers
 {
@@ -28,6 +29,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet]
+        [CustomAuthorize(Enums.Menu.SUPPLIERS, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _supplierService.GetAllAsync();
@@ -35,6 +37,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged-advanced")]
+        [CustomAuthorize(Enums.Menu.SUPPLIERS, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)
         {
             var result = await _supplierService.GetPagedAsync(parameters);
@@ -42,6 +45,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}")]
+        [CustomAuthorize(Enums.Menu.SUPPLIERS, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var result = await _supplierService.GetByIdAsync(id);
@@ -49,6 +53,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost]
+        [CustomAuthorize(Enums.Menu.SUPPLIERS, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreateSupplierDto dto)
         {
             dto.CreatedBy = this.GetLoggedInUserId();
@@ -57,6 +62,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut]
+        [CustomAuthorize(Enums.Menu.SUPPLIERS, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateSupplierDto dto)
         {
             dto.UpdatedBy = this.GetLoggedInUserId();
@@ -65,6 +71,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpDelete("{id}")]
+        [CustomAuthorize(Enums.Menu.SUPPLIERS, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var result = await _supplierService.SoftDeleteAsync(id);

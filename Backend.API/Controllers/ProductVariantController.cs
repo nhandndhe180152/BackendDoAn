@@ -32,7 +32,7 @@ namespace Backend.API.Controllers
 
         /// API tạo mới một biến thể sản phẩm
         [HttpPost]
-        //[CustomAuthorize(Enums.Menu.PRODUCT_VARIANT, Enums.Action.CREATE)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreateProductVariantDto obj)
         {
             obj.CreatedBy = this.GetLoggedInUserId();
@@ -42,6 +42,7 @@ namespace Backend.API.Controllers
 
         /// API lấy toàn bộ danh sách các biến thể sản phẩm
         [HttpGet]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _productVariantService.GetAllAsync();
@@ -50,7 +51,7 @@ namespace Backend.API.Controllers
 
         /// API lấy chi tiết thông tin một biến thể sản phẩm theo ID (kèm ảnh thực tế)
         [HttpGet("{id}")]
-        //[CustomAuthorize(Enums.Menu.PRODUCT_VARIANT, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var data = await _productVariantService.GetByIdAsync(id);
@@ -59,6 +60,7 @@ namespace Backend.API.Controllers
 
         /// API tìm kiếm phân trang biến thể sản phẩm cơ bản
         [HttpPost("paged")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] SearchQuery query)
         {
             var data = await _productVariantService.GetPagedAsync(query);
@@ -67,7 +69,7 @@ namespace Backend.API.Controllers
 
         /// API phân trang nâng cao cho biến thể sản phẩm (khớp DataTable)
         [HttpPost("paged-advanced")]
-        //[CustomAuthorize(Enums.Menu.PRODUCT_VARIANT, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] ProductVariantDTParameters parameters)
         {
             var data = await _productVariantService.GetPagedAsync(parameters);
@@ -76,7 +78,7 @@ namespace Backend.API.Controllers
 
         /// API xóa mềm biến thể sản phẩm
         [HttpDelete("{id}")]
-        //[CustomAuthorize(Enums.Menu.PRODUCT_VARIANT, Enums.Action.DELETE)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var data = await _productVariantService.SoftDeleteAsync(id);
@@ -85,7 +87,7 @@ namespace Backend.API.Controllers
 
         /// API cập nhật thông tin biến thể sản phẩm
         [HttpPut]
-        //[CustomAuthorize(Enums.Menu.PRODUCT_VARIANT, Enums.Action.UPDATE)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateProductVariantDto obj)
         {
             obj.UpdatedBy = this.GetLoggedInUserId();
@@ -95,6 +97,7 @@ namespace Backend.API.Controllers
 
         /// API lọc nâng cao các biến thể theo ProductId hoặc trạng thái hoạt động
         [HttpGet("search")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> Search([FromQuery] ProductVariantSearchQuery query)
         {
             var data = await _productVariantService.GetPagedAsync(query);
@@ -103,6 +106,7 @@ namespace Backend.API.Controllers
 
         /// API lấy URL QR code đã lưu của biến thể sản phẩm theo ID
         [HttpGet("{id}/qr-code")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> GetQRCodeAsync(int id)
         {
             var data = await _productVariantService.GetQrCodeUrlAsync(id);
@@ -111,6 +115,7 @@ namespace Backend.API.Controllers
 
         /// API tạo nhãn QR dạng PDF cho biến thể sản phẩm theo ID (hỗ trợ tùy chỉnh kích thước nhãn)
         [HttpGet("{id}/qr-label")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> GetQRLabelPdfAsync(int id, [FromQuery] float widthMm = 50f, [FromQuery] float heightMm = 30f)
         {
             try
@@ -126,6 +131,7 @@ namespace Backend.API.Controllers
 
         /// API tạo danh sách nhãn QR hàng loạt dạng file PDF
         [HttpPost("batch/qr-labels")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.UPDATE)]
         public async Task<IActionResult> GetBulkQRLabelsPdfAsync([FromBody] BatchQRLabelRequestDto request)
         {
             try
@@ -141,6 +147,7 @@ namespace Backend.API.Controllers
 
         /// API tạo và lưu đường dẫn QR code cho biến thể sản phẩm
         [HttpPost("{id}/generate-qr-url")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.UPDATE)]
         public async Task<IActionResult> GenerateAndSaveQRUrlAsync(int id)
         {
             try
@@ -160,6 +167,7 @@ namespace Backend.API.Controllers
 
         /// API đồng bộ lại toàn bộ đường dẫn QR code cho tất cả các biến thể
         [HttpPost("batch/sync-qr-urls")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.UPDATE)]
         public async Task<IActionResult> SyncAllQRCodeUrlsAsync()
         {
             try
@@ -175,6 +183,7 @@ namespace Backend.API.Controllers
 
         /// API kiểm tra mã SKU khi quét QR code trong các tài liệu (như phiếu kho)
         [HttpGet("check-sku")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> CheckSkuAsync([FromQuery] string sku, [FromQuery] string? documentType = null, [FromQuery] int? documentId = null)
         {
             var result = await _productVariantService.CheckSkuAsync(sku, documentType, documentId);
@@ -183,6 +192,7 @@ namespace Backend.API.Controllers
 
         /// API xác nhận quét thành công mã QR để cập nhật trạng thái tài liệu liên quan
         [HttpPost("confirm-scan")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.UPDATE)]
         public async Task<IActionResult> ConfirmScanAsync([FromBody] ConfirmScanRequestDto request)
         {
             var result = await _productVariantService.ConfirmScanAsync(request);
@@ -191,7 +201,7 @@ namespace Backend.API.Controllers
 
         /// API kích hoạt biến thể sản phẩm (IsActive = true)
         [HttpPost("{id}/activate")]
-        //[CustomAuthorize(Enums.Menu.PRODUCT_VARIANT, Enums.Action.UPDATE)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.UPDATE)]
         public async Task<IActionResult> ActivateAsync(int id)
         {
             var data = await _productVariantService.ActivateAsync(id, this.GetLoggedInUserId());
@@ -200,7 +210,7 @@ namespace Backend.API.Controllers
 
         /// API vô hiệu hóa biến thể sản phẩm (IsActive = false)
         [HttpPost("{id}/deactivate")]
-        //[CustomAuthorize(Enums.Menu.PRODUCT_VARIANT, Enums.Action.UPDATE)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.UPDATE)]
         public async Task<IActionResult> DeactivateAsync(int id)
         {
             var data = await _productVariantService.DeactivateAsync(id, this.GetLoggedInUserId());
@@ -209,6 +219,7 @@ namespace Backend.API.Controllers
 
         /// API tạo và lưu URL QR code cho biến thể sản phẩm (thông qua service)
         [HttpPost("{id}/generate-qr")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.UPDATE)]
         public async Task<IActionResult> GenerateQrAsync(int id)
         {
             var data = await _productVariantService.GenerateQrAsync(id, this.GetLoggedInUserId());
@@ -217,6 +228,7 @@ namespace Backend.API.Controllers
 
         /// API tra cứu biến thể sản phẩm theo mã SKU (không liên kết tài liệu)
         [HttpGet("by-sku/{sku}")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> GetBySkuAsync(string sku)
         {
             var data = await _productVariantService.CheckSkuAsync(sku);
@@ -225,6 +237,7 @@ namespace Backend.API.Controllers
 
         /// API tra cứu biến thể sản phẩm theo mã QR Code
         [HttpGet("by-qr")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> GetByQrCodeAsync([FromQuery] string qrCode)
         {
             var data = await _productVariantService.GetByQrCodeAsync(qrCode);

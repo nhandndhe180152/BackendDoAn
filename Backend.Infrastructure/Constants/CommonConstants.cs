@@ -42,6 +42,8 @@ public static class CommonConstants
     {
             "User",
             "Role",
+            "Permission",
+            "UserRole",
             "Menu",
             "UserStatus",
             "Action",

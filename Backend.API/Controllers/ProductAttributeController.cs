@@ -30,7 +30,7 @@ namespace Backend.API.Controllers
 
         /// API tạo mới một thuộc tính sản phẩm
         [HttpPost]
-        //[CustomAuthorize(Enums.Menu.PRODUCT_ATTRIBUTE, Enums.Action.CREATE)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_ATTRIBUTES, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreateProductAttributeDto obj)
         {
             obj.CreatedBy = this.GetLoggedInUserId();
@@ -40,6 +40,7 @@ namespace Backend.API.Controllers
 
         /// API lấy toàn bộ danh sách các thuộc tính sản phẩm
         [HttpGet]
+        [CustomAuthorize(Enums.Menu.PRODUCT_ATTRIBUTES, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _productAttributeService.GetAllAsync();
@@ -48,7 +49,7 @@ namespace Backend.API.Controllers
 
         /// API lấy chi tiết thông tin một thuộc tính sản phẩm theo ID
         [HttpGet("{id}")]
-        //[CustomAuthorize(Enums.Menu.PRODUCT_ATTRIBUTE, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_ATTRIBUTES, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var data = await _productAttributeService.GetByIdAsync(id);
@@ -57,6 +58,7 @@ namespace Backend.API.Controllers
 
         /// API tìm kiếm phân trang thuộc tính sản phẩm cơ bản
         [HttpPost("paged")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_ATTRIBUTES, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] SearchQuery query)
         {
             var data = await _productAttributeService.GetPagedAsync(query);
@@ -65,7 +67,7 @@ namespace Backend.API.Controllers
 
         /// API phân trang nâng cao cho thuộc tính sản phẩm (khớp DataTable)
         [HttpPost("paged-advanced")]
-        //[CustomAuthorize(Enums.Menu.PRODUCT_ATTRIBUTE, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_ATTRIBUTES, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] ProductAttributeDTParameters parameters)
         {
             var data = await _productAttributeService.GetPagedAsync(parameters);
@@ -74,7 +76,7 @@ namespace Backend.API.Controllers
 
         /// API xóa mềm thuộc tính sản phẩm (IsDeleted = true)
         [HttpDelete("{id}")]
-        //[CustomAuthorize(Enums.Menu.PRODUCT_ATTRIBUTE, Enums.Action.DELETE)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_ATTRIBUTES, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var data = await _productAttributeService.SoftDeleteAsync(id);
@@ -83,7 +85,7 @@ namespace Backend.API.Controllers
 
         /// API cập nhật thông tin thuộc tính sản phẩm
         [HttpPut]
-        //[CustomAuthorize(Enums.Menu.PRODUCT_ATTRIBUTE, Enums.Action.UPDATE)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_ATTRIBUTES, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateProductAttributeDto obj)
         {
             obj.UpdatedBy = this.GetLoggedInUserId();
@@ -93,6 +95,7 @@ namespace Backend.API.Controllers
 
         /// API lọc nâng cao thuộc tính sản phẩm
         [HttpGet("search")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_ATTRIBUTES, Enums.Action.READ)]
         public async Task<IActionResult> Search([FromQuery] ProductAttributeSearchQuery query)
         {
             var data = await _productAttributeService.GetPagedAsync(query);

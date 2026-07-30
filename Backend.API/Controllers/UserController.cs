@@ -9,6 +9,7 @@ using Backend.Share.Helpers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers
 {
@@ -26,6 +27,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreateUserDto obj)
         {
             // Mật khẩu do hệ thống tự sinh trong UserService và gửi qua email; controller không xử lý mật khẩu.
@@ -37,6 +39,7 @@ namespace Backend.API.Controllers
 
         /// <summary>Tạo hàng loạt user (toàn bộ hoặc không). Trả lỗi theo từng dòng nếu có.</summary>
         [HttpPost("create-list")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateListAsync([FromBody] List<CreateUserDto> objs)
         {
             var userId = this.GetLoggedInUserId();
@@ -50,6 +53,7 @@ namespace Backend.API.Controllers
 
         /// <summary>Tải file mẫu để import tạo user hàng loạt (format = xlsx | csv).</summary>
         [HttpGet("import-template")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
         public async Task<IActionResult> ImportTemplateAsync([FromQuery] string format = "xlsx")
         {
             var (content, contentType, fileName) = await _userService.GenerateImportTemplateAsync(format);
@@ -58,6 +62,7 @@ namespace Backend.API.Controllers
 
         /// <summary>Đọc file Excel/CSV upload, trả về danh sách dòng user để hiển thị/kiểm tra trước khi tạo.</summary>
         [HttpPost("import-parse")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
         public async Task<IActionResult> ImportParseAsync([FromForm] ImportUserFileDto request)
         {
             if (request.File == null || request.File.Length == 0)
@@ -70,6 +75,7 @@ namespace Backend.API.Controllers
         }
         /// <summary>Lay danh sach user</summary>
         [HttpGet]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _userService.GetAllAsync();
@@ -78,6 +84,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("all")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync([FromBody] UserSearchQuery query)
         {
             var result = await _userService.GetAllAsync(query);
@@ -86,6 +93,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var data = await _userService.GetByIdAsync(id);
@@ -94,6 +102,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] SearchQuery query)
         {
             var data = await _userService.GetPagedAsync(query);
@@ -102,6 +111,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged-advanced")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] UserDTParameters parameters)
         {
             var data = await _userService.GetPagedAsync(parameters);
@@ -110,6 +120,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpDelete("{id}")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var data = await _userService.SoftDeleteAsync(id);
@@ -118,6 +129,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateUserDto obj)
         {
             obj.UpdatedBy = this.GetLoggedInUserId();
@@ -145,6 +157,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("statistics")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
         public async Task<IActionResult> GetStatisticsAsync()
         {
             var result = await _userService.GetStatisticsAsync();
@@ -179,6 +192,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("search")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
         public async Task<IActionResult> SearchUser([FromQuery] UserSearchQuery query)
         {
             var data = await _userService.GetPagedAsync(query);
@@ -187,6 +201,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("paged-end-user")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedEndUserAsync([FromQuery] SearchQuery query)
         {
             var data = await _userService.GetPagedEndUserAsync(query);

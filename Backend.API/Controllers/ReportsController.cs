@@ -3,6 +3,8 @@ using Backend.Application.DTOs.Dashboard;
 using Backend.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Backend.API.Utilities;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers;
 
@@ -21,6 +23,7 @@ public class ReportsController : BaseController
 
     /// <summary>Báo cáo tồn kho chi tiết theo từng lô hàng.</summary>
     [HttpGet("inventory-by-lot")]
+    [CustomAuthorize(Enums.Menu.REPORTS, Enums.Action.READ)]
     public async Task<IActionResult> GetInventoryByLotReportAsync([FromQuery] DashboardQuery query)
     {
         var result = await _dashboardService.GetInventoryByLotReportAsync(query);
@@ -29,6 +32,7 @@ public class ReportsController : BaseController
 
     /// <summary>Báo cáo tổng hợp tồn kho theo từng kho hàng.</summary>
     [HttpGet("inventory-by-warehouse")]
+    [CustomAuthorize(Enums.Menu.REPORTS, Enums.Action.READ)]
     public async Task<IActionResult> GetInventoryByWarehouseReportAsync([FromQuery] DashboardQuery query)
     {
         var result = await _dashboardService.GetInventoryByWarehouseReportAsync(query);
@@ -37,6 +41,7 @@ public class ReportsController : BaseController
 
     /// <summary>Báo cáo tổng hợp tồn kho theo biến thể sản phẩm.</summary>
     [HttpGet("inventory-by-product-variant")]
+    [CustomAuthorize(Enums.Menu.REPORTS, Enums.Action.READ)]
     public async Task<IActionResult> GetInventoryByProductVariantReportAsync([FromQuery] DashboardQuery query)
     {
         var result = await _dashboardService.GetInventoryByProductVariantReportAsync(query);
@@ -45,6 +50,7 @@ public class ReportsController : BaseController
 
     /// <summary>Báo cáo công nợ hai chiều nông dân (PAYABLE) và khách hàng (RECEIVABLE).</summary>
     [HttpGet("two-way-debt")]
+    [CustomAuthorize(Enums.Menu.REPORTS, Enums.Action.READ)]
     public async Task<IActionResult> GetTwoWayDebtReportAsync([FromQuery] DashboardQuery query)
     {
         var result = await _dashboardService.GetTwoWayDebtReportAsync(query);
@@ -53,6 +59,7 @@ public class ReportsController : BaseController
 
     /// <summary>Báo cáo hiệu suất xay xát thực tế (Yield Rate) theo đơn/kho.</summary>
     [HttpGet("milling-yield")]
+    [CustomAuthorize(Enums.Menu.REPORTS, Enums.Action.READ)]
     public async Task<IActionResult> GetMillingYieldReportAsync([FromQuery] DashboardQuery query)
     {
         var result = await _dashboardService.GetMillingYieldReportAsync(query);
@@ -61,6 +68,7 @@ public class ReportsController : BaseController
 
     /// <summary>Báo cáo chi tiết doanh thu bán hàng & số tiền thực tế đã thu.</summary>
     [HttpGet("sales-revenue")]
+    [CustomAuthorize(Enums.Menu.REPORTS, Enums.Action.READ)]
     public async Task<IActionResult> GetSalesRevenueReportAsync([FromQuery] DashboardQuery query)
     {
         var result = await _dashboardService.GetSalesRevenueReportAsync(query);
@@ -69,6 +77,7 @@ public class ReportsController : BaseController
 
     /// <summary>Báo cáo cảnh báo chất lượng: các lô bị cách ly hoặc trễ kiểm định.</summary>
     [HttpGet("quality-alerts")]
+    [CustomAuthorize(Enums.Menu.REPORTS, Enums.Action.READ)]
     public async Task<IActionResult> GetQualityAlertsReportAsync([FromQuery] DashboardQuery query)
     {
         var result = await _dashboardService.GetQualityAlertsReportAsync(query);

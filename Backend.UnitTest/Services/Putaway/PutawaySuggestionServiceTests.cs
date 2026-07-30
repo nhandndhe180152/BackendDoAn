@@ -41,7 +41,7 @@ public class PutawaySuggestionServiceTests
     private readonly List<PutawayDecision> _decisions = new();
     private readonly List<Backend.Domain.Entities.PaddyLot> _paddyLots = new();
     private readonly List<PaddyPurchaseReceipt> _paddyPurchaseReceipts = new();
-    private readonly List<InboundOrder> _inboundOrders = new();
+    private readonly List<Backend.Domain.Entities.InboundOrder> _inboundOrders = new();
     private readonly List<InboundOrderStatus> _inboundOrderStatuses = new();
     private readonly List<Backend.Domain.Entities.MillingOrder> _millingOrders = new();
     private readonly List<CustomerReturnOrder> _customerReturnOrders = new();
@@ -646,7 +646,7 @@ public class PutawaySuggestionServiceTests
         // Setup PaddyPurchaseReceiptService dependencies to test confirm receipt
         var receiptRepoMock = new Mock<IPaddyPurchaseReceiptRepository>();
         var paddyLotRepoMock = new Mock<IPaddyLotRepository>();
-        var inboundOrderRepoMock = new Mock<IRepositoryBase<InboundOrder, int>>();
+        var inboundOrderRepoMock = new Mock<IRepositoryBase<Backend.Domain.Entities.InboundOrder, int>>();
         var inboundOrderItemRepoMock = new Mock<IRepositoryBase<InboundOrderItem, int>>();
         var inboundOrderStatusRepoMock = new Mock<IRepositoryBase<InboundOrderStatus, int>>();
         var lotStatusRepoMock = new Mock<IRepositoryBase<LotStatus, int>>();

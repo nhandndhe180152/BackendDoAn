@@ -413,6 +413,11 @@ public class RoleService : IRoleService
 
         await _permissionRepository.SaveChangesAsync();
 
+        // Làm mới cache quyền để CustomAuthorize áp dụng ngay, không cần khởi động lại/đợi warmup.
+        await _cacheService.RemoveAsync(CommonConstants.Cache.PERMISSIONS_ALL_KEY);
+        var permissions = await _permissionRepository.GetAllAsync();
+        await _cacheService.SetAsync<List<Permission>>(CommonConstants.Cache.PERMISSIONS_ALL_KEY, permissions);
+
         return ApiResponse.Success();
     }
 

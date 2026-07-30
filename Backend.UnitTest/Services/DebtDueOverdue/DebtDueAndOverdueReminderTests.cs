@@ -241,12 +241,12 @@ public class DebtDueAndOverdueReminderTests
         var dueEval = evals.Single(e => e.AlertType == DebtDueOverdueConstants.AlertType.DebtDueSoon);
         dueEval.ShouldAlert.Should().BeTrue();
         dueEval.Severity.Should().Be(AlertConstants.Severity.Info);
-        dueEval.Message.Should().Contain("Farmer Nguyen Van A").And.Contain("5,000,000");
+        dueEval.Message.Should().Contain("Farmer Nguyen Van A").And.Contain("5.000.000");
 
         var overdueEval = evals.Single(e => e.AlertType == DebtDueOverdueConstants.AlertType.DebtOverdue);
         overdueEval.ShouldAlert.Should().BeTrue();
         overdueEval.Severity.Should().Be(AlertConstants.Severity.Critical); // Both amount and days critical thresholds exceeded
-        overdueEval.Message.Should().Contain("quá hạn 34 ngày").And.Contain("55,000,000");
+        overdueEval.Message.Should().Contain("quá hạn 34 ngày").And.Contain("55.000.000");
     }
 
     [Fact]

@@ -94,6 +94,14 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        [HttpPut("me/mark-all-read")]
+        public async Task<IActionResult> MarkAllRead()
+        {
+            var result = await _notificationService.MarkAllReadAsync();
+
+            return BaseResult(result);
+        }
+
         [HttpPut("me/{userNotificationId}/mark-unread")]
         public async Task<IActionResult> MarkUnread(int userNotificationId)
         {

@@ -8,6 +8,7 @@ using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers;
 
@@ -40,6 +41,7 @@ public class InboundOrderController : BaseController
     }
 
     [HttpGet]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.READ)]
     public async Task<IActionResult> GetPagedAsync([FromQuery] SearchQuery query)
     {
         var result = await _inboundOrderService.GetPagedAsync(query);
@@ -48,13 +50,29 @@ public class InboundOrderController : BaseController
 
     /// API phân trang nâng cao (DataTables) cho màn quản lý phiếu nhập: lọc theo cột + sắp xếp
     [HttpPost("paged-advanced")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.READ)]
     public async Task<IActionResult> GetPagedAdvancedAsync([FromBody] InboundOrderDTParameters parameters)
     {
         var result = await _inboundOrderService.GetPagedAdvancedAsync(parameters);
         return BaseResult(result);
     }
 
+    /// Danh sách phiếu nhập lúa/gạo đang chờ xếp kho — 1 request thay cho list + N getById ở màn Store-in.
+    [HttpGet("putaway-pending")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.READ)]
+    public async Task<IActionResult> GetPutawayPendingAsync()
+    {
+        if (!IsInboundOperator())
+        {
+            return BaseResult(ApiResponse.Forbidden("Vai trò hiện tại không có quyền xử lý xếp kho.", ApiCodeConstants.Common.Forbidden));
+        }
+
+        var result = await _inboundOrderService.GetPutawayPendingAsync();
+        return BaseResult(result);
+    }
+
     [HttpGet("{id}")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.READ)]
     public async Task<IActionResult> GetByIdAsync(int id)
     {
         var result = await _inboundOrderService.GetByIdAsync(id);
@@ -62,6 +80,7 @@ public class InboundOrderController : BaseController
     }
 
     [HttpPost]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.CREATE)]
     public async Task<IActionResult> CreateAsync([FromBody] CreateInboundOrderDto dto)
     {
         if (!IsManagerOrAdmin())
@@ -75,6 +94,7 @@ public class InboundOrderController : BaseController
     }
 
     [HttpPut("{id}")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> UpdateAsync(int id, [FromBody] UpdateInboundOrderDto dto)
     {
         if (!IsManagerOrAdmin())
@@ -89,6 +109,7 @@ public class InboundOrderController : BaseController
     }
 
     [HttpPost("{id}/submit")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> SubmitAsync(int id)
     {
         if (!IsInboundOperator())
@@ -101,6 +122,7 @@ public class InboundOrderController : BaseController
     }
 
     [HttpPost("{id}/approve")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> ApproveAsync(int id)
     {
         if (!IsManagerOrAdmin())
@@ -113,6 +135,7 @@ public class InboundOrderController : BaseController
     }
 
     [HttpPost("{id}/reject")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> RejectAsync(int id, [FromBody] string reason)
     {
         if (!IsManagerOrAdmin())
@@ -125,6 +148,7 @@ public class InboundOrderController : BaseController
     }
 
     [HttpPost("{id}/cancel")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> CancelAsync(int id)
     {
         if (!IsManagerOrAdmin())
@@ -138,6 +162,7 @@ public class InboundOrderController : BaseController
 
     // Receiving sequence
     [HttpPost("{id}/receipts/start")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> StartReceiptAsync(int id, [FromBody] StartReceiptDto dto)
     {
         if (!IsInboundOperator())
@@ -150,6 +175,7 @@ public class InboundOrderController : BaseController
     }
 
     [HttpPost("{id}/receipts/{receiptId}/scan-qr")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> ScanQrAsync(int id, int receiptId, [FromBody] ScanQrDto dto)
     {
         if (!IsInboundOperator())
@@ -162,6 +188,7 @@ public class InboundOrderController : BaseController
     }
 
     [HttpPost("{id}/receipts/{receiptId}/record-quantity")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> RecordQuantityAsync(int id, int receiptId, [FromBody] RecordQuantityDto dto)
     {
         if (!IsInboundOperator())
@@ -174,6 +201,7 @@ public class InboundOrderController : BaseController
     }
 
     [HttpPost("{id}/receipts/{receiptId}/attach-weight")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> AttachWeightAsync(int id, int receiptId, [FromBody] AttachWeightDto dto)
     {
         if (!IsInboundOperator())
@@ -186,6 +214,7 @@ public class InboundOrderController : BaseController
     }
 
     [HttpPost("{id}/receipts/{receiptId}/review-exception")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> ReviewExceptionAsync(int id, int receiptId, [FromBody] ReviewExceptionDto dto)
     {
         if (!IsManagerOrAdmin())
@@ -198,6 +227,7 @@ public class InboundOrderController : BaseController
     }
 
     [HttpGet("{id}/receipts/{receiptId}/putaway-suggestions")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.READ)]
     public async Task<IActionResult> GetPutawaySuggestionsAsync(int id, int receiptId)
     {
         if (!IsInboundOperator())
@@ -210,6 +240,7 @@ public class InboundOrderController : BaseController
     }
 
     [HttpPost("{id}/receipts/{receiptId}/select-putaway")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> SelectPutawayAsync(int id, int receiptId, [FromBody] SelectPutawayDto dto)
     {
         if (!IsInboundOperator())
@@ -226,6 +257,7 @@ public class InboundOrderController : BaseController
     }
 
     [HttpPost("{id}/receipts/{receiptId}/confirm")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> ConfirmReceiptAsync(int id, int receiptId, [FromBody] ConfirmReceiptDto dto)
     {
         if (!IsInboundOperator())
@@ -239,6 +271,7 @@ public class InboundOrderController : BaseController
 
     /// <summary>Gap 3: Đảo ngược một dòng phiếu nhập đã xác nhận nhập kho (store-in sai).</summary>
     [HttpPost("{id}/receipts/{receiptId}/reverse")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> ReverseReceiptAsync(int id, int receiptId, [FromQuery] string reason)
     {
         if (!IsManagerOrAdmin())
@@ -251,6 +284,7 @@ public class InboundOrderController : BaseController
     }
 
     [HttpGet("{id}/receipts")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.READ)]
     public async Task<IActionResult> GetReceiptsAsync(int id)
     {
         var result = await _inboundOrderService.GetReceiptsAsync(id);
@@ -259,6 +293,7 @@ public class InboundOrderController : BaseController
 
     // Chứng từ giao hàng (Delivery Note): ảnh upload sẵn qua /file-manager/upload-by-category, ở đây gắn OriginalImageFileId
     [HttpPost("{id}/delivery-note")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> SaveDeliveryNoteAsync(int id, [FromBody] SaveDeliveryNoteDto dto)
     {
         var result = await _inboundOrderService.SaveDeliveryNoteAsync(id, dto);
@@ -266,6 +301,7 @@ public class InboundOrderController : BaseController
     }
 
     [HttpGet("{id}/delivery-note")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.READ)]
     public async Task<IActionResult> GetDeliveryNoteAsync(int id)
     {
         var result = await _inboundOrderService.GetDeliveryNoteAsync(id);
@@ -279,6 +315,7 @@ public class InboundOrderController : BaseController
     /// Có thể gọi nhiều đợt — chỉ cập nhật QuantityReceived, chưa tăng tồn kho.
     /// </summary>
     [HttpPost("{id}/non-paddy/receive")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> ReceiveNonPaddyAsync(int id, [FromBody] Backend.Application.DTOs.InboundOrders.ReceiveNonPaddyDto dto)
     {
         var result = await _inboundOrderService.ReceiveNonPaddyAsync(id, dto);
@@ -291,6 +328,7 @@ public class InboundOrderController : BaseController
     /// và cập nhật PurchaseOrder → PartiallyReceived / Received.
     /// </summary>
     [HttpPost("{id}/non-paddy/confirm")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> ConfirmNonPaddyReceiveAsync(int id, [FromBody] Backend.Application.DTOs.InboundOrders.ConfirmNonPaddyReceiveDto dto)
     {
         var result = await _inboundOrderService.ConfirmNonPaddyReceiveAsync(id, dto);

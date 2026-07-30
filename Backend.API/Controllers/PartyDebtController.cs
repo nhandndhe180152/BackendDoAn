@@ -7,6 +7,7 @@ using Backend.Domain.DTParameters;
 using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers
 {
@@ -29,6 +30,7 @@ namespace Backend.API.Controllers
 
         /// <summary>GET /party-debts/party?partyType=FARMER&amp;partyId=1</summary>
         [HttpGet("party")]
+        [CustomAuthorize(Enums.Menu.DEBTS, Enums.Action.READ)]
         public async Task<IActionResult> GetByPartyAsync(
             [FromQuery] string partyType,
             [FromQuery] int partyId,
@@ -40,7 +42,8 @@ namespace Backend.API.Controllers
 
         /// <summary>POST /party-debts/paged-advanced — danh sách phân trang</summary>
         [HttpPost("paged-advanced")]
-        public async Task<IActionResult> GetPagedAsync([FromBody] PartyDebtDTParameters parameters)
+        [CustomAuthorize(Enums.Menu.DEBTS, Enums.Action.READ)]
+        public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)
         {
             var result = await _partyDebtService.GetPagedAsync(parameters);
             return BaseResult(result);
@@ -72,6 +75,7 @@ namespace Backend.API.Controllers
 
         /// <summary>POST /party-debts/{id}/transactions/paged — lịch sử giao dịch</summary>
         [HttpPost("{id}/transactions/paged")]
+        [CustomAuthorize(Enums.Menu.DEBTS, Enums.Action.READ)]
         public async Task<IActionResult> GetTransactionsAsync(int id, [FromBody] DTParameter parameters)
         {
             var result = await _partyDebtService.GetTransactionsAsync(id, parameters);
@@ -80,6 +84,7 @@ namespace Backend.API.Controllers
 
         /// <summary>POST /party-debts/charge — ghi phát sinh nợ thủ công</summary>
         [HttpPost("charge")]
+        [CustomAuthorize(Enums.Menu.DEBTS, Enums.Action.UPDATE)]
         public async Task<IActionResult> ChargeAsync([FromBody] CreateDebtTransactionDto dto)
         {
             dto.CreatedBy = this.GetLoggedInUserId();
@@ -89,6 +94,7 @@ namespace Backend.API.Controllers
 
         /// <summary>POST /party-debts/payment — ghi thanh toán thủ công</summary>
         [HttpPost("payment")]
+        [CustomAuthorize(Enums.Menu.DEBTS, Enums.Action.UPDATE)]
         public async Task<IActionResult> PaymentAsync([FromBody] CreateDebtTransactionDto dto)
         {
             dto.CreatedBy = this.GetLoggedInUserId();

@@ -479,6 +479,33 @@ public class NotificationService : INotificationService
         return ApiResponse.Success();
     }
 
+    public async Task<ApiResponse> MarkAllReadAsync()
+    {
+        var currentUserId = _httpContextAccessor.HttpContext?.GetCurrentUserId();
+        if (currentUserId == null)
+            return ApiResponse.BadRequest();
+
+        var unreadItems = await _userNotificationRepository
+            .FindByCondition(x => x.UserId == currentUserId && !x.IsRead && !x.IsDeleted, trackChanges: true)
+            .ToListAsync();
+
+        if (unreadItems.Count == 0)
+            return ApiResponse.Success(0);
+
+        var now = DateTime.Now;
+        foreach (var item in unreadItems)
+        {
+            item.IsRead = true;
+            item.LastModifiedDate = now;
+            item.UpdatedBy = currentUserId;
+        }
+
+        await _userNotificationRepository.UpdateListAsync(unreadItems);
+        await _userNotificationRepository.SaveChangesAsync();
+
+        return ApiResponse.Success(unreadItems.Count);
+    }
+
     public async Task<ApiResponse> SoftDeleteUserNotificationAsync(int userNoficationId)
     {
         var currentUserId = _httpContextAccessor.HttpContext?.GetCurrentUserId();

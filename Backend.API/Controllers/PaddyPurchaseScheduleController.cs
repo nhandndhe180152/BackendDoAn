@@ -6,6 +6,7 @@ using Backend.Application.Interfaces;
 using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers
 {
@@ -26,6 +27,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet]
+        [CustomAuthorize(Enums.Menu.RICE_PURCHASE, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _scheduleService.GetAllAsync();
@@ -33,6 +35,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged-advanced")]
+        [CustomAuthorize(Enums.Menu.RICE_PURCHASE, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)
         {
             var result = await _scheduleService.GetPagedAsync(parameters);
@@ -40,6 +43,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}")]
+        [CustomAuthorize(Enums.Menu.RICE_PURCHASE, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var result = await _scheduleService.GetByIdAsync(id);
@@ -47,6 +51,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost]
+        [CustomAuthorize(Enums.Menu.RICE_PURCHASE, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreatePaddyPurchaseScheduleDto dto)
         {
             dto.CreatedBy = this.GetLoggedInUserId();
@@ -55,6 +60,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut]
+        [CustomAuthorize(Enums.Menu.RICE_PURCHASE, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdatePaddyPurchaseScheduleDto dto)
         {
             dto.UpdatedBy = this.GetLoggedInUserId();
@@ -63,6 +69,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPatch("{id}/status")]
+        [CustomAuthorize(Enums.Menu.RICE_PURCHASE, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateStatusAsync(int id, [FromQuery] string statusCode)
         {
             var userId = this.GetLoggedInUserId();
@@ -71,6 +78,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpDelete("{id}")]
+        [CustomAuthorize(Enums.Menu.RICE_PURCHASE, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var result = await _scheduleService.SoftDeleteAsync(id);

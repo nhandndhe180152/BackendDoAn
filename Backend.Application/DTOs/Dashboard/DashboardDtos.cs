@@ -9,6 +9,9 @@ public class DashboardQuery
     public DateTime ToDate { get; set; }
     public int? WarehouseId { get; set; }
     public int? RiceVarietyId { get; set; }
+
+    /// <summary>Mốc thời gian cho biểu đồ thu mua: "today" (7 ngày) | "month" (4 tuần) | "year" (12 tháng).</summary>
+    public string? Period { get; set; }
 }
 
 public class DashboardSummaryDto

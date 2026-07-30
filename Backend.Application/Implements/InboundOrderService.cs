@@ -320,22 +320,8 @@ public class InboundOrderService : IInboundOrderService
         if (order == null)
             return ApiResponse.NotFound("Không tìm thấy InboundOrder.", ApiCodeConstants.Common.NotFound);
 
-        // Fetch variants for items
-        foreach (var item in order.InboundOrderItems)
-        {
-            if (item.ProductVariantId.HasValue)
-            {
-                item.ProductVariant = await _productVariantRepository.FirstOrDefaultAsync(v => v.Id == item.ProductVariantId.Value && !v.IsDeleted, false, v => v.Product);
-            }
-
-            if (item.PaddyLotId.HasValue)
-            {
-                item.PaddyLot = await _paddyLotRepository.FirstOrDefaultAsync(
-                    lot => lot.Id == item.PaddyLotId.Value && !lot.IsDeleted,
-                    false,
-                    lot => lot.Status);
-            }
-        }
+        // Gắn ProductVariant + PaddyLot cho các dòng bằng batch-load (tránh N+1 per-item).
+        await HydrateItemsAsync(order.InboundOrderItems);
 
         var detail = order.ToDetailDto();
 
@@ -354,6 +340,91 @@ public class InboundOrderService : IInboundOrderService
         }
 
         return ApiResponse.Success(detail);
+    }
+
+    /// <summary>
+    /// Nạp ProductVariant (kèm Product) và PaddyLot (kèm Status) cho một tập InboundOrderItem
+    /// bằng 1 query mỗi loại (WHERE Id IN (...)), thay vì gọi từng dòng => tránh N+1.
+    /// </summary>
+    private async Task HydrateItemsAsync(IEnumerable<InboundOrderItem>? items)
+    {
+        var list = items?.ToList() ?? new List<InboundOrderItem>();
+        if (list.Count == 0) return;
+
+        var variantIds = list
+            .Where(i => i.ProductVariantId.HasValue)
+            .Select(i => i.ProductVariantId!.Value)
+            .Distinct()
+            .ToList();
+        if (variantIds.Count > 0)
+        {
+            var variants = await _productVariantRepository
+                .FindByCondition(v => variantIds.Contains(v.Id) && !v.IsDeleted, false, v => v.Product)
+                .ToListAsync();
+            var variantMap = variants.ToDictionary(v => v.Id);
+            foreach (var item in list)
+            {
+                if (item.ProductVariantId.HasValue &&
+                    variantMap.TryGetValue(item.ProductVariantId.Value, out var pv))
+                {
+                    item.ProductVariant = pv;
+                }
+            }
+        }
+
+        var lotIds = list
+            .Where(i => i.PaddyLotId.HasValue)
+            .Select(i => i.PaddyLotId!.Value)
+            .Distinct()
+            .ToList();
+        if (lotIds.Count > 0)
+        {
+            var lots = await _paddyLotRepository
+                .FindByCondition(l => lotIds.Contains(l.Id) && !l.IsDeleted, false, l => l.Status)
+                .ToListAsync();
+            var lotMap = lots.ToDictionary(l => l.Id);
+            foreach (var item in list)
+            {
+                if (item.PaddyLotId.HasValue &&
+                    lotMap.TryGetValue(item.PaddyLotId.Value, out var lot))
+                {
+                    item.PaddyLot = lot;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Danh sách phiếu nhập nguồn lúa/gạo đang chờ xếp kho (put-away) cho màn Store-in.
+    /// Gộp trong 1 lượt truy vấn + bulk-hydrate item để thay cho pattern cũ ở FE
+    /// (list 100 phiếu + N lần getById) vốn gây N+1 và tải màn >10s.
+    /// </summary>
+    public async Task<ApiResponse> GetPutawayPendingAsync()
+    {
+        var orders = await _inboundOrderRepository
+            .FindByCondition(
+                x => !x.IsDeleted
+                     && (x.SourceType == "RECEIPT" || x.SourceType == "PADDY_PURCHASE" || x.PaddyPurchaseReceiptId != null)
+                     && x.InboundOrderStatus.Name != InboundOrderStatusNames.Confirmed
+                     && x.InboundOrderStatus.Name != InboundOrderStatusNames.Cancelled
+                     && x.InboundOrderStatus.Name != InboundOrderStatusNames.Rejected,
+                false,
+                x => x.Warehouse,
+                x => x.Supplier,
+                x => x.InboundOrderStatus,
+                x => x.InboundOrderItems)
+            .Include(x => x.PaddyPurchaseReceipt).ThenInclude(r => r.Farmer)
+            .OrderByDescending(x => x.CreatedDate)
+            .Take(100)
+            .ToListAsync();
+
+        var allItems = orders
+            .SelectMany(o => (IEnumerable<InboundOrderItem>?)o.InboundOrderItems ?? new List<InboundOrderItem>())
+            .ToList();
+        await HydrateItemsAsync(allItems);
+
+        var result = orders.Select(o => o.ToDetailDto()).ToList();
+        return ApiResponse.Success(result);
     }
 
     public async Task<ApiResponse> CreateAsync(CreateInboundOrderDto dto)

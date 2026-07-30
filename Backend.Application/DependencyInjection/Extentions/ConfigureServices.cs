@@ -39,6 +39,7 @@ public static class ConfigureServices
             .AddScoped<IAuditLogService, AuditLogService>()
             .AddScoped<INotificationTypeService, NotificationTypeService>()
             .AddScoped<IDashboardService, DashboardService>()
+            .AddScoped<ISearchService, SearchService>()
             .AddScoped<IProductCategoryService, ProductCategoryService>()
             .AddScoped<IProductService, ProductService>()
             .AddScoped<IProductVariantService, ProductVariantService>()

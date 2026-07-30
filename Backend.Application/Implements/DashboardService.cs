@@ -890,12 +890,48 @@ public class DashboardService : IDashboardService
 
     public async Task<ApiResponse> GetPurchaseChartAsync(DashboardQuery query)
     {
+        var period = (query.Period ?? "today").Trim().ToLowerInvariant();
         var today = DateTimeHelper.VietnamNow().Date;
-        var start = today.AddDays(-6);
-        var end = today.AddDays(1);
+
+        // Xây các "khoảng" (bucket) tùy theo mốc thời gian: mỗi bucket = 1 cột trên biểu đồ.
+        var buckets = new List<(string Label, DateTime Start, DateTime End)>();
+
+        if (period == "year")
+        {
+            // 12 tháng gần nhất, kết thúc ở tháng hiện tại → cột "T1".."T12".
+            var firstMonth = new DateTime(today.Year, today.Month, 1).AddMonths(-11);
+            for (var i = 0; i < 12; i++)
+            {
+                var s = firstMonth.AddMonths(i);
+                buckets.Add(($"T{s.Month}", s, s.AddMonths(1)));
+            }
+        }
+        else if (period == "month")
+        {
+            // 4 tuần gần nhất (mỗi tuần 7 ngày), kết thúc hôm nay → cột "Tuần 1".."Tuần 4".
+            var start = today.AddDays(1).AddDays(-28);
+            for (var i = 0; i < 4; i++)
+            {
+                var s = start.AddDays(i * 7);
+                buckets.Add(($"Tuần {i + 1}", s, s.AddDays(7)));
+            }
+        }
+        else
+        {
+            // 7 ngày gần nhất → cột "T2".."CN".
+            var start = today.AddDays(-6);
+            for (var i = 0; i < 7; i++)
+            {
+                var d = start.AddDays(i);
+                buckets.Add((GetVietnameseDayOfWeek(d.DayOfWeek), d, d.AddDays(1)));
+            }
+        }
+
+        var rangeStart = buckets[0].Start;
+        var rangeEnd = buckets[^1].End;
 
         var receiptQuery = _context.PaddyPurchaseReceipts
-            .Where(x => !x.IsDeleted && x.ReceiptDate >= start && x.ReceiptDate < end);
+            .Where(x => !x.IsDeleted && x.ReceiptDate >= rangeStart && x.ReceiptDate < rangeEnd);
 
         if (query.WarehouseId.HasValue)
         {
@@ -911,23 +947,18 @@ public class DashboardService : IDashboardService
             })
             .ToListAsync();
 
-        var days = Enumerable.Range(0, 7)
-            .Select(i => start.AddDays(i))
-            .ToList();
-
-        var chartData = days.Select(d =>
+        var chartData = buckets.Select(b =>
         {
-            var dayReceipts = rawData.Where(r => r.ReceiptDate.Date == d.Date).ToList();
-            var volumeTons = dayReceipts.Sum(r => r.ActualWeightKg) / 1000m;
-            var dayWeightSum = dayReceipts.Sum(r => r.ActualWeightKg);
-            var avgPrice = dayWeightSum > 0 
-                ? dayReceipts.Sum(r => r.AgreedPrice * r.ActualWeightKg) / dayWeightSum 
+            var rows = rawData.Where(r => r.ReceiptDate >= b.Start && r.ReceiptDate < b.End).ToList();
+            var weightSum = rows.Sum(r => r.ActualWeightKg);
+            var avgPrice = weightSum > 0
+                ? rows.Sum(r => r.AgreedPrice * r.ActualWeightKg) / weightSum
                 : 0m;
 
             return new ChartDataPointDto
             {
-                DayOfWeek = GetVietnameseDayOfWeek(d.DayOfWeek),
-                VolumeTons = volumeTons,
+                DayOfWeek = b.Label,
+                VolumeTons = weightSum / 1000m,
                 AveragePrice = avgPrice
             };
         }).ToList();
@@ -1049,9 +1080,10 @@ public class DashboardService : IDashboardService
             alertsQuery = alertsQuery.Where(x => x.WarehouseId == query.WarehouseId.Value);
         }
 
+        // Trả tối đa 30 cảnh báo mới nhất để FE phân trang (5/trang) tại màn Tổng quan.
         var alerts = await alertsQuery
             .OrderByDescending(x => x.CreatedDate)
-            .Take(5)
+            .Take(30)
             .Select(x => new AlertItemDto
             {
                 Id = x.Id,

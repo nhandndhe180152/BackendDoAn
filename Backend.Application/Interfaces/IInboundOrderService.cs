@@ -9,6 +9,8 @@ public interface IInboundOrderService
     Task<ApiResponse> GetPagedAsync(SearchQuery query);
     Task<ApiResponse> GetPagedAdvancedAsync(Backend.Domain.DTParameters.InboundOrderDTParameters parameters);
     Task<ApiResponse> GetByIdAsync(int id);
+    /// <summary>Phiếu nhập nguồn lúa/gạo đang chờ xếp kho (put-away) — gộp 1 query cho màn Store-in.</summary>
+    Task<ApiResponse> GetPutawayPendingAsync();
     Task<ApiResponse> CreateAsync(CreateInboundOrderDto dto);
     Task<ApiResponse> UpdateAsync(UpdateInboundOrderDto dto);
     Task<ApiResponse> SubmitAsync(int id);
