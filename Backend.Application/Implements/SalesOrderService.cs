@@ -477,7 +477,7 @@ public class SalesOrderService : ISalesOrderService
                         CreatedDate = now,
                         CreatedBy = userId
                     };
-                    await _inventoryTransactionRepository.CreateAsync(invTx);
+                    await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(invTx);
 
                     remainingToReserve -= take;
                 }
@@ -587,7 +587,7 @@ public class SalesOrderService : ISalesOrderService
                             CreatedDate = now,
                             CreatedBy = userId
                         };
-                        await _inventoryTransactionRepository.CreateAsync(unreserveTx);
+                        await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(unreserveTx);
                     }
                 }
             }

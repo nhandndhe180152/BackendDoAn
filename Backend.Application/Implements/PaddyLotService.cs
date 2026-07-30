@@ -55,6 +55,44 @@ public class PaddyLotService : IPaddyLotService
         return ApiResponse.Success(entities.Select(x => x.ToDto()).ToList());
     }
 
+    public async Task<ApiResponse> GetAwaitingQualityInspectionAsync()
+    {
+        // Lô đang CHỜ KIỂM ĐỊNH (AWAITING_QC): mới sinh sau khi chốt phiếu mua, chưa nhập kho.
+        // Trọng lượng dùng để kiểm định lấy ở InitialWeightKg (RemainingWeightKg = 0 vì chưa nhập kho).
+        var entities = await _paddyLotRepository
+            .FindByCondition(
+                x => !x.IsDeleted
+                     && x.Status != null
+                     && x.Status.Code == LotStatusCodeConstants.AwaitingQc,
+                false,
+                x => x.ProductVariant,
+                x => x.Status,
+                x => x.Warehouse)
+            .OrderByDescending(x => x.CreatedDate)
+            .ToListAsync();
+
+        return ApiResponse.Success(entities.Select(x => x.ToDto()).ToList());
+    }
+
+    public async Task<ApiResponse> GetQuarantinedAsync()
+    {
+        // Lô đang CÁCH LY (QUARANTINE): đã nhập kho vào ô cách ly, cần KIỂM TRA LẠI chất lượng.
+        // Đây là nguồn cho ô chọn lô ở luồng tái kiểm (khác với AWAITING_QC của kiểm lần đầu).
+        var entities = await _paddyLotRepository
+            .FindByCondition(
+                x => !x.IsDeleted
+                     && x.Status != null
+                     && x.Status.Code == LotStatusCodeConstants.Quarantine,
+                false,
+                x => x.ProductVariant,
+                x => x.Status,
+                x => x.Warehouse)
+            .OrderByDescending(x => x.CreatedDate)
+            .ToListAsync();
+
+        return ApiResponse.Success(entities.Select(x => x.ToDto()).ToList());
+    }
+
     public async Task<ApiResponse> GetByIdAsync(int id)
     {
         var entity = await _paddyLotRepository

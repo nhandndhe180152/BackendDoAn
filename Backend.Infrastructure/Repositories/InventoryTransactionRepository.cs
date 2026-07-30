@@ -179,4 +179,34 @@ public class InventoryTransactionRepository : RepositoryBase<InventoryTransactio
             .Take(limit)
             .ToListAsync();
     }
+
+    /// <summary>
+    /// Ghi giao dịch tồn kho, quy đổi Before/After sang TỔNG TỒN CỦA CỘT (Location).
+    /// Before/After truyền vào là tồn TRƯỚC/SAU của DÒNG lô; hàm cộng thêm tổng tồn các dòng
+    /// KHÁC cùng cột (loại trừ chính dòng của giao dịch này) để ra tồn của cả cột.
+    /// Không phụ thuộc việc dòng hiện tại đã được flush hay chưa vì luôn loại trừ theo InventoryId.
+    /// LocationId = null (giao dịch không gắn vị trí) thì giữ nguyên tồn theo dòng.
+    /// </summary>
+    public async Task CreateWithColumnTotalsAsync(InventoryTransaction transaction)
+    {
+        // RESERVE / RELEASE_RESERVE theo dõi lượng GIỮ (QuantityReserved), không phải tồn on-hand
+        // của cột → giữ nguyên Before/After, không quy đổi.
+        var isReservation = transaction.TransactionType == InventoryTransactionTypeConstants.Reserve
+            || transaction.TransactionType == InventoryTransactionTypeConstants.ReleaseReserve;
+
+        if (transaction.LocationId.HasValue && !isReservation)
+        {
+            var locationId = transaction.LocationId.Value;
+            var otherOnHand = await _context.Inventories
+                .Where(i => i.LocationId == locationId
+                            && !i.IsDeleted
+                            && i.Id != transaction.InventoryId)
+                .SumAsync(i => i.QuantityOnHand);
+
+            transaction.BeforeQuantity += otherOnHand;
+            transaction.AfterQuantity += otherOnHand;
+        }
+
+        await CreateAsync(transaction);
+    }
 }

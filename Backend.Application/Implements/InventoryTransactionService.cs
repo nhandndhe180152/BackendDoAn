@@ -384,7 +384,7 @@ public class InventoryTransactionService : IInventoryTransactionService
             CreatedBy = currentUserId
         };
 
-        await _inventoryTransactionRepository.CreateAsync(inventoryTransaction);
+        await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(inventoryTransaction);
         await _inventoryTransactionRepository.SaveChangesAsync();
 
         var savedInventory = await _inventoryRepository.GetByIdDetailAsync(inventory.Id) ?? inventory;

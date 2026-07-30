@@ -32,6 +32,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
     private readonly IRepositoryBase<InboundOrderItem, int> _inboundOrderItemRepository;
     private readonly IRepositoryBase<InboundOrderStatus, int> _inboundOrderStatusRepository;
     private readonly IRepositoryBase<LotStatus, int> _lotStatusRepository;
+    private readonly IRepositoryBase<QualityInspection, int> _qualityInspectionRepository;
     private readonly IRepositoryBase<PartyDebt, int> _partyDebtRepository;
     private readonly IRepositoryBase<DebtTransaction, int> _debtTransactionRepository;
     private readonly IProductVariantRepository _productVariantRepository;
@@ -51,6 +52,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         IRepositoryBase<InboundOrderItem, int> inboundOrderItemRepository,
         IRepositoryBase<InboundOrderStatus, int> inboundOrderStatusRepository,
         IRepositoryBase<LotStatus, int> lotStatusRepository,
+        IRepositoryBase<QualityInspection, int> qualityInspectionRepository,
         IRepositoryBase<PartyDebt, int> partyDebtRepository,
         IRepositoryBase<DebtTransaction, int> debtTransactionRepository,
         IProductVariantRepository productVariantRepository,
@@ -69,6 +71,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         _inboundOrderItemRepository = inboundOrderItemRepository;
         _inboundOrderStatusRepository = inboundOrderStatusRepository;
         _lotStatusRepository = lotStatusRepository;
+        _qualityInspectionRepository = qualityInspectionRepository;
         _partyDebtRepository = partyDebtRepository;
         _debtTransactionRepository = debtTransactionRepository;
         _productVariantRepository = productVariantRepository;
@@ -238,8 +241,13 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             lotCode = $"{baseCode}-{(count + 1 + lotCodeAttempts):D4}";
         }
 
-        // 3. Lấy trạng thái lô mặc định của hệ thống
-        var defaultLotStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => !x.IsDeleted) 
+        // 3. Trạng thái lô khởi tạo: CHỜ KIỂM ĐỊNH (AWAITING_QC) — lô chỉ hiện ở màn Chất lượng
+        //    & cách ly, chưa hiện ở màn Nhập kho cho tới khi kiểm định xong. Nếu quản trị chưa
+        //    thêm trạng thái AWAITING_QC (thêm thủ công qua web) thì fallback về "Chờ nhập".
+        var defaultLotStatus =
+            await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.AwaitingQc && !x.IsDeleted)
+            ?? await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.PendingInbound && !x.IsDeleted)
+            ?? await _lotStatusRepository.FirstOrDefaultAsync(x => !x.IsDeleted)
             ?? throw new InvalidOperationException("Không tìm thấy LotStatus nào trong hệ thống.");
 
         // Bọc toàn bộ trong DB Transaction đảm bảo tính nguyên tử (Atomic)
@@ -273,70 +281,29 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             await _paddyLotRepository.CreateAsync(lot);
             await _paddyLotRepository.SaveChangesAsync();
 
-            // 5. TẠO PHIẾU NHẬP KHO (InboundOrder) liên kết với receipt
-            var inboundStatus = await _inboundOrderStatusRepository
-                .FirstOrDefaultAsync(x => x.Name == InboundOrderStatusNames.Draft && !x.IsDeleted)
-                ?? await _inboundOrderStatusRepository.FirstOrDefaultAsync(x => !x.IsDeleted)
-                ?? throw new InvalidOperationException("Không tìm thấy InboundOrderStatus.");
-
-            var inboundBaseCode = $"INB-{datePart}";
-            var cntToday = await _inboundOrderRepository
-                .FindByCondition(x => x.POCode != null && x.POCode.StartsWith(inboundBaseCode))
-                .CountAsync();
-            var inbCode = $"{inboundBaseCode}-{(cntToday + 1):D4}";
-            int attemptsInb = 0;
-            while (await _inboundOrderRepository.AnyAsync(x => x.POCode == inbCode && x.OrganizationId == receipt.OrganizationId) && attemptsInb < 10)
+            // 5. TẠO PHIẾU KIỂM ĐỊNH CHẤT LƯỢNG (nháp) — chờ nhập kết quả.
+            //    KHÔNG tạo phiếu nhập kho ở bước này. Phiếu nhập kho chỉ được tạo SAU khi
+            //    kiểm định (Duyệt đạt / Cách ly) tại màn Chất lượng & cách ly.
+            var draftInspection = new QualityInspection
             {
-                attemptsInb++;
-                inbCode = $"{inboundBaseCode}-{(cntToday + 1 + attemptsInb):D4}";
-            }
-
-            var inboundOrder = new InboundOrder
-            {
-                WarehouseId = receipt.WarehouseId,
-                InboundOrderStatusId = inboundStatus.Id,
-                POCode = inbCode,
-                PaddyPurchaseReceiptId = receiptId,
-                OrganizationId = receipt.OrganizationId,
-                SourceType = "RECEIPT",
-                TotalAssetValue = receipt.TotalAmount,
-                ExpectedDate = receipt.ReceiptDate,
-                CompletedDate = null,
-                Note = $"Nhập lúa từ phiếu mua {receipt.ReceiptCode}",
-                CreatedBy = confirmedById,
-                CreatedDate = now
-            };
-
-            await _inboundOrderRepository.CreateAsync(inboundOrder);
-            await _inboundOrderRepository.SaveChangesAsync();
-
-            // 6. TẠO CHI TIẾT PHIẾU NHẬP KHO (InboundOrderItem) liên kết chặt chẽ với Lô hàng vừa sinh
-            var item = new InboundOrderItem
-            {
-                InboundOrderId = inboundOrder.Id,
-                ProductVariantId = lot.ProductVariantId,
                 PaddyLotId = lot.Id,
-                QuantityOrdered = receipt.ActualWeightKg,
-                QuantityReceived = 0m,
-                ExpectedWeightKg = receipt.ActualWeightKg,
-                ActualWeightKg = receipt.ActualWeightKg,
-                UnitCostPrice = lot.CostPricePerKg,
+                InspectorId = null,
+                InspectedAt = now,
+                PassedInspection = false, // chưa quyết định — phân biệt bằng trạng thái lô AWAITING_QC
+                Note = $"Phiếu kiểm định (chờ nhập kết quả) — lô {lot.LotCode} từ phiếu mua {receipt.ReceiptCode}",
                 CreatedBy = confirmedById,
                 CreatedDate = now
             };
+            await _qualityInspectionRepository.CreateAsync(draftInspection);
+            await _qualityInspectionRepository.SaveChangesAsync();
 
-            await _inboundOrderItemRepository.CreateAsync(item);
-            await _inboundOrderItemRepository.SaveChangesAsync();
-
-            // Không tạo tồn khu đệm và không tạo InventoryTransaction tại bước chốt.
-
-            // 7. GHI NHẬN CÔNG NỢ (Record Debt) nếu số tiền nợ (DebtAmount) > 0
+            // 6. GHI NHẬN CÔNG NỢ (Record Debt) nếu số tiền nợ (DebtAmount) > 0
             if (receipt.DebtAmount > 0)
             {
                 await RecordDebtAsync(receipt, confirmedById, now);
             }
 
-            // 8. Lịch chỉ chuyển sang WEIGHED; STOCKED chỉ sau khi Inbound xác nhận đủ.
+            // 7. Lịch chỉ chuyển sang WEIGHED; STOCKED chỉ sau khi Inbound xác nhận đủ.
             if (receipt.ScheduleId.HasValue)
             {
                 await UpdateScheduleStatusAsync(receipt.ScheduleId.Value, confirmedById);
@@ -344,16 +311,16 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
             await _receiptRepository.EndTransactionAsync();
 
-            // Thông báo cho Chủ kho và Nhân viên kho: phiếu mua lúa đã chốt, đã sinh lô + phiếu nhập.
+            // Thông báo cho Chủ kho và Nhân viên kho: phiếu mua lúa đã chốt, đã sinh lô + phiếu kiểm định.
             await _notificationDispatcher.DispatchAsync(
                 NotificationConstants.Code.PurchaseReceiptConfirmed,
                 new NotificationTarget { RoleIds = new List<int> { CommonConstants.Role.OWNER, CommonConstants.Role.WAREHOUSE } },
                 new object[] { receipt.ReceiptCode },
-                "/admin/rice-purchase",
+                "/admin/quality-inspections",
                 confirmedById);
 
-            return ApiResponse.Success(new { LotId = lot.Id, LotCode = lot.LotCode, InboundOrderId = inboundOrder.Id },
-                "Chốt phiếu thành công. Đã sinh lô và phiếu nhập kho.");
+            return ApiResponse.Success(new { LotId = lot.Id, LotCode = lot.LotCode, QualityInspectionId = draftInspection.Id },
+                "Chốt phiếu thành công. Đã sinh lô và phiếu kiểm định chất lượng (chờ kiểm định).");
         }
         catch (InvalidOperationException ex)
         {

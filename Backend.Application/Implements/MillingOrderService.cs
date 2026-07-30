@@ -612,7 +612,7 @@ public class MillingOrderService : IMillingOrderService
                     CreatedDate = now,
                     CreatedBy = completedById
                 };
-                await _inventoryTransactionRepository.CreateAsync(invTx);
+                await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(invTx);
             }
 
             await _paddyLotRepository.SaveChangesAsync();
@@ -862,7 +862,7 @@ public class MillingOrderService : IMillingOrderService
             CreatedBy = userId
         };
 
-        await _inventoryTransactionRepository.CreateAsync(tx);
+        await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(tx);
         await _inventoryTransactionRepository.SaveChangesAsync();
     }
 

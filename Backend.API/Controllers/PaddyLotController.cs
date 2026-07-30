@@ -59,6 +59,24 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        /// Lô đang CHỜ KIỂM ĐỊNH (AWAITING_QC) — nguồn cho ô chọn lô ở màn Chất lượng &amp; cách ly.
+        [HttpGet("awaiting-qc")]
+        [CustomAuthorize(Enums.Menu.QUALITY_INSPECTIONS, Enums.Action.READ)]
+        public async Task<IActionResult> GetAwaitingQualityInspectionAsync()
+        {
+            var result = await _paddyLotService.GetAwaitingQualityInspectionAsync();
+            return BaseResult(result);
+        }
+
+        /// Lô đang CÁCH LY (QUARANTINE) — nguồn cho ô chọn lô khi KIỂM TRA LẠI chất lượng ở màn Chất lượng &amp; cách ly.
+        [HttpGet("quarantined")]
+        [CustomAuthorize(Enums.Menu.QUALITY_INSPECTIONS, Enums.Action.READ)]
+        public async Task<IActionResult> GetQuarantinedAsync()
+        {
+            var result = await _paddyLotService.GetQuarantinedAsync();
+            return BaseResult(result);
+        }
+
         [HttpGet("{id}")]
         [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
