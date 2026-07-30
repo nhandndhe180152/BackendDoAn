@@ -746,6 +746,7 @@ public class PutawaySuggestionServiceTests
             inboundOrderItemRepoMock.Object,
             inboundOrderStatusRepoMock.Object,
             lotStatusRepoMock.Object,
+            new Mock<IRepositoryBase<Backend.Domain.Entities.QualityInspection, int>>().Object,
             partyDebtRepoMock.Object,
             debtTransactionRepoMock.Object,
             productVariantRepoMock.Object,
