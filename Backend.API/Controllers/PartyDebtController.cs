@@ -43,7 +43,7 @@ namespace Backend.API.Controllers
         /// <summary>POST /party-debts/paged-advanced — danh sách phân trang</summary>
         [HttpPost("paged-advanced")]
         [CustomAuthorize(Enums.Menu.DEBTS, Enums.Action.READ)]
-        public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)
+        public async Task<IActionResult> GetPagedAsync([FromBody] PartyDebtDTParameters parameters)
         {
             var result = await _partyDebtService.GetPagedAsync(parameters);
             return BaseResult(result);

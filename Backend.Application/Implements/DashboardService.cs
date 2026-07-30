@@ -10,10 +10,15 @@ using Backend.Domain.Entities;
 using Backend.Share.Entities;
 using Backend.Share.Extensions;
 using Backend.Share.Helpers;
-using Microsoft.AspNetCore.Http;
 using System.Threading;
 using Backend.Application.BackgroundJobs.DebtDueOverdue;
 using Microsoft.EntityFrameworkCore;
+using NPOI.SS.UserModel;
+using NPOI.XSSF.UserModel;
+using System.Globalization;
+using System.IO;
+using System.Reflection;
+using System.Text;
 
 namespace Backend.Application.Implements;
 
@@ -350,6 +355,19 @@ public class DashboardService : IDashboardService
         {
             baseQuery = baseQuery.Where(x => x.RiceVarietyId == query.RiceVarietyId.Value);
         }
+        if (query.ProductVariantId.HasValue)
+        {
+            baseQuery = baseQuery.Where(x => x.ProductVariantId == query.ProductVariantId.Value);
+        }
+        if (query.PaddyLotId.HasValue)
+        {
+            baseQuery = baseQuery.Where(x => x.Id == query.PaddyLotId.Value);
+        }
+        if (!string.IsNullOrWhiteSpace(query.ProductType))
+        {
+            var productType = query.ProductType.Trim().ToUpperInvariant();
+            baseQuery = baseQuery.Where(x => x.LotType == productType);
+        }
 
         var lots = await baseQuery
             .Select(x => new
@@ -358,8 +376,17 @@ public class DashboardService : IDashboardService
                 x.LotCode,
                 x.LotType,
                 RiceVarietyName = x.RiceVariety != null ? x.RiceVariety.Name : null,
+                SKU = x.ProductVariant.SKU,
                 ProductVariantName = x.ProductVariant.Name,
                 WarehouseName = x.Warehouse.Name,
+                SourceBagCount = x.SourceReceipt != null
+                    ? x.SourceReceipt.BagCount
+                    : x.SourceMillingOrder != null
+                        ? x.SourceMillingOrder.MillingOrderOutputs
+                            .Where(o => !o.IsDeleted && o.OutputLotId == x.Id)
+                            .Select(o => o.BagCount)
+                            .FirstOrDefault()
+                        : null,
                 x.InboundDate,
                 x.InitialWeightKg,
                 x.RemainingWeightKg,
@@ -379,6 +406,12 @@ public class DashboardService : IDashboardService
         // Get all aggregates for these lots
         var aggregates = await _aggregationService.GetAggregatesAsync(query.WarehouseId, null, CancellationToken.None);
         var lotAggregates = aggregates.Where(x => x.PaddyLotId.HasValue && lotIds.Contains(x.PaddyLotId.Value)).ToList();
+        if (query.LocationId.HasValue)
+        {
+            lotAggregates = lotAggregates
+                .Where(x => x.LocationId == query.LocationId.Value)
+                .ToList();
+        }
 
         var aggMap = lotAggregates.GroupBy(x => x.PaddyLotId!.Value).ToDictionary(g => g.Key, g => g.ToList());
 
@@ -450,13 +483,18 @@ public class DashboardService : IDashboardService
 
             return new InventoryByLotReportDto
             {
+                LotId = lot.Id,
                 LotCode = lot.LotCode,
                 LotType = lot.LotType,
                 RiceVariety = lot.RiceVarietyName,
+                SKU = lot.SKU,
                 ProductVariant = lot.ProductVariantName,
                 Warehouse = lot.WarehouseName,
                 Location = locationsStr,
                 Locations = locationsStr,
+                // Số bao chỉ đáng tin ở thời điểm tạo lô; sau xuất một phần hệ thống
+                // quản lý tồn chính xác theo kg nên FE hiển thị đây là số tham chiếu.
+                BagCount = lot.SourceBagCount,
                 InboundDate = lot.InboundDate,
                 InitialWeightKg = lot.InitialWeightKg,
                 RemainingWeightKg = lot.RemainingWeightKg,
@@ -469,9 +507,22 @@ public class DashboardService : IDashboardService
                 LastInspectionAt = lot.LastInspectionAt,
                 LotStatus = lot.StatusName
             };
-        }).ToList();
+        })
+        .Where(x => !query.LocationId.HasValue || !string.IsNullOrWhiteSpace(x.Location))
+        .OrderBy(x => x.LotCode)
+        .ToList();
 
-        return ApiResponse.Success(report);
+        var chart = report
+            .GroupBy(x => x.LotType)
+            .Select(g => new ReportChartPointDto
+            {
+                Label = g.Key,
+                Value = g.Sum(x => x.AvailableKg),
+                SecondaryValue = g.Sum(x => x.QuarantinedKg)
+            })
+            .ToList();
+
+        return ApiResponse.Success(ToReportPage(report, query, chart));
     }
 
     public async Task<ApiResponse> GetInventoryByWarehouseReportAsync(DashboardQuery query)
@@ -627,6 +678,229 @@ public class DashboardService : IDashboardService
         return ApiResponse.Success(report);
     }
 
+    public async Task<ApiResponse> GetDebtDocumentsReportAsync(DashboardQuery query)
+    {
+        var dateValidation = ValidateAndPopulateDates(query);
+        if (dateValidation != null) return dateValidation;
+
+        var debtQuery = _context.PartyDebts
+            .AsNoTracking()
+            .Where(x => !x.IsDeleted && x.IsActive);
+
+        if (query.FarmerId.HasValue)
+        {
+            debtQuery = debtQuery.Where(x =>
+                x.PartyType == LookupCodes.PartyType.Farmer &&
+                x.PartyId == query.FarmerId.Value);
+        }
+        if (query.CustomerId.HasValue)
+        {
+            debtQuery = debtQuery.Where(x =>
+                x.PartyType == LookupCodes.PartyType.Customer &&
+                x.PartyId == query.CustomerId.Value);
+        }
+
+        var debts = await debtQuery.ToListAsync();
+        var debtIds = debts.Select(x => x.Id).ToList();
+        var transactions = await _context.DebtTransactions
+            .AsNoTracking()
+            .Where(x => debtIds.Contains(x.PartyDebtId) && !x.IsDeleted)
+            .ToListAsync();
+        var txMap = transactions
+            .GroupBy(x => x.PartyDebtId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var farmerIds = debts
+            .Where(x => x.PartyType == LookupCodes.PartyType.Farmer)
+            .Select(x => x.PartyId)
+            .Distinct()
+            .ToList();
+        var customerIds = debts
+            .Where(x => x.PartyType == LookupCodes.PartyType.Customer)
+            .Select(x => x.PartyId)
+            .Distinct()
+            .ToList();
+
+        var farmerNames = await _context.Farmers
+            .AsNoTracking()
+            .Where(x => farmerIds.Contains(x.Id) && !x.IsDeleted)
+            .ToDictionaryAsync(x => x.Id, x => x.Name);
+        var customerNames = await _context.Customers
+            .AsNoTracking()
+            .Where(x => customerIds.Contains(x.Id) && !x.IsDeleted)
+            .ToDictionaryAsync(x => x.Id, x => x.Name);
+
+        var allocations = new List<(PartyDebt Debt, DebtDocumentAllocation Document)>();
+        foreach (var debt in debts)
+        {
+            txMap.TryGetValue(debt.Id, out var debtTransactions);
+            allocations.AddRange(_agingService
+                .CalculateDebtDocuments(debt, debtTransactions ?? new List<DebtTransaction>())
+                .Select(x => (debt, x)));
+        }
+
+        allocations = allocations
+            .Where(x => x.Document.TransactionDate >= query.FromDate &&
+                        x.Document.TransactionDate < query.ToDate)
+            .ToList();
+
+        var receiptIds = allocations
+            .Where(x => string.Equals(x.Document.RefType, "PADDY_RECEIPT", StringComparison.OrdinalIgnoreCase) &&
+                        x.Document.RefId.HasValue)
+            .Select(x => x.Document.RefId!.Value)
+            .Distinct()
+            .ToList();
+        var salesOrderIds = allocations
+            .Where(x => (string.Equals(x.Document.RefType, "SALES_ORDER", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(x.Document.RefType, "SALES_ORDER_DEPOSIT", StringComparison.OrdinalIgnoreCase)) &&
+                        x.Document.RefId.HasValue)
+            .Select(x => x.Document.RefId!.Value)
+            .Distinct()
+            .ToList();
+
+        var receiptCodes = await _context.PaddyPurchaseReceipts
+            .AsNoTracking()
+            .Where(x => receiptIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.ReceiptCode);
+        var salesCodes = await _context.SalesOrders
+            .AsNoTracking()
+            .Where(x => salesOrderIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.SOCode);
+
+        var today = DateTimeHelper.VietnamNow().Date;
+        var rows = allocations.Select(item =>
+        {
+            var debt = item.Debt;
+            var document = item.Document;
+            var dueDate = document.DueDate?.Date;
+            var status = document.OutstandingAmount <= 0m
+                ? "PAID"
+                : dueDate.HasValue && dueDate.Value < today
+                    ? "OVERDUE"
+                    : document.PaidAmount > 0m ? "PARTIAL" : "UNPAID";
+            var partyName = debt.PartyType == LookupCodes.PartyType.Farmer
+                ? farmerNames.GetValueOrDefault(debt.PartyId) ?? $"Nông dân {debt.PartyId}"
+                : customerNames.GetValueOrDefault(debt.PartyId) ?? $"Khách hàng {debt.PartyId}";
+
+            var code = document.RefId.HasValue &&
+                       string.Equals(document.RefType, "PADDY_RECEIPT", StringComparison.OrdinalIgnoreCase)
+                ? receiptCodes.GetValueOrDefault(document.RefId.Value)
+                : document.RefId.HasValue &&
+                  (string.Equals(document.RefType, "SALES_ORDER", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(document.RefType, "SALES_ORDER_DEPOSIT", StringComparison.OrdinalIgnoreCase))
+                    ? salesCodes.GetValueOrDefault(document.RefId.Value)
+                    : null;
+
+            return new DebtDocumentReportDto
+            {
+                Direction = debt.Direction,
+                PartyType = debt.PartyType,
+                PartyId = debt.PartyId,
+                PartyName = partyName,
+                RefType = document.RefType,
+                RefId = document.RefId,
+                DocumentCode = code ?? $"{document.RefType ?? "DEBT"}-{document.RefId?.ToString() ?? document.ChargeTransactionId.ToString()}",
+                TransactionDate = document.TransactionDate,
+                DueDate = document.DueDate,
+                TotalAmount = document.TotalAmount,
+                PaidAmount = document.PaidAmount,
+                OutstandingAmount = document.OutstandingAmount,
+                Status = status,
+                DaysOverdue = dueDate.HasValue && dueDate.Value < today
+                    ? (today - dueDate.Value).Days
+                    : 0
+            };
+        })
+        .Where(x => string.IsNullOrWhiteSpace(query.Status) ||
+                    x.Status.Equals(query.Status, StringComparison.OrdinalIgnoreCase))
+        .OrderByDescending(x => x.DueDate ?? x.TransactionDate)
+        .ToList();
+
+        var chart = rows
+            .GroupBy(x => x.Status)
+            .Select(g => new ReportChartPointDto
+            {
+                Label = g.Key,
+                Value = g.Sum(x => x.OutstandingAmount)
+            })
+            .ToList();
+
+        return ApiResponse.Success(ToReportPage(rows, query, chart));
+    }
+
+    public async Task<ApiResponse> GetPurchaseReportAsync(DashboardQuery query)
+    {
+        var dateValidation = ValidateAndPopulateDates(query);
+        if (dateValidation != null) return dateValidation;
+
+        var baseQuery = _context.PaddyPurchaseReceipts
+            .AsNoTracking()
+            .Where(x => !x.IsDeleted &&
+                        x.ReceiptDate >= query.FromDate &&
+                        x.ReceiptDate < query.ToDate);
+
+        if (query.WarehouseId.HasValue)
+            baseQuery = baseQuery.Where(x => x.WarehouseId == query.WarehouseId.Value);
+        if (query.RiceVarietyId.HasValue)
+            baseQuery = baseQuery.Where(x => x.RiceVarietyId == query.RiceVarietyId.Value);
+        if (query.FarmerId.HasValue)
+            baseQuery = baseQuery.Where(x => x.FarmerId == query.FarmerId.Value);
+        if (query.ProductVariantId.HasValue)
+            baseQuery = baseQuery.Where(x =>
+                x.PaddyLot != null &&
+                x.PaddyLot.ProductVariantId == query.ProductVariantId.Value);
+        if (query.PaddyLotId.HasValue)
+            baseQuery = baseQuery.Where(x =>
+                x.PaddyLot != null &&
+                x.PaddyLot.Id == query.PaddyLotId.Value);
+        if (query.LocationId.HasValue)
+            baseQuery = baseQuery.Where(x =>
+                x.PaddyLot != null &&
+                x.PaddyLot.LocationId == query.LocationId.Value);
+        if (!string.IsNullOrWhiteSpace(query.ProductType))
+        {
+            var productType = query.ProductType.Trim().ToUpperInvariant();
+            baseQuery = baseQuery.Where(x =>
+                x.PaddyLot != null &&
+                x.PaddyLot.LotType == productType);
+        }
+
+        var rows = await baseQuery
+            .OrderByDescending(x => x.ReceiptDate)
+            .Select(x => new PurchaseReportDto
+            {
+                ReceiptId = x.Id,
+                ReceiptCode = x.ReceiptCode,
+                ReceiptDate = x.ReceiptDate,
+                FarmerId = x.FarmerId,
+                FarmerName = x.Farmer.Name,
+                RiceVarietyId = x.RiceVarietyId,
+                RiceVarietyName = x.RiceVariety != null ? x.RiceVariety.Name : null,
+                WarehouseName = x.Warehouse.Name,
+                WeightKg = x.ActualWeightKg,
+                BagCount = x.BagCount,
+                UnitPrice = x.AgreedPrice,
+                TotalAmount = x.TotalAmount,
+                PaidAmount = x.PaidAmount,
+                DebtAmount = x.DebtAmount,
+                QualitySummary = x.QualityJson
+            })
+            .ToListAsync();
+
+        var chart = rows
+            .GroupBy(x => x.ReceiptDate.Date)
+            .OrderBy(x => x.Key)
+            .Select(g => new ReportChartPointDto
+            {
+                Label = g.Key.ToString("dd/MM"),
+                Value = g.Sum(x => x.WeightKg),
+                SecondaryValue = g.Sum(x => x.TotalAmount)
+            })
+            .ToList();
+
+        return ApiResponse.Success(ToReportPage(rows, query, chart));
+    }
+
     public async Task<ApiResponse> GetMillingYieldReportAsync(DashboardQuery query)
     {
         var dateValidation = ValidateAndPopulateDates(query);
@@ -644,21 +918,50 @@ public class DashboardService : IDashboardService
         {
             baseQuery = baseQuery.Where(x => x.MillingOrderOutputs.Any(o => o.ProductVariant.RiceVarietyId == query.RiceVarietyId.Value));
         }
+        if (query.ProductVariantId.HasValue)
+        {
+            baseQuery = baseQuery.Where(x => x.MillingOrderOutputs
+                .Any(o => !o.IsDeleted && o.ProductVariantId == query.ProductVariantId.Value));
+        }
+        if (query.PaddyLotId.HasValue)
+        {
+            baseQuery = baseQuery.Where(x => x.MillingOrderInputs
+                .Any(i => !i.IsDeleted && i.PaddyLotId == query.PaddyLotId.Value));
+        }
+        if (query.LocationId.HasValue)
+        {
+            baseQuery = baseQuery.Where(x =>
+                x.MillingOrderInputs.Any(i => !i.IsDeleted && i.LocationId == query.LocationId.Value) ||
+                x.MillingOrderOutputs.Any(o => !o.IsDeleted && o.LocationId == query.LocationId.Value));
+        }
 
         var list = await baseQuery
+            .OrderByDescending(x => x.CompletedAt)
             .Select(x => new MillingYieldReportDto
             {
+                MillingOrderId    = x.Id,
                 MillingCode       = x.MillingCode,
                 WarehouseName     = x.Warehouse.Name,
                 ComputedPaddyKg   = x.ComputedPaddyKg,
                 TotalRiceOutputKg = x.TotalRiceOutputKg,
+                ByproductKg       = x.ByproductKg ?? x.MillingOrderOutputs
+                    .Where(o => !o.IsDeleted && o.IsByproduct)
+                    .Sum(o => o.OutputWeightKg),
                 ActualYieldRate   = x.ComputedPaddyKg > 0 ? x.TotalRiceOutputKg / x.ComputedPaddyKg : 0,
                 LossKg            = x.LossKg ?? 0,
+                TotalCost         = x.TotalCost ?? 0,
                 CompletedAt       = x.CompletedAt
             })
             .ToListAsync();
 
-        return ApiResponse.Success(list);
+        var chart = list.Select(x => new ReportChartPointDto
+        {
+            Label = x.MillingCode,
+            Value = x.ActualYieldRate * 100m,
+            SecondaryValue = x.LossKg
+        }).ToList();
+
+        return ApiResponse.Success(ToReportPage(list, query, chart));
     }
 
     public async Task<ApiResponse> GetSalesRevenueReportAsync(DashboardQuery query)
@@ -680,17 +983,39 @@ public class DashboardService : IDashboardService
         {
             baseQuery = baseQuery.Where(x => x.SalesOrderItems.Any(i => i.ProductVariant.RiceVarietyId == query.RiceVarietyId.Value));
         }
+        if (query.ProductVariantId.HasValue)
+        {
+            baseQuery = baseQuery.Where(x => x.SalesOrderItems.Any(i => i.ProductVariantId == query.ProductVariantId.Value));
+        }
+        if (query.CustomerId.HasValue)
+        {
+            baseQuery = baseQuery.Where(x => x.CustomerId == query.CustomerId.Value);
+        }
+        if (!string.IsNullOrWhiteSpace(query.Channel))
+        {
+            var channel = query.Channel.Trim().ToUpperInvariant();
+            baseQuery = baseQuery.Where(x => x.Channel == channel);
+        }
 
         var orders = await baseQuery
+            .OrderByDescending(x => x.OrderDate)
             .Select(x => new
             {
                 x.Id,
                 x.OrderDate,
                 x.SOCode,
                 CustomerName = x.Customer.Name,
+                x.Channel,
                 x.TotalAmount,
                 DepositAmount = x.DepositAmount ?? 0,
-                StatusName = x.Status.Name
+                StatusName = x.Status.Name,
+                Items = x.SalesOrderItems.Where(i => !i.IsDeleted).Select(i => new
+                {
+                    i.QuantityOrdered,
+                    i.ProductVariant.SKU,
+                    VariantName = i.ProductVariant.Name,
+                    UnitWeight = i.ProductVariant.Weight
+                }).ToList()
             })
             .ToListAsync();
 
@@ -710,9 +1035,14 @@ public class DashboardService : IDashboardService
             var collected = o.DepositAmount + paid;
             return new SalesRevenueReportDto
             {
+                SalesOrderId     = o.Id,
                 OrderDate         = o.OrderDate,
                 SOCode            = o.SOCode,
                 CustomerName      = o.CustomerName,
+                Channel           = o.Channel,
+                ItemSummary       = string.Join(", ", o.Items.Select(i => $"{i.SKU} - {i.VariantName}")),
+                TotalQuantity     = o.Items.Sum(i => i.QuantityOrdered),
+                TotalWeightKg     = o.Items.Sum(i => i.QuantityOrdered * (i.UnitWeight > 0 ? i.UnitWeight : 1)),
                 TotalAmount       = o.TotalAmount,
                 DepositAmount     = o.DepositAmount,
                 AmountCollected   = collected,
@@ -721,11 +1051,24 @@ public class DashboardService : IDashboardService
             };
         }).ToList();
 
-        return ApiResponse.Success(report);
+        var chart = report
+            .GroupBy(x => x.Channel)
+            .Select(g => new ReportChartPointDto
+            {
+                Label = g.Key,
+                Value = g.Sum(x => x.TotalAmount),
+                SecondaryValue = g.Sum(x => x.AmountCollected)
+            })
+            .ToList();
+
+        return ApiResponse.Success(ToReportPage(report, query, chart));
     }
 
     public async Task<ApiResponse> GetQualityAlertsReportAsync(DashboardQuery query)
     {
+        var dateValidation = ValidateAndPopulateDates(query);
+        if (dateValidation != null) return dateValidation;
+
         var nowLimit = DateTimeHelper.VietnamNow();
         var thirtyDaysAgo = nowLimit.AddDays(-30);
 
@@ -740,20 +1083,47 @@ public class DashboardService : IDashboardService
         {
             baseQuery = baseQuery.Where(x => x.RiceVarietyId == query.RiceVarietyId.Value);
         }
+        if (query.ProductVariantId.HasValue)
+        {
+            baseQuery = baseQuery.Where(x => x.ProductVariantId == query.ProductVariantId.Value);
+        }
+        if (query.PaddyLotId.HasValue)
+        {
+            baseQuery = baseQuery.Where(x => x.Id == query.PaddyLotId.Value);
+        }
+        if (query.LocationId.HasValue)
+        {
+            baseQuery = baseQuery.Where(x => x.LocationId == query.LocationId.Value);
+        }
 
         var rawLots = await baseQuery
             .Select(x => new
             {
+                x.Id,
                 x.LotCode,
+                x.LotType,
                 ProductVariantName = x.ProductVariant.Name,
                 WarehouseName = x.Warehouse.Name,
+                LocationCode = x.Location != null
+                    ? (x.Location.SlotCode ?? x.Location.ZoneName)
+                    : null,
                 x.RemainingWeightKg,
                 x.QualityStatus,
                 IsSellable = x.Status.IsSellable,
-                LastInspectionAt = x.QualityInspections
+                LastInspection = x.QualityInspections
                     .Where(q => !q.IsDeleted)
                     .OrderByDescending(q => q.InspectedAt)
-                    .Select(q => (DateTime?)q.InspectedAt)
+                    .Select(q => new
+                    {
+                        q.InspectedAt,
+                        q.AffectedWeightKg,
+                        q.MoisturePercent,
+                        q.MoldLevel,
+                        q.PestLevel,
+                        q.PackagingStatus,
+                        q.Handling,
+                        q.PassedInspection
+                    })
                     .FirstOrDefault()
             })
             .ToListAsync();
@@ -761,23 +1131,463 @@ public class DashboardService : IDashboardService
         var list = rawLots
             .Select(x =>
             {
-                var isOverdue = !x.LastInspectionAt.HasValue || x.LastInspectionAt.Value < thirtyDaysAgo;
+                var isOverdue = x.LastInspection == null || x.LastInspection.InspectedAt < thirtyDaysAgo;
+                var risks = new List<string>();
+                if (x.LastInspection?.MoisturePercent is > 14m)
+                    risks.Add($"Ẩm {x.LastInspection.MoisturePercent:0.#}%");
+                if (!string.IsNullOrWhiteSpace(x.LastInspection?.MoldLevel) &&
+                    !x.LastInspection.MoldLevel.Equals("Không", StringComparison.OrdinalIgnoreCase))
+                    risks.Add($"Mốc: {x.LastInspection.MoldLevel}");
+                if (!string.IsNullOrWhiteSpace(x.LastInspection?.PestLevel) &&
+                    !x.LastInspection.PestLevel.Equals("Không", StringComparison.OrdinalIgnoreCase))
+                    risks.Add($"Mọt: {x.LastInspection.PestLevel}");
+                if (!string.IsNullOrWhiteSpace(x.LastInspection?.PackagingStatus) &&
+                    !x.LastInspection.PackagingStatus.Equals("Nguyên", StringComparison.OrdinalIgnoreCase))
+                    risks.Add($"Bao: {x.LastInspection.PackagingStatus}");
+                if (isOverdue) risks.Add("Trễ kiểm định");
+
+                var isQuarantined = !x.IsSellable;
+                var severity = isQuarantined || x.LastInspection?.PassedInspection == false
+                    ? "HIGH"
+                    : isOverdue || risks.Count > 0 ? "MEDIUM" : "LOW";
                 return new QualityAlertReportDto
                 {
+                    LotId              = x.Id,
                     LotCode            = x.LotCode,
+                    LotType            = x.LotType,
                     ProductVariantName = x.ProductVariantName,
                     WarehouseName      = x.WarehouseName,
+                    Location           = x.LocationCode,
                     RemainingWeightKg  = x.RemainingWeightKg,
+                    AffectedWeightKg   = x.LastInspection?.AffectedWeightKg ?? x.RemainingWeightKg,
                     QualityStatus      = x.QualityStatus,
-                    LastInspectionAt   = x.LastInspectionAt,
-                    IsQuarantined      = !x.IsSellable,
+                    RiskSummary        = risks.Count > 0 ? string.Join(", ", risks) : "Không ghi nhận",
+                    Severity           = severity,
+                    Recommendation     = x.LastInspection?.Handling,
+                    LastInspectionAt   = x.LastInspection?.InspectedAt,
+                    IsQuarantined      = isQuarantined,
                     IsInspectionOverdue = isOverdue
                 };
             })
             .Where(x => x.IsQuarantined || x.IsInspectionOverdue)
+            .OrderByDescending(x => x.Severity)
             .ToList();
 
-        return ApiResponse.Success(list);
+        var chart = list
+            .GroupBy(x => x.Severity)
+            .Select(g => new ReportChartPointDto
+            {
+                Label = g.Key,
+                Value = g.Sum(x => x.AffectedWeightKg)
+            })
+            .ToList();
+
+        return ApiResponse.Success(ToReportPage(list, query, chart));
+    }
+
+    public async Task<ApiResponse> GetRelativeProfitReportAsync(DashboardQuery query)
+    {
+        var dateValidation = ValidateAndPopulateDates(query);
+        if (dateValidation != null) return dateValidation;
+
+        var outboundQuery = _context.OutboundOrders
+            .AsNoTracking()
+            .Where(x => !x.IsDeleted &&
+                        x.CompletedDate.HasValue &&
+                        x.CompletedDate.Value >= query.FromDate &&
+                        x.CompletedDate.Value < query.ToDate);
+
+        if (query.WarehouseId.HasValue)
+            outboundQuery = outboundQuery.Where(x => x.WarehouseId == query.WarehouseId.Value);
+        if (query.CustomerId.HasValue)
+            outboundQuery = outboundQuery.Where(x => x.SalesOrder.CustomerId == query.CustomerId.Value);
+        if (!string.IsNullOrWhiteSpace(query.Channel))
+        {
+            var channel = query.Channel.Trim().ToUpperInvariant();
+            outboundQuery = outboundQuery.Where(x => x.SalesOrder.Channel == channel);
+        }
+        if (query.ProductVariantId.HasValue)
+        {
+            outboundQuery = outboundQuery.Where(x =>
+                x.OutboundOrderItems.Any(i => i.ProductVariantId == query.ProductVariantId.Value));
+        }
+        if (query.RiceVarietyId.HasValue)
+        {
+            outboundQuery = outboundQuery.Where(x =>
+                x.OutboundOrderItems.Any(i =>
+                    i.ProductVariant.RiceVarietyId == query.RiceVarietyId.Value));
+        }
+
+        var allocationRows = await outboundQuery
+            .SelectMany(x => x.OutboundOrderItems
+                .Where(i => !i.IsDeleted)
+                .SelectMany(i => i.Allocations
+                    .Where(a => !a.IsDeleted && a.QuantityPicked > 0)
+                    .Select(a => new
+                    {
+                        CompletedAt = x.CompletedDate!.Value,
+                        a.QuantityPicked,
+                        a.UnitCostPrice,
+                        MillingOrderId = a.PaddyLot != null
+                            ? a.PaddyLot.SourceMillingOrderId
+                            : null,
+                        UnitSalePrice = i.SalesOrderItem != null &&
+                                        i.SalesOrderItem.QuantityOrdered > 0
+                            ? i.SalesOrderItem.LineAmount /
+                              i.SalesOrderItem.QuantityOrdered
+                            : 0m
+                    })))
+            .ToListAsync();
+
+        var millingIds = allocationRows
+            .Where(x => x.MillingOrderId.HasValue)
+            .Select(x => x.MillingOrderId!.Value)
+            .Distinct()
+            .ToList();
+        var millingCosts = await _context.MillingOrders
+            .AsNoTracking()
+            .Where(x => millingIds.Contains(x.Id))
+            .Select(x => new
+            {
+                x.Id,
+                TotalCost = x.TotalCost ?? 0m,
+                MaterialCost = x.MillingOrderInputs
+                    .Where(i => !i.IsDeleted)
+                    .Sum(i => i.ConsumedWeightKg * i.PaddyLot.CostPricePerKg)
+            })
+            .ToListAsync();
+        var costRatios = millingCosts.ToDictionary(
+            x => x.Id,
+            x => x.TotalCost > 0m
+                ? Math.Min(1m, Math.Max(0m, x.MaterialCost / x.TotalCost))
+                : 1m);
+
+        var calculated = allocationRows.Select(x =>
+        {
+            var revenue = x.QuantityPicked * x.UnitSalePrice;
+            var cost = x.QuantityPicked * x.UnitCostPrice;
+            var paddyRatio = x.MillingOrderId.HasValue
+                ? costRatios.GetValueOrDefault(x.MillingOrderId.Value, 1m)
+                : 1m;
+            return new
+            {
+                x.CompletedAt,
+                Revenue = revenue,
+                PaddyCost = cost * paddyRatio,
+                MillingCost = cost * (1m - paddyRatio)
+            };
+        }).ToList();
+
+        var rows = calculated
+            .GroupBy(x => new DateTime(x.CompletedAt.Year, x.CompletedAt.Month, 1))
+            .OrderByDescending(g => g.Key)
+            .Select(g =>
+            {
+                var revenue = g.Sum(x => x.Revenue);
+                var paddyCost = g.Sum(x => x.PaddyCost);
+                var millingCost = g.Sum(x => x.MillingCost);
+                var profit = revenue - paddyCost - millingCost;
+                return new RelativeProfitReportDto
+                {
+                    PeriodStart = g.Key,
+                    PeriodLabel = $"Tháng {g.Key:MM/yyyy}",
+                    Revenue = revenue,
+                    PaddyCost = paddyCost,
+                    MillingCost = millingCost,
+                    RelativeProfit = profit,
+                    MarginPercent = revenue > 0m ? profit / revenue * 100m : 0m
+                };
+            })
+            .ToList();
+
+        var chart = rows
+            .OrderBy(x => x.PeriodStart)
+            .Select(x => new ReportChartPointDto
+            {
+                Label = x.PeriodLabel,
+                Value = x.RelativeProfit,
+                SecondaryValue = x.Revenue
+            })
+            .ToList();
+
+        return ApiResponse.Success(ToReportPage(rows, query, chart));
+    }
+
+    public async Task<ApiResponse> GetSourceEffectivenessReportAsync(DashboardQuery query)
+    {
+        var dateValidation = ValidateAndPopulateDates(query);
+        if (dateValidation != null) return dateValidation;
+
+        var receiptQuery = _context.PaddyPurchaseReceipts
+            .AsNoTracking()
+            .Where(x => !x.IsDeleted &&
+                        x.ReceiptDate >= query.FromDate &&
+                        x.ReceiptDate < query.ToDate);
+        if (query.WarehouseId.HasValue)
+            receiptQuery = receiptQuery.Where(x => x.WarehouseId == query.WarehouseId.Value);
+        if (query.RiceVarietyId.HasValue)
+            receiptQuery = receiptQuery.Where(x => x.RiceVarietyId == query.RiceVarietyId.Value);
+        if (query.FarmerId.HasValue)
+            receiptQuery = receiptQuery.Where(x => x.FarmerId == query.FarmerId.Value);
+
+        var purchases = await receiptQuery
+            .Select(x => new
+            {
+                x.Id,
+                x.FarmerId,
+                FarmerName = x.Farmer.Name,
+                x.ActualWeightKg,
+                x.AgreedPrice
+            })
+            .ToListAsync();
+
+        var receiptIds = purchases.Select(x => x.Id).ToList();
+        var riskCounts = await _context.PaddyLots
+            .AsNoTracking()
+            .Where(x => x.SourceReceiptId.HasValue &&
+                        receiptIds.Contains(x.SourceReceiptId.Value) &&
+                        !x.IsDeleted &&
+                        (x.QualityInspections.Any(q => !q.IsDeleted && !q.PassedInspection) ||
+                         !x.Status.IsSellable))
+            .GroupBy(x => x.SourceReceipt!.FarmerId)
+            .Select(g => new { FarmerId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.FarmerId, x => x.Count);
+
+        var inputRows = await _context.MillingOrderInputs
+            .AsNoTracking()
+            .Where(x => !x.IsDeleted &&
+                        x.PaddyLot.SourceReceiptId.HasValue &&
+                        receiptIds.Contains(x.PaddyLot.SourceReceiptId.Value))
+            .Select(x => new
+            {
+                x.MillingOrderId,
+                x.PaddyLot.SourceReceipt!.FarmerId,
+                x.ConsumedWeightKg
+            })
+            .ToListAsync();
+
+        var millingIds = inputRows.Select(x => x.MillingOrderId).Distinct().ToList();
+        var soldRows = await _context.OutboundOrderItemAllocations
+            .AsNoTracking()
+            .Where(x => !x.IsDeleted &&
+                        x.QuantityPicked > 0 &&
+                        x.PaddyLot != null &&
+                        x.PaddyLot.SourceMillingOrderId.HasValue &&
+                        millingIds.Contains(x.PaddyLot.SourceMillingOrderId.Value) &&
+                        x.OutboundOrderItem.OutboundOrder.CompletedDate.HasValue &&
+                        x.OutboundOrderItem.OutboundOrder.CompletedDate.Value >= query.FromDate &&
+                        x.OutboundOrderItem.OutboundOrder.CompletedDate.Value < query.ToDate)
+            .Select(x => new
+            {
+                MillingOrderId = x.PaddyLot!.SourceMillingOrderId!.Value,
+                Revenue = x.QuantityPicked *
+                          (x.OutboundOrderItem.SalesOrderItem != null &&
+                           x.OutboundOrderItem.SalesOrderItem.QuantityOrdered > 0
+                              ? x.OutboundOrderItem.SalesOrderItem.LineAmount /
+                                x.OutboundOrderItem.SalesOrderItem.QuantityOrdered
+                              : 0m),
+                Cost = x.QuantityPicked * x.UnitCostPrice
+            })
+            .ToListAsync();
+        var soldByMilling = soldRows
+            .GroupBy(x => x.MillingOrderId)
+            .ToDictionary(
+                g => g.Key,
+                g => (Revenue: g.Sum(x => x.Revenue), Cost: g.Sum(x => x.Cost)));
+        var totalInputByMilling = inputRows
+            .GroupBy(x => x.MillingOrderId)
+            .ToDictionary(g => g.Key, g => g.Sum(x => x.ConsumedWeightKg));
+
+        var relatedByFarmer = new Dictionary<int, (decimal Revenue, decimal Profit)>();
+        foreach (var input in inputRows)
+        {
+            if (!soldByMilling.TryGetValue(input.MillingOrderId, out var sold)) continue;
+            var totalInput = totalInputByMilling.GetValueOrDefault(input.MillingOrderId);
+            if (totalInput <= 0m) continue;
+            var fraction = input.ConsumedWeightKg / totalInput;
+            relatedByFarmer.TryGetValue(input.FarmerId, out var current);
+            relatedByFarmer[input.FarmerId] = (
+                current.Revenue + sold.Revenue * fraction,
+                current.Profit + (sold.Revenue - sold.Cost) * fraction);
+        }
+
+        var rows = purchases
+            .GroupBy(x => new { x.FarmerId, x.FarmerName })
+            .Select(g =>
+            {
+                var kg = g.Sum(x => x.ActualWeightKg);
+                relatedByFarmer.TryGetValue(g.Key.FarmerId, out var related);
+                var risks = riskCounts.GetValueOrDefault(g.Key.FarmerId);
+                return new SourceEffectivenessReportDto
+                {
+                    FarmerId = g.Key.FarmerId,
+                    FarmerName = g.Key.FarmerName,
+                    PurchasedKg = kg,
+                    AveragePurchasePrice = kg > 0m
+                        ? g.Sum(x => x.ActualWeightKg * x.AgreedPrice) / kg
+                        : 0m,
+                    RiskLotCount = risks,
+                    RelatedRevenue = related.Revenue,
+                    RelativeProfit = related.Profit,
+                    Assessment = risks == 0 ? "Không ghi nhận rủi ro" : "Có rủi ro"
+                };
+            })
+            .OrderByDescending(x => x.PurchasedKg)
+            .ToList();
+
+        var chart = rows.Select(x => new ReportChartPointDto
+        {
+            Label = x.FarmerName,
+            Value = x.PurchasedKg,
+            SecondaryValue = x.RiskLotCount
+        }).ToList();
+
+        return ApiResponse.Success(ToReportPage(rows, query, chart));
+    }
+
+    public async Task<ApiResponse> GetReportsOverviewAsync(DashboardQuery query)
+    {
+        var dateValidation = ValidateAndPopulateDates(query);
+        if (dateValidation != null) return dateValidation;
+
+        var summaryResponse = await GetSummaryAsync(query);
+        if (!summaryResponse.IsSucceeded || summaryResponse.Resources is not DashboardSummaryDto summary)
+            return summaryResponse;
+
+        var profitResponse = await GetRelativeProfitReportAsync(CloneQuery(query, int.MaxValue));
+        var profitPage = profitResponse.Resources as ReportPageDto<RelativeProfitReportDto>;
+        var sourceResponse = await GetSourceEffectivenessReportAsync(CloneQuery(query, int.MaxValue));
+        var sourcePage = sourceResponse.Resources as ReportPageDto<SourceEffectivenessReportDto>;
+        var debtResponse = await GetDebtDocumentsReportAsync(CloneQuery(query, int.MaxValue));
+        var debtPage = debtResponse.Resources as ReportPageDto<DebtDocumentReportDto>;
+
+        var overview = new ReportOverviewDto
+        {
+            PaddyOnHandKg = summary.Inventory.PaddyKg,
+            RiceOnHandKg = summary.Inventory.RiceKg,
+            QuarantinedKg = summary.Inventory.QuarantinedKg,
+            PendingDeliveryCount = summary.Sales.PendingDeliveryCount,
+            Revenue = summary.Sales.GrossRevenue,
+            CustomerReceivable = summary.Debt.CustomerReceivable,
+            FarmerPayable = summary.Debt.FarmerPayable,
+            RelativeProfit = profitPage?.DataSource.Sum(x => x.RelativeProfit) ?? 0m,
+            QualityAlertCount = summary.Alerts.QuarantinedLotCount +
+                                summary.Alerts.InspectionOverdueLotCount,
+            GoodSourceCount = sourcePage?.DataSource.Count(x => x.RiskLotCount == 0) ?? 0,
+            TotalSourceCount = sourcePage?.DataSource.Count ?? 0,
+            TopOverdueDebts = debtPage?.DataSource
+                .Where(x => x.Status == "OVERDUE")
+                .OrderByDescending(x => x.OutstandingAmount)
+                .Take(3)
+                .Select(x => $"{x.PartyName} quá hạn {x.OutstandingAmount:N0}đ")
+                .ToList() ?? new List<string>(),
+            OperationalAlerts = summary.RecentAlerts
+                .Take(3)
+                .Select(x => x.Message)
+                .ToList()
+        };
+
+        return ApiResponse.Success(overview);
+    }
+
+    public async Task<ApiResponse> GetReportFilterOptionsAsync()
+    {
+        var result = new ReportFilterOptionsDto
+        {
+            Warehouses = await _context.Warehouses.AsNoTracking()
+                .Where(x => !x.IsDeleted && x.IsActive)
+                .OrderBy(x => x.Name)
+                .Select(x => new ReportOptionDto { Id = x.Id, Name = x.Name, Code = x.Code })
+                .ToListAsync(),
+            RiceVarieties = await _context.RiceVarieties.AsNoTracking()
+                .Where(x => !x.IsDeleted && x.IsActive)
+                .OrderBy(x => x.Name)
+                .Select(x => new ReportOptionDto { Id = x.Id, Name = x.Name, Code = x.Code })
+                .ToListAsync(),
+            ProductVariants = await _context.ProductVariants.AsNoTracking()
+                .Where(x => !x.IsDeleted && x.IsActive)
+                .OrderBy(x => x.Name)
+                .Select(x => new ReportOptionDto { Id = x.Id, Name = x.Name, Code = x.SKU })
+                .ToListAsync(),
+            PaddyLots = await _context.PaddyLots.AsNoTracking()
+                .Where(x => !x.IsDeleted && x.RemainingWeightKg > 0)
+                .OrderByDescending(x => x.InboundDate)
+                .Select(x => new ReportOptionDto { Id = x.Id, Name = x.LotCode, Code = x.LotType })
+                .ToListAsync(),
+            Locations = await _context.Locations.AsNoTracking()
+                .Where(x => !x.IsDeleted && x.IsActive)
+                .OrderBy(x => x.ZoneName).ThenBy(x => x.SlotCode)
+                .Select(x => new ReportOptionDto
+                {
+                    Id = x.Id,
+                    Name = (x.SlotCode ?? x.ZoneName) + " - " + x.Warehouse.Name,
+                    Code = x.SlotCode
+                })
+                .ToListAsync(),
+            Farmers = await _context.Farmers.AsNoTracking()
+                .Where(x => !x.IsDeleted && x.IsActive)
+                .OrderBy(x => x.Name)
+                .Select(x => new ReportOptionDto { Id = x.Id, Name = x.Name, Code = x.Code })
+                .ToListAsync(),
+            Customers = await _context.Customers.AsNoTracking()
+                .Where(x => !x.IsDeleted && x.IsActive)
+                .OrderBy(x => x.Name)
+                .Select(x => new ReportOptionDto { Id = x.Id, Name = x.Name, Code = x.Code })
+                .ToListAsync()
+        };
+
+        return ApiResponse.Success(result);
+    }
+
+    public async Task<ReportExportDto?> ExportReportAsync(
+        string reportType,
+        string format,
+        DashboardQuery query)
+    {
+        query.PageIndex = 1;
+        query.PageSize = int.MaxValue;
+        var response = reportType.Trim().ToLowerInvariant() switch
+        {
+            "stock" => await GetInventoryByLotReportAsync(query),
+            "purchase" => await GetPurchaseReportAsync(query),
+            "milling-loss" => await GetMillingYieldReportAsync(query),
+            "sales" => await GetSalesRevenueReportAsync(query),
+            "two-way-debt" => await GetDebtDocumentsReportAsync(query),
+            "quality" => await GetQualityAlertsReportAsync(query),
+            "relative-profit" => await GetRelativeProfitReportAsync(query),
+            "source-effectiveness" => await GetSourceEffectivenessReportAsync(query),
+            _ => new ApiResponse
+            {
+                IsSucceeded = false,
+                Message = "Loại báo cáo không hợp lệ.",
+                Status = 400,
+                Code = "CMN_400"
+            }
+        };
+
+        if (!response.IsSucceeded || response.Resources == null) return null;
+        var dataSourceProperty = response.Resources.GetType().GetProperty("DataSource");
+        if (dataSourceProperty?.GetValue(response.Resources) is not System.Collections.IEnumerable data)
+            return null;
+        var rows = data.Cast<object>().ToList();
+        var normalizedFormat = string.Equals(format, "csv", StringComparison.OrdinalIgnoreCase)
+            ? "csv"
+            : "xlsx";
+        var datePart = DateTimeHelper.VietnamNow().ToString("yyyyMMdd-HHmm");
+
+        return normalizedFormat == "csv"
+            ? new ReportExportDto
+            {
+                Content = BuildCsv(rows),
+                ContentType = "text/csv; charset=utf-8",
+                FileName = $"bao-cao-{reportType}-{datePart}.csv"
+            }
+            : new ReportExportDto
+            {
+                Content = BuildExcel(rows, reportType),
+                ContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                FileName = $"bao-cao-{reportType}-{datePart}.xlsx"
+            };
     }
 
     public async Task<ApiResponse> GetTodayTasksAsync(DashboardQuery query)
@@ -1114,6 +1924,190 @@ public class DashboardService : IDashboardService
         return dateTime.ToString("dd/MM/yyyy");
     }
 
+    private static ReportPageDto<T> ToReportPage<T>(
+        List<T> rows,
+        DashboardQuery query,
+        List<ReportChartPointDto>? chart = null,
+        object? summary = null)
+    {
+        var pageIndex = Math.Max(1, query.PageIndex);
+        var pageSize = query.PageSize <= 0 ? 20 : query.PageSize;
+        var total = rows.Count;
+        List<T> pageRows;
+        if (pageSize == int.MaxValue)
+        {
+            pageRows = rows;
+            pageIndex = 1;
+        }
+        else
+        {
+            pageSize = Math.Min(pageSize, 200);
+            var skip = (pageIndex - 1) * pageSize;
+            pageRows = skip >= total
+                ? new List<T>()
+                : rows.Skip(skip).Take(pageSize).ToList();
+        }
+
+        return new ReportPageDto<T>
+        {
+            DataSource = pageRows,
+            Total = total,
+            TotalFiltered = total,
+            CurrentPage = pageIndex,
+            PageSize = pageSize,
+            Chart = chart ?? new List<ReportChartPointDto>(),
+            Summary = summary
+        };
+    }
+
+    private static DashboardQuery CloneQuery(DashboardQuery source, int pageSize)
+    {
+        return new DashboardQuery
+        {
+            FromDate = source.FromDate,
+            ToDate = source.ToDate,
+            WarehouseId = source.WarehouseId,
+            RiceVarietyId = source.RiceVarietyId,
+            ProductVariantId = source.ProductVariantId,
+            PaddyLotId = source.PaddyLotId,
+            LocationId = source.LocationId,
+            FarmerId = source.FarmerId,
+            CustomerId = source.CustomerId,
+            ProductType = source.ProductType,
+            Channel = source.Channel,
+            Status = source.Status,
+            Period = source.Period,
+            PageIndex = 1,
+            PageSize = pageSize,
+            SortBy = source.SortBy,
+            SortDirection = source.SortDirection
+        };
+    }
+
+    private static byte[] BuildCsv(List<object> rows)
+    {
+        var encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+        if (rows.Count == 0)
+            return encoding.GetBytes("Không có dữ liệu");
+
+        var properties = GetExportProperties(rows[0].GetType());
+        var builder = new StringBuilder();
+        builder.AppendLine(string.Join(",", properties.Select(x => EscapeCsv(x.Name))));
+        foreach (var row in rows)
+        {
+            builder.AppendLine(string.Join(
+                ",",
+                properties.Select(x => EscapeCsv(FormatExportValue(x.GetValue(row))))));
+        }
+        return encoding.GetPreamble().Concat(encoding.GetBytes(builder.ToString())).ToArray();
+    }
+
+    private static byte[] BuildExcel(List<object> rows, string sheetName)
+    {
+        IWorkbook workbook = new XSSFWorkbook();
+        var safeSheetName = new string((sheetName ?? "Report")
+            .Where(c => !"[]:*?/\\".Contains(c))
+            .Take(31)
+            .ToArray());
+        var sheet = workbook.CreateSheet(string.IsNullOrWhiteSpace(safeSheetName)
+            ? "Report"
+            : safeSheetName);
+
+        if (rows.Count == 0)
+        {
+            sheet.CreateRow(0).CreateCell(0).SetCellValue("Không có dữ liệu");
+        }
+        else
+        {
+            var properties = GetExportProperties(rows[0].GetType());
+            var headerStyle = workbook.CreateCellStyle();
+            var headerFont = workbook.CreateFont();
+            headerFont.IsBold = true;
+            headerStyle.SetFont(headerFont);
+
+            var header = sheet.CreateRow(0);
+            for (var i = 0; i < properties.Length; i++)
+            {
+                var cell = header.CreateCell(i);
+                cell.SetCellValue(properties[i].Name);
+                cell.CellStyle = headerStyle;
+            }
+
+            for (var rowIndex = 0; rowIndex < rows.Count; rowIndex++)
+            {
+                var excelRow = sheet.CreateRow(rowIndex + 1);
+                for (var columnIndex = 0; columnIndex < properties.Length; columnIndex++)
+                {
+                    var value = properties[columnIndex].GetValue(rows[rowIndex]);
+                    var cell = excelRow.CreateCell(columnIndex);
+                    switch (value)
+                    {
+                        case null:
+                            cell.SetCellValue(string.Empty);
+                            break;
+                        case DateTime date:
+                            cell.SetCellValue(date.ToString("dd/MM/yyyy HH:mm"));
+                            break;
+                        case decimal number:
+                            cell.SetCellValue((double)number);
+                            break;
+                        case int number:
+                            cell.SetCellValue(number);
+                            break;
+                        case long number:
+                            cell.SetCellValue((double)number);
+                            break;
+                        case bool boolean:
+                            cell.SetCellValue(boolean ? "Có" : "Không");
+                            break;
+                        default:
+                            cell.SetCellValue(value.ToString());
+                            break;
+                    }
+                }
+            }
+
+            for (var i = 0; i < properties.Length; i++)
+            {
+                sheet.AutoSizeColumn(i);
+                var currentWidth = sheet.GetColumnWidth(i);
+                sheet.SetColumnWidth(i, Math.Min(currentWidth + 512, 15000));
+            }
+        }
+
+        using var stream = new MemoryStream();
+        workbook.Write(stream, true);
+        return stream.ToArray();
+    }
+
+    private static PropertyInfo[] GetExportProperties(Type type)
+        => type.GetProperties(BindingFlags.Instance | BindingFlags.Public)
+            .Where(x => x.CanRead &&
+                        (x.PropertyType == typeof(string) ||
+                         !typeof(System.Collections.IEnumerable).IsAssignableFrom(x.PropertyType)) &&
+                        x.PropertyType != typeof(byte[]))
+            .ToArray();
+
+    private static string FormatExportValue(object? value)
+    {
+        return value switch
+        {
+            null => string.Empty,
+            DateTime date => date.ToString("dd/MM/yyyy HH:mm"),
+            decimal number => number.ToString("0.###", CultureInfo.InvariantCulture),
+            bool boolean => boolean ? "Có" : "Không",
+            _ => value.ToString() ?? string.Empty
+        };
+    }
+
+    private static string EscapeCsv(string value)
+    {
+        if (value.Contains('"')) value = value.Replace("\"", "\"\"");
+        return value.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0
+            ? $"\"{value}\""
+            : value;
+    }
+
     private ApiResponse? ValidateAndPopulateDates(DashboardQuery query)
     {
         if (query.FromDate == default)
@@ -1127,7 +2121,19 @@ public class DashboardService : IDashboardService
         }
         if (query.FromDate > query.ToDate)
         {
-            return ApiResponse.BadRequest("FromDate không được lớn hơn ToDate.", "DASHBOARD_400_01");
+            return new ApiResponse
+            {
+                IsSucceeded = false,
+                Message = "FromDate không được lớn hơn ToDate.",
+                Status = 400,
+                Code = "DASHBOARD_400_01"
+            };
+        }
+        // Query từ input type=date gửi lên lúc 00:00. Chuyển ToDate thành mốc
+        // độc quyền đầu ngày kế tiếp để ngày kết thúc vẫn được tính đầy đủ.
+        if (query.ToDate.TimeOfDay == TimeSpan.Zero)
+        {
+            query.ToDate = query.ToDate.Date.AddDays(1);
         }
         return null;
     }

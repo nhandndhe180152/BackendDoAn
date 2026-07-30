@@ -14,6 +14,7 @@ using Backend.UnitTest.Fixtures;
 using FluentAssertions;
 using Moq;
 using Xunit;
+using WarehouseEntity = Backend.Domain.Entities.Warehouse;
 
 namespace Backend.UnitTest.Services.StockTransfers;
 
@@ -24,7 +25,7 @@ public class StockTransferServiceTests
     private readonly Mock<IRepositoryBase<StockTransferItem, int>> _itemRepo = new();
     private readonly Mock<IRepositoryBase<StockTransferStatus, int>> _statusRepo = new();
     private readonly Mock<IRepositoryBase<LotStatus, int>> _lotStatusRepo = new();
-    private readonly Mock<IRepositoryBase<Warehouse, int>> _warehouseRepo = new();
+    private readonly Mock<IRepositoryBase<WarehouseEntity, int>> _warehouseRepo = new();
     private readonly Mock<IRepositoryBase<Location, int>> _locationRepo = new();
     private readonly Mock<IRepositoryBase<ProductVariant, int>> _productVariantRepo = new();
     private readonly Mock<IPaddyLotRepository> _paddyLotRepo = new();

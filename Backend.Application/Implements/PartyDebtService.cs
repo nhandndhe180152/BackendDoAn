@@ -50,7 +50,7 @@ public class PartyDebtService : IPartyDebtService
         if (normalizedPartyType != LookupCodes.PartyType.Farmer &&
             normalizedPartyType != LookupCodes.PartyType.Customer)
         {
-            return ApiResponse.BadRequest(message: "Loại đối tác không hợp lệ.");
+            return InvalidRequest("Loại đối tác không hợp lệ.");
         }
 
         var query = BuildDebtQuery()
@@ -66,13 +66,14 @@ public class PartyDebtService : IPartyDebtService
 
     public async Task<ApiResponse> GetPagedAsync(PartyDebtDTParameters parameters)
     {
+        parameters ??= new PartyDebtDTParameters();
+
         if (_context == null)
         {
             var legacyData = await _partyDebtRepository.GetPagedAsync(parameters);
             return ApiResponse.Success(legacyData);
         }
 
-        parameters ??= new PartyDebtDTParameters();
         var query = BuildDebtQuery();
         var direction = (parameters.Direction ?? string.Empty).Trim().ToUpperInvariant();
         if (direction is LookupCodes.DebtDirection.Payable or LookupCodes.DebtDirection.Receivable)
@@ -319,7 +320,7 @@ public class PartyDebtService : IPartyDebtService
     public async Task<ApiResponse> ChargeAsync(CreateDebtTransactionDto dto)
     {
         if (dto.Amount <= 0)
-            return ApiResponse.BadRequest(message: "Số tiền phát sinh nợ phải lớn hơn 0.");
+            return InvalidRequest("Số tiền phát sinh nợ phải lớn hơn 0.");
 
         return await ApplyTransactionAsync(dto, LookupCodes.DebtTransactionType.Charge, isDebit: true);
     }
@@ -327,13 +328,13 @@ public class PartyDebtService : IPartyDebtService
     public async Task<ApiResponse> PaymentAsync(CreateDebtTransactionDto dto)
     {
         if (dto.Amount <= 0)
-            return ApiResponse.BadRequest(message: "Số tiền thanh toán phải lớn hơn 0.");
+            return InvalidRequest("Số tiền thanh toán phải lớn hơn 0.");
 
         if (dto.TransactionDate == default)
-            return ApiResponse.BadRequest(message: "Ngày thanh toán là bắt buộc.");
+            return InvalidRequest("Ngày thanh toán là bắt buộc.");
 
         if (!string.IsNullOrWhiteSpace(dto.Note) && dto.Note.Trim().Length > 500)
-            return ApiResponse.BadRequest(message: "Ghi chú thanh toán không được vượt quá 500 ký tự.");
+            return InvalidRequest("Ghi chú thanh toán không được vượt quá 500 ký tự.");
 
         return await ApplyTransactionAsync(dto, LookupCodes.DebtTransactionType.Payment, isDebit: false);
     }
@@ -353,7 +354,7 @@ public class PartyDebtService : IPartyDebtService
             ? null
             : dto.RequestId.Trim();
         if (requestId?.Length > 100)
-            return ApiResponse.BadRequest(message: "RequestId không được vượt quá 100 ký tự.");
+            return InvalidRequest("RequestId không được vượt quá 100 ký tự.");
 
         var deduplicationKey = requestId == null
             ? null
@@ -485,6 +486,15 @@ public class PartyDebtService : IPartyDebtService
     {
         return _context!.PartyDebts.Where(x => !x.IsDeleted);
     }
+
+    private static ApiResponse InvalidRequest(string message)
+        => new()
+        {
+            IsSucceeded = false,
+            Message = message,
+            Status = 400,
+            Code = "CMN_400"
+        };
 
     private async Task<List<PartyDebtDetailDto>> MapDebtRowsAsync(List<PartyDebt> entities)
     {
