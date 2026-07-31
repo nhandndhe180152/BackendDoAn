@@ -14,16 +14,14 @@ public class CreateStockTakeDtoValidator : AbstractValidator<CreateStockTakeDto>
             .WithName("Kho")
             .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.RequiredMessage));
 
-        RuleFor(x => x.StockTakeStatusId)
-            .GreaterThan(0)
-            .WithName("Trạng thái")
-            .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.RequiredMessage));
+        // Không validate StockTakeStatusId khi tạo mới:
+        // service tự gán Draft qua Lookup — frontend không cần và không được phép truyền trạng thái.
 
         RuleFor(x => x.Note)
             .MaximumLength(500)
             .WithName("Ghi chú")
             .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.MaxLengthMessage));
-            
+
         RuleForEach(x => x.StockTakeItems).SetValidator(new CreateStockTakeItemDtoValidator());
     }
 }
@@ -46,7 +44,7 @@ public class UpdateStockTakeDtoValidator : AbstractValidator<UpdateStockTakeDto>
             .MaximumLength(500)
             .WithName("Ghi chú")
             .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.MaxLengthMessage));
-            
+
         RuleForEach(x => x.StockTakeItems).SetValidator(new UpdateStockTakeItemDtoValidator());
     }
 }

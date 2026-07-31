@@ -27,6 +27,7 @@ public class StockTransferService : IStockTransferService
     private readonly IPaddyLotRepository _paddyLotRepository;
     private readonly IInventoryRepository _inventoryRepository;
     private readonly IInventoryTransactionRepository _inventoryTransactionRepository;
+    private readonly ILocationRepository _locationRepository;
     private readonly INotificationDispatcher _notificationDispatcher;
 
     public StockTransferService(
@@ -37,6 +38,7 @@ public class StockTransferService : IStockTransferService
         IPaddyLotRepository paddyLotRepository,
         IInventoryRepository inventoryRepository,
         IInventoryTransactionRepository inventoryTransactionRepository,
+        ILocationRepository locationRepository,
         INotificationDispatcher notificationDispatcher)
     {
         _transferRepository = transferRepository;
@@ -46,6 +48,7 @@ public class StockTransferService : IStockTransferService
         _paddyLotRepository = paddyLotRepository;
         _inventoryRepository = inventoryRepository;
         _inventoryTransactionRepository = inventoryTransactionRepository;
+        _locationRepository = locationRepository;
         _notificationDispatcher = notificationDispatcher;
     }
 
@@ -418,6 +421,41 @@ public class StockTransferService : IStockTransferService
         }
 
         var before = inventory.QuantityOnHand;
+
+        if (locationId.HasValue)
+        {
+            var loc = await _locationRepository.FirstOrDefaultAsync(x => x.Id == locationId.Value && !x.IsDeleted && x.IsActive);
+            if (loc == null)
+            {
+                throw new InvalidOperationException($"Vị trí kệ #{locationId.Value} không tồn tại hoặc đã bị khóa.");
+            }
+
+            if (isExport)
+            {
+                loc.CurrentOccupancy = Math.Max(0m, loc.CurrentOccupancy - qty);
+                if (loc.CurrentOccupancy == 0)
+                {
+                    loc.CurrentProductVariantId = null;
+                }
+                await _locationRepository.UpdateAsync(loc);
+            }
+            else
+            {
+                if (loc.MaxCapacity.HasValue && loc.CurrentOccupancy + qty > loc.MaxCapacity.Value)
+                {
+                    throw new InvalidOperationException($"Vị trí kệ {loc.SlotCode} không đủ sức chứa (còn trống {loc.MaxCapacity.Value - loc.CurrentOccupancy:N2} kg, yêu cầu {qty:N2} kg).");
+                }
+
+                if (loc.CurrentProductVariantId.HasValue && loc.CurrentProductVariantId.Value != productVariantId)
+                {
+                    throw new InvalidOperationException($"Vị trí kệ {loc.SlotCode} đang chứa loại sản phẩm khác.");
+                }
+
+                loc.CurrentOccupancy += qty;
+                loc.CurrentProductVariantId = productVariantId;
+                await _locationRepository.UpdateAsync(loc);
+            }
+        }
 
         if (isExport)
         {

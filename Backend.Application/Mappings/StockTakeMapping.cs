@@ -25,7 +25,8 @@ public static class StockTakeMapping
             {
                 ProductVariantId = item.ProductVariantId,
                 LocationId = item.LocationId,
-                SystemQuantity = 0, // Will be fetched from Inventory
+                PaddyLotId = item.PaddyLotId,
+                SystemQuantity = 0, // Will be fetched from Inventory in service
                 ActualQuantity = item.ActualQuantity,
                 Note = item.Note,
                 QRScanned = item.QRScanned,
@@ -70,9 +71,14 @@ public static class StockTakeMapping
                 StockTakeId = item.StockTakeId,
                 ProductVariantId = item.ProductVariantId,
                 LocationId = item.LocationId,
+                PaddyLotId = item.PaddyLotId,
                 SystemQuantity = item.SystemQuantity,
                 ActualQuantity = item.ActualQuantity,
                 Difference = item.Difference,
+                // VariancePercent và VarianceSeverity được enriched trong StockTakeService
+                // sau khi đọc ngưỡng từ SystemConfig. Mapping cơ bản trả về giá trị entity.
+                VariancePercent = item.VariancePercent,
+                VarianceSeverity = item.VarianceSeverity,
                 Note = item.Note,
                 QRScanned = item.QRScanned
             }).ToList()

@@ -550,6 +550,16 @@ public class OutboundOrderService : IOutboundOrderService
                     inv.UpdatedBy        = userId;
                     await _inventoryRepository.UpdateAsync(inv);
 
+                    // ĐỒNG BỘ HÓA SỨC CHỨA VỊ TRÍ KỆ (Location occupancy):
+                    if (alloc.Location != null)
+                    {
+                        alloc.Location.CurrentOccupancy = Math.Max(0m, alloc.Location.CurrentOccupancy - alloc.QuantityPicked);
+                        if (alloc.Location.CurrentOccupancy == 0)
+                        {
+                            alloc.Location.CurrentProductVariantId = null;
+                        }
+                    }
+
                     // ĐỒNG BỘ HÓA TỒN LÔ HÀNG (PaddyLot):
                     // - Vì lô hàng thực tế đã xuất ra khỏi kho, khối lượng còn lại của lô (RemainingWeightKg)
                     //   phải được khấu trừ tương ứng với số lượng xuất kho vật lý.
