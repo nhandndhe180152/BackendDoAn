@@ -808,7 +808,7 @@ public class StockTransferService : IStockTransferService
             userId,
             now);
 
-        await _inventoryTransactionRepository.CreateAsync(new InventoryTransaction
+        var tx = new InventoryTransaction
         {
             InventoryId = inventory.Id,
             WarehouseId = warehouseId,
@@ -828,7 +828,7 @@ public class StockTransferService : IStockTransferService
             Note = note,
             CreatedDate = now,
             CreatedBy = userId
-        });
+        };
 
         await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(tx);
         await _inventoryTransactionRepository.SaveChangesAsync();
