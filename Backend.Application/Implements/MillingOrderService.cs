@@ -159,6 +159,8 @@ public class MillingOrderService : IMillingOrderService
                 x => x.Warehouse,
                 x => x.MillingOrderInputs,
                 x => x.MillingOrderOutputs)
+            // Tách SELECT theo từng collection (Inputs × Outputs) tránh nổ tích Descartes.
+            .AsSplitQuery()
             .FirstOrDefaultAsync();
 
         if (entity == null) return ApiResponse.NotFound();

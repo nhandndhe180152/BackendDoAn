@@ -853,12 +853,28 @@ public class OutboundOrderService : IOutboundOrderService
             await _outboundOrderRepository.UpdateAsync(order);
 
             // Hoàn trả lại tồn kho vật lý (hoàn nhập số lượng thực tế đã trừ khi dispatch)
-            foreach (var item in order.OutboundOrderItems.Where(i => !i.IsDeleted))
+            // Nạp 1 lượt Inventory & PaddyLot liên quan (thay GetById trong vòng lặp -> tránh N+1).
+            var failActiveItems = order.OutboundOrderItems.Where(i => !i.IsDeleted).ToList();
+            var failAllocs = failActiveItems.SelectMany(i => i.Allocations).ToList();
+            var failInvIds = failAllocs.Select(a => a.InventoryId).Distinct().ToList();
+            var failInvMap = (await _inventoryRepository
+                    .FindByCondition(i => failInvIds.Contains(i.Id))
+                    .ToListAsync())
+                .ToDictionary(i => i.Id);
+            var failLotIds = failAllocs.Where(a => a.PaddyLotId.HasValue)
+                .Select(a => a.PaddyLotId!.Value).Distinct().ToList();
+            var failLotMap = failLotIds.Count > 0
+                ? (await _paddyLotRepository
+                    .FindByCondition(l => failLotIds.Contains(l.Id))
+                    .ToListAsync())
+                    .ToDictionary(l => l.Id)
+                : new Dictionary<int, PaddyLot>();
+
+            foreach (var item in failActiveItems)
             {
                 foreach (var alloc in item.Allocations)
                 {
-                    var inv = await _inventoryRepository.GetByIdAsync(alloc.InventoryId);
-                    if (inv != null && !inv.IsDeleted)
+                    if (failInvMap.TryGetValue(alloc.InventoryId, out var inv) && inv != null && !inv.IsDeleted)
                     {
                         var before = inv.QuantityOnHand;
                         inv.QuantityOnHand += alloc.QuantityPicked;
@@ -891,8 +907,7 @@ public class OutboundOrderService : IOutboundOrderService
                     // Hoàn trả tồn lô lúa/gạo nếu có
                     if (alloc.PaddyLotId.HasValue)
                     {
-                        var lot = await _paddyLotRepository.GetByIdAsync(alloc.PaddyLotId.Value);
-                        if (lot != null && !lot.IsDeleted)
+                        if (failLotMap.TryGetValue(alloc.PaddyLotId.Value, out var lot) && lot != null && !lot.IsDeleted)
                         {
                             lot.RemainingWeightKg += alloc.QuantityPicked;
                             await _paddyLotRepository.UpdateAsync(lot);

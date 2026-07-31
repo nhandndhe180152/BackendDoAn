@@ -39,8 +39,70 @@ public class InventoryTransactionRepository : RepositoryBase<InventoryTransactio
             orderAscendingDirection = false;
         }
 
-        var query = _context.InventoryTransactions
-            .Where(x => !x.IsDeleted)
+        // Bảng gốc (chưa projection). Đếm tổng và áp bộ lọc ở đây để tránh phải tính
+        // các cột projection (ghép LocationCode, join Product...) cho mọi dòng chỉ để đếm/lọc.
+        var baseQuery = _context.InventoryTransactions.Where(x => !x.IsDeleted);
+
+        var totalRecord = await baseQuery.CountAsync();
+
+        // Bộ lọc giữ NGUYÊN điều kiện như cũ, chỉ tham chiếu qua navigation thay vì alias projection.
+        if (!string.IsNullOrEmpty(keyword))
+        {
+            baseQuery = baseQuery.Where(x =>
+                (x.ProductVariant != null && x.ProductVariant.SKU != null && EF.Functions.Collate(x.ProductVariant.SKU, SQLParams.Latin_General).Contains(keyword)) ||
+                (x.ProductVariant != null && x.ProductVariant.Name != null && EF.Functions.Collate(x.ProductVariant.Name, SQLParams.Latin_General).Contains(keyword)) ||
+                (x.ProductVariant != null && x.ProductVariant.Product.Name != null && EF.Functions.Collate(x.ProductVariant.Product.Name, SQLParams.Latin_General).Contains(keyword)) ||
+                EF.Functions.Collate(x.TransactionType, SQLParams.Latin_General).Contains(keyword) ||
+                (x.ReferenceType != null && EF.Functions.Collate(x.ReferenceType, SQLParams.Latin_General).Contains(keyword)) ||
+                (x.Note != null && EF.Functions.Collate(x.Note, SQLParams.Latin_General).Contains(keyword)));
+        }
+
+        if (parameters.WarehouseId.HasValue)
+        {
+            baseQuery = baseQuery.Where(x => x.WarehouseId == parameters.WarehouseId.Value);
+        }
+
+        if (parameters.LocationId.HasValue)
+        {
+            baseQuery = baseQuery.Where(x => x.LocationId == parameters.LocationId.Value);
+        }
+
+        if (parameters.ProductVariantId.HasValue)
+        {
+            baseQuery = baseQuery.Where(x => x.ProductVariantId == parameters.ProductVariantId.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(parameters.TransactionType))
+        {
+            var type = InventoryTransactionTypeConstants.Normalize(parameters.TransactionType);
+            baseQuery = baseQuery.Where(x => x.TransactionType == type);
+        }
+
+        if (!string.IsNullOrWhiteSpace(parameters.ReferenceType))
+        {
+            var referenceType = InventoryReferenceTypeConstants.Normalize(parameters.ReferenceType);
+            baseQuery = baseQuery.Where(x => x.ReferenceType == referenceType);
+        }
+
+        if (parameters.ReferenceId.HasValue)
+        {
+            baseQuery = baseQuery.Where(x => x.ReferenceId == parameters.ReferenceId.Value);
+        }
+
+        if (parameters.FromDate.HasValue)
+        {
+            baseQuery = baseQuery.Where(x => x.CreatedDate >= parameters.FromDate.Value);
+        }
+
+        if (parameters.ToDate.HasValue)
+        {
+            baseQuery = baseQuery.Where(x => x.CreatedDate <= parameters.ToDate.Value);
+        }
+
+        // Đếm sau lọc trên bảng gốc — bằng đúng số dòng của projection (quan hệ 1-1).
+        var recordsFiltered = await baseQuery.CountAsync();
+
+        var query = baseQuery
             .Select(x => new InventoryTransactionAggregate
             {
                 Id = x.Id,
@@ -73,61 +135,6 @@ public class InventoryTransactionRepository : RepositoryBase<InventoryTransactio
                 CreatedBy = x.CreatedBy
             });
 
-        var totalRecord = await query.CountAsync();
-
-        if (!string.IsNullOrEmpty(keyword))
-        {
-            query = query.Where(x =>
-                (x.SKU != null && EF.Functions.Collate(x.SKU, SQLParams.Latin_General).Contains(keyword)) ||
-                (x.ProductVariantName != null && EF.Functions.Collate(x.ProductVariantName, SQLParams.Latin_General).Contains(keyword)) ||
-                (x.ProductName != null && EF.Functions.Collate(x.ProductName, SQLParams.Latin_General).Contains(keyword)) ||
-                EF.Functions.Collate(x.TransactionType, SQLParams.Latin_General).Contains(keyword) ||
-                (x.ReferenceType != null && EF.Functions.Collate(x.ReferenceType, SQLParams.Latin_General).Contains(keyword)) ||
-                (x.Note != null && EF.Functions.Collate(x.Note, SQLParams.Latin_General).Contains(keyword)));
-        }
-
-        if (parameters.WarehouseId.HasValue)
-        {
-            query = query.Where(x => x.WarehouseId == parameters.WarehouseId.Value);
-        }
-
-        if (parameters.LocationId.HasValue)
-        {
-            query = query.Where(x => x.LocationId == parameters.LocationId.Value);
-        }
-
-        if (parameters.ProductVariantId.HasValue)
-        {
-            query = query.Where(x => x.ProductVariantId == parameters.ProductVariantId.Value);
-        }
-
-        if (!string.IsNullOrWhiteSpace(parameters.TransactionType))
-        {
-            var type = InventoryTransactionTypeConstants.Normalize(parameters.TransactionType);
-            query = query.Where(x => x.TransactionType == type);
-        }
-
-        if (!string.IsNullOrWhiteSpace(parameters.ReferenceType))
-        {
-            var referenceType = InventoryReferenceTypeConstants.Normalize(parameters.ReferenceType);
-            query = query.Where(x => x.ReferenceType == referenceType);
-        }
-
-        if (parameters.ReferenceId.HasValue)
-        {
-            query = query.Where(x => x.ReferenceId == parameters.ReferenceId.Value);
-        }
-
-        if (parameters.FromDate.HasValue)
-        {
-            query = query.Where(x => x.CreatedDate >= parameters.FromDate.Value);
-        }
-
-        if (parameters.ToDate.HasValue)
-        {
-            query = query.Where(x => x.CreatedDate <= parameters.ToDate.Value);
-        }
-
         query = orderAscendingDirection
             ? query.OrderByDynamic(orderCriteria, LinqExtensions.Order.Asc)
             : query.OrderByDynamic(orderCriteria, LinqExtensions.Order.Desc);
@@ -136,7 +143,7 @@ public class InventoryTransactionRepository : RepositoryBase<InventoryTransactio
         {
             draw = parameters.Draw,
             data = await query.Skip(parameters.Start).Take(parameters.Length).ToListAsync(),
-            recordsFiltered = await query.CountAsync(),
+            recordsFiltered = recordsFiltered,
             recordsTotal = totalRecord
         };
 

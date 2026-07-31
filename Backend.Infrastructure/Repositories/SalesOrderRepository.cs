@@ -31,6 +31,9 @@ public class SalesOrderRepository : RepositoryBase<SalesOrder, int>, ISalesOrder
                     .ThenInclude(pv => pv.Product)
             .Include(x => x.OutboundOrders)
                 .ThenInclude(o => o.OutboundOrderStatus)
+            // Tách thành nhiều SELECT theo từng collection để tránh nổ tích Descartes
+            // (SalesOrderItems × OutboundOrders). Kết quả trả về không đổi.
+            .AsSplitQuery()
             .FirstOrDefaultAsync(x => !x.IsDeleted && x.Id == id);
     }
 
