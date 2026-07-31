@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers
 {
@@ -39,6 +40,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet]
+        [CustomAuthorize(Enums.Menu.WAREHOUSES, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _locationService.GetAllAsync();
@@ -46,6 +48,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged-advanced")]
+        [CustomAuthorize(Enums.Menu.WAREHOUSES, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)
         {
             var result = await _locationService.GetPagedAsync(parameters);
@@ -53,6 +56,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}")]
+        [CustomAuthorize(Enums.Menu.WAREHOUSES, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var result = await _locationService.GetByIdAsync(id);
@@ -60,6 +64,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost]
+        [CustomAuthorize(Enums.Menu.WAREHOUSES, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreateLocationDto dto)
         {
             var result = await _locationService.CreateAsync(dto);
@@ -67,6 +72,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("list")]
+        [CustomAuthorize(Enums.Menu.WAREHOUSES, Enums.Action.UPDATE)]
         public async Task<IActionResult> CreateListAsync([FromBody] IEnumerable<CreateLocationDto> dtos)
         {
             var result = await _locationService.CreateListAsync(dtos);
@@ -74,6 +80,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut("list")]
+        [CustomAuthorize(Enums.Menu.WAREHOUSES, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateListAsync([FromBody] IEnumerable<UpdateLocationDto> dtos)
         {
             var result = await _locationService.UpdateListAsync(dtos);
@@ -81,6 +88,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut]
+        [CustomAuthorize(Enums.Menu.WAREHOUSES, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateLocationDto dto)
         {
             var result = await _locationService.UpdateAsync(dto);
@@ -88,6 +96,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpDelete("{id}")]
+        [CustomAuthorize(Enums.Menu.WAREHOUSES, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var result = await _locationService.SoftDeleteAsync(id);
@@ -95,6 +104,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("{id}/qr/ensure")]
+        [CustomAuthorize(Enums.Menu.WAREHOUSES, Enums.Action.UPDATE)]
         public async Task<IActionResult> EnsureQrAsync(int id, CancellationToken cancellationToken)
         {
             try
@@ -113,6 +123,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("{id}/qr/regenerate")]
+        [CustomAuthorize(Enums.Menu.WAREHOUSES, Enums.Action.UPDATE)]
         public async Task<IActionResult> RegenerateQrAsync(int id, [FromBody] RegenerateQrRequestDto dto, CancellationToken cancellationToken)
         {
             var userId = this.GetLoggedInUserId();
@@ -141,6 +152,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}/qr/image")]
+        [CustomAuthorize(Enums.Menu.WAREHOUSES, Enums.Action.READ)]
         public async Task<IActionResult> GetQrImageAsync(int id, CancellationToken cancellationToken = default)
         {
             try
@@ -168,6 +180,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}/label")]
+        [CustomAuthorize(Enums.Menu.WAREHOUSES, Enums.Action.READ)]
         public async Task<IActionResult> GetLabelPdfAsync(int id, [FromQuery] string template = "MEDIUM", [FromQuery] int copies = 1, CancellationToken cancellationToken = default)
         {
             if (copies < 1 || copies > 500)

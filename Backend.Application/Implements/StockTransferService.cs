@@ -508,7 +508,7 @@ public class StockTransferService : IStockTransferService
             CreatedBy = userId
         };
 
-        await _inventoryTransactionRepository.CreateAsync(tx);
+        await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(tx);
         await _inventoryTransactionRepository.SaveChangesAsync();
     }
 

@@ -37,6 +37,7 @@ public class UserRepository : RepositoryBase<User, int>, IUserRepository
                           select new MenuAggregate
                           {
                               Id = c.Id,
+                              Code = c.Code,
                               ClassName = c.ClassName,
                               Icon = c.Icon,
                               MenuType = c.MenuType,
@@ -70,6 +71,7 @@ public class UserRepository : RepositoryBase<User, int>, IUserRepository
             .Select(m => new MenuAggregate
             {
                 Id = m.Id,
+                Code = m.Code,
                 Name = m.Name,
                 Url = m.Url,
                 Icon = m.Icon,

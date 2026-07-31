@@ -70,5 +70,13 @@ public class InventoryTransactionConfiguration : IEntityTypeConfiguration<Invent
 
         builder.HasIndex(x => new { x.ProductVariantId, x.CreatedDate })
             .HasDatabaseName("IX_InventoryTransaction_ProductVariant_CreatedDate");
+
+        // Sắp xếp mặc định của màn danh sách giao dịch kho là ORDER BY CreatedDate DESC.
+        // Thêm index theo CreatedDate (và theo kho + CreatedDate) để tránh filesort toàn bảng.
+        builder.HasIndex(x => x.CreatedDate)
+            .HasDatabaseName("IX_InventoryTransaction_CreatedDate");
+
+        builder.HasIndex(x => new { x.WarehouseId, x.CreatedDate })
+            .HasDatabaseName("IX_InventoryTransaction_Warehouse_CreatedDate");
     }
 }

@@ -5,6 +5,8 @@ namespace Backend.Domain.Aggregates;
 public class MenuAggregate
 {
     public int Id { get; set; }
+    /// <summary>Mã menu ổn định (khớp Code DB) — FE dùng để map quyền động (guard/directive).</summary>
+    public string? Code { get; set; }
     public int? ParentId { get; set; }
     public string TreeIds { get; set; } = null!;
     public string MenuType { get; set; } = "ADMIN";

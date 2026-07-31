@@ -6,6 +6,7 @@ using Backend.Application.Interfaces;
 using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers;
 
@@ -28,6 +29,7 @@ public class SalesOrderController : BaseController
     // ── Queries ─────────────────────────────────────────────────────────
 
     [HttpPost("paged")]
+    [CustomAuthorize(Enums.Menu.SALE_ORDERS, Enums.Action.READ)]
     public async Task<IActionResult> GetPagedAsync([FromBody] SalesOrderPagedQuery query)
     {
         var result = await _salesOrderService.GetPagedAsync(query);
@@ -35,6 +37,7 @@ public class SalesOrderController : BaseController
     }
 
     [HttpGet("{id}")]
+    [CustomAuthorize(Enums.Menu.SALE_ORDERS, Enums.Action.READ)]
     public async Task<IActionResult> GetByIdAsync(int id)
     {
         var result = await _salesOrderService.GetByIdAsync(id);
@@ -45,6 +48,7 @@ public class SalesOrderController : BaseController
 
     /// <summary>Tạo đơn bán mới. BE tự tính TotalAmount, không nhận từ FE.</summary>
     [HttpPost]
+    [CustomAuthorize(Enums.Menu.SALE_ORDERS, Enums.Action.CREATE)]
     public async Task<IActionResult> CreateAsync([FromBody] CreateSalesOrderDto dto)
     {
         dto.CreatedBy = this.GetLoggedInUserId();
@@ -54,6 +58,7 @@ public class SalesOrderController : BaseController
 
     /// <summary>Cập nhật đơn bán (chỉ khi ở trạng thái NEW).</summary>
     [HttpPut("{id}")]
+    [CustomAuthorize(Enums.Menu.SALE_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> UpdateAsync(int id, [FromBody] UpdateSalesOrderDto dto)
     {
         dto.Id        = id;
@@ -64,6 +69,7 @@ public class SalesOrderController : BaseController
 
     /// <summary>Xác nhận đơn bán: NEW → PENDING_CONFIRM.</summary>
     [HttpPost("{id}/confirm")]
+    [CustomAuthorize(Enums.Menu.SALE_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> ConfirmAsync(int id)
     {
         var result = await _salesOrderService.ConfirmAsync(id);
@@ -76,6 +82,7 @@ public class SalesOrderController : BaseController
     /// QuantityReserved sẽ được khóa tại bước Allocate của phiếu xuất.
     /// </summary>
     [HttpPost("{id}/reserve")]
+    [CustomAuthorize(Enums.Menu.SALE_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> ReserveAsync(int id)
     {
         var result = await _salesOrderService.ReserveAsync(id);
@@ -84,6 +91,7 @@ public class SalesOrderController : BaseController
 
     /// <summary>Hủy đơn bán. QuantityReserved do OutboundOrder quản lý — không giải phóng tại đây.</summary>
     [HttpPost("{id}/cancel")]
+    [CustomAuthorize(Enums.Menu.SALE_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> CancelAsync(int id)
     {
         var result = await _salesOrderService.CancelAsync(id);
@@ -94,6 +102,7 @@ public class SalesOrderController : BaseController
     /// Tạo OutboundOrder từ SalesOrder (RESERVED/PREPARING → PREPARING + OutboundOrder DRAFT).
     /// </summary>
     [HttpPost("{id}/create-outbound")]
+    [CustomAuthorize(Enums.Menu.SALE_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> CreateOutboundAsync(int id, [FromBody] CreateOutboundDto dto)
     {
         var result = await _salesOrderService.CreateOutboundAsync(id, dto);

@@ -477,7 +477,7 @@ public class SalesOrderService : ISalesOrderService
                         CreatedDate = now,
                         CreatedBy = userId
                     };
-                    await _inventoryTransactionRepository.CreateAsync(invTx);
+                    await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(invTx);
 
                     remainingToReserve -= take;
                 }
@@ -558,10 +558,17 @@ public class SalesOrderService : ISalesOrderService
                                        && x.TransactionType == InventoryTransactionTypeConstants.Reserve)
                     .ToListAsync();
 
+                // Nạp 1 lượt các Inventory liên quan (thay cho GetById trong vòng lặp -> tránh N+1).
+                // Dùng chung instance theo Id nên các lần trừ QuantityReserved vẫn cộng dồn đúng như cũ.
+                var reserveInvIds = reserveTxs.Select(x => x.InventoryId).Distinct().ToList();
+                var reserveInvMap = (await _inventoryRepository
+                        .FindByCondition(i => reserveInvIds.Contains(i.Id))
+                        .ToListAsync())
+                    .ToDictionary(i => i.Id);
+
                 foreach (var rx in reserveTxs)
                 {
-                    var inv = await _inventoryRepository.GetByIdAsync(rx.InventoryId);
-                    if (inv != null)
+                    if (reserveInvMap.TryGetValue(rx.InventoryId, out var inv) && inv != null)
                     {
                         var before = inv.QuantityReserved;
                         inv.QuantityReserved = Math.Max(0, inv.QuantityReserved - rx.Quantity);
@@ -587,7 +594,7 @@ public class SalesOrderService : ISalesOrderService
                             CreatedDate = now,
                             CreatedBy = userId
                         };
-                        await _inventoryTransactionRepository.CreateAsync(unreserveTx);
+                        await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(unreserveTx);
                     }
                 }
             }

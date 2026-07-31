@@ -6,6 +6,7 @@ using Backend.Application.Interfaces;
 using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers
 {
@@ -26,6 +27,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet]
+        [CustomAuthorize(Enums.Menu.QUALITY_INSPECTIONS, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _service.GetAllAsync();
@@ -33,6 +35,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged-advanced")]
+        [CustomAuthorize(Enums.Menu.QUALITY_INSPECTIONS, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)
         {
             var result = await _service.GetPagedAsync(parameters);
@@ -40,6 +43,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}")]
+        [CustomAuthorize(Enums.Menu.QUALITY_INSPECTIONS, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var result = await _service.GetByIdAsync(id);
@@ -47,6 +51,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("by-lot/{paddyLotId}")]
+        [CustomAuthorize(Enums.Menu.QUALITY_INSPECTIONS, Enums.Action.READ)]
         public async Task<IActionResult> GetByLotAsync(int paddyLotId)
         {
             var result = await _service.GetByLotAsync(paddyLotId);
@@ -54,6 +59,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost]
+        [CustomAuthorize(Enums.Menu.QUALITY_INSPECTIONS, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreateQualityInspectionDto dto)
         {
             dto.CreatedBy = this.GetLoggedInUserId();
@@ -61,7 +67,18 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        /// <summary>Kiểm tra lại chất lượng lô đang CÁCH LY; nếu đạt sẽ rút hàng khỏi ô cách ly và tạo phiếu nhập kho để xếp lại vào ô thường.</summary>
+        [HttpPost("recheck")]
+        [CustomAuthorize(Enums.Menu.QUALITY_INSPECTIONS, Enums.Action.CREATE)]
+        public async Task<IActionResult> RecheckAsync([FromBody] CreateQualityInspectionDto dto)
+        {
+            dto.CreatedBy = this.GetLoggedInUserId();
+            var result = await _service.RecheckAsync(dto);
+            return BaseResult(result);
+        }
+
         [HttpPut]
+        [CustomAuthorize(Enums.Menu.QUALITY_INSPECTIONS, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateQualityInspectionDto dto)
         {
             dto.UpdatedBy = this.GetLoggedInUserId();
@@ -70,6 +87,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpDelete("{id}")]
+        [CustomAuthorize(Enums.Menu.QUALITY_INSPECTIONS, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var result = await _service.SoftDeleteAsync(id);

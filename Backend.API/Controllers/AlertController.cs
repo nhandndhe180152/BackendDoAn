@@ -7,6 +7,7 @@ using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers
 {
@@ -28,6 +29,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged-advanced")]
+        [CustomAuthorize(Enums.Menu.ALERTS, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)
         {
             var result = await _alertService.GetPagedAsync(parameters);
@@ -35,6 +37,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("summary")]
+        [CustomAuthorize(Enums.Menu.ALERTS, Enums.Action.READ)]
         public async Task<IActionResult> GetSummaryAsync()
         {
             var result = await _alertService.GetSummaryAsync();
@@ -42,6 +45,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}")]
+        [CustomAuthorize(Enums.Menu.ALERTS, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var result = await _alertService.GetByIdAsync(id);
@@ -49,6 +53,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut("{id}/acknowledge")]
+        [CustomAuthorize(Enums.Menu.ALERTS, Enums.Action.UPDATE)]
         public async Task<IActionResult> AcknowledgeAsync(int id)
         {
             var result = await _alertService.AcknowledgeAsync(id, this.GetLoggedInUserId());
@@ -56,6 +61,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut("{id}/resolve")]
+        [CustomAuthorize(Enums.Menu.ALERTS, Enums.Action.UPDATE)]
         public async Task<IActionResult> ResolveAsync(int id)
         {
             var result = await _alertService.ResolveAsync(id, this.GetLoggedInUserId());
@@ -63,6 +69,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpDelete("{id}")]
+        [CustomAuthorize(Enums.Menu.ALERTS, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var result = await _alertService.SoftDeleteAsync(id);
@@ -71,6 +78,7 @@ namespace Backend.API.Controllers
 
         /// <summary>Đánh dấu tất cả cảnh báo đang mở là đã đọc/ghi nhận.</summary>
         [HttpPut("read-all")]
+        [CustomAuthorize(Enums.Menu.ALERTS, Enums.Action.UPDATE)]
         public async Task<IActionResult> MarkAllReadAsync()
         {
             var result = await _alertService.MarkAllReadAsync(this.GetLoggedInUserId());
@@ -79,6 +87,7 @@ namespace Backend.API.Controllers
 
         /// <summary>Danh sách quy tắc cảnh báo + trạng thái bật/tắt (khối "Quy tắc cảnh báo").</summary>
         [HttpGet("rules")]
+        [CustomAuthorize(Enums.Menu.ALERTS, Enums.Action.READ)]
         public async Task<IActionResult> GetRulesAsync()
         {
             var result = await _alertService.GetRulesAsync();
@@ -87,6 +96,7 @@ namespace Backend.API.Controllers
 
         /// <summary>Bật/tắt một quy tắc cảnh báo theo mã.</summary>
         [HttpPut("rules/{code}")]
+        [CustomAuthorize(Enums.Menu.ALERTS, Enums.Action.UPDATE)]
         public async Task<IActionResult> ToggleRuleAsync(string code, [FromBody] ToggleAlertRuleDto body)
         {
             var result = await _alertService.ToggleRuleAsync(code, body.Enabled, this.GetLoggedInUserId());

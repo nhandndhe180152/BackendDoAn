@@ -159,6 +159,8 @@ public class MillingOrderService : IMillingOrderService
                 x => x.Warehouse,
                 x => x.MillingOrderInputs,
                 x => x.MillingOrderOutputs)
+            // Tách SELECT theo từng collection (Inputs × Outputs) tránh nổ tích Descartes.
+            .AsSplitQuery()
             .FirstOrDefaultAsync();
 
         if (entity == null) return ApiResponse.NotFound();
@@ -612,7 +614,7 @@ public class MillingOrderService : IMillingOrderService
                     CreatedDate = now,
                     CreatedBy = completedById
                 };
-                await _inventoryTransactionRepository.CreateAsync(invTx);
+                await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(invTx);
             }
 
             await _paddyLotRepository.SaveChangesAsync();
@@ -862,7 +864,7 @@ public class MillingOrderService : IMillingOrderService
             CreatedBy = userId
         };
 
-        await _inventoryTransactionRepository.CreateAsync(tx);
+        await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(tx);
         await _inventoryTransactionRepository.SaveChangesAsync();
     }
 

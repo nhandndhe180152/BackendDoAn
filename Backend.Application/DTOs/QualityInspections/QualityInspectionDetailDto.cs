@@ -7,6 +7,8 @@ public class QualityInspectionDetailDto
     public int Id { get; set; }
     public int PaddyLotId { get; set; }
     public string? LotCode { get; set; }
+    /// <summary>Code trạng thái lô (AWAITING_QC = phiếu kiểm định nháp, chờ nhập kết quả).</summary>
+    public string? LotStatusCode { get; set; }
     public int? InspectorId { get; set; }
     public string? InspectorName { get; set; }
     public DateTime InspectedAt { get; set; }

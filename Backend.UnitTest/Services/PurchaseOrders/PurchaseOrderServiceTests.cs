@@ -20,7 +20,7 @@ public class PurchaseOrderServiceTests
     private readonly Mock<IRepositoryBase<PurchaseOrder, int>> _poRepo = new();
     private readonly Mock<IRepositoryBase<PurchaseOrderItem, int>> _poItemRepo = new();
     private readonly Mock<IRepositoryBase<PurchaseOrderStatus, int>> _poStatusRepo = new();
-    private readonly Mock<IRepositoryBase<InboundOrder, int>> _inboundRepo = new();
+    private readonly Mock<IRepositoryBase<Backend.Domain.Entities.InboundOrder, int>> _inboundRepo = new();
     private readonly Mock<IRepositoryBase<InboundOrderItem, int>> _inboundItemRepo = new();
     private readonly Mock<IRepositoryBase<InboundOrderStatus, int>> _inboundStatusRepo = new();
     private readonly Mock<IRepositoryBase<global::Backend.Domain.Entities.Supplier, int>> _supplierRepo = new();

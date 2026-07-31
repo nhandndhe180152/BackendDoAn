@@ -41,7 +41,7 @@ public class PutawaySuggestionServiceTests
     private readonly List<PutawayDecision> _decisions = new();
     private readonly List<Backend.Domain.Entities.PaddyLot> _paddyLots = new();
     private readonly List<PaddyPurchaseReceipt> _paddyPurchaseReceipts = new();
-    private readonly List<InboundOrder> _inboundOrders = new();
+    private readonly List<Backend.Domain.Entities.InboundOrder> _inboundOrders = new();
     private readonly List<InboundOrderStatus> _inboundOrderStatuses = new();
     private readonly List<Backend.Domain.Entities.MillingOrder> _millingOrders = new();
     private readonly List<CustomerReturnOrder> _customerReturnOrders = new();
@@ -646,7 +646,7 @@ public class PutawaySuggestionServiceTests
         // Setup PaddyPurchaseReceiptService dependencies to test confirm receipt
         var receiptRepoMock = new Mock<IPaddyPurchaseReceiptRepository>();
         var paddyLotRepoMock = new Mock<IPaddyLotRepository>();
-        var inboundOrderRepoMock = new Mock<IRepositoryBase<InboundOrder, int>>();
+        var inboundOrderRepoMock = new Mock<IRepositoryBase<Backend.Domain.Entities.InboundOrder, int>>();
         var inboundOrderItemRepoMock = new Mock<IRepositoryBase<InboundOrderItem, int>>();
         var inboundOrderStatusRepoMock = new Mock<IRepositoryBase<InboundOrderStatus, int>>();
         var lotStatusRepoMock = new Mock<IRepositoryBase<LotStatus, int>>();
@@ -746,6 +746,7 @@ public class PutawaySuggestionServiceTests
             inboundOrderItemRepoMock.Object,
             inboundOrderStatusRepoMock.Object,
             lotStatusRepoMock.Object,
+            new Mock<IRepositoryBase<Backend.Domain.Entities.QualityInspection, int>>().Object,
             partyDebtRepoMock.Object,
             debtTransactionRepoMock.Object,
             productVariantRepoMock.Object,
@@ -763,7 +764,7 @@ public class PutawaySuggestionServiceTests
         res.IsSucceeded.Should().BeTrue(res.Message);
         inventoryRepoMock.Verify(r => r.CreateAsync(It.IsAny<Backend.Domain.Entities.Inventory>()), Times.Never);
         inventoryTransactionRepoMock.Verify(
-            r => r.CreateAsync(It.IsAny<InventoryTransaction>()),
+            r => r.CreateWithColumnTotalsAsync(It.IsAny<InventoryTransaction>()),
             Times.Never);
         // Verify update schedule status was called to transition schedule status to WEIGHED (4)
         scheduleRepoMock.Verify(r => r.UpdateAsync(It.Is<Backend.Domain.Entities.PaddyPurchaseSchedule>(s => s.StatusId == 4)), Times.Once);

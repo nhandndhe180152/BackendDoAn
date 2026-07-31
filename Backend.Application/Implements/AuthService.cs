@@ -993,6 +993,64 @@ public class AuthService : IAuthService
         }
     }
 
+    /// <summary>
+    /// Dựng lại userInfo (profile + roles + permissions + menus) cho user hiện tại — cùng shape với login.
+    /// FE gọi khi khởi động (còn token) để nạp phân quyền vào bộ nhớ, không lưu ở localStorage.
+    /// </summary>
+    public async Task<ApiResponse> GetCurrentUserSessionAsync(int userId)
+    {
+        try
+        {
+            var userInfo = await _userRepository
+                .FindByCondition(x => x.Id == userId)
+                .Select(x => new
+                {
+                    User = x,
+                    AvatarUrl = x.Avatar == null ? null : _storageService.GetOriginalUrl(x.Avatar.FileKey)
+                })
+                .FirstOrDefaultAsync();
+
+            if (userInfo == null)
+                return ApiResponse.NotFound(
+                    ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.UserNotFound),
+                    ApiCodeConstants.Auth.UserNotFound);
+
+            var user = userInfo.User;
+
+            var listRoles = await (from a in _userRoleRepository.GetAll()
+                                   join b in _roleRepository.GetAll() on a.RoleId equals b.Id
+                                   where a.UserId == user.Id
+                                   select new DataItem<int>
+                                   {
+                                       Id = a.RoleId,
+                                       Name = b.Name
+                                   })
+                                .ToListAsync();
+
+            var permissions = await _userRepository.GetPermissionsAsync(user.Id);
+            var menus = await _userRepository.GetMenuAsync(user.Id);
+
+            var result = new LoginResponseAdminUserInfo
+            {
+                Id = user.Id,
+                FullName = user.FirstName + " " + user.LastName,
+                Email = user.Email,
+                AvatarUrl = userInfo.AvatarUrl,
+                Roles = listRoles,
+                Permissions = permissions,
+                Menus = menus,
+                MustChangePassword = user.MustChangePassword,
+            };
+
+            return ApiResponse.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Fail to get current user session: {Message}", ex.Message);
+            return ApiResponse.InternalServerError();
+        }
+    }
+
     public async Task<ApiResponse> ResendActivationMailAsync(ResendActivationMailDto dto)
     {
         try

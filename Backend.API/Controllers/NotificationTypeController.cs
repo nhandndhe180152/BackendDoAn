@@ -34,15 +34,16 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet]
+        [CustomAuthorize(Enums.Menu.NOTIFICATION_TYPE, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _notificationTypeService.GetAllAsync();
 
             return BaseResult(result);
         }
-        [CustomAuthorize(Enums.Menu.NOTIFICATION_TYPE, Enums.Action.READ)]
-        [HttpGet("{id}")]
 
+        [HttpGet("{id}")]
+        [CustomAuthorize(Enums.Menu.NOTIFICATION_TYPE, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var data = await _notificationTypeService.GetByIdAsync(id);
@@ -51,22 +52,25 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged")]
+        [CustomAuthorize(Enums.Menu.NOTIFICATION_TYPE, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] SearchQuery query)
         {
             var data = await _notificationTypeService.GetPagedAsync(query);
 
             return BaseResult(data);
         }
-        [CustomAuthorize(Enums.Menu.NOTIFICATION_TYPE, Enums.Action.READ)]
+
         [HttpPost("paged-advanced")]
+        [CustomAuthorize(Enums.Menu.NOTIFICATION_TYPE, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)
         {
             var data = await _notificationTypeService.GetPagedAsync(parameters);
 
             return BaseResult(data);
         }
-        [CustomAuthorize(Enums.Menu.NOTIFICATION_TYPE, Enums.Action.DELETE)]
+
         [HttpDelete("{id}")]
+        [CustomAuthorize(Enums.Menu.NOTIFICATION_TYPE, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var data = await _notificationTypeService.SoftDeleteAsync(id);
