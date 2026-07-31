@@ -44,6 +44,9 @@ public class OutboundOrderRepository : RepositoryBase<OutboundOrder, int>, IOutb
             .Include(x => x.OutboundOrderItems)
                 .ThenInclude(i => i.Allocations)
                     .ThenInclude(a => a.Location)
+            // Tách thành nhiều SELECT theo từng collection để tránh nổ tích Descartes
+            // (OutboundOrderItems × Allocations × ...). Kết quả trả về không đổi.
+            .AsSplitQuery()
             .FirstOrDefaultAsync(x => !x.IsDeleted && x.Id == id);
     }
 

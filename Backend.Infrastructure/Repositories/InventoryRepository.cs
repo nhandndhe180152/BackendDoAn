@@ -39,8 +39,31 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
             orderAscendingDirection = false;
         }
 
-        var query = _context.Inventories
-            .Where(x => !x.IsDeleted)
+        var baseQuery = _context.Inventories.Where(x => !x.IsDeleted);
+
+        // P0-3: đếm tổng (chưa lọc) trên bảng gốc, không qua projection nặng (nhiều join + CASE).
+        var totalRecord = await baseQuery.CountAsync();
+
+        // P1-1: đưa tìm kiếm keyword ra TRƯỚC projection để MySQL lọc trước rồi mới tính projection
+        // (ghép LocationCode, join Product...) cho các dòng khớp. Điều kiện giữ NGUYÊN như cũ,
+        // chỉ tham chiếu qua navigation thay vì alias của projection.
+        if (!string.IsNullOrEmpty(keyword))
+        {
+            baseQuery = baseQuery.Where(x =>
+                EF.Functions.Collate(x.ProductVariant.SKU, SQLParams.Latin_General).Contains(keyword) ||
+                EF.Functions.Collate(x.ProductVariant.Name, SQLParams.Latin_General).Contains(keyword) ||
+                EF.Functions.Collate(x.ProductVariant.Product.Name, SQLParams.Latin_General).Contains(keyword) ||
+                EF.Functions.Collate(x.Warehouse.Name, SQLParams.Latin_General).Contains(keyword) ||
+                (x.PaddyLot != null && x.PaddyLot.LotCode != null && EF.Functions.Collate(x.PaddyLot.LotCode, SQLParams.Latin_General).Contains(keyword)) ||
+                (x.Location != null && EF.Functions.Collate(
+                    (string.IsNullOrEmpty(x.Location.ZoneName) ? "" : x.Location.ZoneName)
+                        + (string.IsNullOrEmpty(x.Location.ShelfRow) ? "" : "-" + x.Location.ShelfRow)
+                        + (string.IsNullOrEmpty(x.Location.ShelfLevel) ? "" : "-" + x.Location.ShelfLevel)
+                        + (string.IsNullOrEmpty(x.Location.SlotCode) ? "" : "-" + x.Location.SlotCode),
+                    SQLParams.Latin_General).Contains(keyword)));
+        }
+
+        var query = baseQuery
             .Select(x => new InventoryAggregate
             {
                 Id = x.Id,
@@ -116,18 +139,7 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
                 CreatedDate = x.CreatedDate
             });
 
-        var totalRecord = await query.CountAsync();
-
-        if (!string.IsNullOrEmpty(keyword))
-        {
-            query = query.Where(x =>
-                EF.Functions.Collate(x.SKU, SQLParams.Latin_General).Contains(keyword) ||
-                EF.Functions.Collate(x.ProductVariantName, SQLParams.Latin_General).Contains(keyword) ||
-                EF.Functions.Collate(x.ProductName, SQLParams.Latin_General).Contains(keyword) ||
-                EF.Functions.Collate(x.WarehouseName, SQLParams.Latin_General).Contains(keyword) ||
-                (x.LotCode != null && EF.Functions.Collate(x.LotCode, SQLParams.Latin_General).Contains(keyword)) ||
-                (x.LocationCode != null && EF.Functions.Collate(x.LocationCode, SQLParams.Latin_General).Contains(keyword)));
-        }
+        // (totalRecord + tìm kiếm keyword đã được xử lý trên baseQuery phía trên, trước projection.)
 
         if (parameters.WarehouseId.HasValue)
         {

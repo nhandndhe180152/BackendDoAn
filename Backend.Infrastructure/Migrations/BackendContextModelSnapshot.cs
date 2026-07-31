@@ -1621,6 +1621,12 @@ namespace Backend.Infrastructure.Migrations
                     b.HasIndex("ReferenceType", "ReferenceId", "ReferenceItemId")
                         .HasDatabaseName("IX_InventoryTransaction_Reference");
 
+                    b.HasIndex("CreatedDate")
+                        .HasDatabaseName("IX_InventoryTransaction_CreatedDate");
+
+                    b.HasIndex("WarehouseId", "CreatedDate")
+                        .HasDatabaseName("IX_InventoryTransaction_Warehouse_CreatedDate");
+
                     b.ToTable("InventoryTransaction", (string)null);
                 });
 

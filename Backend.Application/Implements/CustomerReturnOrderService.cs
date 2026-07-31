@@ -868,6 +868,15 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     CreatedBy = userId,
                     CreatedDate = now
                 };
+                // Quy đổi Before/After sang TỔNG TỒN CỦA CỘT (cộng tồn các dòng khác cùng vị trí).
+                if (invTx.LocationId.HasValue)
+                {
+                    var otherOnHand = await _context.Inventories
+                        .Where(i => i.LocationId == invTx.LocationId.Value && !i.IsDeleted && i.Id != inventory.Id)
+                        .SumAsync(i => i.QuantityOnHand, cancellationToken);
+                    invTx.BeforeQuantity += otherOnHand;
+                    invTx.AfterQuantity += otherOnHand;
+                }
                 await _context.InventoryTransactions.AddAsync(invTx, cancellationToken);
             }
 
@@ -936,6 +945,15 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     CreatedBy = userId,
                     CreatedDate = now
                 };
+                // Quy đổi Before/After sang TỔNG TỒN CỦA CỘT (cộng tồn các dòng khác cùng vị trí).
+                if (invTx.LocationId.HasValue)
+                {
+                    var otherOnHand = await _context.Inventories
+                        .Where(i => i.LocationId == invTx.LocationId.Value && !i.IsDeleted && i.Id != inventory.Id)
+                        .SumAsync(i => i.QuantityOnHand, cancellationToken);
+                    invTx.BeforeQuantity += otherOnHand;
+                    invTx.AfterQuantity += otherOnHand;
+                }
                 await _context.InventoryTransactions.AddAsync(invTx, cancellationToken);
             }
 

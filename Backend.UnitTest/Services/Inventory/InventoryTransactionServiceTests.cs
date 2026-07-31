@@ -241,7 +241,7 @@ public class InventoryTransactionServiceTests
             .ReturnsAsync(currentInventory);
 
         _inventoryRepository.Setup(repo => repo.UpdateAsync(It.IsAny<Backend.Domain.Entities.Inventory>())).Returns(Task.CompletedTask);
-        _inventoryTransactionRepository.Setup(repo => repo.CreateAsync(It.IsAny<InventoryTransaction>())).Returns(Task.CompletedTask);
+        _inventoryTransactionRepository.Setup(repo => repo.CreateWithColumnTotalsAsync(It.IsAny<InventoryTransaction>())).Returns(Task.CompletedTask);
         _inventoryTransactionRepository.Setup(repo => repo.SaveChangesAsync()).ReturnsAsync(1);
         _inventoryRepository.Setup(repo => repo.EndTransactionAsync()).Returns(Task.CompletedTask);
 
@@ -253,7 +253,7 @@ public class InventoryTransactionServiceTests
         response.Status.Should().Be(200);
         currentInventory.QuantityOnHand.Should().Be(15);
         _inventoryRepository.Verify(repo => repo.UpdateAsync(currentInventory), Times.Once);
-        _inventoryTransactionRepository.Verify(repo => repo.CreateAsync(It.IsAny<InventoryTransaction>()), Times.Once);
+        _inventoryTransactionRepository.Verify(repo => repo.CreateWithColumnTotalsAsync(It.IsAny<InventoryTransaction>()), Times.Once);
         _inventoryRepository.Verify(repo => repo.EndTransactionAsync(), Times.Once);
     }
 
@@ -305,7 +305,7 @@ public class InventoryTransactionServiceTests
         _inventoryRepository.Setup(repo => repo.CreateAsync(It.IsAny<Backend.Domain.Entities.Inventory>())).Returns(Task.CompletedTask);
         _inventoryRepository.Setup(repo => repo.SaveChangesAsync()).ReturnsAsync(1);
         _inventoryRepository.Setup(repo => repo.UpdateAsync(It.IsAny<Backend.Domain.Entities.Inventory>())).Returns(Task.CompletedTask);
-        _inventoryTransactionRepository.Setup(repo => repo.CreateAsync(It.IsAny<InventoryTransaction>())).Returns(Task.CompletedTask);
+        _inventoryTransactionRepository.Setup(repo => repo.CreateWithColumnTotalsAsync(It.IsAny<InventoryTransaction>())).Returns(Task.CompletedTask);
         _inventoryTransactionRepository.Setup(repo => repo.SaveChangesAsync()).ReturnsAsync(1);
         _inventoryRepository.Setup(repo => repo.EndTransactionAsync()).Returns(Task.CompletedTask);
 
@@ -318,7 +318,7 @@ public class InventoryTransactionServiceTests
         // Inventory không còn field PurchaseOrderId; xác minh inventory mới đúng variant + warehouse
         _inventoryRepository.Verify(repo => repo.CreateAsync(It.Is<Backend.Domain.Entities.Inventory>(i => i.ProductVariantId == 1 && i.WarehouseId == 1)), Times.Once);
         _inventoryRepository.Verify(repo => repo.UpdateAsync(It.Is<Backend.Domain.Entities.Inventory>(i => i.QuantityOnHand == 10)), Times.Once);
-        _inventoryTransactionRepository.Verify(repo => repo.CreateAsync(It.Is<InventoryTransaction>(t => t.Quantity == 10 && t.BeforeQuantity == 0 && t.AfterQuantity == 10)), Times.Once);
+        _inventoryTransactionRepository.Verify(repo => repo.CreateWithColumnTotalsAsync(It.Is<InventoryTransaction>(t => t.Quantity == 10 && t.BeforeQuantity == 0 && t.AfterQuantity == 10)), Times.Once);
     }
 
     [Fact]
@@ -397,7 +397,7 @@ public class InventoryTransactionServiceTests
             .ReturnsAsync(inventory);
 
         _inventoryRepository.Setup(repo => repo.UpdateAsync(inventory)).Returns(Task.CompletedTask);
-        _inventoryTransactionRepository.Setup(repo => repo.CreateAsync(It.IsAny<InventoryTransaction>())).Returns(Task.CompletedTask);
+        _inventoryTransactionRepository.Setup(repo => repo.CreateWithColumnTotalsAsync(It.IsAny<InventoryTransaction>())).Returns(Task.CompletedTask);
         _inventoryTransactionRepository.Setup(repo => repo.SaveChangesAsync()).ReturnsAsync(1);
         _inventoryRepository.Setup(repo => repo.EndTransactionAsync()).Returns(Task.CompletedTask);
 
@@ -408,7 +408,7 @@ public class InventoryTransactionServiceTests
         response.IsSucceeded.Should().BeTrue();
         response.Status.Should().Be(200);
         inventory.QuantityOnHand.Should().Be(5);
-        _inventoryTransactionRepository.Verify(repo => repo.CreateAsync(It.Is<InventoryTransaction>(t => t.Quantity == -5)), Times.Once);
+        _inventoryTransactionRepository.Verify(repo => repo.CreateWithColumnTotalsAsync(It.Is<InventoryTransaction>(t => t.Quantity == -5)), Times.Once);
     }
 
     [Fact]
@@ -430,7 +430,7 @@ public class InventoryTransactionServiceTests
             .ReturnsAsync(inventory);
 
         _inventoryRepository.Setup(repo => repo.UpdateAsync(inventory)).Returns(Task.CompletedTask);
-        _inventoryTransactionRepository.Setup(repo => repo.CreateAsync(It.IsAny<InventoryTransaction>())).Returns(Task.CompletedTask);
+        _inventoryTransactionRepository.Setup(repo => repo.CreateWithColumnTotalsAsync(It.IsAny<InventoryTransaction>())).Returns(Task.CompletedTask);
         _inventoryTransactionRepository.Setup(repo => repo.SaveChangesAsync()).ReturnsAsync(1);
         _inventoryRepository.Setup(repo => repo.EndTransactionAsync()).Returns(Task.CompletedTask);
 
@@ -441,7 +441,7 @@ public class InventoryTransactionServiceTests
         response.IsSucceeded.Should().BeTrue();
         response.Status.Should().Be(200);
         inventory.QuantityOnHand.Should().Be(8);
-        _inventoryTransactionRepository.Verify(repo => repo.CreateAsync(It.Is<InventoryTransaction>(t => t.Quantity == -2)), Times.Once);
+        _inventoryTransactionRepository.Verify(repo => repo.CreateWithColumnTotalsAsync(It.Is<InventoryTransaction>(t => t.Quantity == -2)), Times.Once);
     }
 
     [Fact]

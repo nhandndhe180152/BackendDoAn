@@ -41,6 +41,7 @@ public class QualityInspectionRepository : RepositoryBase<QualityInspection, int
                 Id = x.Id,
                 PaddyLotId = x.PaddyLotId,
                 LotCode = x.PaddyLot.LotCode,
+                LotStatusCode = x.PaddyLot.Status.Code,
                 InspectorId = x.InspectorId,
                 InspectorName = x.Inspector == null ? null : (x.Inspector.FirstName + " " + x.Inspector.LastName).Trim(),
                 InspectedAt = x.InspectedAt,

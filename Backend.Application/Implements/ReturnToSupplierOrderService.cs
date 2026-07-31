@@ -236,7 +236,7 @@ public class ReturnToSupplierOrderService : IReturnToSupplierOrderService
 
                     totalReturnValue += take * inv.CostPrice;
 
-                    await _context.InventoryTransactions.AddAsync(new InventoryTransaction
+                    var returnTx = new InventoryTransaction
                     {
                         InventoryId = inv.Id,
                         WarehouseId = inv.WarehouseId,
@@ -254,7 +254,17 @@ public class ReturnToSupplierOrderService : IReturnToSupplierOrderService
                         Note = $"Xuất trả nhà cung cấp (đơn {order.ReturnCode})",
                         CreatedBy = userId,
                         CreatedDate = now
-                    }, cancellationToken);
+                    };
+                    // Quy đổi Before/After sang TỔNG TỒN CỦA CỘT (cộng tồn các dòng khác cùng vị trí).
+                    if (returnTx.LocationId.HasValue)
+                    {
+                        var otherOnHand = await _context.Inventories
+                            .Where(i => i.LocationId == returnTx.LocationId.Value && !i.IsDeleted && i.Id != inv.Id)
+                            .SumAsync(i => i.QuantityOnHand, cancellationToken);
+                        returnTx.BeforeQuantity += otherOnHand;
+                        returnTx.AfterQuantity += otherOnHand;
+                    }
+                    await _context.InventoryTransactions.AddAsync(returnTx, cancellationToken);
 
                     remaining -= take;
                 }
