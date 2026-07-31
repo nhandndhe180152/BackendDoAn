@@ -28,7 +28,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("qr/resolve")]
-        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANT, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> ResolveQrGetAsync(
             [FromQuery] string payload,
             [FromQuery] string? operation,
@@ -75,7 +75,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("qr/resolve")]
-        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANT, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> ResolveQrAsync([FromBody] QrResolveRequestDto request, CancellationToken cancellationToken)
         {
             if (request == null || string.IsNullOrWhiteSpace(request.Payload))
@@ -107,7 +107,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("qr-labels/preview")]
-        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANT, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public IActionResult GetQrLabelPreview()
         {
             var result = _qrCodeService.GetQrLabelPreviewSettings();
@@ -115,7 +115,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("qr-labels/paddy-lots/batch")]
-        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANT, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> BatchPrintPaddyLotsAsync([FromBody] BatchQrLabelPrintDto request, CancellationToken cancellationToken)
         {
             if (request == null || request.Ids == null || !request.Ids.Any())
@@ -162,7 +162,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("qr-labels/locations/batch")]
-        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANT, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> BatchPrintLocationsAsync([FromBody] BatchQrLabelPrintDto request, CancellationToken cancellationToken)
         {
             if (request == null || request.Ids == null || !request.Ids.Any())
@@ -209,7 +209,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("qr-labels/bags/batch")]
-        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANT, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> BatchPrintBagsAsync([FromBody] BatchQrLabelPrintDto request, CancellationToken cancellationToken)
         {
             if (request == null || request.Ids == null || !request.Ids.Any())
