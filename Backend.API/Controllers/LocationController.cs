@@ -170,9 +170,9 @@ namespace Backend.API.Controllers
         [HttpGet("{id}/label")]
         public async Task<IActionResult> GetLabelPdfAsync(int id, [FromQuery] string template = "MEDIUM", [FromQuery] int copies = 1, CancellationToken cancellationToken = default)
         {
-            if (copies < 1 || copies > 10)
+            if (copies < 1 || copies > 500)
             {
-                return BadRequest(ApiResponse.BadRequest(message: "Số lượng bản in (copies) phải nằm trong khoảng từ 1 đến 10."));
+                return BadRequest(ApiResponse.BadRequest(message: "Số lượng bản in (copies) phải nằm trong khoảng từ 1 đến 500."));
             }
 
             try

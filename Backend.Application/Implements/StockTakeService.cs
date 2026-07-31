@@ -56,12 +56,18 @@ public class StockTakeService : IStockTakeService
         decimal small = SystemConfigConstants.Defaults.StockTakeSmallVariancePercent;
         decimal medium = SystemConfigConstants.Defaults.StockTakeMediumVariancePercent;
 
+        // LOW-1 fix: dùng InvariantCulture để parse đúng dù server chạy locale bất kỳ.
+        // Tránh trường hợp admin nhập "1.5" bị parse sai thành 15 hoặc fallback về Defaults.
         var smallRaw = await _systemConfigRepository.GetValueByKey(SystemConfigConstants.Keys.StockTakeSmallVariancePercent);
-        if (decimal.TryParse(smallRaw, out var parsedSmall) && parsedSmall > 0)
+        if (decimal.TryParse(smallRaw, System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsedSmall)
+            && parsedSmall > 0)
             small = parsedSmall;
 
         var mediumRaw = await _systemConfigRepository.GetValueByKey(SystemConfigConstants.Keys.StockTakeMediumVariancePercent);
-        if (decimal.TryParse(mediumRaw, out var parsedMedium) && parsedMedium > small)
+        if (decimal.TryParse(mediumRaw, System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsedMedium)
+            && parsedMedium > small)
             medium = parsedMedium;
 
         return (small, medium);
@@ -70,8 +76,19 @@ public class StockTakeService : IStockTakeService
     /// <summary>
     /// Tính VarianceSeverity cho một dòng kiểm kê dựa trên ngưỡng từ DB.
     /// </summary>
-    private static string ClassifySeverity(decimal? variancePercent, decimal smallThreshold, decimal mediumThreshold)
+    /// <param name="variancePercent">null = chưa nhập hoặc SystemQty=0.</param>
+    /// <param name="isSystemZeroWithActual">true = SystemQuantity=0 nhưng đếm được hàng thực tế → luôn LARGE.</param>
+    private static string ClassifySeverity(
+        decimal? variancePercent,
+        decimal smallThreshold,
+        decimal mediumThreshold,
+        bool isSystemZeroWithActual = false)
     {
+        // MEDIUM-1 fix: SystemQuantity=0 nhưng đếm được hàng thực tế là chênh lệch nghiêm trọng nhất.
+        // VariancePercent không tính được (chia cho 0) → phải xử lý tường minh.
+        if (isSystemZeroWithActual)
+            return "LARGE";
+
         if (variancePercent == null || variancePercent == 0)
             return "NONE";
         if (variancePercent <= smallThreshold)
@@ -89,7 +106,8 @@ public class StockTakeService : IStockTakeService
         var (small, medium) = await ResolveVarianceThresholdsAsync();
         foreach (var item in dto.StockTakeItems)
         {
-            item.VarianceSeverity = ClassifySeverity(item.VariancePercent, small, medium);
+            var isZeroWithActual = item.SystemQuantity == 0 && (item.ActualQuantity ?? 0) > 0;
+            item.VarianceSeverity = ClassifySeverity(item.VariancePercent, small, medium, isZeroWithActual);
         }
     }
 
@@ -143,7 +161,10 @@ public class StockTakeService : IStockTakeService
         {
             var dto = e.ToDto();
             foreach (var item in dto.StockTakeItems)
-                item.VarianceSeverity = ClassifySeverity(item.VariancePercent, small, medium);
+            {
+                var isZeroWithActual = item.SystemQuantity == 0 && (item.ActualQuantity ?? 0) > 0;
+                item.VarianceSeverity = ClassifySeverity(item.VariancePercent, small, medium, isZeroWithActual);
+            }
             return dto;
         }).ToList();
 
@@ -335,14 +356,19 @@ public class StockTakeService : IStockTakeService
             if (!item.ActualQuantity.HasValue || item.Difference == 0 || !item.ProductVariantId.HasValue)
                 continue;
 
-            var severity = ClassifySeverity(item.VariancePercent, smallThreshold, mediumThreshold);
+            // MEDIUM-1: SystemQuantity=0 và đếm được hàng thực tế → luôn LARGE (không thể tính % vì chia 0)
+            var isZeroWithActual = item.SystemQuantity == 0 && (item.ActualQuantity ?? 0) > 0;
+            var severity = ClassifySeverity(item.VariancePercent, smallThreshold, mediumThreshold, isZeroWithActual);
 
             // Bắt buộc ghi lý do với chênh lệch mức LARGE
             if (severity == "LARGE" && string.IsNullOrWhiteSpace(item.Note))
             {
                 var variantName = item.ProductVariant?.Name ?? $"ProductVariantId={item.ProductVariantId}";
+                var detail = isZeroWithActual
+                    ? $"đếm được {item.ActualQuantity} trong khi hệ thống báo tồn = 0"
+                    : $"chênh lệch {item.VariancePercent:F2}% > {mediumThreshold}%";
                 return ApiResponse.UnprocessableEntity(
-                    $"Dòng kiểm kê '{variantName}' có chênh lệch {item.VariancePercent:F2}% (mức LARGE > {mediumThreshold}%) — bắt buộc phải nhập lý do vào cột Ghi chú trước khi duyệt.",
+                    $"Dòng kiểm kê '{variantName}' có {detail} (mức LARGE) — bắt buộc phải nhập lý do vào cột Ghi chú trước khi duyệt.",
                     ApiCodeConstants.Common.UnprocessableEntity);
             }
         }
@@ -375,7 +401,7 @@ public class StockTakeService : IStockTakeService
                     ReferenceType = "STOCKTAKE",
                     ReferenceId = existData.Id,
                     ReferenceItemId = item.Id,
-                    Note = $"Điều chỉnh kiểm kho {existData.STCode} — {ClassifySeverity(item.VariancePercent, smallThreshold, mediumThreshold)}"
+                    Note = $"Điều chỉnh kiểm kho {existData.STCode} — {ClassifySeverity(item.VariancePercent, smallThreshold, mediumThreshold, item.SystemQuantity == 0 && (item.ActualQuantity ?? 0) > 0)}"
                 };
 
                 var result = await _inventoryTransactionService.AdjustStockAsync(request, item.ActualQuantity.Value, true);

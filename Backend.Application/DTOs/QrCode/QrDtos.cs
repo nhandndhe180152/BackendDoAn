@@ -117,3 +117,19 @@ public class BatchQrLabelPrintDto
     public string Template { get; set; } = "MEDIUM"; // SMALL, MEDIUM, LARGE
     public int CopiesPerLabel { get; set; } = 1;
 }
+
+public class QrLabelPreviewDto
+{
+    public List<QrLabelTemplateInfoDto> Templates { get; set; } = new();
+    public List<string> Formats { get; set; } = new();
+    public List<string> LabelTypes { get; set; } = new();
+}
+
+public class QrLabelTemplateInfoDto
+{
+    public string Code { get; set; } = null!;
+    public string Name { get; set; } = null!;
+    public float WidthMm { get; set; }
+    public float HeightMm { get; set; }
+}
+

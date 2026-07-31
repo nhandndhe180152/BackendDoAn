@@ -25,6 +25,7 @@ public class QRCodeServiceTests
     private readonly Mock<IInventoryRepository> _inventoryRepoMock = new();
     private readonly Mock<IApplicationDbContext> _dbContextMock = new();
     private readonly Mock<IQrIdentifierService> _qrIdentifierServiceMock = new();
+    private readonly Mock<IHttpContextAccessor> _httpContextAccessorMock = new();
     private readonly QRCodeService _sut;
 
     public QRCodeServiceTests()
@@ -34,7 +35,8 @@ public class QRCodeServiceTests
             _storageServiceMock.Object,
             _inventoryRepoMock.Object,
             _dbContextMock.Object,
-            _qrIdentifierServiceMock.Object);
+            _qrIdentifierServiceMock.Object,
+            _httpContextAccessorMock.Object);
     }
 
     [Fact]

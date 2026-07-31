@@ -123,9 +123,9 @@ public class StockTakeServiceTests
     }
 
     [Fact]
-    public async Task GetByIdAsync_SystemQuantityZero_VarianceSeverityIsNone()
+    public async Task GetByIdAsync_SystemQuantityZero_ActualQuantityPositive_VarianceSeverityIsLarge()
     {
-        // SystemQuantity = 0 → VariancePercent = null → NONE (không thể tính %)
+        // SystemQuantity = 0 và ActualQuantity = 10 → chênh lệch nghiêm trọng → LARGE (MEDIUM-1 fix)
         SetupVarianceThresholds();
         SetupStockTakeFind(MakeStockTake(1, MakeItem(system: 0, actual: 10)));
 
@@ -133,7 +133,7 @@ public class StockTakeServiceTests
 
         result.Status.Should().Be(200);
         var dto = (result.Resources as StockTakeDto)!;
-        dto.StockTakeItems.First().VarianceSeverity.Should().Be("NONE");
+        dto.StockTakeItems.First().VarianceSeverity.Should().Be("LARGE");
     }
 
     [Fact]

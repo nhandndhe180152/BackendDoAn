@@ -33,10 +33,9 @@ public class StockTakeItem : EntityAuditBase<int>
             : Math.Abs(Difference) / SystemQuantity * 100m;
 
     /// <summary>
-    /// Phân loại mức độ chênh lệch. Giá trị được tính dựa trên VariancePercent.
-    /// Ngưỡng SMALL / MEDIUM đọc từ SystemConfig (không hard-code ở đây).
-    /// Thuộc tính này trả về <c>null</c>; việc ánh xạ sang label SMALL/MEDIUM/LARGE
-    /// do StockTakeService thực hiện khi đọc ngưỡng từ DB.
+    /// Mức độ chênh lệch khi kiểm kê: NONE / SMALL / MEDIUM / LARGE.
+    /// Mặc định là "NONE"; được StockTakeService ghi đè sau khi đọc ngưỡng từ SystemConfig.
+    /// Không được lưu vào DB (EF Ignore).
     /// </summary>
     public string VarianceSeverity { get; set; } = "NONE";
 
