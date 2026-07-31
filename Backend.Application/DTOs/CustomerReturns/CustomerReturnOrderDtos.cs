@@ -7,7 +7,7 @@ public class CreateCustomerReturnOrderDto
 {
     public int WarehouseId { get; set; }
     public int CustomerId { get; set; }
-    public int OutboundOrderId { get; set; }
+    public int? OutboundOrderId { get; set; }
     public string? ReturnReason { get; set; }
     public string? Note { get; set; }
     public List<CreateCustomerReturnOrderItemDto> Items { get; set; } = new();
@@ -15,7 +15,7 @@ public class CreateCustomerReturnOrderDto
 
 public class CreateCustomerReturnOrderItemDto
 {
-    public int OutboundOrderItemId { get; set; }
+    public int? OutboundOrderItemId { get; set; }
     public int ProductVariantId { get; set; }
     public decimal QuantityReturned { get; set; }
     public List<CreateCustomerReturnOrderItemAllocationDto> Allocations { get; set; } = new();
@@ -23,7 +23,9 @@ public class CreateCustomerReturnOrderItemDto
 
 public class CreateCustomerReturnOrderItemAllocationDto
 {
-    public int OutboundOrderItemAllocationId { get; set; }
+    public int? OutboundOrderItemAllocationId { get; set; }
+    public int? PaddyLotId { get; set; }
+    public int? OriginalLocationId { get; set; }
     public decimal QuantityReturned { get; set; }
 }
 
@@ -74,6 +76,7 @@ public class CustomerReturnOrderListDto
     
     public int? OutboundOrderId { get; set; }
     public string? OutboundOrderCode { get; set; }
+    public string? SalesOrderCode { get; set; }
     
     public int? CustomerId { get; set; }
     public string? CustomerCode { get; set; }
@@ -92,6 +95,15 @@ public class CustomerReturnOrderListDto
     public string? ConfirmedByName { get; set; }
     public DateTime? CompletedDate { get; set; }
     public DateTime CreatedDate { get; set; }
+
+    public int ItemCount { get; set; }
+    public decimal TotalQuantityReturned { get; set; }
+    public decimal TotalQuantityGood { get; set; }
+    public decimal TotalQuantityDamaged { get; set; }
+    public decimal TotalQuantityRejected { get; set; }
+    public string? PrimaryProductVariantName { get; set; }
+    public string? PrimarySKU { get; set; }
+    public string? PrimaryLotCode { get; set; }
 }
 
 public class CustomerReturnOrderDetailDto : CustomerReturnOrderListDto
@@ -119,7 +131,7 @@ public class CustomerReturnOrderItemDetailDto
 public class CustomerReturnOrderItemAllocationDetailDto
 {
     public int Id { get; set; }
-    public int OutboundOrderItemAllocationId { get; set; }
+    public int? OutboundOrderItemAllocationId { get; set; }
     public int PaddyLotId { get; set; }
     public string PaddyLotCode { get; set; } = null!;
     public int ProductVariantId { get; set; }
@@ -170,6 +182,12 @@ public class CustomerReturnInventoryImpactDto
 public class CustomerReturnOrderPagedQuery
 {
     public string? Keyword { get; set; }
+    public int? StatusId { get; set; }
+    public string? StatusCode { get; set; }
+    public int? CustomerId { get; set; }
+    public int? WarehouseId { get; set; }
+    public DateTime? DateFrom { get; set; }
+    public DateTime? DateTo { get; set; }
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 20;
 }

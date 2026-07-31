@@ -49,6 +49,13 @@ public class CustomerReturnOrderController : BaseController
         return BaseResult(result);
     }
 
+    [HttpGet]
+    public async Task<IActionResult> GetPagedByQueryAsync([FromQuery] CustomerReturnOrderPagedQuery query)
+    {
+        var result = await _returnOrderService.GetPagedAsync(query);
+        return BaseResult(result);
+    }
+
     [HttpPut("{id}/approve")]
     public async Task<IActionResult> ApproveAsync(int id, [FromQuery] string? note)
     {
