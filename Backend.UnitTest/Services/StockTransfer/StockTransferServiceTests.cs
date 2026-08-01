@@ -38,7 +38,7 @@ public class StockTransferServiceTests
         _itemRepo.Object,
         _statusRepo.Object,
         _lotStatusRepo.Object,
-        _Repo.Object,
+        _warehouseRepo.Object,
         _locationRepo.Object,
         _productVariantRepo.Object,
         _paddyLotRepo.Object,
@@ -51,8 +51,8 @@ public class StockTransferServiceTests
     {
         var dto = new CreateStockTransferDto
         {
-            FromId = 1,
-            ToId = 1,
+            FromWarehouseId = 1,
+            ToWarehouseId = 1,
             Items = new List<StockTransferItemDto>()
         };
 
@@ -75,8 +75,8 @@ public class StockTransferServiceTests
         var transfer = new global::Backend.Domain.Entities.StockTransfer
         {
             Id = 1,
-            FromId = 1,
-            ToId = 2,
+            FromWarehouseId = 1,
+            ToWarehouseId = 2,
             StatusId = 1,
             Status = new StockTransferStatus { Id = 1, Name = StockTransferStatusNames.Draft },
             TransferCode = "ST-1",
@@ -88,7 +88,7 @@ public class StockTransferServiceTests
                 It.IsAny<bool>()))
             .Returns(new List<global::Backend.Domain.Entities.StockTransfer> { transfer }.AsQueryable().BuildMock());
 
-        _Repo.Setup(r => r.GetByIdAsync(1))
+        _warehouseRepo.Setup(r => r.GetByIdAsync(1))
             .ReturnsAsync(new Backend.Domain.Entities.Warehouse { Id = 1, IsActive = true, Name = "Kho nguồn", Code = "K1" });
         _warehouseRepo.Setup(r => r.GetByIdAsync(2))
             .ReturnsAsync(new Backend.Domain.Entities.Warehouse { Id = 2, IsActive = true, Name = "Kho đích", Code = "K2" });
