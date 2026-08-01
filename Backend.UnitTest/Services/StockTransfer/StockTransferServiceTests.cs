@@ -181,8 +181,7 @@ public class StockTransferServiceTests
 
         _transferRepo.Setup(r => r.FindByCondition(
                 It.IsAny<Expression<Func<global::Backend.Domain.Entities.StockTransfer, bool>>>(),
-                It.IsAny<bool>(),
-                It.IsAny<Expression<Func<global::Backend.Domain.Entities.StockTransfer, object>>[]>()))
+                It.IsAny<bool>()))
             .Returns(new List<global::Backend.Domain.Entities.StockTransfer> { transfer }.AsQueryable().BuildMock());
 
         _statusRepo.Setup(r => r.FirstOrDefaultAsync(
