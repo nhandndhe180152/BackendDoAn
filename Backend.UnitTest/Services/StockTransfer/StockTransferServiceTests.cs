@@ -38,7 +38,7 @@ public class StockTransferServiceTests
         _itemRepo.Object,
         _statusRepo.Object,
         _lotStatusRepo.Object,
-        _warehouseRepo.Object,
+        _Repo.Object,
         _locationRepo.Object,
         _productVariantRepo.Object,
         _paddyLotRepo.Object,
@@ -47,12 +47,12 @@ public class StockTransferServiceTests
         _dispatcher.Object);
 
     [Fact]
-    public async Task CreateAsync_SameFromAndToWarehouse_ReturnsBadRequest()
+    public async Task CreateAsync_SameFromAndTo_ReturnsBadRequest()
     {
         var dto = new CreateStockTransferDto
         {
-            FromWarehouseId = 1,
-            ToWarehouseId = 1,
+            FromId = 1,
+            ToId = 1,
             Items = new List<StockTransferItemDto>()
         };
 
@@ -75,8 +75,8 @@ public class StockTransferServiceTests
         var transfer = new global::Backend.Domain.Entities.StockTransfer
         {
             Id = 1,
-            FromWarehouseId = 1,
-            ToWarehouseId = 2,
+            FromId = 1,
+            ToId = 2,
             StatusId = 1,
             Status = new StockTransferStatus { Id = 1, Name = StockTransferStatusNames.Draft },
             TransferCode = "ST-1",
@@ -88,10 +88,10 @@ public class StockTransferServiceTests
                 It.IsAny<bool>()))
             .Returns(new List<global::Backend.Domain.Entities.StockTransfer> { transfer }.AsQueryable().BuildMock());
 
-        _warehouseRepo.Setup(r => r.GetByIdAsync(1))
-            .ReturnsAsync(new Warehouse { Id = 1, IsActive = true, Name = "Kho nguồn", Code = "K1" });
+        _Repo.Setup(r => r.GetByIdAsync(1))
+            .ReturnsAsync(new Backend.Domain.Entities.Warehouse { Id = 1, IsActive = true, Name = "Kho nguồn", Code = "K1" });
         _warehouseRepo.Setup(r => r.GetByIdAsync(2))
-            .ReturnsAsync(new Warehouse { Id = 2, IsActive = true, Name = "Kho đích", Code = "K2" });
+            .ReturnsAsync(new Backend.Domain.Entities.Warehouse { Id = 2, IsActive = true, Name = "Kho đích", Code = "K2" });
         _productVariantRepo.Setup(r => r.GetByIdAsync(5))
             .ReturnsAsync(new ProductVariant { Id = 5, IsActive = true, Name = "Gạo", SKU = "GAO" });
         _locationRepo.Setup(r => r.GetByIdAsync(10))
@@ -140,9 +140,9 @@ public class StockTransferServiceTests
             .Returns(new List<global::Backend.Domain.Entities.StockTransfer> { transfer }.AsQueryable().BuildMock());
 
         _warehouseRepo.Setup(r => r.GetByIdAsync(1))
-            .ReturnsAsync(new Warehouse { Id = 1, IsActive = true, Name = "Kho nguồn", Code = "K1" });
+            .ReturnsAsync(new Backend.Domain.Entities.Warehouse { Id = 1, IsActive = true, Name = "Kho nguồn", Code = "K1" });
         _warehouseRepo.Setup(r => r.GetByIdAsync(2))
-            .ReturnsAsync(new Warehouse { Id = 2, IsActive = true, Name = "Kho đích", Code = "K2" });
+            .ReturnsAsync(new Backend.Domain.Entities.Warehouse { Id = 2, IsActive = true, Name = "Kho đích", Code = "K2" });
         _productVariantRepo.Setup(r => r.GetByIdAsync(5))
             .ReturnsAsync(new ProductVariant { Id = 5, IsActive = true, Name = "Gạo", SKU = "GAO" });
 
