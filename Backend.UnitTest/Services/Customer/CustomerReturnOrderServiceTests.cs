@@ -39,6 +39,7 @@ public class CustomerReturnOrderServiceTests
     private readonly List<SalesOrderItem> _salesOrderItems = new();
     private readonly List<Location> _locations = new();
     private readonly List<global::Backend.Domain.Entities.Warehouse> _warehouses = new();
+    private readonly List<global::Backend.Domain.Entities.Customer> _customers = new();
     private readonly List<ProductVariant> _productVariants = new();
     private readonly List<global::Backend.Domain.Entities.PaddyLot> _paddyLots = new();
     private readonly List<LotStatus> _lotStatuses = new();
@@ -65,6 +66,7 @@ public class CustomerReturnOrderServiceTests
         _contextMock.Setup(c => c.SalesOrderItems).Returns(() => MockDbSet(_salesOrderItems).Object);
         _contextMock.Setup(c => c.Locations).Returns(() => MockDbSet(_locations).Object);
         _contextMock.Setup(c => c.Warehouses).Returns(() => MockDbSet(_warehouses).Object);
+        _contextMock.Setup(c => c.Customers).Returns(() => MockDbSet(_customers).Object);
         _contextMock.Setup(c => c.ProductVariants).Returns(() => MockDbSet(_productVariants).Object);
         _contextMock.Setup(c => c.PaddyLots).Returns(() => MockDbSet(_paddyLots).Object);
         _contextMock.Setup(c => c.LotStatuses).Returns(() => MockDbSet(_lotStatuses).Object);
@@ -146,24 +148,32 @@ public class CustomerReturnOrderServiceTests
     public async Task CreateAsync_ValidInput_ReturnsSuccess()
     {
         // Arrange
-        var warehouse = new global::Backend.Domain.Entities.Warehouse { Id = 1, Name = "Warehouse A" };
-        var customer = new global::Backend.Domain.Entities.Customer { Id = 10, Code = "CUS01", Name = "Customer A" };
-        var pv = new ProductVariant { Id = 5, SKU = "PV-05", Name = "Variant 5" };
-        
+        var warehouse = new global::Backend.Domain.Entities.Warehouse { Id = 1, Code = "WH01", Name = "Warehouse A", IsActive = true };
+        var customer = new global::Backend.Domain.Entities.Customer { Id = 10, Code = "CUS01", Name = "Customer A", IsActive = true };
+        var pv = new ProductVariant { Id = 5, SKU = "PV-05", Name = "Variant 5", IsActive = true };
+
+        _warehouses.Add(warehouse);
+        _customers.Add(customer);
+        _productVariants.Add(pv);
+        _paddyLots.Add(new global::Backend.Domain.Entities.PaddyLot
+        {
+            Id = 90, LotCode = "LOT-90", WarehouseId = 1, ProductVariantId = 5, LocationId = 80
+        });
+
         var salesOrder = new SalesOrder { Id = 100, CustomerId = 10 };
         var salesOrderItem = new SalesOrderItem { Id = 200, SalesOrderId = 100, ProductVariantId = 5, QuantityOrdered = 100, UnitSalePrice = 15000, LineAmount = 1500000 };
-        
-        var outbound = new OutboundOrder 
-        { 
-            Id = 50, 
-            WarehouseId = 1, 
-            SalesOrderId = 100, 
+
+        var outbound = new OutboundOrder
+        {
+            Id = 50,
+            WarehouseId = 1,
+            SalesOrderId = 100,
             OutboundOrderStatus = new OutboundOrderStatus { Name = "DISPATCHED" },
             SalesOrder = salesOrder
         };
         var outboundItem = new OutboundOrderItem { Id = 60, OutboundOrderId = 50, ProductVariantId = 5 };
         var outboundAlloc = new OutboundOrderItemAllocation { Id = 70, OutboundOrderItemId = 60, LocationId = 80, QuantityPicked = 20, PaddyLotId = 90 };
-        
+
         _outboundOrders.Add(outbound);
         _outboundOrderItems.Add(outboundItem);
         _outboundOrderItemAllocations.Add(outboundAlloc);
@@ -204,26 +214,34 @@ public class CustomerReturnOrderServiceTests
     public async Task CreateAsync_ExceedsReturnLimit_ReturnsError()
     {
         // Arrange
+        _warehouses.Add(new global::Backend.Domain.Entities.Warehouse { Id = 1, Code = "WH01", Name = "Warehouse A", IsActive = true });
+        _customers.Add(new global::Backend.Domain.Entities.Customer { Id = 10, Code = "CUS01", Name = "Customer A", IsActive = true });
+        _productVariants.Add(new ProductVariant { Id = 5, SKU = "PV-05", Name = "Variant 5", IsActive = true });
+        _paddyLots.Add(new global::Backend.Domain.Entities.PaddyLot
+        {
+            Id = 90, LotCode = "LOT-90", WarehouseId = 1, ProductVariantId = 5, LocationId = 80
+        });
+
         var salesOrder = new SalesOrder { Id = 100, CustomerId = 10 };
         var salesOrderItem = new SalesOrderItem { Id = 200, SalesOrderId = 100, ProductVariantId = 5, QuantityOrdered = 100, UnitSalePrice = 15000, LineAmount = 1500000 };
-        
-        var outbound = new OutboundOrder 
-        { 
-            Id = 50, 
-            WarehouseId = 1, 
-            SalesOrderId = 100, 
+
+        var outbound = new OutboundOrder
+        {
+            Id = 50,
+            WarehouseId = 1,
+            SalesOrderId = 100,
             OutboundOrderStatus = new OutboundOrderStatus { Name = "COMPLETED" },
             SalesOrder = salesOrder
         };
         var outboundItem = new OutboundOrderItem { Id = 60, OutboundOrderId = 50, ProductVariantId = 5 };
         var outboundAlloc = new OutboundOrderItemAllocation { Id = 70, OutboundOrderItemId = 60, LocationId = 80, QuantityPicked = 20, PaddyLotId = 90 };
-        
+
         _outboundOrders.Add(outbound);
         _outboundOrderItems.Add(outboundItem);
         _outboundOrderItemAllocations.Add(outboundAlloc);
         _salesOrderItems.Add(salesOrderItem);
 
-        // Mock already returned 10 kg
+        // Đã trả 10 kg trước đó (CONFIRMED)
         var previousReturn = new CustomerReturnOrder { Id = 800, CustomerReturnOrderStatusId = 4, CustomerReturnOrderStatus = new CustomerReturnOrderStatus { Code = "CONFIRMED" } };
         var previousItem = new CustomerReturnOrderItem { Id = 801, CustomerReturnOrderId = 800, ProductVariantId = 5, CustomerReturnOrder = previousReturn };
         var previousAlloc = new CustomerReturnOrderItemAllocation { OutboundOrderItemAllocationId = 70, CustomerReturnOrderItem = previousItem, QuantityReturned = 10 };
@@ -240,7 +258,7 @@ public class CustomerReturnOrderServiceTests
                 {
                     OutboundOrderItemId = 60,
                     ProductVariantId = 5,
-                    QuantityReturned = 15, // Try to return 15 more, total 25 > 20 picked. Error!
+                    QuantityReturned = 15, // trả thêm 15, tổng 25 > 20 đã pick => lỗi
                     Allocations = new List<CreateCustomerReturnOrderItemAllocationDto>
                     {
                         new() { OutboundOrderItemAllocationId = 70, QuantityReturned = 15 }
