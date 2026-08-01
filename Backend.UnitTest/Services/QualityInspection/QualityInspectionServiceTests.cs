@@ -14,6 +14,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using MockQueryable.Moq;
+using MockQueryable.EntityFrameworkCore;
 using Moq;
 using Xunit;
 
