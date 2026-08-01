@@ -13,6 +13,7 @@ using Backend.Domain.Interfaces.Repositories;
 using Backend.UnitTest.Fixtures;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore.Storage;
+using MockQueryable.Moq;
 using Moq;
 using Xunit;
 using WarehouseEntity = Backend.Domain.Entities.Warehouse;
@@ -150,7 +151,7 @@ public class StockTransferServiceTests
         _transferRepo.Setup(r => r.FindByCondition(
                 It.IsAny<Expression<Func<global::Backend.Domain.Entities.StockTransfer, bool>>>(),
                 It.IsAny<bool>()))
-            .Returns(new List<global::Backend.Domain.Entities.StockTransfer> { transfer }.AsQueryable().BuildMock());
+            .Returns(new List<global::Backend.Domain.Entities.StockTransfer> { transfer }.AsQueryable().BuildMockDbSet().Object);
 
         _warehouseRepo.Setup(r => r.GetByIdAsync(1))
             .ReturnsAsync(new Backend.Domain.Entities.Warehouse { Id = 1, IsActive = true, Name = "Kho nguồn", Code = "K1" });
@@ -182,7 +183,7 @@ public class StockTransferServiceTests
         _transferRepo.Setup(r => r.FindByCondition(
                 It.IsAny<Expression<Func<global::Backend.Domain.Entities.StockTransfer, bool>>>(),
                 It.IsAny<bool>()))
-            .Returns(new List<global::Backend.Domain.Entities.StockTransfer> { transfer }.AsQueryable().BuildMock());
+            .Returns(new List<global::Backend.Domain.Entities.StockTransfer> { transfer }.AsQueryable().BuildMockDbSet().Object);
 
         _statusRepo.Setup(r => r.FirstOrDefaultAsync(
                 It.IsAny<Expression<Func<StockTransferStatus, bool>>>(),
