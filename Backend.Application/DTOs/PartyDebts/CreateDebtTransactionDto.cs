@@ -16,4 +16,9 @@ public class CreateDebtTransactionDto
     public DateTime? DueDate { get; set; }
     public string? Note { get; set; }
     public int? CreatedBy { get; set; }
+
+    /// <summary>
+    /// Khóa chống gửi thanh toán lặp từ client. Cùng một RequestId chỉ được ghi một lần.
+    /// </summary>
+    public string? RequestId { get; set; }
 }

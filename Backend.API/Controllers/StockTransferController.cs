@@ -11,7 +11,7 @@ namespace Backend.API.Controllers
 {
     /// <summary>
     /// Controller quản lý Phiếu điều chuyển nội bộ (StockTransfer).
-    /// POST /{id}/confirm — xác nhận, thực thi xuất/nhập tồn kho.
+    /// Xuất kho nguồn và nhận kho đích được thực hiện ở hai bước riêng biệt.
     /// </summary>
     [ApiVersion(1)]
     [Route("api/v{version:apiVersion}/stock-transfers")]
@@ -40,10 +40,17 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
-        [HttpGet("{id}")]
+        [HttpGet("{id:int}")]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var result = await _service.GetByIdAsync(id);
+            return BaseResult(result);
+        }
+
+        [HttpGet("summary")]
+        public async Task<IActionResult> GetSummaryAsync()
+        {
+            var result = await _service.GetSummaryAsync();
             return BaseResult(result);
         }
 
@@ -55,23 +62,40 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
-        [HttpPut]
-        public async Task<IActionResult> UpdateAsync([FromBody] UpdateStockTransferDto dto)
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> UpdateAsync(int id, [FromBody] UpdateStockTransferDto dto)
         {
+            dto.Id = id;
             dto.UpdatedBy = this.GetLoggedInUserId();
             var result = await _service.UpdateAsync(dto);
             return BaseResult(result);
         }
 
-        [HttpPost("{id}/confirm")]
-        public async Task<IActionResult> ConfirmAsync(int id)
+        [HttpPut("{id:int}/dispatch")]
+        public async Task<IActionResult> DispatchAsync(int id)
         {
             var userId = this.GetLoggedInUserId();
-            var result = await _service.ConfirmTransferAsync(id, userId);
+            var result = await _service.DispatchAsync(id, userId);
             return BaseResult(result);
         }
 
-        [HttpDelete("{id}")]
+        [HttpPut("{id:int}/receive")]
+        public async Task<IActionResult> ReceiveAsync(int id)
+        {
+            var userId = this.GetLoggedInUserId();
+            var result = await _service.ReceiveAsync(id, userId);
+            return BaseResult(result);
+        }
+
+        [HttpPut("{id:int}/cancel")]
+        public async Task<IActionResult> CancelAsync(int id, [FromBody] CancelStockTransferDto? dto)
+        {
+            var userId = this.GetLoggedInUserId();
+            var result = await _service.CancelAsync(id, dto?.Reason, userId);
+            return BaseResult(result);
+        }
+
+        [HttpDelete("{id:int}")]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var result = await _service.SoftDeleteAsync(id);

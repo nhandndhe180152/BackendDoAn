@@ -35,79 +35,18 @@ public class DebtAgingCalculationService : IDebtAgingCalculationService
             .ThenBy(t => t.Id)
             .ToList();
 
-        // 1. Separate charges (positive effect) and settlements (negative effect)
-        var charges = new List<DebtTransaction>();
-        decimal totalSettlements = 0m;
-
-        // If OpeningBalance > 0, treat it as an implicit charge at the very beginning
-        if (partyDebt.OpeningBalance > 0)
-        {
-            charges.Add(new DebtTransaction
-            {
-                Id = 0,
-                PartyDebtId = partyDebt.Id,
-                TransactionType = LookupCodes.DebtTransactionType.Charge,
-                Amount = partyDebt.OpeningBalance,
-                TransactionDate = DateTime.MinValue,
-                DueDate = null,
-                Note = "Opening Balance"
-            });
-        }
-        else if (partyDebt.OpeningBalance < 0)
-        {
-            // Opening balance is negative, which means customer pre-paid or supplier was pre-paid
-            totalSettlements += Math.Abs(partyDebt.OpeningBalance);
-        }
-
+        decimal totalCharges = Math.Max(0m, partyDebt.OpeningBalance);
+        decimal totalSettlements = Math.Max(0m, -partyDebt.OpeningBalance);
         foreach (var tx in activeTx)
         {
             var effect = _effectResolver.GetBalanceEffect(tx.TransactionType, tx.Amount);
-            if (effect > 0)
-            {
-                charges.Add(tx);
-            }
-            else if (effect < 0)
-            {
-                totalSettlements += tx.Amount;
-            }
+            if (effect > 0) totalCharges += effect;
+            if (effect < 0) totalSettlements += Math.Abs(effect);
         }
 
-        // 2. Perform reconciliation
-        decimal totalCharges = charges.Sum(c => c.Amount);
+        var documents = CalculateDebtDocuments(partyDebt, activeTx);
         decimal computedBalance = totalCharges - totalSettlements;
         decimal reconciliationDiff = partyDebt.CurrentBalance - computedBalance;
-
-        // 3. FIFO Allocation using adjusted settlement to match CurrentBalance
-        decimal adjustedSettlements = totalCharges - partyDebt.CurrentBalance;
-        if (adjustedSettlements < 0m)
-        {
-            adjustedSettlements = 0m;
-        }
-
-        // Order charges: DueDate null last, then DueDate ASC, then TransactionDate ASC, then Id ASC
-        var orderedCharges = charges
-            .OrderBy(c => c.DueDate == null)
-            .ThenBy(c => c.DueDate)
-            .ThenBy(c => c.TransactionDate)
-            .ThenBy(c => c.Id)
-            .ToList();
-
-        decimal remainingSettlement = adjustedSettlements;
-        var outstandingCharges = new List<(DebtTransaction Charge, decimal Outstanding)>();
-
-        foreach (var charge in orderedCharges)
-        {
-            decimal applied = Math.Min(charge.Amount, remainingSettlement);
-            remainingSettlement -= applied;
-            decimal outstanding = charge.Amount - applied;
-
-            if (outstanding > 0m)
-            {
-                outstandingCharges.Add((charge, outstanding));
-            }
-        }
-
-        // 4. Classify outstanding amounts
         var result = new DebtAgingCalculationResult
         {
             PartyDebtId = partyDebt.Id,
@@ -115,26 +54,23 @@ public class DebtAgingCalculationService : IDebtAgingCalculationService
             ReconciliationDifference = reconciliationDiff
         };
 
-        foreach (var item in outstandingCharges)
+        foreach (var document in documents.Where(x => x.OutstandingAmount > 0m))
         {
-            var charge = item.Charge;
-            var outstanding = item.Outstanding;
-
             result.OpenChargeCount++;
 
-            if (charge.DueDate == null)
+            if (document.DueDate == null)
             {
-                result.UnscheduledOutstandingAmount += outstanding;
+                result.UnscheduledOutstandingAmount += document.OutstandingAmount;
             }
             else
             {
-                var dueDate = charge.DueDate.Value.Date;
+                var dueDate = document.DueDate.Value.Date;
                 var daysOverdue = (businessToday.Date - dueDate).Days;
                 var daysUntilDue = (dueDate - businessToday.Date).Days;
 
                 if (dueDate < businessToday.Date)
                 {
-                    result.OverdueAmount += outstanding;
+                    result.OverdueAmount += document.OutstandingAmount;
                     if (result.OldestOverdueDate == null || dueDate < result.OldestOverdueDate.Value)
                     {
                         result.OldestOverdueDate = dueDate;
@@ -143,15 +79,15 @@ public class DebtAgingCalculationService : IDebtAgingCalculationService
                 }
                 else if (dueDate == businessToday.Date)
                 {
-                    result.DueTodayAmount += outstanding;
+                    result.DueTodayAmount += document.OutstandingAmount;
                 }
                 else if (daysUntilDue <= reminderLeadDays)
                 {
-                    result.DueSoonAmount += outstanding;
+                    result.DueSoonAmount += document.OutstandingAmount;
                 }
                 else
                 {
-                    result.NotYetDueAmount += outstanding;
+                    result.NotYetDueAmount += document.OutstandingAmount;
                 }
 
                 if (result.NearestDueDate == null || dueDate < result.NearestDueDate.Value)
@@ -163,6 +99,132 @@ public class DebtAgingCalculationService : IDebtAgingCalculationService
 
         return result;
     }
+
+    public List<DebtDocumentAllocation> CalculateDebtDocuments(
+        PartyDebt partyDebt,
+        List<DebtTransaction> transactions)
+    {
+        var activeTx = transactions
+            .Where(t => t.PartyDebtId == partyDebt.Id && !t.IsDeleted)
+            .OrderBy(t => t.TransactionDate)
+            .ThenBy(t => t.Id)
+            .ToList();
+
+        var documents = new List<DebtDocumentAllocation>();
+        if (partyDebt.OpeningBalance > 0m)
+        {
+            documents.Add(new DebtDocumentAllocation
+            {
+                PartyDebtId = partyDebt.Id,
+                ChargeTransactionId = 0,
+                RefType = "OPENING_BALANCE",
+                TransactionDate = partyDebt.CreatedDate,
+                Note = "Số dư đầu kỳ",
+                TotalAmount = partyDebt.OpeningBalance,
+                OutstandingAmount = partyDebt.OpeningBalance
+            });
+        }
+
+        foreach (var tx in activeTx)
+        {
+            var effect = _effectResolver.GetBalanceEffect(tx.TransactionType, tx.Amount);
+            if (effect <= 0m) continue;
+
+            documents.Add(new DebtDocumentAllocation
+            {
+                PartyDebtId = partyDebt.Id,
+                ChargeTransactionId = tx.Id,
+                RefType = NormalizeRefType(tx.RefType),
+                RefId = tx.RefId,
+                TransactionDate = tx.TransactionDate,
+                DueDate = tx.DueDate,
+                Note = tx.Note,
+                TotalAmount = effect,
+                OutstandingAmount = effect
+            });
+        }
+
+        // Nếu dữ liệu lịch sử chỉ có CurrentBalance mà thiếu giao dịch nguồn,
+        // vẫn tạo một dòng đối soát để tổng chi tiết luôn khớp số dư sổ.
+        var totalCharges = documents.Sum(x => x.TotalAmount);
+        if (partyDebt.CurrentBalance > totalCharges)
+        {
+            var adjustment = partyDebt.CurrentBalance - totalCharges;
+            documents.Add(new DebtDocumentAllocation
+            {
+                PartyDebtId = partyDebt.Id,
+                ChargeTransactionId = -1,
+                RefType = "BALANCE_ADJUSTMENT",
+                TransactionDate = partyDebt.CreatedDate,
+                Note = "Số dư chưa có chứng từ nguồn",
+                TotalAmount = adjustment,
+                OutstandingAmount = adjustment
+            });
+            totalCharges += adjustment;
+        }
+
+        var settlementTarget = Math.Max(0m, totalCharges - Math.Max(0m, partyDebt.CurrentBalance));
+        if (settlementTarget == 0m || documents.Count == 0)
+            return documents;
+
+        var settlements = activeTx
+            .Where(t => _effectResolver.GetBalanceEffect(t.TransactionType, t.Amount) < 0m)
+            .Select(t => new
+            {
+                Transaction = t,
+                Amount = Math.Abs(_effectResolver.GetBalanceEffect(t.TransactionType, t.Amount))
+            })
+            .ToList();
+
+        decimal allocated = 0m;
+
+        // Thanh toán có RefType + RefId được ưu tiên vào đúng chứng từ.
+        foreach (var settlement in settlements)
+        {
+            if (allocated >= settlementTarget ||
+                string.IsNullOrWhiteSpace(settlement.Transaction.RefType) ||
+                !settlement.Transaction.RefId.HasValue)
+                continue;
+
+            var matching = documents
+                .Where(d => d.RefId == settlement.Transaction.RefId &&
+                            NormalizeRefType(d.RefType) == NormalizeRefType(settlement.Transaction.RefType))
+                .OrderBy(d => d.TransactionDate)
+                .ThenBy(d => d.ChargeTransactionId)
+                .ToList();
+
+            var remaining = Math.Min(settlement.Amount, settlementTarget - allocated);
+            foreach (var document in matching)
+            {
+                var applied = Math.Min(document.OutstandingAmount, remaining);
+                document.OutstandingAmount -= applied;
+                document.PaidAmount += applied;
+                allocated += applied;
+                remaining -= applied;
+                if (remaining <= 0m) break;
+            }
+        }
+
+        // Phần còn lại phân bổ FIFO theo hạn thanh toán, rồi ngày phát sinh.
+        var fifoRemaining = settlementTarget - allocated;
+        foreach (var document in documents
+                     .OrderBy(x => x.DueDate == null)
+                     .ThenBy(x => x.DueDate)
+                     .ThenBy(x => x.TransactionDate)
+                     .ThenBy(x => x.ChargeTransactionId))
+        {
+            if (fifoRemaining <= 0m) break;
+            var applied = Math.Min(document.OutstandingAmount, fifoRemaining);
+            document.OutstandingAmount -= applied;
+            document.PaidAmount += applied;
+            fifoRemaining -= applied;
+        }
+
+        return documents;
+    }
+
+    private static string? NormalizeRefType(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToUpperInvariant();
 
     public async Task<DebtAgingCalculationResult> CalculatePartyDebtAgingAsync(
         int partyDebtId,

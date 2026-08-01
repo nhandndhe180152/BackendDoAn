@@ -85,7 +85,7 @@ public class InboundOrderController : BaseController
     {
         if (!IsManagerOrAdmin())
         {
-            return BaseResult(ApiResponse.Forbidden("Chỉ có Warehouse Manager hoặc System Admin mới có quyền tạo phiếu nhập.", ApiCodeConstants.Common.Forbidden));
+            return BaseResult(ApiResponse.Forbidden(message: "Chỉ có Warehouse Manager hoặc System Admin mới có quyền tạo phiếu nhập.", code: ApiCodeConstants.Common.Forbidden));
         }
 
         dto.CreatedBy = this.GetLoggedInUserId();
@@ -99,7 +99,7 @@ public class InboundOrderController : BaseController
     {
         if (!IsManagerOrAdmin())
         {
-            return BaseResult(ApiResponse.Forbidden("Chỉ có Warehouse Manager hoặc System Admin mới có quyền chỉnh sửa phiếu nhập.", ApiCodeConstants.Common.Forbidden));
+            return BaseResult(ApiResponse.Forbidden(message: "Chỉ có Warehouse Manager hoặc System Admin mới có quyền chỉnh sửa phiếu nhập.", code: ApiCodeConstants.Common.Forbidden));
         }
 
         dto.Id = id;
@@ -114,7 +114,7 @@ public class InboundOrderController : BaseController
     {
         if (!IsInboundOperator())
         {
-            return BaseResult(ApiResponse.Forbidden("Chỉ Quản trị viên, Chủ kho hoặc Nhân viên kho mới có quyền gửi duyệt phiếu nhập.", ApiCodeConstants.Common.Forbidden));
+            return BaseResult(ApiResponse.Forbidden(message: "Chỉ Quản trị viên, Chủ kho hoặc Nhân viên kho mới có quyền gửi duyệt phiếu nhập.", code: ApiCodeConstants.Common.Forbidden));
         }
 
         var result = await _inboundOrderService.SubmitAsync(id);
@@ -127,7 +127,7 @@ public class InboundOrderController : BaseController
     {
         if (!IsManagerOrAdmin())
         {
-            return BaseResult(ApiResponse.Forbidden("Chỉ có Warehouse Manager hoặc System Admin mới có quyền duyệt phiếu nhập.", ApiCodeConstants.Common.Forbidden));
+            return BaseResult(ApiResponse.Forbidden(message: "Chỉ có Warehouse Manager hoặc System Admin mới có quyền duyệt phiếu nhập.", code: ApiCodeConstants.Common.Forbidden));
         }
 
         var result = await _inboundOrderService.ApproveAsync(id);
@@ -140,7 +140,7 @@ public class InboundOrderController : BaseController
     {
         if (!IsManagerOrAdmin())
         {
-            return BaseResult(ApiResponse.Forbidden("Chỉ có Warehouse Manager hoặc System Admin mới có quyền từ chối phiếu nhập.", ApiCodeConstants.Common.Forbidden));
+            return BaseResult(ApiResponse.Forbidden(message: "Chỉ có Warehouse Manager hoặc System Admin mới có quyền từ chối phiếu nhập.", code: ApiCodeConstants.Common.Forbidden));
         }
 
         var result = await _inboundOrderService.RejectAsync(id, reason);
@@ -153,7 +153,7 @@ public class InboundOrderController : BaseController
     {
         if (!IsManagerOrAdmin())
         {
-            return BaseResult(ApiResponse.Forbidden("Chỉ có Warehouse Manager hoặc System Admin mới có quyền hủy phiếu nhập.", ApiCodeConstants.Common.Forbidden));
+            return BaseResult(ApiResponse.Forbidden(message: "Chỉ có Warehouse Manager hoặc System Admin mới có quyền hủy phiếu nhập.", code: ApiCodeConstants.Common.Forbidden));
         }
 
         var result = await _inboundOrderService.CancelAsync(id);
@@ -167,7 +167,7 @@ public class InboundOrderController : BaseController
     {
         if (!IsInboundOperator())
         {
-            return BaseResult(ApiResponse.Forbidden("Chỉ Quản trị viên, Chủ kho hoặc Nhân viên kho mới có quyền bắt đầu nhận hàng.", ApiCodeConstants.Common.Forbidden));
+            return BaseResult(ApiResponse.Forbidden(message: "Chỉ Quản trị viên, Chủ kho hoặc Nhân viên kho mới có quyền bắt đầu nhận hàng.", code: ApiCodeConstants.Common.Forbidden));
         }
 
         var result = await _inboundOrderService.StartReceiptAsync(id, dto);
@@ -180,7 +180,7 @@ public class InboundOrderController : BaseController
     {
         if (!IsInboundOperator())
         {
-            return BaseResult(ApiResponse.Forbidden("Vai trò hiện tại không có quyền quét nhận hàng.", ApiCodeConstants.Common.Forbidden));
+            return BaseResult(ApiResponse.Forbidden(message: "Vai trò hiện tại không có quyền quét nhận hàng.", code: ApiCodeConstants.Common.Forbidden));
         }
 
         var result = await _inboundOrderService.ScanQrAsync(id, receiptId, dto);
@@ -193,7 +193,7 @@ public class InboundOrderController : BaseController
     {
         if (!IsInboundOperator())
         {
-            return BaseResult(ApiResponse.Forbidden("Vai trò hiện tại không có quyền ghi nhận số lượng nhập.", ApiCodeConstants.Common.Forbidden));
+            return BaseResult(ApiResponse.Forbidden(message: "Vai trò hiện tại không có quyền ghi nhận số lượng nhập.", code: ApiCodeConstants.Common.Forbidden));
         }
 
         var result = await _inboundOrderService.RecordQuantityAsync(id, receiptId, dto);
@@ -206,7 +206,7 @@ public class InboundOrderController : BaseController
     {
         if (!IsInboundOperator())
         {
-            return BaseResult(ApiResponse.Forbidden("Vai trò hiện tại không có quyền gắn bằng chứng cân.", ApiCodeConstants.Common.Forbidden));
+            return BaseResult(ApiResponse.Forbidden(message: "Vai trò hiện tại không có quyền gắn bằng chứng cân.", code: ApiCodeConstants.Common.Forbidden));
         }
 
         var result = await _inboundOrderService.AttachWeightAsync(id, receiptId, dto);
@@ -219,7 +219,7 @@ public class InboundOrderController : BaseController
     {
         if (!IsManagerOrAdmin())
         {
-            return BaseResult(ApiResponse.Forbidden("Chỉ có Warehouse Manager hoặc System Admin mới có quyền duyệt ngoại lệ.", ApiCodeConstants.Common.Forbidden));
+            return BaseResult(ApiResponse.Forbidden(message: "Chỉ có Warehouse Manager hoặc System Admin mới có quyền duyệt ngoại lệ.", code: ApiCodeConstants.Common.Forbidden));
         }
 
         var result = await _inboundOrderService.ReviewExceptionAsync(id, receiptId, dto);
@@ -232,7 +232,7 @@ public class InboundOrderController : BaseController
     {
         if (!IsInboundOperator())
         {
-            return BaseResult(ApiResponse.Forbidden("Vai trò hiện tại không có quyền xử lý gợi ý xếp kho.", ApiCodeConstants.Common.Forbidden));
+            return BaseResult(ApiResponse.Forbidden(message: "Vai trò hiện tại không có quyền xử lý gợi ý xếp kho.", code: ApiCodeConstants.Common.Forbidden));
         }
 
         var result = await _inboundOrderService.GetPutawaySuggestionsAsync(id, receiptId);
@@ -245,11 +245,11 @@ public class InboundOrderController : BaseController
     {
         if (!IsInboundOperator())
         {
-            return BaseResult(ApiResponse.Forbidden("Vai trò hiện tại không có quyền chọn vị trí xếp kho.", ApiCodeConstants.Common.Forbidden));
+            return BaseResult(ApiResponse.Forbidden(message: "Vai trò hiện tại không có quyền chọn vị trí xếp kho.", code: ApiCodeConstants.Common.Forbidden));
         }
         if (dto.IsOverride && !IsManagerOrAdmin())
         {
-            return BaseResult(ApiResponse.Forbidden("Chỉ Quản trị viên hoặc Chủ kho mới có quyền ghi đè vị trí đề xuất.", ApiCodeConstants.Common.Forbidden));
+            return BaseResult(ApiResponse.Forbidden(message: "Chỉ Quản trị viên hoặc Chủ kho mới có quyền ghi đè vị trí đề xuất.", code: ApiCodeConstants.Common.Forbidden));
         }
 
         var result = await _inboundOrderService.SelectPutawayAsync(id, receiptId, dto);
@@ -262,7 +262,7 @@ public class InboundOrderController : BaseController
     {
         if (!IsInboundOperator())
         {
-            return BaseResult(ApiResponse.Forbidden("Vai trò hiện tại không có quyền xác nhận nhập kho.", ApiCodeConstants.Common.Forbidden));
+            return BaseResult(ApiResponse.Forbidden(message: "Vai trò hiện tại không có quyền xác nhận nhập kho.", code: ApiCodeConstants.Common.Forbidden));
         }
 
         var result = await _inboundOrderService.ConfirmReceiptAsync(id, receiptId, dto);
@@ -276,7 +276,7 @@ public class InboundOrderController : BaseController
     {
         if (!IsManagerOrAdmin())
         {
-            return BaseResult(ApiResponse.Forbidden("Chỉ Quản trị viên hoặc Chủ kho mới có quyền đảo ngược nhập kho.", ApiCodeConstants.Common.Forbidden));
+            return BaseResult(ApiResponse.Forbidden(message: "Chỉ Quản trị viên hoặc Chủ kho mới có quyền đảo ngược nhập kho.", code: ApiCodeConstants.Common.Forbidden));
         }
 
         var result = await _inboundOrderService.ReverseReceiptAsync(id, receiptId, reason);

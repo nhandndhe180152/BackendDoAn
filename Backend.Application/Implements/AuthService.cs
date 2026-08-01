@@ -298,7 +298,7 @@ public class AuthService : IAuthService
             // Mọi vai trò nghiệp vụ (Chủ kho/Thu mua/Kho/Xay/Bán hàng + Admin) đều dùng hệ thống quản lý.
             // Chỉ chặn khi tài khoản chưa được gán vai trò nào.
             if (!listRoleIds.Any())
-                return ApiResponse.Forbidden(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.RequiredAdminUser), ApiCodeConstants.Auth.RequiredAdminUser);
+                return ApiResponse.Forbidden(message: ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.RequiredAdminUser), code: ApiCodeConstants.Auth.RequiredAdminUser);
         }
 
         // #14: Kiểm tra khóa tài khoản TRƯỚC khi verify mật khẩu.

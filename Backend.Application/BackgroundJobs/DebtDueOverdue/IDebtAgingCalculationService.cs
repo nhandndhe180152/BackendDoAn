@@ -8,6 +8,10 @@ namespace Backend.Application.BackgroundJobs.DebtDueOverdue;
 
 public interface IDebtAgingCalculationService
 {
+    List<DebtDocumentAllocation> CalculateDebtDocuments(
+        PartyDebt partyDebt,
+        List<DebtTransaction> transactions);
+
     DebtAgingCalculationResult CalculatePartyDebtAging(
         PartyDebt partyDebt,
         List<DebtTransaction> transactions,

@@ -41,7 +41,7 @@ public static class ApplicationExtensions
                 !allowedStaticPrefixes.Any(p => requestPath.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
             {
                 context.Response.StatusCode = 403;
-                await context.Response.WriteAsJsonAsync(ApiResponse.Forbidden());
+                await context.Response.WriteAsJsonAsync(ApiResponse.Forbidden(message: "Forbidden"));
                 return;
             }
             await next();
