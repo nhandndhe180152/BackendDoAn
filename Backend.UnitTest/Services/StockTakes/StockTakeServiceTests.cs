@@ -27,22 +27,34 @@ public class StockTakeServiceTests
     private readonly Mock<ISystemConfigRepository> _sysConfigRepo = new();
     private readonly Mock<IHttpContextAccessor> _http = new();
     private readonly Mock<INotificationDispatcher> _dispatcher = new();
+    private readonly Mock<IApplicationDbContext> _dbContext = new();
 
     private StockTakeService Sut() => new(
         _stockTakeRepo.Object, _stockTakeItemRepo.Object, _invTxService.Object,
-        _invRepo.Object, _sysConfigRepo.Object, _http.Object, _dispatcher.Object);
+        _invRepo.Object, _sysConfigRepo.Object, _http.Object, _dispatcher.Object,
+        _dbContext.Object);
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
-    /// <summary>Setup SystemConfig mock trả về ngưỡng SMALL / MEDIUM từ DB.</summary>
-    private void SetupVarianceThresholds(decimal small = 1m, decimal medium = 5m)
+    /// <summary>Setup SystemConfig mock trả về ngưỡng SMALL / MEDIUM từ DB (cả % lẫn kg).</summary>
+    private void SetupVarianceThresholds(
+        decimal smallPct  = 0.5m,
+        decimal mediumPct = 2.0m,
+        decimal smallKg   = 5.0m,
+        decimal mediumKg  = 20.0m)
     {
         _sysConfigRepo
             .Setup(r => r.GetValueByKey(SystemConfigConstants.Keys.StockTakeSmallVariancePercent))
-            .ReturnsAsync(small.ToString());
+            .ReturnsAsync(smallPct.ToString());
         _sysConfigRepo
             .Setup(r => r.GetValueByKey(SystemConfigConstants.Keys.StockTakeMediumVariancePercent))
-            .ReturnsAsync(medium.ToString());
+            .ReturnsAsync(mediumPct.ToString());
+        _sysConfigRepo
+            .Setup(r => r.GetValueByKey(SystemConfigConstants.Keys.StockTakeSmallVarianceKg))
+            .ReturnsAsync(smallKg.ToString());
+        _sysConfigRepo
+            .Setup(r => r.GetValueByKey(SystemConfigConstants.Keys.StockTakeMediumVarianceKg))
+            .ReturnsAsync(mediumKg.ToString());
     }
 
     /// <summary>Setup SystemConfig mock không có bản ghi → service dùng Defaults constants.</summary>
@@ -98,19 +110,19 @@ public class StockTakeServiceTests
         result.Status.Should().Be(404);
     }
 
-    // ─── ClassifySeverity qua GetByIdAsync ────────────────────────────────────
+    // ─── ClassifySeverity qua GetByIdAsync (ngưỡng FDS: 0.5% / 2% / 5kg / 20kg) ─────
 
     [Theory]
-    [InlineData(100, 100, "NONE")]    // Không chênh lệch → NONE
-    [InlineData(100, 99.5, "SMALL")] // 0.5% ≤ 1% → SMALL
-    [InlineData(100, 98, "MEDIUM")]  // 2% ≤ 5% → MEDIUM
-    [InlineData(100, 90, "LARGE")]   // 10% > 5% → LARGE
-    [InlineData(100, 110, "LARGE")]  // Thừa 10% → LARGE
-    public async Task GetByIdAsync_VarianceSeverity_ClassifiesCorrectly(
+    [InlineData(100, 100,   "NONE")]   // Không chênh lệch → NONE
+    [InlineData(100, 99.6,  "SMALL")]  // 0.4% ≤ 0.5% VÀ 0.4kg ≤ 5kg → SMALL
+    [InlineData(100, 98.5,  "MEDIUM")] // 1.5% ≤ 2% → MEDIUM (theo %)
+    [InlineData(100, 90,    "LARGE")]  // 10% > 2% → LARGE (theo %)
+    [InlineData(100, 110,   "LARGE")]  // Thừa 10% → LARGE
+    public async Task GetByIdAsync_VarianceSeverity_ClassifiesCorrectly_ByPercent(
         decimal system, decimal actual, string expectedSeverity)
     {
-        // Arrange
-        SetupVarianceThresholds(small: 1m, medium: 5m);
+        // Arrange — dùng ngưỡng FDS chuẩn
+        SetupVarianceThresholds(smallPct: 0.5m, mediumPct: 2.0m, smallKg: 5m, mediumKg: 20m);
         SetupStockTakeFind(MakeStockTake(1, MakeItem(system, actual)));
 
         // Act
@@ -122,10 +134,30 @@ public class StockTakeServiceTests
         dto.StockTakeItems.First().VarianceSeverity.Should().Be(expectedSeverity);
     }
 
+    /// <summary>
+    /// FDS: chênh lệch tuyệt đối 30 kg trên lô 10.000 kg chỉ là 0.3%
+    /// nhưng 30 kg > 20 kg → mức tính theo kg là LARGE → kết quả cuối là LARGE.
+    /// Đây là case quan trọng nhất mà code cũ bị sai.
+    /// </summary>
+    [Fact]
+    public async Task GetByIdAsync_SmallPercentButLargeKg_ReturnsLarge()
+    {
+        // 30 kg / 10000 kg = 0.3% → theo % là SMALL, nhưng 30 kg > 20 kg → theo kg là LARGE
+        SetupVarianceThresholds(smallPct: 0.5m, mediumPct: 2.0m, smallKg: 5m, mediumKg: 20m);
+        SetupStockTakeFind(MakeStockTake(1, MakeItem(system: 10000m, actual: 9970m)));
+
+        var result = await Sut().GetByIdAsync(1);
+
+        result.Status.Should().Be(200);
+        var dto = (result.Resources as StockTakeDto)!;
+        dto.StockTakeItems.First().VarianceSeverity.Should().Be("LARGE",
+            "chênh 30 kg vượt ngưỡng MEDIUM 20 kg dù % chỉ 0.3%");
+    }
+
     [Fact]
     public async Task GetByIdAsync_SystemQuantityZero_ActualQuantityPositive_VarianceSeverityIsLarge()
     {
-        // SystemQuantity = 0 và ActualQuantity = 10 → chênh lệch nghiêm trọng → LARGE (MEDIUM-1 fix)
+        // SystemQuantity = 0 và ActualQuantity = 10 → chênh lệch nghiêm trọng → LARGE
         SetupVarianceThresholds();
         SetupStockTakeFind(MakeStockTake(1, MakeItem(system: 0, actual: 10)));
 
@@ -155,9 +187,9 @@ public class StockTakeServiceTests
     [Fact]
     public async Task GetByIdAsync_ConfigNotInDb_FallsBackToDefaults_ClassifiesMedium()
     {
-        // 3% chênh lệch → với default (SMALL=1%, MEDIUM=5%) → MEDIUM
+        // 1% chênh lệch, 1 kg chênh → với default FDS (SMALL=0.5%, MEDIUM=2%, SmallKg=5, MediumKg=20) → MEDIUM (theo %)
         SetupVarianceThresholdsNotConfigured();
-        SetupStockTakeFind(MakeStockTake(1, MakeItem(system: 100, actual: 97)));
+        SetupStockTakeFind(MakeStockTake(1, MakeItem(system: 100, actual: 99)));
 
         var result = await Sut().GetByIdAsync(1);
 
@@ -169,7 +201,7 @@ public class StockTakeServiceTests
     [Fact]
     public async Task GetByIdAsync_ConfigNotInDb_FallsBackToDefaults_ClassifiesLarge()
     {
-        // 10% chênh lệch → với default (SMALL=1%, MEDIUM=5%) → LARGE
+        // 10% chênh lệch → với default FDS (SMALL=0.5%, MEDIUM=2%) → LARGE
         SetupVarianceThresholdsNotConfigured();
         SetupStockTakeFind(MakeStockTake(1, MakeItem(system: 100, actual: 90)));
 
@@ -241,9 +273,9 @@ public class StockTakeServiceTests
 
     [Theory]
     [InlineData(100, 100, 0.0)]    // Không chênh lệch → VariancePercent = 0 (không phải null)
-    [InlineData(100, 99, 1.0)]     // 1% chênh lệch
-    [InlineData(100, 90, 10.0)]    // 10%
-    [InlineData(0, 5, null)]       // SystemQuantity=0 → null (không thể chia)
+    [InlineData(100, 99,  1.0)]    // 1% chênh lệch
+    [InlineData(100, 90,  10.0)]   // 10%
+    [InlineData(0,   5,   null)]   // SystemQuantity=0 → null (không thể chia)
     public void StockTakeItem_VariancePercent_CalculatesCorrectly(
         decimal system, decimal actual, double? expectedPercent)
     {
@@ -271,5 +303,32 @@ public class StockTakeServiceTests
     {
         var item = new StockTakeItem { SystemQuantity = 100, ActualQuantity = null };
         item.Difference.Should().Be(-100); // (0) - 100
+    }
+
+    // ─── AbsoluteVarianceKg property on entity ────────────────────────────────
+
+    [Theory]
+    [InlineData(10000.0, 9970.0, 30.0)]  // FDS case: 30 kg, 0.3%
+    [InlineData(100.0,   90.0,   10.0)]  // 10 kg
+    [InlineData(100.0,   110.0,  10.0)]  // Thừa hàng: 10 kg (không âm)
+    [InlineData(100.0,   null,   0.0)]   // Chưa nhập: 0
+    public void StockTakeItem_AbsoluteVarianceKg_CalculatesCorrectly(
+        double system, double? actual, double expectedKg)
+    {
+        var item = new StockTakeItem
+        {
+            SystemQuantity = (decimal)system,
+            ActualQuantity = actual.HasValue ? (decimal?)actual.Value : null
+        };
+        item.AbsoluteVarianceKg.Should().BeApproximately((decimal)expectedKg, 0.001m);
+    }
+
+    // ─── RecountConfirmed trên entity ─────────────────────────────────────────
+
+    [Fact]
+    public void StockTakeItem_RecountConfirmed_DefaultIsFalse()
+    {
+        var item = new StockTakeItem();
+        item.RecountConfirmed.Should().BeFalse();
     }
 }

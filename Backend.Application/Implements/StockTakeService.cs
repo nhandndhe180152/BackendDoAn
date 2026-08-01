@@ -26,6 +26,7 @@ public class StockTakeService : IStockTakeService
     private readonly ISystemConfigRepository _systemConfigRepository;
     private readonly Microsoft.AspNetCore.Http.IHttpContextAccessor _httpContextAccessor;
     private readonly INotificationDispatcher _notificationDispatcher;
+    private readonly IApplicationDbContext _context;
 
     public StockTakeService(
         IStockTakeRepository stockTakeRepository,
@@ -34,7 +35,8 @@ public class StockTakeService : IStockTakeService
         IInventoryRepository inventoryRepository,
         ISystemConfigRepository systemConfigRepository,
         Microsoft.AspNetCore.Http.IHttpContextAccessor httpContextAccessor,
-        INotificationDispatcher notificationDispatcher)
+        INotificationDispatcher notificationDispatcher,
+        IApplicationDbContext context)
     {
         _stockTakeRepository = stockTakeRepository;
         _stockTakeItemRepository = stockTakeItemRepository;
@@ -43,59 +45,100 @@ public class StockTakeService : IStockTakeService
         _systemConfigRepository = systemConfigRepository;
         _httpContextAccessor = httpContextAccessor;
         _notificationDispatcher = notificationDispatcher;
+        _context = context;
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Đọc ngưỡng phân loại chênh lệch từ SystemConfig.
+    /// Đọc ngưỡng phân loại chênh lệch từ SystemConfig (% và kg).
     /// Fallback về Defaults nếu chưa cấu hình hoặc giá trị không hợp lệ.
     /// </summary>
-    private async Task<(decimal small, decimal medium)> ResolveVarianceThresholdsAsync()
+    private async Task<(decimal smallPct, decimal mediumPct, decimal smallKg, decimal mediumKg)> ResolveVarianceThresholdsAsync()
     {
-        decimal small = SystemConfigConstants.Defaults.StockTakeSmallVariancePercent;
-        decimal medium = SystemConfigConstants.Defaults.StockTakeMediumVariancePercent;
+        decimal smallPct  = SystemConfigConstants.Defaults.StockTakeSmallVariancePercent;
+        decimal mediumPct = SystemConfigConstants.Defaults.StockTakeMediumVariancePercent;
+        decimal smallKg   = SystemConfigConstants.Defaults.StockTakeSmallVarianceKg;
+        decimal mediumKg  = SystemConfigConstants.Defaults.StockTakeMediumVarianceKg;
 
-        // LOW-1 fix: dùng InvariantCulture để parse đúng dù server chạy locale bất kỳ.
-        // Tránh trường hợp admin nhập "1.5" bị parse sai thành 15 hoặc fallback về Defaults.
-        var smallRaw = await _systemConfigRepository.GetValueByKey(SystemConfigConstants.Keys.StockTakeSmallVariancePercent);
-        if (decimal.TryParse(smallRaw, System.Globalization.NumberStyles.Any,
-                System.Globalization.CultureInfo.InvariantCulture, out var parsedSmall)
-            && parsedSmall > 0)
-            small = parsedSmall;
+        // Dùng InvariantCulture để parse đúng dù server chạy locale bất kỳ.
+        var smallPctRaw = await _systemConfigRepository.GetValueByKey(SystemConfigConstants.Keys.StockTakeSmallVariancePercent);
+        if (decimal.TryParse(smallPctRaw, System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var pSmall) && pSmall > 0)
+            smallPct = pSmall;
 
-        var mediumRaw = await _systemConfigRepository.GetValueByKey(SystemConfigConstants.Keys.StockTakeMediumVariancePercent);
-        if (decimal.TryParse(mediumRaw, System.Globalization.NumberStyles.Any,
-                System.Globalization.CultureInfo.InvariantCulture, out var parsedMedium)
-            && parsedMedium > small)
-            medium = parsedMedium;
+        var mediumPctRaw = await _systemConfigRepository.GetValueByKey(SystemConfigConstants.Keys.StockTakeMediumVariancePercent);
+        if (decimal.TryParse(mediumPctRaw, System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var pMedium) && pMedium > smallPct)
+            mediumPct = pMedium;
 
-        return (small, medium);
+        var smallKgRaw = await _systemConfigRepository.GetValueByKey(SystemConfigConstants.Keys.StockTakeSmallVarianceKg);
+        if (decimal.TryParse(smallKgRaw, System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var kSmall) && kSmall > 0)
+            smallKg = kSmall;
+
+        var mediumKgRaw = await _systemConfigRepository.GetValueByKey(SystemConfigConstants.Keys.StockTakeMediumVarianceKg);
+        if (decimal.TryParse(mediumKgRaw, System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var kMedium) && kMedium > smallKg)
+            mediumKg = kMedium;
+
+        return (smallPct, mediumPct, smallKg, mediumKg);
     }
 
     /// <summary>
-    /// Tính VarianceSeverity cho một dòng kiểm kê dựa trên ngưỡng từ DB.
+    /// Phân loại mức độ chênh lệch dựa trên CẢ % lẫn kg (FDS: lấy mức cao hơn giữa hai tiêu chí).
     /// </summary>
     /// <param name="variancePercent">null = chưa nhập hoặc SystemQty=0.</param>
+    /// <param name="absoluteVarianceKg">Chênh lệch tuyệt đối kg (≥ 0).</param>
     /// <param name="isSystemZeroWithActual">true = SystemQuantity=0 nhưng đếm được hàng thực tế → luôn LARGE.</param>
     private static string ClassifySeverity(
         decimal? variancePercent,
-        decimal smallThreshold,
-        decimal mediumThreshold,
+        decimal absoluteVarianceKg,
+        decimal smallPctThreshold,
+        decimal mediumPctThreshold,
+        decimal smallKgThreshold,
+        decimal mediumKgThreshold,
         bool isSystemZeroWithActual = false)
     {
-        // MEDIUM-1 fix: SystemQuantity=0 nhưng đếm được hàng thực tế là chênh lệch nghiêm trọng nhất.
-        // VariancePercent không tính được (chia cho 0) → phải xử lý tường minh.
+        // SystemQuantity=0 nhưng đếm được hàng thực tế là chênh lệch nghiêm trọng nhất.
         if (isSystemZeroWithActual)
             return "LARGE";
 
-        if (variancePercent == null || variancePercent == 0)
+        if (variancePercent == null && absoluteVarianceKg == 0)
             return "NONE";
-        if (variancePercent <= smallThreshold)
-            return "SMALL";
-        if (variancePercent <= mediumThreshold)
-            return "MEDIUM";
-        return "LARGE";
+
+        // Phân loại theo %
+        string severityByPct;
+        if (variancePercent == null || variancePercent == 0)
+            severityByPct = "NONE";
+        else if (variancePercent <= smallPctThreshold)
+            severityByPct = "SMALL";
+        else if (variancePercent <= mediumPctThreshold)
+            severityByPct = "MEDIUM";
+        else
+            severityByPct = "LARGE";
+
+        // Phân loại theo kg
+        string severityByKg;
+        if (absoluteVarianceKg == 0)
+            severityByKg = "NONE";
+        else if (absoluteVarianceKg <= smallKgThreshold)
+            severityByKg = "SMALL";
+        else if (absoluteVarianceKg <= mediumKgThreshold)
+            severityByKg = "MEDIUM";
+        else
+            severityByKg = "LARGE";
+
+        // Trả về mức NẶNG HƠN trong hai tiêu chí
+        return MaxSeverity(severityByPct, severityByKg);
+    }
+
+    private static string MaxSeverity(string a, string b)
+    {
+        var order = new[] { "NONE", "SMALL", "MEDIUM", "LARGE" };
+        var idxA = Array.IndexOf(order, a);
+        var idxB = Array.IndexOf(order, b);
+        return idxA >= idxB ? a : b;
     }
 
     /// <summary>
@@ -103,18 +146,40 @@ public class StockTakeService : IStockTakeService
     /// </summary>
     private async Task EnrichVarianceSeverityAsync(StockTakeDto dto)
     {
-        var (small, medium) = await ResolveVarianceThresholdsAsync();
+        var (smallPct, mediumPct, smallKg, mediumKg) = await ResolveVarianceThresholdsAsync();
         foreach (var item in dto.StockTakeItems)
         {
             var isZeroWithActual = item.SystemQuantity == 0 && (item.ActualQuantity ?? 0) > 0;
-            item.VarianceSeverity = ClassifySeverity(item.VariancePercent, small, medium, isZeroWithActual);
+            var absKg = item.AbsoluteVarianceKg ?? 0m;
+            item.VarianceSeverity = ClassifySeverity(item.VariancePercent, absKg, smallPct, mediumPct, smallKg, mediumKg, isZeroWithActual);
         }
+    }
+
+    /// <summary>
+    /// Validate danh sách dòng kiểm kê không có tổ hợp phạm vi trùng nhau.
+    /// FDS: (LocationId, ProductVariantId, PaddyLotId) phải unique trong một phiếu.
+    /// </summary>
+    private static bool HasDuplicateItemScope(IEnumerable<(int? LocationId, int? ProductVariantId, int? PaddyLotId)> items)
+    {
+        var seen = new HashSet<(int?, int?, int?)>();
+        foreach (var item in items)
+        {
+            if (!seen.Add(item)) return true;
+        }
+        return false;
     }
 
     // ─── CRUD ─────────────────────────────────────────────────────────────────
 
     public async Task<ApiResponse> CreateAsync(CreateStockTakeDto obj)
     {
+        // 3.10 — Chặn dòng trùng phạm vi
+        var scopes = obj.StockTakeItems
+            .Select(i => (i.LocationId, i.ProductVariantId, i.PaddyLotId))
+            .ToList();
+        if (HasDuplicateItemScope(scopes))
+            return ApiResponse.BadRequest(message: "Phiếu kiểm kê có nhiều dòng trùng phạm vi (cùng Vị trí + Sản phẩm + Lô hàng). Vui lòng hợp nhất các dòng trùng.");
+
         var model = obj.ToEntity();
         model.StartedDate = DateTimeHelper.VietnamNow();
 
@@ -122,14 +187,14 @@ public class StockTakeService : IStockTakeService
         {
             if (item.ProductVariantId.HasValue)
             {
-                // Tính SystemQuantity: nếu chỉ định lô → lấy tồn của lô đó; không lô → tổng tất cả lô tại vị trí.
+                // 3.5 — Nếu có PaddyLotId: chỉ lấy tồn lô đó; nếu null: tổng tất cả dòng không có lô
                 item.SystemQuantity = await _inventoryRepository
                     .FindByCondition(x =>
                         !x.IsDeleted &&
                         x.ProductVariantId == item.ProductVariantId.Value &&
                         x.WarehouseId == model.WarehouseId &&
                         x.LocationId == item.LocationId &&
-                        (!item.PaddyLotId.HasValue || x.PaddyLotId == item.PaddyLotId))
+                        x.PaddyLotId == item.PaddyLotId)   // exact match (null == null)
                     .SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m;
             }
         }
@@ -148,14 +213,12 @@ public class StockTakeService : IStockTakeService
     public async Task<ApiResponse> GetAllAsync()
     {
         // ToListAsync() trước để EF materialize entities → sau đó mới gọi ToDto() trong C#.
-        // Không dùng .Select(x => x.ToDto()).ToListAsync() trực tiếp trên IQueryable vì
-        // EF Core 3+ không tự fallback về client-side khi gặp method call không translate được.
         var entities = await _stockTakeRepository
             .FindByCondition(x => !x.IsDeleted)
             .Include(x => x.StockTakeItems)
             .ToListAsync();
 
-        var (small, medium) = await ResolveVarianceThresholdsAsync();
+        var (smallPct, mediumPct, smallKg, mediumKg) = await ResolveVarianceThresholdsAsync();
 
         var data = entities.Select(e =>
         {
@@ -163,7 +226,8 @@ public class StockTakeService : IStockTakeService
             foreach (var item in dto.StockTakeItems)
             {
                 var isZeroWithActual = item.SystemQuantity == 0 && (item.ActualQuantity ?? 0) > 0;
-                item.VarianceSeverity = ClassifySeverity(item.VariancePercent, small, medium, isZeroWithActual);
+                var absKg = item.AbsoluteVarianceKg ?? 0m;
+                item.VarianceSeverity = ClassifySeverity(item.VariancePercent, absKg, smallPct, mediumPct, smallKg, mediumKg, isZeroWithActual);
             }
             return dto;
         }).ToList();
@@ -256,6 +320,13 @@ public class StockTakeService : IStockTakeService
             return ApiResponse.UnprocessableEntity("Chỉ có thể Gửi duyệt phiếu đang ở trạng thái Nháp.", ApiCodeConstants.Common.UnprocessableEntity);
         }
 
+        // 3.10 — Validate không có tổ hợp phạm vi trùng
+        var allScopes = obj.StockTakeItems
+            .Select(i => (i.LocationId, i.ProductVariantId, i.PaddyLotId))
+            .ToList();
+        if (HasDuplicateItemScope(allScopes))
+            return ApiResponse.BadRequest(message: "Phiếu kiểm kê có nhiều dòng trùng phạm vi. Vui lòng hợp nhất các dòng trùng.");
+
         obj.ToEntity(existData);
 
         // 1. Xóa dòng không còn trong DTO
@@ -271,13 +342,32 @@ public class StockTakeService : IStockTakeService
             var existingItem = existData.StockTakeItems.FirstOrDefault(i => i.Id == itemDto.Id);
             if (existingItem != null)
             {
-                existingItem.ProductVariantId = itemDto.ProductVariantId;
-                existingItem.LocationId = itemDto.LocationId;
-                existingItem.PaddyLotId = itemDto.PaddyLotId;
-                existingItem.ActualQuantity = itemDto.ActualQuantity;
-                existingItem.Note = itemDto.Note;
-                existingItem.QRScanned = itemDto.QRScanned;
-                existingItem.LastModifiedDate = now;
+                // 3.6 — Nếu phạm vi thay đổi thì tính lại SystemQuantity
+                bool scopeChanged =
+                    existingItem.ProductVariantId != itemDto.ProductVariantId ||
+                    existingItem.LocationId != itemDto.LocationId ||
+                    existingItem.PaddyLotId != itemDto.PaddyLotId;
+
+                existingItem.ProductVariantId   = itemDto.ProductVariantId;
+                existingItem.LocationId         = itemDto.LocationId;
+                existingItem.PaddyLotId         = itemDto.PaddyLotId;
+                existingItem.ActualQuantity      = itemDto.ActualQuantity;
+                existingItem.Note               = itemDto.Note;
+                existingItem.QRScanned          = itemDto.QRScanned;
+                existingItem.RecountConfirmed   = itemDto.RecountConfirmed;
+                existingItem.LastModifiedDate   = now;
+
+                if (scopeChanged && itemDto.ProductVariantId.HasValue)
+                {
+                    existingItem.SystemQuantity = await _inventoryRepository
+                        .FindByCondition(x =>
+                            !x.IsDeleted &&
+                            x.ProductVariantId == itemDto.ProductVariantId.Value &&
+                            x.WarehouseId == existData.WarehouseId &&
+                            x.LocationId == itemDto.LocationId &&
+                            x.PaddyLotId == itemDto.PaddyLotId)
+                        .SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m;
+                }
             }
         }
 
@@ -294,21 +384,22 @@ public class StockTakeService : IStockTakeService
                         x.ProductVariantId == itemDto.ProductVariantId.Value &&
                         x.WarehouseId == existData.WarehouseId &&
                         x.LocationId == itemDto.LocationId &&
-                        (!itemDto.PaddyLotId.HasValue || x.PaddyLotId == itemDto.PaddyLotId))
+                        x.PaddyLotId == itemDto.PaddyLotId)
                     .SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m;
             }
 
             newItems.Add(new StockTakeItem
             {
-                StockTakeId = existData.Id,
+                StockTakeId      = existData.Id,
                 ProductVariantId = itemDto.ProductVariantId,
-                LocationId = itemDto.LocationId,
-                PaddyLotId = itemDto.PaddyLotId,
-                SystemQuantity = sysQty,
-                ActualQuantity = itemDto.ActualQuantity,
-                Note = itemDto.Note,
-                QRScanned = itemDto.QRScanned,
-                CreatedDate = now
+                LocationId       = itemDto.LocationId,
+                PaddyLotId       = itemDto.PaddyLotId,
+                SystemQuantity   = sysQty,
+                ActualQuantity   = itemDto.ActualQuantity,
+                Note             = itemDto.Note,
+                QRScanned        = itemDto.QRScanned,
+                RecountConfirmed = itemDto.RecountConfirmed,
+                CreatedDate      = now
             });
         }
 
@@ -330,6 +421,7 @@ public class StockTakeService : IStockTakeService
 
     public async Task<ApiResponse> ApproveAsync(int id, string? approveNote, int userId)
     {
+        // 3.12 — FDS: chỉ OWNER duyệt; ADMIN là super-admin theo quy ước toàn dự án → giữ cả hai
         var currentRoleIds = _httpContextAccessor.HttpContext?.GetCurrentRoleIds() ?? new List<int>();
         if (!currentRoleIds.Contains(CommonConstants.Role.ADMIN) && !currentRoleIds.Contains(CommonConstants.Role.OWNER))
         {
@@ -352,62 +444,120 @@ public class StockTakeService : IStockTakeService
         if (existData.StockTakeStatusId != Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Submitted))
             return ApiResponse.UnprocessableEntity("Chỉ có thể duyệt phiếu kiểm kho ở trạng thái chờ duyệt.", ApiCodeConstants.Common.UnprocessableEntity);
 
-        // --- BƯỚC 1: ĐỌC NGƯỠNG TỪ DB (không hard-code) ---
-        var (smallThreshold, mediumThreshold) = await ResolveVarianceThresholdsAsync();
+        // 3.7 — Chặn duyệt khi phiếu không có dòng kiểm kê
+        if (!existData.StockTakeItems.Any())
+            return ApiResponse.UnprocessableEntity("Phiếu kiểm kê không có dòng nào. Không thể duyệt phiếu trống.", ApiCodeConstants.Common.UnprocessableEntity);
 
-        // --- BƯỚC 2: VALIDATION TRƯỚC KHI MỞ TRANSACTION ---
-        // Kiểm tra toàn bộ dòng trước, tránh phải revert entity state thủ công sau rollback.
+        // 3.7 — Chặn duyệt khi có dòng chưa nhập ActualQuantity
+        var unfinishedItems = existData.StockTakeItems
+            .Where(i => i.ProductVariantId.HasValue && !i.ActualQuantity.HasValue)
+            .ToList();
+        if (unfinishedItems.Any())
+        {
+            var names = unfinishedItems
+                .Select(i => i.ProductVariant?.Name ?? $"ProductVariantId={i.ProductVariantId}")
+                .Take(3);
+            return ApiResponse.UnprocessableEntity(
+                $"Phiếu còn {unfinishedItems.Count} dòng chưa nhập số lượng kiểm đếm ({string.Join(", ", names)}...). Vui lòng nhập đầy đủ trước khi duyệt.",
+                ApiCodeConstants.Common.UnprocessableEntity);
+        }
+
+        // --- ĐỌC NGƯỠNG TỪ DB ---
+        var (smallPct, mediumPct, smallKg, mediumKg) = await ResolveVarianceThresholdsAsync();
+
+        // --- VALIDATION TỪNG DÒNG TRƯỚC KHI MỞ TRANSACTION ---
         foreach (var item in existData.StockTakeItems)
         {
-            if (!item.ActualQuantity.HasValue || item.Difference == 0 || !item.ProductVariantId.HasValue)
+            if (!item.ActualQuantity.HasValue || !item.ProductVariantId.HasValue)
                 continue;
 
-            // MEDIUM-1: SystemQuantity=0 và đếm được hàng thực tế → luôn LARGE (không thể tính % vì chia 0)
-            var isZeroWithActual = item.SystemQuantity == 0 && (item.ActualQuantity ?? 0) > 0;
-            var severity = ClassifySeverity(item.VariancePercent, smallThreshold, mediumThreshold, isZeroWithActual);
+            // Bỏ qua dòng không có chênh lệch (không điều chỉnh tồn)
+            if (item.Difference == 0)
+                continue;
 
-            // Bắt buộc ghi lý do với chênh lệch mức LARGE
-            if (severity == "LARGE" && string.IsNullOrWhiteSpace(item.Note))
+            var isZeroWithActual = item.SystemQuantity == 0 && (item.ActualQuantity ?? 0) > 0;
+            var severity = ClassifySeverity(item.VariancePercent, item.AbsoluteVarianceKg, smallPct, mediumPct, smallKg, mediumKg, isZeroWithActual);
+            var variantName = item.ProductVariant?.Name ?? $"ProductVariantId={item.ProductVariantId}";
+
+            // 3.8 — Kiểm tra tồn hiện tại còn khớp SystemQuantity (optimistic concurrency)
+            var currentInventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
+                item.ProductVariantId.Value, existData.WarehouseId, item.LocationId, item.PaddyLotId);
+            if (currentInventory != null && currentInventory.QuantityOnHand != item.SystemQuantity)
             {
-                var variantName = item.ProductVariant?.Name ?? $"ProductVariantId={item.ProductVariantId}";
-                var detail = isZeroWithActual
-                    ? $"đếm được {item.ActualQuantity} trong khi hệ thống báo tồn = 0"
-                    : $"chênh lệch {item.VariancePercent:F2}% > {mediumThreshold}%";
+                return ApiResponse.Conflict(
+                    $"Tồn kho của '{variantName}' đã thay đổi từ {item.SystemQuantity} thành {currentInventory.QuantityOnHand} sau khi lập phiếu. " +
+                    "Vui lòng tải lại phiếu kiểm kê và cập nhật số liệu trước khi duyệt.");
+            }
+
+            // 3.11 — Chặn khi newQuantityOnHand < QuantityReserved
+            if (currentInventory != null)
+            {
+                var newQty = item.ActualQuantity!.Value;
+                if (newQty < currentInventory.QuantityReserved)
+                {
+                    return ApiResponse.UnprocessableEntity(
+                        $"Không thể điều chỉnh tồn '{variantName}' xuống {newQty} vì đang có {currentInventory.QuantityReserved} kg đang được đặt giữ (QuantityReserved). " +
+                        "Vui lòng giải phóng các đơn đặt hàng liên quan trước khi duyệt.",
+                        ApiCodeConstants.Common.UnprocessableEntity);
+                }
+            }
+
+            // 3.2 — MEDIUM bắt buộc lý do
+            if ((severity == "MEDIUM" || severity == "LARGE") && string.IsNullOrWhiteSpace(item.Note))
+            {
                 return ApiResponse.UnprocessableEntity(
-                    $"Dòng kiểm kê '{variantName}' có {detail} (mức LARGE) — bắt buộc phải nhập lý do vào cột Ghi chú trước khi duyệt.",
+                    $"Dòng kiểm kê '{variantName}' có mức chênh lệch {severity} — bắt buộc phải nhập lý do vào cột Ghi chú trước khi duyệt.",
+                    ApiCodeConstants.Common.UnprocessableEntity);
+            }
+
+            // 3.3 — LARGE bắt buộc xác nhận kiểm đếm lại
+            if (severity == "LARGE" && !item.RecountConfirmed)
+            {
+                return ApiResponse.UnprocessableEntity(
+                    $"Dòng kiểm kê '{variantName}' có mức chênh lệch LARGE — bắt buộc phải xác nhận kiểm đếm lại (RecountConfirmed = true) trước khi duyệt.",
                     ApiCodeConstants.Common.UnprocessableEntity);
             }
         }
 
-        // --- BƯỚC 3: MỞ TRANSACTION VÀ THỰC HIỆN ĐIỀU CHỈNH TỒN KHO ---
+        // --- MỞ TRANSACTION VÀ THỰC HIỆN ĐIỀU CHỈNH TỒN KHO ---
         await using var transaction = await _stockTakeRepository.BeginTransactionAsync();
         try
         {
-            existData.StockTakeStatusId = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Approved);
-            existData.ApprovedByUserId = userId;
-            existData.ApproveNote = approveNote;
-            existData.CompletedDate = DateTimeHelper.VietnamNow();
-            existData.LastModifiedDate = DateTimeHelper.VietnamNow();
-            existData.UpdatedBy = userId;
+            existData.StockTakeStatusId  = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Approved);
+            existData.ApprovedByUserId   = userId;
+            existData.ApproveNote        = approveNote;
+            existData.CompletedDate      = DateTimeHelper.VietnamNow();
+            existData.LastModifiedDate   = DateTimeHelper.VietnamNow();
+            existData.UpdatedBy          = userId;
+
+            var largeItems = new List<(StockTakeItem item, string severity)>();
 
             foreach (var item in existData.StockTakeItems)
             {
                 if (!item.ActualQuantity.HasValue || item.Difference == 0 || !item.ProductVariantId.HasValue)
                     continue;
 
-                // Truyền PaddyLotId vào request để AdjustStockAsync khớp đúng dòng tồn kho theo lô.
-                // Nếu PaddyLotId = null (hàng không theo lô), AdjustStockAsync xử lý theo variant+location.
+                var isZeroWithActual = item.SystemQuantity == 0 && (item.ActualQuantity ?? 0) > 0;
+                var severity = ClassifySeverity(item.VariancePercent, item.AbsoluteVarianceKg, smallPct, mediumPct, smallKg, mediumKg, isZeroWithActual);
+
+                if (severity == "LARGE") largeItems.Add((item, severity));
+
+                // 3.9 — Ghi item.Note vào InventoryTransaction.Note
+                var noteText = $"Điều chỉnh kiểm kho {existData.STCode} — {severity}";
+                if (!string.IsNullOrWhiteSpace(item.Note))
+                    noteText += $" — Lý do: {item.Note}";
+
                 var request = new DTOs.InventoryTransactions.StockMovementRequestDto
                 {
                     ProductVariantId = item.ProductVariantId.Value,
-                    WarehouseId = existData.WarehouseId,
-                    LocationId = item.LocationId,
-                    PaddyLotId = item.PaddyLotId,
-                    Quantity = Math.Abs(item.Difference),
-                    ReferenceType = "STOCKTAKE",
-                    ReferenceId = existData.Id,
-                    ReferenceItemId = item.Id,
-                    Note = $"Điều chỉnh kiểm kho {existData.STCode} — {ClassifySeverity(item.VariancePercent, smallThreshold, mediumThreshold, item.SystemQuantity == 0 && (item.ActualQuantity ?? 0) > 0)}"
+                    WarehouseId      = existData.WarehouseId,
+                    LocationId       = item.LocationId,
+                    PaddyLotId       = item.PaddyLotId,
+                    Quantity         = Math.Abs(item.Difference),
+                    ReferenceType    = "STOCKTAKE",
+                    ReferenceId      = existData.Id,
+                    ReferenceItemId  = item.Id,
+                    Note             = noteText
                 };
 
                 var result = await _inventoryTransactionService.AdjustStockAsync(request, item.ActualQuantity.Value, true);
@@ -420,6 +570,35 @@ public class StockTakeService : IStockTakeService
 
             await _stockTakeRepository.UpdateAsync(existData);
             await _stockTakeRepository.SaveChangesAsync();
+
+            // 3.4 — Tạo Alert CRITICAL cho từng dòng LARGE, trong cùng transaction
+            foreach (var (item, severity) in largeItems)
+            {
+                var lotInfo = item.PaddyLotId.HasValue ? $" (Lô #{item.PaddyLotId})" : "";
+                var alert = new Alert
+                {
+                    AlertType          = "STOCK_TAKE_LARGE_VARIANCE",
+                    Severity           = "CRITICAL",
+                    WarehouseId        = existData.WarehouseId,
+                    ProductVariantId   = item.ProductVariantId,
+                    LocationId         = item.LocationId,
+                    Message            = $"[{existData.STCode}] Chênh lệch LARGE: {item.ProductVariant?.Name ?? $"PV#{item.ProductVariantId}"}{lotInfo} — " +
+                                         $"Hệ thống: {item.SystemQuantity:F2} kg, Thực tế: {item.ActualQuantity:F2} kg, " +
+                                         $"Chênh: {item.AbsoluteVarianceKg:F2} kg ({item.VariancePercent:F2}%). " +
+                                         $"Lý do: {item.Note ?? "(chưa ghi)"}",
+                    RelatedEntityType  = "StockTakeItem",
+                    RelatedEntityId    = item.Id,
+                    Status             = "OPEN",
+                    DeduplicationKey   = $"STOCKTAKE_LARGE_{existData.Id}_{item.Id}",
+                    CreatedDate        = DateTimeHelper.VietnamNow(),
+                    CreatedBy          = userId
+                };
+                await _context.Alerts.AddAsync(alert);
+            }
+
+            if (largeItems.Any())
+                await _context.SaveChangesAsync(default);
+
             await transaction.CommitAsync();
 
             await _notificationDispatcher.DispatchAsync(
@@ -465,10 +644,10 @@ public class StockTakeService : IStockTakeService
         await using var transaction = await _stockTakeRepository.BeginTransactionAsync();
         try
         {
-            existData.StockTakeStatusId = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Rejected);
-            existData.Note = string.IsNullOrWhiteSpace(existData.Note) ? $"Từ chối: {reason}" : $"{existData.Note} | Từ chối: {reason}";
-            existData.LastModifiedDate = DateTimeHelper.VietnamNow();
-            existData.UpdatedBy = userId;
+            existData.StockTakeStatusId  = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Rejected);
+            existData.Note               = string.IsNullOrWhiteSpace(existData.Note) ? $"Từ chối: {reason}" : $"{existData.Note} | Từ chối: {reason}";
+            existData.LastModifiedDate   = DateTimeHelper.VietnamNow();
+            existData.UpdatedBy          = userId;
 
             await _stockTakeRepository.UpdateAsync(existData);
             await _stockTakeRepository.SaveChangesAsync();
@@ -493,4 +672,3 @@ public class StockTakeService : IStockTakeService
         }
     }
 }
-

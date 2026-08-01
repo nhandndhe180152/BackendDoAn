@@ -23,14 +23,15 @@ public static class StockTakeMapping
             CreatedBy = dto.CreatedBy,
             StockTakeItems = dto.StockTakeItems.Select(item => new StockTakeItem
             {
-                ProductVariantId = item.ProductVariantId,
-                LocationId = item.LocationId,
-                PaddyLotId = item.PaddyLotId,
-                SystemQuantity = 0, // Will be fetched from Inventory in service
-                ActualQuantity = item.ActualQuantity,
-                Note = item.Note,
-                QRScanned = item.QRScanned,
-                CreatedDate = now
+                ProductVariantId  = item.ProductVariantId,
+                LocationId        = item.LocationId,
+                PaddyLotId        = item.PaddyLotId,
+                SystemQuantity    = 0, // Will be fetched from Inventory in service
+                ActualQuantity    = item.ActualQuantity,
+                Note              = item.Note,
+                QRScanned         = item.QRScanned,
+                RecountConfirmed  = item.RecountConfirmed,
+                CreatedDate       = now
             }).ToList()
         };
         return entity;
@@ -38,13 +39,13 @@ public static class StockTakeMapping
 
     public static StockTake ToEntity(this UpdateStockTakeDto dto, StockTake existData)
     {
-        existData.StockTakeStatusId = dto.StockTakeStatusId;
-        existData.Note = dto.Note;
-        existData.StartedDate = dto.StartedDate;
-        existData.CompletedDate = dto.CompletedDate;
-        existData.ApprovedByUserId = dto.ApprovedByUserId;
-        existData.UpdatedBy = dto.UpdatedBy;
-        existData.LastModifiedDate = DateTimeHelper.VietnamNow();
+        existData.StockTakeStatusId   = dto.StockTakeStatusId;
+        existData.Note                = dto.Note;
+        existData.StartedDate         = dto.StartedDate;
+        existData.CompletedDate       = dto.CompletedDate;
+        existData.ApprovedByUserId    = dto.ApprovedByUserId;
+        existData.UpdatedBy           = dto.UpdatedBy;
+        existData.LastModifiedDate    = DateTimeHelper.VietnamNow();
 
         // Mapping items handled separately in the service since we need to diff added/updated/deleted
 
@@ -55,32 +56,35 @@ public static class StockTakeMapping
     {
         return new StockTakeDto
         {
-            Id = entity.Id,
-            WarehouseId = entity.WarehouseId,
-            StockTakeStatusId = entity.StockTakeStatusId,
-            STCode = entity.STCode,
-            Note = entity.Note,
-            StartedDate = entity.StartedDate,
-            CompletedDate = entity.CompletedDate,
-            ApprovedByUserId = entity.ApprovedByUserId,
-            ApproveNote = entity.ApproveNote,
-            CreatedDate = entity.CreatedDate,
-            StockTakeItems = entity.StockTakeItems.Select(item => new StockTakeItemDto
+            Id                  = entity.Id,
+            WarehouseId         = entity.WarehouseId,
+            StockTakeStatusId   = entity.StockTakeStatusId,
+            STCode              = entity.STCode,
+            Note                = entity.Note,
+            StartedDate         = entity.StartedDate,
+            CompletedDate       = entity.CompletedDate,
+            ApprovedByUserId    = entity.ApprovedByUserId,
+            ApproveNote         = entity.ApproveNote,
+            CreatedDate         = entity.CreatedDate,
+            StockTakeItems      = entity.StockTakeItems.Select(item => new StockTakeItemDto
             {
-                Id = item.Id,
-                StockTakeId = item.StockTakeId,
-                ProductVariantId = item.ProductVariantId,
-                LocationId = item.LocationId,
-                PaddyLotId = item.PaddyLotId,
-                SystemQuantity = item.SystemQuantity,
-                ActualQuantity = item.ActualQuantity,
-                Difference = item.Difference,
+                Id                   = item.Id,
+                StockTakeId          = item.StockTakeId,
+                ProductVariantId     = item.ProductVariantId,
+                LocationId           = item.LocationId,
+                PaddyLotId           = item.PaddyLotId,
+                SystemQuantity       = item.SystemQuantity,
+                ActualQuantity       = item.ActualQuantity,
+                Difference           = item.Difference,
+                AbsoluteVarianceKg   = item.ActualQuantity.HasValue ? item.AbsoluteVarianceKg : null,
                 // VariancePercent và VarianceSeverity được enriched trong StockTakeService
-                // sau khi đọc ngưỡng từ SystemConfig. Mapping cơ bản trả về giá trị entity.
-                VariancePercent = item.VariancePercent,
-                VarianceSeverity = item.VarianceSeverity,
-                Note = item.Note,
-                QRScanned = item.QRScanned
+                VariancePercent      = item.VariancePercent,
+                VarianceSeverity     = item.VarianceSeverity,
+                Note                 = item.Note,
+                QRScanned            = item.QRScanned,
+                RecountConfirmed     = item.RecountConfirmed,
+                RecountConfirmedBy   = item.RecountConfirmedBy,
+                RecountConfirmedAt   = item.RecountConfirmedAt
             }).ToList()
         };
     }
