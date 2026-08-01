@@ -212,6 +212,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}/bag-label")]
+        [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.READ)]
         public async Task<IActionResult> GetBagLabelPdfAsync(int id, [FromQuery] string template = "MEDIUM", [FromQuery] int copies = 1, CancellationToken cancellationToken = default)
         {
             if (copies < 1 || copies > 500)

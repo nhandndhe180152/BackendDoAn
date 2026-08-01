@@ -131,17 +131,31 @@ namespace Backend.API.Controllers
 
         /// API tạo danh sách nhãn QR hàng loạt dạng file PDF
         [HttpPost("batch/qr-labels")]
-        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.UPDATE)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> GetBulkQRLabelsPdfAsync([FromBody] BatchQRLabelRequestDto request)
         {
+            if (request == null || request.Items == null || !request.Items.Any())
+            {
+                return BadRequest(ApiResponse.BadRequest(message: "Danh sách sản phẩm in nhãn không được rỗng."));
+            }
+
+            if (request.Items.Sum(x => Math.Max(1, (int)Math.Round((decimal)x.Quantity, MidpointRounding.AwayFromZero))) > 500)
+            {
+                return BadRequest(ApiResponse.BadRequest(message: "Tổng số lượng nhãn in không được vượt quá 500."));
+            }
+
             try
             {
                 var bytes = await _qrCodeService.GenerateBulkQRLabelsPdfAsync(request);
                 return File(bytes, "application/pdf", "qrlabels-batch.pdf");
             }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse.BadRequest(message: ex.Message));
+            }
             catch (Exception ex)
             {
-                return BadRequest(ex.Message);
+                return StatusCode(500, ApiResponse.Error(message: ex.Message, status: 500, code: "CMN_500"));
             }
         }
 
@@ -153,15 +167,15 @@ namespace Backend.API.Controllers
             try
             {
                 var url = await _qrCodeService.GenerateAndSaveQRUrlAsync(id);
-                return Ok(new { Url = url });
+                return Ok(ApiResponse.Success(new { Url = url }));
             }
             catch (KeyNotFoundException ex)
             {
-                return NotFound(ex.Message);
+                return NotFound(ApiResponse.NotFound(message: ex.Message));
             }
             catch (Exception ex)
             {
-                return BadRequest(ex.Message);
+                return StatusCode(500, ApiResponse.Error(message: ex.Message, status: 500, code: "CMN_500"));
             }
         }
 

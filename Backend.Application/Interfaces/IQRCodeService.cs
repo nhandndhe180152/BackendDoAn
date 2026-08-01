@@ -52,9 +52,9 @@ public interface IQRCodeService
     Task<byte[]> GenerateBulkPaddyLotLabelsPdfAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken = default);
     Task<byte[]> GenerateBulkLocationLabelsPdfAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken = default);
     Task<byte[]> GenerateBulkBagLabelsPdfAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken = default);
-    Task<byte[]> GenerateBulkPaddyLotLabelsPngZipAsync(List<int> ids, CancellationToken cancellationToken = default);
-    Task<byte[]> GenerateBulkLocationLabelsPngZipAsync(List<int> ids, CancellationToken cancellationToken = default);
-    Task<byte[]> GenerateBulkBagLabelsPngZipAsync(List<int> ids, CancellationToken cancellationToken = default);
+    Task<byte[]> GenerateBulkPaddyLotLabelsPngZipAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken = default);
+    Task<byte[]> GenerateBulkLocationLabelsPngZipAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken = default);
+    Task<byte[]> GenerateBulkBagLabelsPngZipAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken = default);
     Task<QrResolveResponseDto> ResolveQrAsync(QrResolveRequestDto request, CancellationToken cancellationToken = default);
-    QrLabelPreviewDto GetQrLabelPreviewSettings();
+    Task<QrLabelPreviewDto> GetQrLabelPreviewAsync(string? labelType, int? subjectId, string? template, CancellationToken cancellationToken = default);
 }

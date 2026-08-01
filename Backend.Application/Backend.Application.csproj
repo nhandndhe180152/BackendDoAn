@@ -98,6 +98,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Docnet.Core" Version="2.6.0" />
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
     <PackageReference Include="Handlebars.Net" Version="2.1.6" />
     <PackageReference Include="itext7" Version="7.2.5" />

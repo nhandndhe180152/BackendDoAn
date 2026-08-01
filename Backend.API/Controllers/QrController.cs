@@ -108,9 +108,9 @@ namespace Backend.API.Controllers
 
         [HttpGet("qr-labels/preview")]
         [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
-        public IActionResult GetQrLabelPreview()
+        public async Task<IActionResult> GetQrLabelPreviewAsync([FromQuery] string? labelType, [FromQuery] int? subjectId, [FromQuery] string? template, CancellationToken cancellationToken)
         {
-            var result = _qrCodeService.GetQrLabelPreviewSettings();
+            var result = await _qrCodeService.GetQrLabelPreviewAsync(labelType, subjectId, template, cancellationToken);
             return Ok(ApiResponse.Success(result));
         }
 
@@ -124,14 +124,14 @@ namespace Backend.API.Controllers
             }
 
             var uniqueIds = request.Ids.Distinct().ToList();
-            if (uniqueIds.Count > 200)
-            {
-                return BadRequest(ApiResponse.BadRequest(message: "Số lượng in nhãn hàng loạt tối đa là 200."));
-            }
-
             if (request.CopiesPerLabel < 1 || request.CopiesPerLabel > 500)
             {
                 return BadRequest(ApiResponse.BadRequest(message: "Số bản in trên mỗi nhãn (CopiesPerLabel) phải từ 1 đến 500."));
+            }
+
+            if (uniqueIds.Count * request.CopiesPerLabel > 500)
+            {
+                return BadRequest(ApiResponse.BadRequest(message: "Tổng số lượng nhãn in (Số đối tượng × Số bản in) không được vượt quá 500."));
             }
 
             try
@@ -140,7 +140,7 @@ namespace Backend.API.Controllers
                 string filename;
                 if (request.Format?.ToUpper() == "PNG")
                 {
-                    bytes = await _qrCodeService.GenerateBulkPaddyLotLabelsPngZipAsync(uniqueIds, cancellationToken);
+                    bytes = await _qrCodeService.GenerateBulkPaddyLotLabelsPngZipAsync(uniqueIds, request.Template, request.CopiesPerLabel, cancellationToken);
                     filename = $"paddy-lot-labels-{DateTime.UtcNow:yyyyMMdd}.zip";
                     return File(bytes, "application/zip", filename);
                 }
@@ -171,14 +171,14 @@ namespace Backend.API.Controllers
             }
 
             var uniqueIds = request.Ids.Distinct().ToList();
-            if (uniqueIds.Count > 200)
-            {
-                return BadRequest(ApiResponse.BadRequest(message: "Số lượng in nhãn hàng loạt tối đa là 200."));
-            }
-
             if (request.CopiesPerLabel < 1 || request.CopiesPerLabel > 500)
             {
                 return BadRequest(ApiResponse.BadRequest(message: "Số bản in trên mỗi nhãn (CopiesPerLabel) phải từ 1 đến 500."));
+            }
+
+            if (uniqueIds.Count * request.CopiesPerLabel > 500)
+            {
+                return BadRequest(ApiResponse.BadRequest(message: "Tổng số lượng nhãn in (Số đối tượng × Số bản in) không được vượt quá 500."));
             }
 
             try
@@ -187,7 +187,7 @@ namespace Backend.API.Controllers
                 string filename;
                 if (request.Format?.ToUpper() == "PNG")
                 {
-                    bytes = await _qrCodeService.GenerateBulkLocationLabelsPngZipAsync(uniqueIds, cancellationToken);
+                    bytes = await _qrCodeService.GenerateBulkLocationLabelsPngZipAsync(uniqueIds, request.Template, request.CopiesPerLabel, cancellationToken);
                     filename = $"location-labels-{DateTime.UtcNow:yyyyMMdd}.zip";
                     return File(bytes, "application/zip", filename);
                 }
@@ -218,14 +218,14 @@ namespace Backend.API.Controllers
             }
 
             var uniqueIds = request.Ids.Distinct().ToList();
-            if (uniqueIds.Count > 200)
-            {
-                return BadRequest(ApiResponse.BadRequest(message: "Số lượng in nhãn hàng loạt tối đa là 200."));
-            }
-
             if (request.CopiesPerLabel < 1 || request.CopiesPerLabel > 500)
             {
                 return BadRequest(ApiResponse.BadRequest(message: "Số bản in trên mỗi nhãn (CopiesPerLabel) phải từ 1 đến 500."));
+            }
+
+            if (uniqueIds.Count * request.CopiesPerLabel > 500)
+            {
+                return BadRequest(ApiResponse.BadRequest(message: "Tổng số lượng nhãn in (Số đối tượng × Số bản in) không được vượt quá 500."));
             }
 
             try
@@ -234,7 +234,7 @@ namespace Backend.API.Controllers
                 string filename;
                 if (request.Format?.ToUpper() == "PNG")
                 {
-                    bytes = await _qrCodeService.GenerateBulkBagLabelsPngZipAsync(uniqueIds, cancellationToken);
+                    bytes = await _qrCodeService.GenerateBulkBagLabelsPngZipAsync(uniqueIds, request.Template, request.CopiesPerLabel, cancellationToken);
                     filename = $"bag-labels-{DateTime.UtcNow:yyyyMMdd}.zip";
                     return File(bytes, "application/zip", filename);
                 }

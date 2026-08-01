@@ -123,6 +123,25 @@ public class QrLabelPreviewDto
     public List<QrLabelTemplateInfoDto> Templates { get; set; } = new();
     public List<string> Formats { get; set; } = new();
     public List<string> LabelTypes { get; set; } = new();
+    public LabelPreviewDataDto? Label { get; set; }
+}
+
+public class LabelPreviewDataDto
+{
+    public string LabelType { get; set; } = null!;
+    public int SubjectId { get; set; }
+    public string Template { get; set; } = null!;
+    public string QrPayload { get; set; } = null!;
+    public string DisplayCode { get; set; } = null!;
+    public string? ProductName { get; set; }
+    public string? Sku { get; set; }
+    public string? RiceVarietyName { get; set; }
+    public decimal? WeightKg { get; set; }
+    public decimal? PackageWeightKg { get; set; }
+    public DateTime? InboundDate { get; set; }
+    public string? WarehouseName { get; set; }
+    public string? LocationName { get; set; }
+    public bool IsQuarantined { get; set; }
 }
 
 public class QrLabelTemplateInfoDto
