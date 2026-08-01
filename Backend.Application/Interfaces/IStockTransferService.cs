@@ -6,8 +6,8 @@ namespace Backend.Application.Interfaces;
 
 public interface IStockTransferService : IServiceBase<int, CreateStockTransferDto, UpdateStockTransferDto, DTParameter>
 {
-    /// <summary>
-    /// Xác nhận điều chuyển: xuất kho nguồn, nhập kho đích, cập nhật PaddyLot.
-    /// </summary>
-    Task<ApiResponse> ConfirmTransferAsync(int id, int confirmedById);
+    Task<ApiResponse> GetSummaryAsync();
+    Task<ApiResponse> DispatchAsync(int id, int dispatchedById);
+    Task<ApiResponse> ReceiveAsync(int id, int receivedById);
+    Task<ApiResponse> CancelAsync(int id, string? reason, int cancelledById);
 }

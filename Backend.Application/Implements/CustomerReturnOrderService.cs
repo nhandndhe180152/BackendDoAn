@@ -94,29 +94,58 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         if (!await CheckPermissionAsync("CREATE", cancellationToken))
             return ApiResponse.Forbidden(message: "Bạn không có quyền thực hiện hành động này.");
 
-        var outbound = await _context.OutboundOrders
-            .Include(o => o.OutboundOrderStatus)
-            .Include(o => o.SalesOrder)
-            .FirstOrDefaultAsync(o => o.Id == dto.OutboundOrderId && !o.IsDeleted, cancellationToken);
+        if (dto.WarehouseId <= 0 || dto.CustomerId <= 0)
+            return ApiResponse.BadRequest(message: "Kho tiếp nhận và khách hàng là bắt buộc.");
 
-        if (outbound == null)
-            return ApiResponse.NotFound(message: "Không tìm thấy phiếu xuất gốc.");
+        if (dto.Items == null || dto.Items.Count == 0)
+            return ApiResponse.BadRequest(message: "Phiếu trả hàng phải có ít nhất một mặt hàng.");
 
-        // #19: Null-check tránh NullReferenceException (500) khi phiếu xuất thiếu trạng thái/đơn bán liên kết
-        if (outbound.OutboundOrderStatus == null)
-            return ApiResponse.UnprocessableEntity(message: "Phiếu xuất gốc chưa có trạng thái hợp lệ.");
+        var allocationKeys = dto.Items
+            .SelectMany(x => x.Allocations ?? new List<CreateCustomerReturnOrderItemAllocationDto>())
+            .Select(x => x.OutboundOrderItemAllocationId.HasValue
+                ? $"OUT-{x.OutboundOrderItemAllocationId.Value}"
+                : x.PaddyLotId.HasValue ? $"LOT-{x.PaddyLotId.Value}" : "INVALID")
+            .ToList();
+        if (allocationKeys.Contains("INVALID") || allocationKeys.Distinct().Count() != allocationKeys.Count)
+            return ApiResponse.BadRequest(message: "Mỗi phân bổ xuất hoặc lô hàng chỉ được khai báo một lần trong phiếu trả.");
 
-        if (outbound.SalesOrder == null)
-            return ApiResponse.UnprocessableEntity(message: "Phiếu xuất gốc không gắn với đơn bán nào.");
+        var warehouseExists = await _context.Warehouses
+            .AnyAsync(x => x.Id == dto.WarehouseId && x.IsActive && !x.IsDeleted, cancellationToken);
+        if (!warehouseExists)
+            return ApiResponse.BadRequest(message: "Kho tiếp nhận không tồn tại hoặc đã ngừng hoạt động.");
 
-        if (outbound.OutboundOrderStatus.Name != "DISPATCHED" && outbound.OutboundOrderStatus.Name != "COMPLETED")
-            return ApiResponse.UnprocessableEntity(message: "Chỉ được trả hàng đối với phiếu xuất đã Dispatched hoặc Completed.");
+        var customerExists = await _context.Customers
+            .AnyAsync(x => x.Id == dto.CustomerId && x.IsActive && !x.IsDeleted, cancellationToken);
+        if (!customerExists)
+            return ApiResponse.BadRequest(message: "Khách hàng không tồn tại hoặc đã ngừng hoạt động.");
 
-        if (outbound.SalesOrder.CustomerId != dto.CustomerId)
-            return ApiResponse.BadRequest(message: "Khách hàng không khớp với đơn xuất hàng gốc.");
+        OutboundOrder? outbound = null;
+        if (dto.OutboundOrderId.HasValue)
+        {
+            outbound = await _context.OutboundOrders
+                .Include(o => o.OutboundOrderStatus)
+                .Include(o => o.SalesOrder)
+                .FirstOrDefaultAsync(o => o.Id == dto.OutboundOrderId.Value && !o.IsDeleted, cancellationToken);
 
-        if (outbound.WarehouseId != dto.WarehouseId)
-            return ApiResponse.BadRequest(message: "Kho tiếp nhận phải khớp với kho xuất hàng gốc.");
+            if (outbound == null)
+                return ApiResponse.NotFound(message: "Không tìm thấy phiếu xuất gốc.");
+
+            // #19: Null-check tránh NullReferenceException (500) khi phiếu xuất thiếu trạng thái/đơn bán liên kết
+            if (outbound.OutboundOrderStatus == null)
+                return ApiResponse.UnprocessableEntity(message: "Phiếu xuất gốc chưa có trạng thái hợp lệ.");
+
+            if (outbound.SalesOrder == null)
+                return ApiResponse.UnprocessableEntity(message: "Phiếu xuất gốc không gắn với đơn bán nào.");
+
+            if (outbound.OutboundOrderStatus.Name != "DISPATCHED" && outbound.OutboundOrderStatus.Name != "COMPLETED")
+                return ApiResponse.UnprocessableEntity(message: "Chỉ được trả hàng đối với phiếu xuất đã Dispatched hoặc Completed.");
+
+            if (outbound.SalesOrder.CustomerId != dto.CustomerId)
+                return ApiResponse.BadRequest(message: "Khách hàng không khớp với đơn xuất hàng gốc.");
+
+            if (outbound.WarehouseId != dto.WarehouseId)
+                return ApiResponse.BadRequest(message: "Kho tiếp nhận phải khớp với kho xuất hàng gốc.");
+        }
 
         var status = await _context.CustomerReturnOrderStatuses
             .FirstOrDefaultAsync(s => s.Code == CustomerReturnOrderStatusNames.Draft && !s.IsDeleted, cancellationToken);
@@ -154,15 +183,35 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
         foreach (var itemDto in dto.Items)
             {
-                var outboundItem = await _context.OutboundOrderItems
-                    .FirstOrDefaultAsync(oi => oi.Id == itemDto.OutboundOrderItemId && !oi.IsDeleted, cancellationToken);
-                if (outboundItem == null || outboundItem.ProductVariantId != itemDto.ProductVariantId)
-                    return ApiResponse.BadRequest(message: "Chi tiết mặt hàng xuất không hợp lệ hoặc không thuộc phiếu xuất gốc.");
+                if (itemDto.QuantityReturned <= 0)
+                    return ApiResponse.BadRequest(message: "Số lượng trả của mỗi mặt hàng phải lớn hơn 0.");
 
-                var salesOrderItem = await _context.SalesOrderItems
-                    .FirstOrDefaultAsync(s => s.SalesOrderId == outbound.SalesOrderId && s.ProductVariantId == itemDto.ProductVariantId && !s.IsDeleted, cancellationToken);
-                if (salesOrderItem == null)
-                    return ApiResponse.BadRequest(message: "Mặt hàng trả lại không nằm trong đơn bán gốc.");
+                if (itemDto.Allocations == null || itemDto.Allocations.Count == 0)
+                    return ApiResponse.BadRequest(message: "Mỗi mặt hàng trả phải được gắn với ít nhất một lô.");
+
+                var productExists = await _context.ProductVariants
+                    .AnyAsync(p => p.Id == itemDto.ProductVariantId && p.IsActive && !p.IsDeleted, cancellationToken);
+                if (!productExists)
+                    return ApiResponse.BadRequest(message: "Sản phẩm trả lại không tồn tại hoặc đã ngừng hoạt động.");
+
+                SalesOrderItem? salesOrderItem = null;
+                if (outbound != null)
+                {
+                    if (!itemDto.OutboundOrderItemId.HasValue)
+                        return ApiResponse.BadRequest(message: "Dòng hàng xuất gốc là bắt buộc khi chọn phiếu xuất.");
+
+                    var outboundItem = await _context.OutboundOrderItems
+                        .FirstOrDefaultAsync(oi => oi.Id == itemDto.OutboundOrderItemId.Value
+                            && oi.OutboundOrderId == outbound.Id
+                            && !oi.IsDeleted, cancellationToken);
+                    if (outboundItem == null || outboundItem.ProductVariantId != itemDto.ProductVariantId)
+                        return ApiResponse.BadRequest(message: "Chi tiết mặt hàng xuất không hợp lệ hoặc không thuộc phiếu xuất gốc.");
+
+                    salesOrderItem = await _context.SalesOrderItems
+                        .FirstOrDefaultAsync(s => s.SalesOrderId == outbound.SalesOrderId && s.ProductVariantId == itemDto.ProductVariantId && !s.IsDeleted, cancellationToken);
+                    if (salesOrderItem == null)
+                        return ApiResponse.BadRequest(message: "Mặt hàng trả lại không nằm trong đơn bán gốc.");
+                }
 
                 var returnItem = new CustomerReturnOrderItem
                 {
@@ -177,36 +226,71 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
                 foreach (var allocDto in itemDto.Allocations)
                 {
-                    var outboundAlloc = await _context.OutboundOrderItemAllocations
-                        .FirstOrDefaultAsync(a => a.Id == allocDto.OutboundOrderItemAllocationId && !a.IsDeleted, cancellationToken);
-                    if (outboundAlloc == null || outboundAlloc.OutboundOrderItemId != itemDto.OutboundOrderItemId)
-                        return ApiResponse.BadRequest(message: "Phân bổ chi tiết xuất không hợp lệ.");
+                    if (allocDto.QuantityReturned <= 0)
+                        return ApiResponse.BadRequest(message: "Số lượng trả theo lô phải lớn hơn 0.");
 
-                    if (outboundAlloc.PaddyLotId == null)
-                        return ApiResponse.BadRequest(message: "Lỗi dữ liệu: Phân bổ chi tiết xuất kho không được gắn với lô gạo nào.");
+                    OutboundOrderItemAllocation? outboundAlloc = null;
+                    PaddyLot? paddyLot;
+                    int? originalLocationId;
+
+                    if (outbound != null)
+                    {
+                        if (!allocDto.OutboundOrderItemAllocationId.HasValue)
+                            return ApiResponse.BadRequest(message: "Phân bổ xuất gốc là bắt buộc khi chọn phiếu xuất.");
+
+                        outboundAlloc = await _context.OutboundOrderItemAllocations
+                            .FirstOrDefaultAsync(a => a.Id == allocDto.OutboundOrderItemAllocationId.Value && !a.IsDeleted, cancellationToken);
+                        if (outboundAlloc == null || outboundAlloc.OutboundOrderItemId != itemDto.OutboundOrderItemId)
+                            return ApiResponse.BadRequest(message: "Phân bổ chi tiết xuất không hợp lệ.");
+
+                        if (outboundAlloc.PaddyLotId == null)
+                            return ApiResponse.BadRequest(message: "Lỗi dữ liệu: Phân bổ chi tiết xuất kho không được gắn với lô gạo nào.");
+
+                        paddyLot = await _context.PaddyLots
+                            .FirstOrDefaultAsync(x => x.Id == outboundAlloc.PaddyLotId.Value && !x.IsDeleted, cancellationToken);
+                        originalLocationId = outboundAlloc.LocationId;
+                    }
+                    else
+                    {
+                        if (!allocDto.PaddyLotId.HasValue)
+                            return ApiResponse.BadRequest(message: "Lô hàng là bắt buộc đối với phiếu trả không có đơn xuất gốc.");
+
+                        paddyLot = await _context.PaddyLots
+                            .FirstOrDefaultAsync(x => x.Id == allocDto.PaddyLotId.Value
+                                && x.WarehouseId == dto.WarehouseId
+                                && x.ProductVariantId == itemDto.ProductVariantId
+                                && !x.IsDeleted, cancellationToken);
+                        originalLocationId = allocDto.OriginalLocationId ?? paddyLot?.LocationId;
+                    }
+
+                    if (paddyLot == null)
+                        return ApiResponse.BadRequest(message: "Lô hàng trả không hợp lệ, không thuộc kho hoặc không khớp sản phẩm.");
 
                     // Check return limit
-                    var previousReturnedQty = await _context.CustomerReturnOrderItemAllocations
-                        .Where(x => x.OutboundOrderItemAllocationId == allocDto.OutboundOrderItemAllocationId
-                                    && x.CustomerReturnOrderItem.CustomerReturnOrder.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Confirmed
-                                    && !x.IsDeleted
-                                    && !x.CustomerReturnOrderItem.CustomerReturnOrder.IsDeleted)
-                        .SumAsync(x => x.QuantityReturned, cancellationToken);
+                    if (outboundAlloc != null)
+                    {
+                        var previousReturnedQty = await _context.CustomerReturnOrderItemAllocations
+                            .Where(x => x.OutboundOrderItemAllocationId == allocDto.OutboundOrderItemAllocationId
+                                        && x.CustomerReturnOrderItem.CustomerReturnOrder.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Confirmed
+                                        && !x.IsDeleted
+                                        && !x.CustomerReturnOrderItem.CustomerReturnOrder.IsDeleted)
+                            .SumAsync(x => x.QuantityReturned, cancellationToken);
 
-                    var maxReturnable = outboundAlloc.QuantityPicked - previousReturnedQty;
-                    if (allocDto.QuantityReturned > maxReturnable)
-                        return ApiResponse.BadRequest(message: $"Số lượng trả lại ({allocDto.QuantityReturned:N3} kg) vượt quá số lượng tối đa có thể trả của phân bổ này ({maxReturnable:N3} kg).");
+                        var maxReturnable = outboundAlloc.QuantityPicked - previousReturnedQty;
+                        if (allocDto.QuantityReturned > maxReturnable)
+                            return ApiResponse.BadRequest(message: $"Số lượng trả lại ({allocDto.QuantityReturned:N3} kg) vượt quá số lượng tối đa có thể trả của phân bổ này ({maxReturnable:N3} kg).");
+                    }
 
-                    decimal netUnitSalePrice = salesOrderItem.QuantityOrdered > 0 
+                    decimal netUnitSalePrice = salesOrderItem != null && salesOrderItem.QuantityOrdered > 0 
                         ? (salesOrderItem.LineAmount / salesOrderItem.QuantityOrdered) 
-                        : salesOrderItem.UnitSalePrice;
+                        : salesOrderItem?.UnitSalePrice ?? 0;
 
                     var returnAlloc = new CustomerReturnOrderItemAllocation
                     {
                         OutboundOrderItemAllocationId = allocDto.OutboundOrderItemAllocationId,
-                        PaddyLotId = outboundAlloc.PaddyLotId.GetValueOrDefault(),
+                        PaddyLotId = paddyLot.Id,
                         ProductVariantId = itemDto.ProductVariantId,
-                        OriginalLocationId = outboundAlloc.LocationId,
+                        OriginalLocationId = originalLocationId,
                         QuantityReturned = allocDto.QuantityReturned,
                         UnitCreditPrice = netUnitSalePrice,
                         CreatedBy = GetCurrentUserId(),
@@ -245,6 +329,18 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         if (order.CustomerReturnOrderStatus.Code != CustomerReturnOrderStatusNames.Draft)
             return ApiResponse.UnprocessableEntity(message: "Chỉ được cập nhật đơn hàng ở trạng thái Nháp (DRAFT).");
 
+        if (dto.Items == null || dto.Items.Count == 0)
+            return ApiResponse.BadRequest(message: "Phiếu trả hàng phải có ít nhất một mặt hàng.");
+
+        var allocationKeys = dto.Items
+            .SelectMany(x => x.Allocations ?? new List<CreateCustomerReturnOrderItemAllocationDto>())
+            .Select(x => x.OutboundOrderItemAllocationId.HasValue
+                ? $"OUT-{x.OutboundOrderItemAllocationId.Value}"
+                : x.PaddyLotId.HasValue ? $"LOT-{x.PaddyLotId.Value}" : "INVALID")
+            .ToList();
+        if (allocationKeys.Contains("INVALID") || allocationKeys.Distinct().Count() != allocationKeys.Count)
+            return ApiResponse.BadRequest(message: "Mỗi phân bổ xuất hoặc lô hàng chỉ được khai báo một lần trong phiếu trả.");
+
         order.ReturnReason = dto.ReturnReason;
         order.Note = dto.Note;
         order.UpdatedBy = GetCurrentUserId();
@@ -270,15 +366,30 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
         foreach (var itemDto in dto.Items)
         {
-            var outboundItem = await _context.OutboundOrderItems
-                .FirstOrDefaultAsync(oi => oi.Id == itemDto.OutboundOrderItemId && !oi.IsDeleted, cancellationToken);
-            if (outboundItem == null || outboundItem.ProductVariantId != itemDto.ProductVariantId)
-                return ApiResponse.BadRequest(message: "Chi tiết mặt hàng xuất không hợp lệ hoặc không thuộc phiếu xuất gốc.");
+            if (itemDto.QuantityReturned <= 0)
+                return ApiResponse.BadRequest(message: "Số lượng trả của mỗi mặt hàng phải lớn hơn 0.");
 
-            var salesOrderItem = await _context.SalesOrderItems
-                .FirstOrDefaultAsync(s => s.SalesOrderId == outbound!.SalesOrderId && s.ProductVariantId == itemDto.ProductVariantId && !s.IsDeleted, cancellationToken);
-            if (salesOrderItem == null)
-                return ApiResponse.BadRequest(message: "Mặt hàng trả lại không nằm trong đơn bán gốc.");
+            if (itemDto.Allocations == null || itemDto.Allocations.Count == 0)
+                return ApiResponse.BadRequest(message: "Mỗi mặt hàng trả phải được gắn với ít nhất một lô.");
+
+            SalesOrderItem? salesOrderItem = null;
+            if (outbound != null)
+            {
+                if (!itemDto.OutboundOrderItemId.HasValue)
+                    return ApiResponse.BadRequest(message: "Dòng hàng xuất gốc là bắt buộc khi phiếu trả có nguồn xuất.");
+
+                var outboundItem = await _context.OutboundOrderItems
+                    .FirstOrDefaultAsync(oi => oi.Id == itemDto.OutboundOrderItemId.Value
+                        && oi.OutboundOrderId == outbound.Id
+                        && !oi.IsDeleted, cancellationToken);
+                if (outboundItem == null || outboundItem.ProductVariantId != itemDto.ProductVariantId)
+                    return ApiResponse.BadRequest(message: "Chi tiết mặt hàng xuất không hợp lệ hoặc không thuộc phiếu xuất gốc.");
+
+                salesOrderItem = await _context.SalesOrderItems
+                    .FirstOrDefaultAsync(s => s.SalesOrderId == outbound.SalesOrderId && s.ProductVariantId == itemDto.ProductVariantId && !s.IsDeleted, cancellationToken);
+                if (salesOrderItem == null)
+                    return ApiResponse.BadRequest(message: "Mặt hàng trả lại không nằm trong đơn bán gốc.");
+            }
 
             var returnItem = new CustomerReturnOrderItem
             {
@@ -293,36 +404,68 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
             foreach (var allocDto in itemDto.Allocations)
             {
-                var outboundAlloc = await _context.OutboundOrderItemAllocations
-                    .FirstOrDefaultAsync(a => a.Id == allocDto.OutboundOrderItemAllocationId && !a.IsDeleted, cancellationToken);
-                if (outboundAlloc == null || outboundAlloc.OutboundOrderItemId != itemDto.OutboundOrderItemId)
-                    return ApiResponse.BadRequest(message: "Phân bổ chi tiết xuất không hợp lệ.");
+                if (allocDto.QuantityReturned <= 0)
+                    return ApiResponse.BadRequest(message: "Số lượng trả theo lô phải lớn hơn 0.");
 
-                if (outboundAlloc.PaddyLotId == null)
-                    return ApiResponse.BadRequest(message: "Lỗi dữ liệu: Phân bổ chi tiết xuất kho không được gắn với lô gạo nào.");
+                OutboundOrderItemAllocation? outboundAlloc = null;
+                PaddyLot? paddyLot;
+                int? originalLocationId;
 
-                var previousReturnedQty = await _context.CustomerReturnOrderItemAllocations
-                    .Where(x => x.OutboundOrderItemAllocationId == allocDto.OutboundOrderItemAllocationId
-                                && x.CustomerReturnOrderItem.CustomerReturnOrder.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Confirmed
-                                && !x.IsDeleted
-                                && !x.CustomerReturnOrderItem.CustomerReturnOrder.IsDeleted
-                                && x.CustomerReturnOrderItem.CustomerReturnOrderId != order.Id)
-                    .SumAsync(x => x.QuantityReturned, cancellationToken);
+                if (outbound != null)
+                {
+                    if (!allocDto.OutboundOrderItemAllocationId.HasValue)
+                        return ApiResponse.BadRequest(message: "Phân bổ xuất gốc là bắt buộc khi phiếu trả có nguồn xuất.");
 
-                var maxReturnable = outboundAlloc.QuantityPicked - previousReturnedQty;
-                if (allocDto.QuantityReturned > maxReturnable)
-                    return ApiResponse.BadRequest(message: $"Số lượng trả lại ({allocDto.QuantityReturned:N3} kg) vượt quá số lượng tối đa có thể trả ({maxReturnable:N3} kg).");
+                    outboundAlloc = await _context.OutboundOrderItemAllocations
+                        .FirstOrDefaultAsync(a => a.Id == allocDto.OutboundOrderItemAllocationId.Value && !a.IsDeleted, cancellationToken);
+                    if (outboundAlloc == null || outboundAlloc.OutboundOrderItemId != itemDto.OutboundOrderItemId)
+                        return ApiResponse.BadRequest(message: "Phân bổ chi tiết xuất không hợp lệ.");
 
-                decimal netUnitSalePrice = salesOrderItem.QuantityOrdered > 0 
+                    if (outboundAlloc.PaddyLotId == null)
+                        return ApiResponse.BadRequest(message: "Lỗi dữ liệu: Phân bổ chi tiết xuất kho không được gắn với lô gạo nào.");
+
+                    paddyLot = await _context.PaddyLots
+                        .FirstOrDefaultAsync(x => x.Id == outboundAlloc.PaddyLotId.Value && !x.IsDeleted, cancellationToken);
+                    originalLocationId = outboundAlloc.LocationId;
+
+                    var previousReturnedQty = await _context.CustomerReturnOrderItemAllocations
+                        .Where(x => x.OutboundOrderItemAllocationId == allocDto.OutboundOrderItemAllocationId
+                                    && x.CustomerReturnOrderItem.CustomerReturnOrder.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Confirmed
+                                    && !x.IsDeleted
+                                    && !x.CustomerReturnOrderItem.CustomerReturnOrder.IsDeleted
+                                    && x.CustomerReturnOrderItem.CustomerReturnOrderId != order.Id)
+                        .SumAsync(x => x.QuantityReturned, cancellationToken);
+
+                    var maxReturnable = outboundAlloc.QuantityPicked - previousReturnedQty;
+                    if (allocDto.QuantityReturned > maxReturnable)
+                        return ApiResponse.BadRequest(message: $"Số lượng trả lại ({allocDto.QuantityReturned:N3} kg) vượt quá số lượng tối đa có thể trả ({maxReturnable:N3} kg).");
+                }
+                else
+                {
+                    if (!allocDto.PaddyLotId.HasValue)
+                        return ApiResponse.BadRequest(message: "Lô hàng là bắt buộc đối với phiếu trả không có đơn xuất gốc.");
+
+                    paddyLot = await _context.PaddyLots
+                        .FirstOrDefaultAsync(x => x.Id == allocDto.PaddyLotId.Value
+                            && x.WarehouseId == order.WarehouseId
+                            && x.ProductVariantId == itemDto.ProductVariantId
+                            && !x.IsDeleted, cancellationToken);
+                    originalLocationId = allocDto.OriginalLocationId ?? paddyLot?.LocationId;
+                }
+
+                if (paddyLot == null)
+                    return ApiResponse.BadRequest(message: "Lô hàng trả không hợp lệ, không thuộc kho hoặc không khớp sản phẩm.");
+
+                decimal netUnitSalePrice = salesOrderItem != null && salesOrderItem.QuantityOrdered > 0 
                     ? (salesOrderItem.LineAmount / salesOrderItem.QuantityOrdered) 
-                    : salesOrderItem.UnitSalePrice;
+                    : salesOrderItem?.UnitSalePrice ?? 0;
 
                 var returnAlloc = new CustomerReturnOrderItemAllocation
                 {
                     OutboundOrderItemAllocationId = allocDto.OutboundOrderItemAllocationId,
-                    PaddyLotId = outboundAlloc.PaddyLotId.GetValueOrDefault(),
+                    PaddyLotId = paddyLot.Id,
                     ProductVariantId = itemDto.ProductVariantId,
-                    OriginalLocationId = outboundAlloc.LocationId,
+                    OriginalLocationId = originalLocationId,
                     QuantityReturned = allocDto.QuantityReturned,
                     UnitCreditPrice = netUnitSalePrice,
                     CreatedBy = GetCurrentUserId(),
@@ -348,6 +491,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             .Include(o => o.Warehouse)
             .Include(o => o.CustomerReturnOrderStatus)
             .Include(o => o.OutboundOrder)
+                .ThenInclude(o => o.SalesOrder)
             .Include(o => o.Customer)
             .Include(o => o.ApprovedByUser)
             .Include(o => o.ConfirmedByUser)
@@ -380,7 +524,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             StatusCode = order.CustomerReturnOrderStatus.Code,
             StatusName = order.CustomerReturnOrderStatus.Name,
             OutboundOrderId = order.OutboundOrderId,
-            OutboundOrderCode = order.OutboundOrder?.Note, // Wait, is code stored in Note? We can map just ID or any code if available
+            OutboundOrderCode = order.OutboundOrderId.HasValue ? $"OB-{order.OutboundOrderId.Value:D5}" : null,
+            SalesOrderCode = order.OutboundOrder?.SalesOrder?.SOCode,
             CustomerId = order.CustomerId,
             CustomerCode = order.Customer?.Code,
             CustomerName = order.Customer?.Name,
@@ -394,7 +539,15 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             ConfirmedAt = order.ConfirmedAt,
             ConfirmedByName = order.ConfirmedByUser?.LastName + " " + order.ConfirmedByUser?.FirstName,
             CompletedDate = order.CompletedDate,
-            CreatedDate = order.CreatedDate
+            CreatedDate = order.CreatedDate,
+            ItemCount = order.Items.Count,
+            TotalQuantityReturned = order.Items.Sum(i => i.QuantityReturned),
+            TotalQuantityGood = order.Items.Sum(i => i.QuantityGood),
+            TotalQuantityDamaged = order.Items.Sum(i => i.QuantityDamaged),
+            TotalQuantityRejected = order.Items.SelectMany(i => i.Allocations).Sum(a => a.QuantityRejected),
+            PrimaryProductVariantName = order.Items.OrderBy(i => i.Id).Select(i => i.ProductVariant != null ? i.ProductVariant.Name : null).FirstOrDefault(),
+            PrimarySKU = order.Items.OrderBy(i => i.Id).Select(i => i.ProductVariant != null ? i.ProductVariant.SKU : null).FirstOrDefault(),
+            PrimaryLotCode = order.Items.SelectMany(i => i.Allocations).OrderBy(a => a.Id).Select(a => a.PaddyLot.LotCode).FirstOrDefault()
         };
 
         foreach (var item in order.Items)
@@ -422,7 +575,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     PaddyLotId = alloc.PaddyLotId,
                     PaddyLotCode = alloc.PaddyLot.LotCode,
                     ProductVariantId = alloc.ProductVariantId,
-                    SKU = alloc.ProductVariant.SKU,
+                    SKU = item.ProductVariant?.SKU ?? string.Empty,
                     OriginalLocationId = alloc.OriginalLocationId,
                     OriginalLocationCode = alloc.OriginalLocation?.SlotCode ?? (alloc.OriginalLocation != null ? $"LOC-{alloc.OriginalLocationId}" : null),
                     QuantityReturned = alloc.QuantityReturned,
@@ -448,21 +601,59 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
     public async Task<ApiResponse> GetPagedAsync(CustomerReturnOrderPagedQuery query, CancellationToken cancellationToken = default)
     {
+        query.Page = Math.Max(1, query.Page);
+        query.PageSize = Math.Clamp(query.PageSize, 1, 1000);
+
         var dataQuery = _context.CustomerReturnOrders
+            .AsNoTracking()
             .Include(o => o.Warehouse)
             .Include(o => o.CustomerReturnOrderStatus)
             .Include(o => o.Customer)
+            .Include(o => o.OutboundOrder)
+                .ThenInclude(o => o.SalesOrder)
+            .Include(o => o.Items.Where(i => !i.IsDeleted))
+                .ThenInclude(i => i.ProductVariant)
+            .Include(o => o.Items.Where(i => !i.IsDeleted))
+                .ThenInclude(i => i.Allocations.Where(a => !a.IsDeleted))
+                    .ThenInclude(a => a.PaddyLot)
             .Where(o => !o.IsDeleted);
 
-        if (!string.IsNullOrEmpty(query.Keyword))
+        var total = await dataQuery.CountAsync(cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(query.Keyword))
         {
             var keyword = query.Keyword.Trim();
-            dataQuery = dataQuery.Where(o => o.ReturnCode.Contains(keyword) 
-                                             || o.ReturnReason.Contains(keyword) 
-                                             || o.Customer.Name.Contains(keyword));
+            dataQuery = dataQuery.Where(o => o.ReturnCode.Contains(keyword)
+                                             || (o.ReturnReason != null && o.ReturnReason.Contains(keyword))
+                                             || (o.Customer != null && (o.Customer.Name.Contains(keyword) || o.Customer.Code.Contains(keyword)))
+                                             || (o.OutboundOrder != null && o.OutboundOrder.SalesOrder.SOCode.Contains(keyword)));
         }
 
-        var total = await dataQuery.CountAsync(cancellationToken);
+        if (query.StatusId.HasValue)
+            dataQuery = dataQuery.Where(o => o.CustomerReturnOrderStatusId == query.StatusId.Value);
+
+        if (!string.IsNullOrWhiteSpace(query.StatusCode))
+        {
+            var statusCode = query.StatusCode.Trim().ToUpper();
+            dataQuery = dataQuery.Where(o => o.CustomerReturnOrderStatus.Code == statusCode);
+        }
+
+        if (query.CustomerId.HasValue)
+            dataQuery = dataQuery.Where(o => o.CustomerId == query.CustomerId.Value);
+
+        if (query.WarehouseId.HasValue)
+            dataQuery = dataQuery.Where(o => o.WarehouseId == query.WarehouseId.Value);
+
+        if (query.DateFrom.HasValue)
+            dataQuery = dataQuery.Where(o => o.CreatedDate >= query.DateFrom.Value.Date);
+
+        if (query.DateTo.HasValue)
+        {
+            var dateToExclusive = query.DateTo.Value.Date.AddDays(1);
+            dataQuery = dataQuery.Where(o => o.CreatedDate < dateToExclusive);
+        }
+
+        var totalFiltered = await dataQuery.CountAsync(cancellationToken);
         var items = await dataQuery
             .OrderByDescending(o => o.CreatedDate)
             .Skip((query.Page - 1) * query.PageSize)
@@ -479,6 +670,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             StatusCode = order.CustomerReturnOrderStatus.Code,
             StatusName = order.CustomerReturnOrderStatus.Name,
             OutboundOrderId = order.OutboundOrderId,
+            OutboundOrderCode = order.OutboundOrderId.HasValue ? $"OB-{order.OutboundOrderId.Value:D5}" : null,
+            SalesOrderCode = order.OutboundOrder?.SalesOrder?.SOCode,
             CustomerId = order.CustomerId,
             CustomerCode = order.Customer?.Code,
             CustomerName = order.Customer?.Name,
@@ -490,7 +683,15 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             ApprovedDate = order.ApprovedDate,
             ConfirmedAt = order.ConfirmedAt,
             CompletedDate = order.CompletedDate,
-            CreatedDate = order.CreatedDate
+            CreatedDate = order.CreatedDate,
+            ItemCount = order.Items.Count,
+            TotalQuantityReturned = order.Items.Sum(i => i.QuantityReturned),
+            TotalQuantityGood = order.Items.Sum(i => i.QuantityGood),
+            TotalQuantityDamaged = order.Items.Sum(i => i.QuantityDamaged),
+            TotalQuantityRejected = order.Items.SelectMany(i => i.Allocations).Sum(a => a.QuantityRejected),
+            PrimaryProductVariantName = order.Items.OrderBy(i => i.Id).Select(i => i.ProductVariant != null ? i.ProductVariant.Name : null).FirstOrDefault(),
+            PrimarySKU = order.Items.OrderBy(i => i.Id).Select(i => i.ProductVariant != null ? i.ProductVariant.SKU : null).FirstOrDefault(),
+            PrimaryLotCode = order.Items.SelectMany(i => i.Allocations).OrderBy(a => a.Id).Select(a => a.PaddyLot.LotCode).FirstOrDefault()
         }).ToList();
 
         var pagedData = new PagingData<CustomerReturnOrderListDto>
@@ -499,7 +700,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             PageSize = query.PageSize,
             DataSource = list,
             Total = total,
-            TotalFiltered = total
+            TotalFiltered = totalFiltered
         };
         return ApiResponse.Success(pagedData);
     }
@@ -526,13 +727,16 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         {
             foreach (var alloc in item.Allocations)
             {
-                var outboundAlloc = await _context.OutboundOrderItemAllocations
-                    .FirstOrDefaultAsync(a => a.Id == alloc.OutboundOrderItemAllocationId && !a.IsDeleted, cancellationToken);
-                    if (outboundAlloc == null)
-                        return ApiResponse.BadRequest(message: $"Không tìm thấy chi tiết xuất kho ID {alloc.OutboundOrderItemAllocationId} để trả hàng.");
+                if (!alloc.OutboundOrderItemAllocationId.HasValue)
+                    continue;
 
-                    if (outboundAlloc.PaddyLotId == null)
-                        return ApiResponse.BadRequest(message: $"Lỗi dữ liệu: Chi tiết xuất kho ID {alloc.OutboundOrderItemAllocationId} không được gắn với lô gạo nào.");
+                var outboundAlloc = await _context.OutboundOrderItemAllocations
+                    .FirstOrDefaultAsync(a => a.Id == alloc.OutboundOrderItemAllocationId.Value && !a.IsDeleted, cancellationToken);
+                if (outboundAlloc == null)
+                    return ApiResponse.BadRequest(message: $"Không tìm thấy chi tiết xuất kho ID {alloc.OutboundOrderItemAllocationId} để trả hàng.");
+
+                if (outboundAlloc.PaddyLotId == null)
+                    return ApiResponse.BadRequest(message: $"Lỗi dữ liệu: Chi tiết xuất kho ID {alloc.OutboundOrderItemAllocationId} không được gắn với lô gạo nào.");
 
                 var previousReturnedQty = await _context.CustomerReturnOrderItemAllocations
                     .Where(x => x.OutboundOrderItemAllocationId == alloc.OutboundOrderItemAllocationId
@@ -581,6 +785,13 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         if (order.CustomerReturnOrderStatus.Code != CustomerReturnOrderStatusNames.Approved)
             return ApiResponse.UnprocessableEntity(message: "Chỉ được kiểm định đơn hàng đang ở trạng thái APPROVED.");
 
+        if (dto.Items == null
+            || dto.Items.Count != order.Items.Count
+            || dto.Items.Select(x => x.CustomerReturnOrderItemId).Distinct().Count() != dto.Items.Count)
+        {
+            return ApiResponse.BadRequest(message: "Kết quả kiểm định phải bao gồm đầy đủ và duy nhất từng dòng hàng trả.");
+        }
+
         foreach (var itemDto in dto.Items)
         {
             var item = order.Items.FirstOrDefault(i => i.Id == itemDto.CustomerReturnOrderItemId);
@@ -589,6 +800,13 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
             if (itemDto.QualityStatus != "GOOD" && itemDto.QualityStatus != "DAMAGED" && itemDto.QualityStatus != "EXPIRED")
                 return ApiResponse.BadRequest(message: "QualityStatus phải là GOOD, DAMAGED hoặc EXPIRED.");
+
+            if (itemDto.Allocations == null
+                || itemDto.Allocations.Count != item.Allocations.Count
+                || itemDto.Allocations.Select(x => x.ReturnAllocationId).Distinct().Count() != itemDto.Allocations.Count)
+            {
+                return ApiResponse.BadRequest(message: $"Kết quả kiểm định dòng hàng Id = {item.Id} phải bao gồm đầy đủ từng lô trả.");
+            }
 
             item.QualityStatus = itemDto.QualityStatus;
             item.DamageReason = itemDto.DamageReason;
@@ -604,12 +822,26 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 if (alloc == null)
                     return ApiResponse.BadRequest(message: $"Phân bổ Id = {allocDto.ReturnAllocationId} không thuộc dòng mặt hàng này.");
 
+                if (allocDto.QuantityGood < 0
+                    || allocDto.QuantityDamaged < 0
+                    || allocDto.QuantityRejected < 0
+                    || allocDto.CreditQuantity < 0)
+                {
+                    return ApiResponse.BadRequest(message: "Số lượng đạt, hỏng, từ chối và hoàn tiền không được âm.");
+                }
+
                 var checkSum = allocDto.QuantityGood + allocDto.QuantityDamaged + allocDto.QuantityRejected;
                 if (checkSum != alloc.QuantityReturned)
                     return ApiResponse.BadRequest(message: $"Tổng số lượng phân loại ({checkSum:N3} kg) của phân bổ Id = {alloc.Id} phải bằng số lượng trả về ban đầu ({alloc.QuantityReturned:N3} kg).");
 
                 if (allocDto.CreditQuantity > (allocDto.QuantityGood + allocDto.QuantityDamaged))
                     return ApiResponse.BadRequest(message: $"Số lượng hoàn tiền ({allocDto.CreditQuantity:N3} kg) không được vượt quá tổng số lượng nhận lại (Good + Damaged = {allocDto.QuantityGood + allocDto.QuantityDamaged:N3} kg).");
+
+                if ((allocDto.QuantityDamaged > 0 || allocDto.QuantityRejected > 0)
+                    && string.IsNullOrWhiteSpace(itemDto.DamageReason))
+                {
+                    return ApiResponse.BadRequest(message: "Phải nhập lý do đối với hàng hỏng hoặc không nhập lại kho.");
+                }
 
                 // Location Validation
                 if (allocDto.QuantityGood > 0)
@@ -788,6 +1020,9 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             // Re-verify returned quantity limits against original picking limits to prevent race condition
             foreach (var alloc in allocations)
             {
+                if (!alloc.OutboundOrderItemAllocationId.HasValue)
+                    continue;
+
                 var alreadyReturned = await _context.CustomerReturnOrderItemAllocations
                     .Where(x => x.OutboundOrderItemAllocationId == alloc.OutboundOrderItemAllocationId 
                              && x.CustomerReturnOrderItem.CustomerReturnOrder.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Confirmed
@@ -796,7 +1031,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                              && !x.CustomerReturnOrderItem.CustomerReturnOrder.IsDeleted)
                     .SumAsync(x => x.QuantityReturned, cancellationToken);
 
-                var maxReturnable = alloc.OutboundOrderItemAllocation.QuantityPicked - alreadyReturned;
+                var maxReturnable = alloc.OutboundOrderItemAllocation!.QuantityPicked - alreadyReturned;
                 if (alloc.QuantityReturned > maxReturnable)
                 {
                     throw new Exception("RETURN_QUANTITY_EXCEEDED");

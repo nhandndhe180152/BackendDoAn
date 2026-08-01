@@ -332,7 +332,13 @@ public class StockTakeService : IStockTakeService
     {
         var currentRoleIds = _httpContextAccessor.HttpContext?.GetCurrentRoleIds() ?? new List<int>();
         if (!currentRoleIds.Contains(CommonConstants.Role.ADMIN) && !currentRoleIds.Contains(CommonConstants.Role.OWNER))
-            return ApiResponse.Forbidden();
+        {
+            return ApiResponse.Forbidden(message: "Forbidden");
+        }
+
+
+
+
 
         var existData = await _stockTakeRepository
             .FindByCondition(x => !x.IsDeleted && x.Id == id)
@@ -441,7 +447,13 @@ public class StockTakeService : IStockTakeService
     {
         var currentRoleIds = _httpContextAccessor.HttpContext?.GetCurrentRoleIds() ?? new List<int>();
         if (!currentRoleIds.Contains(CommonConstants.Role.ADMIN) && !currentRoleIds.Contains(CommonConstants.Role.OWNER))
-            return ApiResponse.Forbidden();
+        {
+            return ApiResponse.Forbidden(message: "Forbidden");
+        }
+
+
+
+
 
         var existData = await _stockTakeRepository.FindByCondition(x => !x.IsDeleted && x.Id == id).FirstOrDefaultAsync();
         if (existData == null)

@@ -60,6 +60,24 @@ public class DebtAgingCalculationResult
     public decimal ReconciliationDifference { get; set; }
 }
 
+/// <summary>
+/// Kết quả phân bổ số dư của một chứng từ phát sinh công nợ.
+/// Đây là mô hình tính toán tại runtime, không tạo thêm bảng dữ liệu.
+/// </summary>
+public class DebtDocumentAllocation
+{
+    public int PartyDebtId { get; set; }
+    public int ChargeTransactionId { get; set; }
+    public string? RefType { get; set; }
+    public int? RefId { get; set; }
+    public DateTime TransactionDate { get; set; }
+    public DateTime? DueDate { get; set; }
+    public string? Note { get; set; }
+    public decimal TotalAmount { get; set; }
+    public decimal PaidAmount { get; set; }
+    public decimal OutstandingAmount { get; set; }
+}
+
 public class DebtDueOverdueRuleEvaluation
 {
     public string AlertType { get; set; } = null!;

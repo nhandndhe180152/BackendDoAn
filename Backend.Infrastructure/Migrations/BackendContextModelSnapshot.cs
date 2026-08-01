@@ -671,7 +671,7 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<int?>("OriginalLocationId")
                         .HasColumnType("int");
 
-                    b.Property<int>("OutboundOrderItemAllocationId")
+                    b.Property<int?>("OutboundOrderItemAllocationId")
                         .HasColumnType("int");
 
                     b.Property<int>("PaddyLotId")
@@ -5938,8 +5938,7 @@ namespace Backend.Infrastructure.Migrations
                     b.HasOne("Backend.Domain.Entities.OutboundOrderItemAllocation", "OutboundOrderItemAllocation")
                         .WithMany()
                         .HasForeignKey("OutboundOrderItemAllocationId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Backend.Domain.Entities.PaddyLot", "PaddyLot")
                         .WithMany()

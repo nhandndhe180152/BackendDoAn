@@ -17,7 +17,14 @@ public interface IDashboardService
     Task<ApiResponse> GetInventoryByWarehouseReportAsync(DashboardQuery query);
     Task<ApiResponse> GetInventoryByProductVariantReportAsync(DashboardQuery query);
     Task<ApiResponse> GetTwoWayDebtReportAsync(DashboardQuery query);
+    Task<ApiResponse> GetDebtDocumentsReportAsync(DashboardQuery query);
+    Task<ApiResponse> GetPurchaseReportAsync(DashboardQuery query);
     Task<ApiResponse> GetMillingYieldReportAsync(DashboardQuery query);
     Task<ApiResponse> GetSalesRevenueReportAsync(DashboardQuery query);
     Task<ApiResponse> GetQualityAlertsReportAsync(DashboardQuery query);
+    Task<ApiResponse> GetRelativeProfitReportAsync(DashboardQuery query);
+    Task<ApiResponse> GetSourceEffectivenessReportAsync(DashboardQuery query);
+    Task<ApiResponse> GetReportsOverviewAsync(DashboardQuery query);
+    Task<ApiResponse> GetReportFilterOptionsAsync();
+    Task<ReportExportDto?> ExportReportAsync(string reportType, string format, DashboardQuery query);
 }

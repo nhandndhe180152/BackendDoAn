@@ -9,6 +9,18 @@ public class DashboardQuery
     public DateTime ToDate { get; set; }
     public int? WarehouseId { get; set; }
     public int? RiceVarietyId { get; set; }
+    public int? ProductVariantId { get; set; }
+    public int? PaddyLotId { get; set; }
+    public int? LocationId { get; set; }
+    public int? FarmerId { get; set; }
+    public int? CustomerId { get; set; }
+    public string? ProductType { get; set; }
+    public string? Channel { get; set; }
+    public string? Status { get; set; }
+    public int PageIndex { get; set; } = 1;
+    public int PageSize { get; set; } = 20;
+    public string? SortBy { get; set; }
+    public string SortDirection { get; set; } = "desc";
 
     /// <summary>Mốc thời gian cho biểu đồ thu mua: "today" (7 ngày) | "month" (4 tuần) | "year" (12 tháng).</summary>
     public string? Period { get; set; }

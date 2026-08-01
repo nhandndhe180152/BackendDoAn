@@ -73,8 +73,8 @@ public class TokenRevocationMiddleware
                     {
                         context.Response.StatusCode = StatusCodes.Status403Forbidden;
                         var apiResponse = ApiResponse.Forbidden(
-                            ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.Forbidden),
-                            ApiCodeConstants.Common.Forbidden);
+                            message: ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.Forbidden),
+                            code: ApiCodeConstants.Common.Forbidden);
                         await context.Response.WriteAsJsonAsync(apiResponse);
                         return;
                     }

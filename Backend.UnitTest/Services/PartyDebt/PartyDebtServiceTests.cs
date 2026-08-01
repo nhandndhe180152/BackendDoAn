@@ -195,6 +195,41 @@ public class PartyDebtServiceTests
     }
 
     [Fact]
+    public async Task PaymentAsync_MissingTransactionDate_Returns400_BeforeQueryingDB()
+    {
+        var dto = new CreateDebtTransactionDto
+        {
+            PartyDebtId = 1,
+            Amount = 100_000m,
+            TransactionDate = default
+        };
+
+        var result = await Sut().PaymentAsync(dto);
+
+        result.Status.Should().Be(400);
+        result.Message.Should().Contain("Ngày thanh toán");
+        _debtRepo.Verify(r => r.GetByIdAsync(It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task PaymentAsync_NoteLongerThan500Characters_Returns400()
+    {
+        var dto = new CreateDebtTransactionDto
+        {
+            PartyDebtId = 1,
+            Amount = 100_000m,
+            TransactionDate = DateTime.UtcNow,
+            Note = new string('x', 501)
+        };
+
+        var result = await Sut().PaymentAsync(dto);
+
+        result.Status.Should().Be(400);
+        result.Message.Should().Contain("500");
+        _debtRepo.Verify(r => r.GetByIdAsync(It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
     public async Task PaymentAsync_DebtNotFound_Returns404()
     {
         _debtRepo.Setup(r => r.GetByIdAsync(999)).ReturnsAsync((Domain.Entities.PartyDebt?)null);

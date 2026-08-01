@@ -10,7 +10,7 @@ namespace Backend.Domain.Entities;
 public class CustomerReturnOrderItemAllocation : EntityAuditBase<int>
 {
     public int CustomerReturnOrderItemId { get; set; }
-    public int OutboundOrderItemAllocationId { get; set; }
+    public int? OutboundOrderItemAllocationId { get; set; }
     public int PaddyLotId { get; set; }
     public int ProductVariantId { get; set; }
     public int? OriginalLocationId { get; set; }
@@ -30,7 +30,7 @@ public class CustomerReturnOrderItemAllocation : EntityAuditBase<int>
 
     // Navigation
     public virtual CustomerReturnOrderItem CustomerReturnOrderItem { get; set; } = null!;
-    public virtual OutboundOrderItemAllocation OutboundOrderItemAllocation { get; set; } = null!;
+    public virtual OutboundOrderItemAllocation? OutboundOrderItemAllocation { get; set; }
     public virtual PaddyLot PaddyLot { get; set; } = null!;
     public virtual ProductVariant ProductVariant { get; set; } = null!;
     public virtual Location? OriginalLocation { get; set; }
