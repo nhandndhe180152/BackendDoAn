@@ -37,6 +37,13 @@ public class QRCodeService : IQRCodeService
     private readonly IQrIdentifierService _qrIdentifierService;
     private readonly IHttpContextAccessor _httpContextAccessor;
 
+    /// <summary>
+    /// MEDIUM-A: DocLib.Instance bọc pdfium native — KHÔNG thread-safe khi gọi đồng thời.
+    /// SemaphoreSlim này đảm bảo tại mọi thời điểm chỉ có 1 request đang dùng DocLib.
+    /// Dùng static để scope across tất cả QRCodeService instances (singleton scoped DI).
+    /// </summary>
+    private static readonly SemaphoreSlim _docLibSemaphore = new SemaphoreSlim(1, 1);
+
     public QRCodeService(
         IProductVariantRepository productVariantRepository, 
         IStorageService storageService,
@@ -1670,37 +1677,66 @@ public class QRCodeService : IQRCodeService
 
     private async Task<byte[]> ConvertPdfToPngZipAsync(byte[] pdfBytes, List<string> fileNamesPrefixes, int copies, CancellationToken cancellationToken)
     {
+        // MEDIUM-A: Serialize mọi lời gọi DocLib.Instance (pdfium singleton không thread-safe).
+        // Timeout 120s — nếu request khác giữ quá lâu, fail sớm thay vì treo vô hạn.
+        if (!await _docLibSemaphore.WaitAsync(TimeSpan.FromSeconds(120), cancellationToken))
+        {
+            throw new TimeoutException("Hệ thống đang xử lý quá nhiều yêu cầu in nhãn đồng thời. Vui lòng thử lại sau.");
+        }
+
+        try
+        {
+            // MEDIUM-B: CPU-bound rendering (Docnet + ImageMagick) chạy trên thread pool riêng,
+            // tránh chiếm giữ ASP.NET request thread trong suốt quá trình render.
+            var zipBytes = await Task.Run(() => RenderPdfToPngZip(pdfBytes, fileNamesPrefixes, copies, cancellationToken), cancellationToken);
+            return zipBytes;
+        }
+        finally
+        {
+            _docLibSemaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// Thực hiện render từng trang PDF sang PNG và đóng gói vào ZIP (CPU-bound, chạy trong Task.Run).
+    /// Kiểm tra CancellationToken sau mỗi trang để cho phép hủy sớm khi client ngắt kết nối.
+    /// </summary>
+    private static byte[] RenderPdfToPngZip(byte[] pdfBytes, List<string> fileNamesPrefixes, int copies, CancellationToken cancellationToken)
+    {
         using var ms = new MemoryStream();
-        using (var archive = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Create, true))
+        using (var archive = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
         {
             using var docReader = Docnet.Core.DocLib.Instance.GetDocReader(pdfBytes, new Docnet.Core.Models.PageDimensions(1));
             int pageCount = docReader.GetPageCount();
-            
+
             for (int i = 0; i < pageCount; i++)
             {
+                // MEDIUM-B: Kiểm tra hủy sau mỗi trang — thoát sớm nếu client ngắt kết nối.
+                cancellationToken.ThrowIfCancellationRequested();
+
                 int prefixIndex = i / copies;
                 int copyIndex = (i % copies) + 1;
                 string prefix = prefixIndex < fileNamesPrefixes.Count ? fileNamesPrefixes[prefixIndex] : "LABEL";
                 string fileName = copies > 1 ? $"{prefix}_{copyIndex:D3}.png" : $"{prefix}.png";
-                
+
                 using var pageReader = docReader.GetPageReader(i);
                 var rawBytes = pageReader.GetImage(Docnet.Core.Models.RenderFlags.RenderAnnotations);
                 int width = pageReader.GetPageWidth();
                 int height = pageReader.GetPageHeight();
 
-                var readSettings = new ImageMagick.MagickReadSettings 
-                { 
-                    Width = (uint)width, 
-                    Height = (uint)height, 
-                    Format = ImageMagick.MagickFormat.Bgra 
+                var readSettings = new ImageMagick.MagickReadSettings
+                {
+                    Width = (uint)width,
+                    Height = (uint)height,
+                    Format = ImageMagick.MagickFormat.Bgra
                 };
 
                 using var image = new ImageMagick.MagickImage(rawBytes, readSettings);
                 var pngBytes = image.ToByteArray(ImageMagick.MagickFormat.Png);
 
-                var entry = archive.CreateEntry(fileName);
+                var entry = archive.CreateEntry(fileName, System.IO.Compression.CompressionLevel.Fastest);
                 using var entryStream = entry.Open();
-                await entryStream.WriteAsync(pngBytes, 0, pngBytes.Length, cancellationToken);
+                entryStream.Write(pngBytes, 0, pngBytes.Length);
             }
         }
         return ms.ToArray();
