@@ -13,6 +13,7 @@ using Backend.UnitTest.Fixtures;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Moq;
+using MockQueryable.Moq;
 using Xunit;
 
 namespace Backend.UnitTest.Services.StockTakes;
@@ -330,5 +331,119 @@ public class StockTakeServiceTests
     {
         var item = new StockTakeItem();
         item.RecountConfirmed.Should().BeFalse();
+    }
+
+    // ─── CreateAsync / UpdateAsync Validation Tests ───────────────────────────
+
+    [Fact]
+    public async Task CreateAsync_ItemMissingProductVariantId_Returns400()
+    {
+        var dto = new CreateStockTakeDto
+        {
+            WarehouseId = 1,
+            StockTakeItems = new List<CreateStockTakeItemDto>
+            {
+                new() { LocationId = 1, ProductVariantId = null, ActualQuantity = 10 }
+            }
+        };
+
+        var result = await Sut().CreateAsync(dto);
+
+        result.Status.Should().Be(400);
+        result.Message.Should().Contain("ProductVariantId (Mã sản phẩm) là bắt buộc");
+    }
+
+    [Fact]
+    public async Task CreateAsync_ItemMissingLocationId_Returns400()
+    {
+        var dto = new CreateStockTakeDto
+        {
+            WarehouseId = 1,
+            StockTakeItems = new List<CreateStockTakeItemDto>
+            {
+                new() { LocationId = null, ProductVariantId = 1, ActualQuantity = 10 }
+            }
+        };
+
+        var result = await Sut().CreateAsync(dto);
+
+        result.Status.Should().Be(400);
+        result.Message.Should().Contain("LocationId (Vị trí) là bắt buộc");
+    }
+
+    [Fact]
+    public async Task CreateAsync_InvalidPaddyLotRelation_Returns400()
+    {
+        // PaddyLot belongs to warehouse 2, but stocktake is for warehouse 1
+        var lot = new Backend.Domain.Entities.PaddyLot { Id = 10, WarehouseId = 2, ProductVariantId = 1, LocationId = 1, IsDeleted = false };
+        var mockSet = new List<Backend.Domain.Entities.PaddyLot> { lot }.AsQueryable().BuildMockDbSet();
+        _dbContext.Setup(c => c.PaddyLots).Returns(mockSet.Object);
+
+        var dto = new CreateStockTakeDto
+        {
+            WarehouseId = 1,
+            StockTakeItems = new List<CreateStockTakeItemDto>
+            {
+                new() { LocationId = 1, ProductVariantId = 1, PaddyLotId = 10, ActualQuantity = 10 }
+            }
+        };
+
+        var result = await Sut().CreateAsync(dto);
+
+        result.Status.Should().Be(400);
+        result.Message.Should().Contain("không phải kho ID 1 của phiếu kiểm kê");
+    }
+
+    [Fact]
+    public async Task UpdateAsync_RecountConfirmedAuditFieldsUpdated_WhenChangedToTrue()
+    {
+        // Arrange
+        var stockTake = MakeStockTake(1, new StockTakeItem
+        {
+            Id = 100,
+            StockTakeId = 1,
+            ProductVariantId = 1,
+            LocationId = 1,
+            RecountConfirmed = false,
+            RecountConfirmedBy = null,
+            RecountConfirmedAt = null
+        });
+        SetupStockTakeFind(stockTake);
+
+        var dto = new UpdateStockTakeDto
+        {
+            Id = 1,
+            StockTakeStatusId = 1, // Draft
+            StockTakeItems = new List<UpdateStockTakeItemDto>
+            {
+                new()
+                {
+                    Id = 100,
+                    ProductVariantId = 1,
+                    LocationId = 1,
+                    RecountConfirmed = true // changed to true
+                }
+            }
+        };
+
+        // Mock HttpContext user ID via claims
+        var context = new DefaultHttpContext();
+        var claims = new List<System.Security.Claims.Claim>
+        {
+            new(Backend.Share.Constants.ClaimNames.ID, "99")
+        };
+        var identity = new System.Security.Claims.ClaimsIdentity(claims, "TestAuth");
+        context.User = new System.Security.Claims.ClaimsPrincipal(identity);
+        _http.Setup(h => h.HttpContext).Returns(context);
+
+        // Act
+        var result = await Sut().UpdateAsync(dto);
+
+        // Assert
+        result.Status.Should().Be(200);
+        var updatedItem = stockTake.StockTakeItems.First();
+        updatedItem.RecountConfirmed.Should().BeTrue();
+        updatedItem.RecountConfirmedBy.Should().Be(99);
+        updatedItem.RecountConfirmedAt.Should().NotBeNull();
     }
 }

@@ -110,12 +110,31 @@ namespace Backend.API.Controllers
         [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> GetQrLabelPreviewAsync([FromQuery] string? labelType, [FromQuery] int? subjectId, [FromQuery] string? template, CancellationToken cancellationToken)
         {
-            var result = await _qrCodeService.GetQrLabelPreviewAsync(labelType, subjectId, template, cancellationToken);
-            return Ok(ApiResponse.Success(result));
+            try
+            {
+                var result = await _qrCodeService.GetQrLabelPreviewAsync(labelType, subjectId, template, cancellationToken);
+                return Ok(ApiResponse.Success(result));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse.BadRequest(message: ex.Message));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ApiResponse.NotFound(message: ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return UnprocessableEntity(ApiResponse.UnprocessableEntity(message: ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse.Error(message: ex.Message, status: 500, code: "CMN_500"));
+            }
         }
 
         [HttpPost("qr-labels/paddy-lots/batch")]
-        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.READ)]
         public async Task<IActionResult> BatchPrintPaddyLotsAsync([FromBody] BatchQrLabelPrintDto request, CancellationToken cancellationToken)
         {
             if (request == null || request.Ids == null || !request.Ids.Any())
@@ -123,6 +142,18 @@ namespace Backend.API.Controllers
                 return BadRequest(ApiResponse.BadRequest(message: "Danh sách ID lô hàng in nhãn không được rỗng."));
             }
 
+            var formatUpper = request.Format?.ToUpper();
+            if (formatUpper != "PDF" && formatUpper != "PNG")
+            {
+                return BadRequest(ApiResponse.BadRequest(message: "Định dạng xuất (Format) không hợp lệ. Chỉ chấp nhận PDF hoặc PNG."));
+            }
+
+            var validTemplates = new[] { "SMALL", "MEDIUM", "LARGE" };
+            if (!validTemplates.Contains(request.Template?.ToUpper()))
+            {
+                return BadRequest(ApiResponse.BadRequest(message: "Kích cỡ nhãn (Template) không hợp lệ. Chỉ chấp nhận SMALL, MEDIUM hoặc LARGE."));
+            }
+
             var uniqueIds = request.Ids.Distinct().ToList();
             if (request.CopiesPerLabel < 1 || request.CopiesPerLabel > 500)
             {
@@ -138,18 +169,22 @@ namespace Backend.API.Controllers
             {
                 byte[] bytes;
                 string filename;
-                if (request.Format?.ToUpper() == "PNG")
+                if (formatUpper == "PNG")
                 {
-                    bytes = await _qrCodeService.GenerateBulkPaddyLotLabelsPngZipAsync(uniqueIds, request.Template, request.CopiesPerLabel, cancellationToken);
+                    bytes = await _qrCodeService.GenerateBulkPaddyLotLabelsPngZipAsync(uniqueIds, request.Template!, request.CopiesPerLabel, cancellationToken);
                     filename = $"paddy-lot-labels-{DateTime.UtcNow:yyyyMMdd}.zip";
                     return File(bytes, "application/zip", filename);
                 }
                 else
                 {
-                    bytes = await _qrCodeService.GenerateBulkPaddyLotLabelsPdfAsync(uniqueIds, request.Template, request.CopiesPerLabel, cancellationToken);
+                    bytes = await _qrCodeService.GenerateBulkPaddyLotLabelsPdfAsync(uniqueIds, request.Template!, request.CopiesPerLabel, cancellationToken);
                     filename = $"paddy-lot-labels-{DateTime.UtcNow:yyyyMMdd}.pdf";
                     return File(bytes, "application/pdf", filename);
                 }
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse.BadRequest(message: ex.Message));
             }
             catch (KeyNotFoundException ex)
             {
@@ -157,12 +192,12 @@ namespace Backend.API.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(ApiResponse.BadRequest(message: ex.Message));
+                return StatusCode(500, ApiResponse.Error(message: ex.Message, status: 500, code: "CMN_500"));
             }
         }
 
         [HttpPost("qr-labels/locations/batch")]
-        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.WAREHOUSES, Enums.Action.READ)]
         public async Task<IActionResult> BatchPrintLocationsAsync([FromBody] BatchQrLabelPrintDto request, CancellationToken cancellationToken)
         {
             if (request == null || request.Ids == null || !request.Ids.Any())
@@ -170,6 +205,18 @@ namespace Backend.API.Controllers
                 return BadRequest(ApiResponse.BadRequest(message: "Danh sách ID vị trí in nhãn không được rỗng."));
             }
 
+            var formatUpper = request.Format?.ToUpper();
+            if (formatUpper != "PDF" && formatUpper != "PNG")
+            {
+                return BadRequest(ApiResponse.BadRequest(message: "Định dạng xuất (Format) không hợp lệ. Chỉ chấp nhận PDF hoặc PNG."));
+            }
+
+            var validTemplates = new[] { "SMALL", "MEDIUM", "LARGE" };
+            if (!validTemplates.Contains(request.Template?.ToUpper()))
+            {
+                return BadRequest(ApiResponse.BadRequest(message: "Kích cỡ nhãn (Template) không hợp lệ. Chỉ chấp nhận SMALL, MEDIUM hoặc LARGE."));
+            }
+
             var uniqueIds = request.Ids.Distinct().ToList();
             if (request.CopiesPerLabel < 1 || request.CopiesPerLabel > 500)
             {
@@ -185,18 +232,22 @@ namespace Backend.API.Controllers
             {
                 byte[] bytes;
                 string filename;
-                if (request.Format?.ToUpper() == "PNG")
+                if (formatUpper == "PNG")
                 {
-                    bytes = await _qrCodeService.GenerateBulkLocationLabelsPngZipAsync(uniqueIds, request.Template, request.CopiesPerLabel, cancellationToken);
+                    bytes = await _qrCodeService.GenerateBulkLocationLabelsPngZipAsync(uniqueIds, request.Template!, request.CopiesPerLabel, cancellationToken);
                     filename = $"location-labels-{DateTime.UtcNow:yyyyMMdd}.zip";
                     return File(bytes, "application/zip", filename);
                 }
                 else
                 {
-                    bytes = await _qrCodeService.GenerateBulkLocationLabelsPdfAsync(uniqueIds, request.Template, request.CopiesPerLabel, cancellationToken);
+                    bytes = await _qrCodeService.GenerateBulkLocationLabelsPdfAsync(uniqueIds, request.Template!, request.CopiesPerLabel, cancellationToken);
                     filename = $"location-labels-{DateTime.UtcNow:yyyyMMdd}.pdf";
                     return File(bytes, "application/pdf", filename);
                 }
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse.BadRequest(message: ex.Message));
             }
             catch (KeyNotFoundException ex)
             {
@@ -204,12 +255,12 @@ namespace Backend.API.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(ApiResponse.BadRequest(message: ex.Message));
+                return StatusCode(500, ApiResponse.Error(message: ex.Message, status: 500, code: "CMN_500"));
             }
         }
 
         [HttpPost("qr-labels/bags/batch")]
-        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.READ)]
         public async Task<IActionResult> BatchPrintBagsAsync([FromBody] BatchQrLabelPrintDto request, CancellationToken cancellationToken)
         {
             if (request == null || request.Ids == null || !request.Ids.Any())
@@ -217,6 +268,18 @@ namespace Backend.API.Controllers
                 return BadRequest(ApiResponse.BadRequest(message: "Danh sách ID lô in nhãn bao không được rỗng."));
             }
 
+            var formatUpper = request.Format?.ToUpper();
+            if (formatUpper != "PDF" && formatUpper != "PNG")
+            {
+                return BadRequest(ApiResponse.BadRequest(message: "Định dạng xuất (Format) không hợp lệ. Chỉ chấp nhận PDF hoặc PNG."));
+            }
+
+            var validTemplates = new[] { "SMALL", "MEDIUM", "LARGE" };
+            if (!validTemplates.Contains(request.Template?.ToUpper()))
+            {
+                return BadRequest(ApiResponse.BadRequest(message: "Kích cỡ nhãn (Template) không hợp lệ. Chỉ chấp nhận SMALL, MEDIUM hoặc LARGE."));
+            }
+
             var uniqueIds = request.Ids.Distinct().ToList();
             if (request.CopiesPerLabel < 1 || request.CopiesPerLabel > 500)
             {
@@ -232,18 +295,22 @@ namespace Backend.API.Controllers
             {
                 byte[] bytes;
                 string filename;
-                if (request.Format?.ToUpper() == "PNG")
+                if (formatUpper == "PNG")
                 {
-                    bytes = await _qrCodeService.GenerateBulkBagLabelsPngZipAsync(uniqueIds, request.Template, request.CopiesPerLabel, cancellationToken);
+                    bytes = await _qrCodeService.GenerateBulkBagLabelsPngZipAsync(uniqueIds, request.Template!, request.CopiesPerLabel, cancellationToken);
                     filename = $"bag-labels-{DateTime.UtcNow:yyyyMMdd}.zip";
                     return File(bytes, "application/zip", filename);
                 }
                 else
                 {
-                    bytes = await _qrCodeService.GenerateBulkBagLabelsPdfAsync(uniqueIds, request.Template, request.CopiesPerLabel, cancellationToken);
+                    bytes = await _qrCodeService.GenerateBulkBagLabelsPdfAsync(uniqueIds, request.Template!, request.CopiesPerLabel, cancellationToken);
                     filename = $"bag-labels-{DateTime.UtcNow:yyyyMMdd}.pdf";
                     return File(bytes, "application/pdf", filename);
                 }
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse.BadRequest(message: ex.Message));
             }
             catch (KeyNotFoundException ex)
             {
@@ -251,7 +318,7 @@ namespace Backend.API.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(ApiResponse.BadRequest(message: ex.Message));
+                return StatusCode(500, ApiResponse.Error(message: ex.Message, status: 500, code: "CMN_500"));
             }
         }
     }

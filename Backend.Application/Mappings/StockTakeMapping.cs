@@ -30,7 +30,7 @@ public static class StockTakeMapping
                 ActualQuantity    = item.ActualQuantity,
                 Note              = item.Note,
                 QRScanned         = item.QRScanned,
-                RecountConfirmed  = item.RecountConfirmed,
+                RecountConfirmed  = false, // STK-02: backend chưa xác nhận — không cho client tự set true khi tạo mới
                 CreatedDate       = now
             }).ToList()
         };

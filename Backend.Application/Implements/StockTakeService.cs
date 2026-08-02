@@ -169,10 +169,53 @@ public class StockTakeService : IStockTakeService
         return false;
     }
 
+    /// <summary>
+    /// STK-04: Kiểm tra PaddyLotId có hợp lệ không (tồn tại, đúng sản phẩm, đúng kho, đúng vị trí).
+    /// Trả về error message nếu không hợp lệ, null nếu OK.
+    /// </summary>
+    private async Task<string?> ValidatePaddyLotRelationAsync(int paddyLotId, int? productVariantId, int warehouseId, int? locationId)
+    {
+        var lot = await _context.PaddyLots
+            .FirstOrDefaultAsync(x => x.Id == paddyLotId && !x.IsDeleted);
+
+        if (lot == null)
+            return $"Lô hàng ID {paddyLotId} không tồn tại hoặc đã bị xóa.";
+
+        if (productVariantId.HasValue && lot.ProductVariantId != productVariantId.Value)
+            return $"Lô hàng ID {paddyLotId} không thuộc sản phẩm ID {productVariantId.Value}.";
+
+        if (lot.WarehouseId != warehouseId)
+            return $"Lô hàng ID {paddyLotId} thuộc kho ID {lot.WarehouseId}, không phải kho ID {warehouseId} của phiếu kiểm kê.";
+
+        if (locationId.HasValue && lot.LocationId != locationId.Value)
+            return $"Lô hàng ID {paddyLotId} hiện nằm ở vị trí ID {lot.LocationId}, không phải vị trí ID {locationId.Value} trong dòng kiểm kê.";
+
+        return null; // hợp lệ
+    }
+
     // ─── CRUD ─────────────────────────────────────────────────────────────────
 
     public async Task<ApiResponse> CreateAsync(CreateStockTakeDto obj)
     {
+        // STK-03 — Validate từng dòng phải có ProductVariantId và LocationId
+        for (int idx = 0; idx < obj.StockTakeItems.Count; idx++)
+        {
+            var item = obj.StockTakeItems[idx];
+            if (!item.ProductVariantId.HasValue)
+                return ApiResponse.BadRequest(message: $"Dòng №{idx + 1}: ProductVariantId (Mã sản phẩm) là bắt buộc.");
+            if (!item.LocationId.HasValue)
+                return ApiResponse.BadRequest(message: $"Dòng №{idx + 1}: LocationId (Vị trí) là bắt buộc.");
+
+            // STK-04 — Validate PaddyLotId nếu có cung cấp
+            if (item.PaddyLotId.HasValue)
+            {
+                var lotError = await ValidatePaddyLotRelationAsync(
+                    item.PaddyLotId.Value, item.ProductVariantId, obj.WarehouseId, item.LocationId);
+                if (lotError != null)
+                    return ApiResponse.BadRequest(message: $"Dòng №{idx + 1}: {lotError}");
+            }
+        }
+
         // 3.10 — Chặn dòng trùng phạm vi
         var scopes = obj.StockTakeItems
             .Select(i => (i.LocationId, i.ProductVariantId, i.PaddyLotId))
@@ -320,6 +363,16 @@ public class StockTakeService : IStockTakeService
             return ApiResponse.UnprocessableEntity("Chỉ có thể Gửi duyệt phiếu đang ở trạng thái Nháp.", ApiCodeConstants.Common.UnprocessableEntity);
         }
 
+        // STK-03 — Validate từng dòng phải có ProductVariantId và LocationId
+        for (int idx = 0; idx < obj.StockTakeItems.Count; idx++)
+        {
+            var itemDto = obj.StockTakeItems[idx];
+            if (!itemDto.ProductVariantId.HasValue)
+                return ApiResponse.BadRequest(message: $"Dòng №{idx + 1}: ProductVariantId (Mã sản phẩm) là bắt buộc.");
+            if (!itemDto.LocationId.HasValue)
+                return ApiResponse.BadRequest(message: $"Dòng №{idx + 1}: LocationId (Vị trí) là bắt buộc.");
+        }
+
         // 3.10 — Validate không có tổ hợp phạm vi trùng
         var allScopes = obj.StockTakeItems
             .Select(i => (i.LocationId, i.ProductVariantId, i.PaddyLotId))
@@ -337,6 +390,7 @@ public class StockTakeService : IStockTakeService
 
         // 2. Cập nhật dòng hiện có
         var now = DateTimeHelper.VietnamNow();
+        var currentUserId = _httpContextAccessor.HttpContext?.GetCurrentUserId();
         foreach (var itemDto in obj.StockTakeItems.Where(i => i.Id > 0))
         {
             var existingItem = existData.StockTakeItems.FirstOrDefault(i => i.Id == itemDto.Id);
@@ -354,8 +408,24 @@ public class StockTakeService : IStockTakeService
                 existingItem.ActualQuantity      = itemDto.ActualQuantity;
                 existingItem.Note               = itemDto.Note;
                 existingItem.QRScanned          = itemDto.QRScanned;
-                existingItem.RecountConfirmed   = itemDto.RecountConfirmed;
                 existingItem.LastModifiedDate   = now;
+
+                // STK-02 — Backend tự ghi audit khi RecountConfirmed thay đổi
+                if (!existingItem.RecountConfirmed && itemDto.RecountConfirmed)
+                {
+                    // false → true: ghi thông tin xác nhận
+                    existingItem.RecountConfirmed   = true;
+                    existingItem.RecountConfirmedBy = currentUserId;
+                    existingItem.RecountConfirmedAt = now;
+                }
+                else if (existingItem.RecountConfirmed && !itemDto.RecountConfirmed)
+                {
+                    // true → false: xóa thông tin xác nhận (rút xác nhận)
+                    existingItem.RecountConfirmed   = false;
+                    existingItem.RecountConfirmedBy = null;
+                    existingItem.RecountConfirmedAt = null;
+                }
+                // Giữ nguyên nếu không thay đổi (giảm write xã)
 
                 if (scopeChanged && itemDto.ProductVariantId.HasValue)
                 {
@@ -373,8 +443,19 @@ public class StockTakeService : IStockTakeService
 
         // 3. Thêm dòng mới
         var newItems = new List<StockTakeItem>();
+        int newIdx = 0;
         foreach (var itemDto in obj.StockTakeItems.Where(i => i.Id == 0))
         {
+            newIdx++;
+            // STK-04 — Validate PaddyLotId đối với dòng mới
+            if (itemDto.PaddyLotId.HasValue)
+            {
+                var lotError = await ValidatePaddyLotRelationAsync(
+                    itemDto.PaddyLotId.Value, itemDto.ProductVariantId, existData.WarehouseId, itemDto.LocationId);
+                if (lotError != null)
+                    return ApiResponse.BadRequest(message: $"Dòng mới №{newIdx}: {lotError}");
+            }
+
             decimal sysQty = 0;
             if (itemDto.ProductVariantId.HasValue)
             {
@@ -448,6 +529,18 @@ public class StockTakeService : IStockTakeService
         if (!existData.StockTakeItems.Any())
             return ApiResponse.UnprocessableEntity("Phiếu kiểm kê không có dòng nào. Không thể duyệt phiếu trống.", ApiCodeConstants.Common.UnprocessableEntity);
 
+        // STK-03 — Chặn duyệt khi có dòng thiếu ProductVariantId hoặc LocationId
+        var itemsMissingScope = existData.StockTakeItems
+            .Where(i => !i.ProductVariantId.HasValue || !i.LocationId.HasValue)
+            .ToList();
+        if (itemsMissingScope.Any())
+        {
+            return ApiResponse.UnprocessableEntity(
+                $"Phiếu kiểm kê có {itemsMissingScope.Count} dòng thiếu thông tin bắt buộc (Sản phẩm hoặc Vị trí). " +
+                "Vui lòng bổ sung trước khi duyệt.",
+                ApiCodeConstants.Common.UnprocessableEntity);
+        }
+
         // 3.7 — Chặn duyệt khi có dòng chưa nhập ActualQuantity
         var unfinishedItems = existData.StockTakeItems
             .Where(i => i.ProductVariantId.HasValue && !i.ActualQuantity.HasValue)
@@ -479,13 +572,14 @@ public class StockTakeService : IStockTakeService
             var severity = ClassifySeverity(item.VariancePercent, item.AbsoluteVarianceKg, smallPct, mediumPct, smallKg, mediumKg, isZeroWithActual);
             var variantName = item.ProductVariant?.Name ?? $"ProductVariantId={item.ProductVariantId}";
 
-            // 3.8 — Kiểm tra tồn hiện tại còn khớp SystemQuantity (optimistic concurrency)
+            // STK-05 — Concurrency check đầy đủ: xử lý cả trường hợp inventory bị xóa (null → 0)
             var currentInventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
                 item.ProductVariantId.Value, existData.WarehouseId, item.LocationId, item.PaddyLotId);
-            if (currentInventory != null && currentInventory.QuantityOnHand != item.SystemQuantity)
+            var currentQtyOnHand = currentInventory?.QuantityOnHand ?? 0m;
+            if (currentQtyOnHand != item.SystemQuantity)
             {
                 return ApiResponse.Conflict(
-                    $"Tồn kho của '{variantName}' đã thay đổi từ {item.SystemQuantity} thành {currentInventory.QuantityOnHand} sau khi lập phiếu. " +
+                    $"Tồn kho của '{variantName}' đã thay đổi từ {item.SystemQuantity} thành {currentQtyOnHand} sau khi lập phiếu. " +
                     "Vui lòng tải lại phiếu kiểm kê và cập nhật số liệu trước khi duyệt.");
             }
 
