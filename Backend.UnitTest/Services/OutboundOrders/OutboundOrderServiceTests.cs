@@ -56,4 +56,54 @@ public class OutboundOrderServiceTests
 
         result.Status.Should().Be(409);
     }
+
+    [Fact]
+    public async Task ConfirmDispatchAsync_DecreasesLocationOccupancy()
+    {
+        // Arrange
+        var location = new Location { Id = 10, CurrentOccupancy = 50, SlotCode = "LOC-10" };
+        var inventory = new Backend.Domain.Entities.Inventory { Id = 1, QuantityOnHand = 50, QuantityReserved = 10 };
+        var allocation = new OutboundOrderItemAllocation
+        {
+            Id = 1,
+            InventoryId = 1,
+            LocationId = 10,
+            Location = location,
+            Inventory = inventory,
+            QuantityAllocated = 10,
+            QuantityPicked = 10,
+            UnitCostPrice = 5
+        };
+
+        var item = new OutboundOrderItem
+        {
+            Id = 1,
+            QuantityOrdered = 10,
+            QuantityPicked = 10,
+            Allocations = new List<OutboundOrderItemAllocation> { allocation }
+        };
+
+        var order = new OutboundOrder
+        {
+            Id = 1,
+            OutboundOrderStatus = new OutboundOrderStatus { Name = "PACKED" },
+            OutboundOrderItems = new List<OutboundOrderItem> { item }
+        };
+
+        _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
+        _obRepo.Setup(r => r.BeginTransactionAsync()).ReturnsAsync(new Mock<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction>().Object);
+        
+        _obStatusRepo.Setup(r => r.FirstOrDefaultAsync(
+            It.IsAny<System.Linq.Expressions.Expression<System.Func<OutboundOrderStatus, bool>>>(),
+            It.IsAny<bool>(),
+            It.IsAny<System.Linq.Expressions.Expression<System.Func<OutboundOrderStatus, object>>[]>()))
+            .ReturnsAsync(new OutboundOrderStatus { Id = 3, Name = "Dispatched" });
+
+        // Act
+        var result = await Sut().ConfirmDispatchAsync(1, new Backend.Application.DTOs.OutboundOrders.ConfirmDispatchDto());
+
+        // Assert
+        result.Status.Should().Be(200);
+        location.CurrentOccupancy.Should().Be(40); // 50 - 10 = 40
+    }
 }

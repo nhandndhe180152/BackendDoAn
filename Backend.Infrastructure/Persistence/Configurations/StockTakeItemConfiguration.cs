@@ -17,6 +17,24 @@ public class StockTakeItemConfiguration : IEntityTypeConfiguration<StockTakeItem
         builder.Property(x => x.SystemQuantity).HasColumnType("decimal(18,3)");
         builder.Property(x => x.ActualQuantity).HasColumnType("decimal(18,3)");
 
+        // Computed props — không ánh xạ xuống DB
         builder.Ignore(x => x.Difference);
+        builder.Ignore(x => x.VariancePercent);
+        builder.Ignore(x => x.VarianceSeverity);
+        builder.Ignore(x => x.AbsoluteVarianceKg);
+
+        // FK: PaddyLotId → PaddyLot (nullable, sản phẩm không theo lô để null)
+        builder.HasOne(x => x.PaddyLot)
+               .WithMany()
+               .HasForeignKey(x => x.PaddyLotId)
+               .OnDelete(DeleteBehavior.NoAction)
+               .IsRequired(false);
+
+        // FK: RecountConfirmedBy → User (nullable)
+        builder.HasOne(x => x.RecountConfirmedByUser)
+               .WithMany()
+               .HasForeignKey(x => x.RecountConfirmedBy)
+               .OnDelete(DeleteBehavior.NoAction)
+               .IsRequired(false);
     }
 }

@@ -191,15 +191,39 @@ namespace Backend.API.Controllers
         [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.READ)]
         public async Task<IActionResult> GetLabelPdfAsync(int id, [FromQuery] string template = "MEDIUM", [FromQuery] int copies = 1, CancellationToken cancellationToken = default)
         {
-            if (copies < 1 || copies > 10)
+            if (copies < 1 || copies > 500)
             {
-                return BadRequest(ApiResponse.BadRequest(message: "Số lượng bản in (copies) phải nằm trong khoảng từ 1 đến 10."));
+                return BadRequest(ApiResponse.BadRequest(message: "Số lượng bản in (copies) phải nằm trong khoảng từ 1 đến 500."));
             }
 
             try
             {
                 var bytes = await _qrCodeService.GeneratePaddyLotLabelPdfAsync(id, template, copies, cancellationToken);
                 return File(bytes, "application/pdf", $"paddylot-label-{id}.pdf");
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ApiResponse.NotFound(message: ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ApiResponse.BadRequest(message: ex.Message));
+            }
+        }
+
+        [HttpGet("{id}/bag-label")]
+        [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.READ)]
+        public async Task<IActionResult> GetBagLabelPdfAsync(int id, [FromQuery] string template = "MEDIUM", [FromQuery] int copies = 1, CancellationToken cancellationToken = default)
+        {
+            if (copies < 1 || copies > 500)
+            {
+                return BadRequest(ApiResponse.BadRequest(message: "Số lượng bản in (copies) phải nằm trong khoảng từ 1 đến 500."));
+            }
+
+            try
+            {
+                var bytes = await _qrCodeService.GenerateBagLabelPdfAsync(id, template, copies, cancellationToken);
+                return File(bytes, "application/pdf", $"bag-label-{id}.pdf");
             }
             catch (KeyNotFoundException ex)
             {

@@ -27,5 +27,11 @@ public class SystemConfigConfiguration : IEntityTypeConfiguration<SystemConfig>
             .IsRequired();
         builder.Property(x => x.CreatedDate).IsRequired().HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
         builder.Property(x => x.IsDeleted).IsRequired().HasDefaultValueSql("(0)");
+
+        // Unique index đảm bảo mỗi ConfigKey chỉ xuất hiện 1 lần trong bảng.
+        // Ngăn INSERT IGNORE / seed migration tạo dòng trùng khi không có constraint.
+        builder.HasIndex(x => x.ConfigKey)
+            .IsUnique()
+            .HasDatabaseName("UX_SystemConfig_ConfigKey");
     }
 }

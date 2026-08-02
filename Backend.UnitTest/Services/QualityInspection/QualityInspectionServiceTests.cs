@@ -13,6 +13,8 @@ using Backend.UnitTest.Fixtures;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using MockQueryable.Moq;
+using MockQueryable.EntityFrameworkCore;
 using Moq;
 using Xunit;
 
@@ -43,10 +45,10 @@ public class QualityInspectionServiceTests
 
     public QualityInspectionServiceTests()
     {
-        _context.Setup(c => c.PaddyLots).Returns(() => MockDbSet(_paddyLots).Object);
-        _context.Setup(c => c.InboundOrderItems).Returns(() => MockDbSet(_inboundOrderItems).Object);
-        _context.Setup(c => c.InboundOrderStatuses).Returns(() => MockDbSet(_inboundOrderStatuses).Object);
-        _context.Setup(c => c.InboundOrders).Returns(() => MockDbSet(_inboundOrders).Object);
+        _context.Setup(c => c.PaddyLots).Returns(() => _paddyLots.AsQueryable().BuildMockDbSet().Object);
+        _context.Setup(c => c.InboundOrderItems).Returns(() => _inboundOrderItems.AsQueryable().BuildMockDbSet().Object);
+        _context.Setup(c => c.InboundOrderStatuses).Returns(() => _inboundOrderStatuses.AsQueryable().BuildMockDbSet().Object);
+        _context.Setup(c => c.InboundOrders).Returns(() => _inboundOrders.AsQueryable().BuildMockDbSet().Object);
 
         _inboundOrderStatuses.Add(new InboundOrderStatus
         {
@@ -762,22 +764,5 @@ public class QualityInspectionServiceTests
         // Assert
         result.Status.Should().Be(400);
         result.Message.Should().Contain("Không thể xóa phiếu kiểm định đã thực hiện tách lô");
-    }
-
-    private static Mock<DbSet<T>> MockDbSet<T>(List<T> list) where T : class
-    {
-        var mockQueryable = list.AsQueryable().BuildMock();
-        var mockDbSet = new Mock<DbSet<T>>();
-
-        mockDbSet.As<IQueryable<T>>().Setup(m => m.Provider).Returns(mockQueryable.Provider);
-        mockDbSet.As<IQueryable<T>>().Setup(m => m.Expression).Returns(mockQueryable.Expression);
-        mockDbSet.As<IQueryable<T>>().Setup(m => m.ElementType).Returns(mockQueryable.ElementType);
-        mockDbSet.As<IQueryable<T>>().Setup(m => m.GetEnumerator()).Returns(() => mockQueryable.GetEnumerator());
-
-        mockDbSet.As<IAsyncEnumerable<T>>()
-            .Setup(m => m.GetAsyncEnumerator(It.IsAny<CancellationToken>()))
-            .Returns(((IAsyncEnumerable<T>)mockQueryable).GetAsyncEnumerator(default));
-
-        return mockDbSet;
     }
 }

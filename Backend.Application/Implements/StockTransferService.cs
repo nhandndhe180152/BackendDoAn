@@ -25,11 +25,11 @@ public class StockTransferService : IStockTransferService
     private readonly IRepositoryBase<StockTransferStatus, int> _statusRepository;
     private readonly IRepositoryBase<LotStatus, int> _lotStatusRepository;
     private readonly IRepositoryBase<Warehouse, int> _warehouseRepository;
-    private readonly IRepositoryBase<Location, int> _locationRepository;
     private readonly IRepositoryBase<ProductVariant, int> _productVariantRepository;
     private readonly IPaddyLotRepository _paddyLotRepository;
     private readonly IInventoryRepository _inventoryRepository;
     private readonly IInventoryTransactionRepository _inventoryTransactionRepository;
+    private readonly ILocationRepository _locationRepository;
     private readonly INotificationDispatcher _notificationDispatcher;
 
     public StockTransferService(
@@ -38,11 +38,11 @@ public class StockTransferService : IStockTransferService
         IRepositoryBase<StockTransferStatus, int> statusRepository,
         IRepositoryBase<LotStatus, int> lotStatusRepository,
         IRepositoryBase<Warehouse, int> warehouseRepository,
-        IRepositoryBase<Location, int> locationRepository,
         IRepositoryBase<ProductVariant, int> productVariantRepository,
         IPaddyLotRepository paddyLotRepository,
         IInventoryRepository inventoryRepository,
         IInventoryTransactionRepository inventoryTransactionRepository,
+        ILocationRepository locationRepository,
         INotificationDispatcher notificationDispatcher)
     {
         _transferRepository = transferRepository;
@@ -779,6 +779,45 @@ public class StockTransferService : IStockTransferService
         }
 
         var before = inventory.QuantityOnHand;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         if (isExport)
         {
             var availableQty = inventory.QuantityOnHand - inventory.QuantityReserved;

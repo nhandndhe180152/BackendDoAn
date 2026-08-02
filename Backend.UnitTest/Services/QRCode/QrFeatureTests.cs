@@ -58,7 +58,8 @@ namespace Backend.UnitTest.Services.QRCode
                 storageServiceMock.Object,
                 inventoryRepoMock.Object,
                 context,
-                qrIdentifierService);
+                qrIdentifierService,
+                _httpContextAccessorMock.Object);
         }
 
         private async Task SeedBaseDataAsync(BackendContext context)

@@ -329,6 +329,15 @@ public class InventoryTransactionService : IInventoryTransactionService
                     return ApiResponse.BadRequest();
                 }
 
+                // 3.11 — Chặn khi tồn mới < đang đặt giữ (AvailableQuantity sẽ âm)
+                if (newQuantityOnHand.Value < inventory.QuantityReserved)
+                {
+                    return ApiResponse.UnprocessableEntity(
+                        $"Không thể đặt tồn kho về {newQuantityOnHand.Value} vì đang có {inventory.QuantityReserved} đang được đặt giữ (QuantityReserved). " +
+                        "Số lượng tồn mới không được nhỏ hơn số lượng đặt giữ.",
+                        "INV_RESERVED_CONFLICT");
+                }
+
                 afterQuantity = newQuantityOnHand.Value;
                 transactionQuantity = afterQuantity - beforeQuantity;
                 break;
