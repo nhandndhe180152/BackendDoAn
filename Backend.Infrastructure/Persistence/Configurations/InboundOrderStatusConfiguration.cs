@@ -14,5 +14,10 @@ public class InboundOrderStatusConfiguration : IEntityTypeConfiguration<InboundO
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id)
             .ValueGeneratedOnAdd();
+        builder.Property(x => x.Code)
+            .IsRequired()
+            .HasMaxLength(100);
+        builder.HasIndex(x => x.Code)
+            .IsUnique();
     }
 }

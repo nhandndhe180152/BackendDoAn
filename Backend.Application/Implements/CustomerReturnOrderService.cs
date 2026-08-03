@@ -137,8 +137,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             if (outbound.SalesOrder == null)
                 return ApiResponse.UnprocessableEntity(message: "Phiếu xuất gốc không gắn với đơn bán nào.");
 
-            if (outbound.OutboundOrderStatus.Name != "DISPATCHED" && outbound.OutboundOrderStatus.Name != "COMPLETED")
-                return ApiResponse.UnprocessableEntity(message: "Chỉ được trả hàng đối với phiếu xuất đã Dispatched hoặc Completed.");
+            if (outbound.OutboundOrderStatus.Code != OutboundOrderStatusNames.Dispatched && outbound.OutboundOrderStatus.Code != OutboundOrderStatusNames.Completed)
+                return ApiResponse.UnprocessableEntity(message: "Chỉ được trả hàng đối với phiếu xuất đã Đang giao hàng hoặc Hoàn thành.");
 
             if (outbound.SalesOrder.CustomerId != dto.CustomerId)
                 return ApiResponse.BadRequest(message: "Khách hàng không khớp với đơn xuất hàng gốc.");

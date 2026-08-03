@@ -13,11 +13,11 @@ public static class PurchaseOrderStatusSeed
     {
         return new[]
         {
-            new PurchaseOrderStatus { Id = 1, Name = "Draft",              Color = "#6B7280", CreatedDate = new DateTime(2026, 1, 1) },
-            new PurchaseOrderStatus { Id = 2, Name = "Confirmed",          Color = "#3B82F6", CreatedDate = new DateTime(2026, 1, 1) },
-            new PurchaseOrderStatus { Id = 3, Name = "PartiallyReceived",  Color = "#F59E0B", CreatedDate = new DateTime(2026, 1, 1) },
-            new PurchaseOrderStatus { Id = 4, Name = "Received",           Color = "#10B981", CreatedDate = new DateTime(2026, 1, 1) },
-            new PurchaseOrderStatus { Id = 5, Name = "Cancelled",          Color = "#EF4444", CreatedDate = new DateTime(2026, 1, 1) },
+            new PurchaseOrderStatus { Id = 1, Name = "Nháp",              Code = "DRAFT",              Color = "#6B7280", CreatedDate = new DateTime(2026, 1, 1) },
+            new PurchaseOrderStatus { Id = 2, Name = "Đã xác nhận",       Code = "CONFIRMED",          Color = "#3B82F6", CreatedDate = new DateTime(2026, 1, 1) },
+            new PurchaseOrderStatus { Id = 3, Name = "Nhận một phần",    Code = "PARTIALLY_RECEIVED", Color = "#F59E0B", CreatedDate = new DateTime(2026, 1, 1) },
+            new PurchaseOrderStatus { Id = 4, Name = "Đã nhận hàng",      Code = "RECEIVED",           Color = "#10B981", CreatedDate = new DateTime(2026, 1, 1) },
+            new PurchaseOrderStatus { Id = 5, Name = "Đã hủy",           Code = "CANCELLED",          Color = "#EF4444", CreatedDate = new DateTime(2026, 1, 1) },
         };
     }
 }

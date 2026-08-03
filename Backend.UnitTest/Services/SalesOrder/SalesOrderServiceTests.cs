@@ -13,6 +13,7 @@ using Backend.Domain.Interfaces.Repositories;
 using Backend.UnitTest.Fixtures;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore.Storage;
 using Moq;
 using Xunit;
 
@@ -70,7 +71,7 @@ public class SalesOrderServiceTests
             Id = 1,
             RequiresMilling = true,
             WarehouseId = 1,
-            Status = new SalesOrderStatus { Name = SalesOrderStatusNames.PendingConfirm },
+            Status = new SalesOrderStatus { Name = "Chờ xác nhận", Code = SalesOrderStatusNames.PendingConfirm },
             SalesOrderItems = new List<SalesOrderItem>()
         };
 
@@ -95,7 +96,7 @@ public class SalesOrderServiceTests
         var so = new global::Backend.Domain.Entities.SalesOrder
         {
             Id = 1,
-            Status = new SalesOrderStatus { Name = SalesOrderStatusNames.New },
+            Status = new SalesOrderStatus { Name = "Mới tạo", Code = SalesOrderStatusNames.New },
             SalesOrderItems = new List<SalesOrderItem>()
         };
         _soRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(so);
@@ -130,7 +131,7 @@ public class SalesOrderServiceTests
         var so = new global::Backend.Domain.Entities.SalesOrder
         {
             Id = 1,
-            Status = new SalesOrderStatus { Name = SalesOrderStatusNames.New }
+            Status = new SalesOrderStatus { Name = "Mới tạo", Code = SalesOrderStatusNames.New }
         };
         _soRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(so);
 
@@ -148,6 +149,56 @@ public class SalesOrderServiceTests
 
         result.Status.Should().Be(400);
         result.Message.Should().Contain("trùng");
+    }
+
+    [Fact]
+    public async Task CreateOutboundAsync_LocalizedNames_UsesStatusCodes()
+    {
+        var order = new global::Backend.Domain.Entities.SalesOrder
+        {
+            Id = 1,
+            SOCode = "SO-1",
+            WarehouseId = 1,
+            Status = new SalesOrderStatus { Id = 3, Name = "Đã giữ hàng", Code = SalesOrderStatusNames.Reserved },
+            SalesOrderItems = new List<SalesOrderItem>
+            {
+                new() { Id = 10, ProductVariantId = 5, QuantityOrdered = 10 }
+            }
+        };
+        _soRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
+        _obStatusRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<OutboundOrderStatus, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<OutboundOrderStatus, object>>[]>()))
+            .ReturnsAsync((Expression<Func<OutboundOrderStatus, bool>> predicate, bool _, Expression<Func<OutboundOrderStatus, object>>[] __) =>
+                predicate.Compile()(new OutboundOrderStatus { Id = 1, Name = "Nháp", Code = OutboundOrderStatusNames.Draft })
+                    ? new OutboundOrderStatus { Id = 1, Name = "Nháp", Code = OutboundOrderStatusNames.Draft }
+                    : null);
+        _soStatusRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<SalesOrderStatus, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<SalesOrderStatus, object>>[]>()))
+            .ReturnsAsync(new SalesOrderStatus { Id = 5, Name = "Đang chuẩn bị", Code = SalesOrderStatusNames.Preparing });
+        _obRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<OutboundOrder, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<OutboundOrder, object>>[]>()))
+            .Returns(new List<OutboundOrder>().AsQueryable().BuildMock());
+        _soRepo.Setup(r => r.BeginTransactionAsync())
+            .ReturnsAsync(new Mock<IDbContextTransaction>().Object);
+
+        var result = await Sut().CreateOutboundAsync(1, new CreateOutboundDto
+        {
+            Items = new List<CreateOutboundItemDto>
+            {
+                new() { ProductVariantId = 5, QuantityToDispatch = 5 }
+            }
+        });
+
+        result.Status.Should().Be(201);
+        order.StatusId.Should().Be(5);
+        _obRepo.Verify(r => r.CreateAsync(It.Is<OutboundOrder>(x =>
+            x.OutboundOrderStatusId == 1 && x.OutboundOrderItems.Count == 1)), Times.Once);
     }
 }
 

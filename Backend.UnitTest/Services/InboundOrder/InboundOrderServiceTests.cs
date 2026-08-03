@@ -82,9 +82,9 @@ public class InboundOrderServiceTests
     private static async Task SeedMasterDataAsync(BackendContext context)
     {
         context.InboundOrderStatuses.AddRange(
-            new InboundOrderStatus { Id = StatusApprovedId, Name = InboundOrderStatusNames.Approved, Color = "#000" },
-            new InboundOrderStatus { Id = StatusConfirmedId, Name = InboundOrderStatusNames.Confirmed, Color = "#000" },
-            new InboundOrderStatus { Id = StatusDraftId, Name = InboundOrderStatusNames.Draft, Color = "#000" });
+            new InboundOrderStatus { Id = StatusApprovedId, Name = "Đã duyệt", Code = InboundOrderStatusNames.Approved, Color = "#000" },
+            new InboundOrderStatus { Id = StatusConfirmedId, Name = "Đã nhận hàng", Code = InboundOrderStatusNames.Confirmed, Color = "#000" },
+            new InboundOrderStatus { Id = StatusDraftId, Name = "Nháp", Code = InboundOrderStatusNames.Draft, Color = "#000" });
 
         context.Warehouses.Add(new Backend.Domain.Entities.Warehouse { Id = 1, Code = "WH-01", Name = "Kho 1", IsActive = true });
         context.Suppliers.Add(new Backend.Domain.Entities.Supplier { Id = 1, Code = "SUP-01", Name = "NCC 1", IsActive = true });

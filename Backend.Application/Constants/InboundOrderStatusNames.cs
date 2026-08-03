@@ -2,12 +2,12 @@ namespace Backend.Application.Constants;
 
 public static class InboundOrderStatusNames
 {
-    public const string Draft = "Draft";
-    public const string Submitted = "Submitted";
-    public const string Approved = "Approved";
-    public const string Rejected = "Rejected";
-    public const string Receiving = "Receiving";
-    public const string PartiallyReceived = "Partially Received";
-    public const string Confirmed = "Confirmed";
-    public const string Cancelled = "Cancelled";
+    public const string Draft = "DRAFT";
+    public const string Submitted = "SUBMITTED";
+    public const string Approved = "APPROVED";
+    public const string Rejected = "REJECTED";
+    public const string Receiving = "RECEIVING";
+    public const string PartiallyReceived = "PARTIALLY_RECEIVED";
+    public const string Confirmed = "CONFIRMED";
+    public const string Cancelled = "CANCELLED";
 }

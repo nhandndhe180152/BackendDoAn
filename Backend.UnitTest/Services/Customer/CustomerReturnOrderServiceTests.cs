@@ -4,6 +4,7 @@ using System.Linq;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
+using Backend.Application.Constants;
 using Backend.Application.DTOs.CustomerReturns;
 using Backend.Application.Implements;
 using Backend.Application.Interfaces;
@@ -168,7 +169,7 @@ public class CustomerReturnOrderServiceTests
             Id = 50,
             WarehouseId = 1,
             SalesOrderId = 100,
-            OutboundOrderStatus = new OutboundOrderStatus { Name = "DISPATCHED" },
+            OutboundOrderStatus = new OutboundOrderStatus { Name = "Đang giao hàng", Code = OutboundOrderStatusNames.Dispatched },
             SalesOrder = salesOrder
         };
         var outboundItem = new OutboundOrderItem { Id = 60, OutboundOrderId = 50, ProductVariantId = 5 };
@@ -230,7 +231,7 @@ public class CustomerReturnOrderServiceTests
             Id = 50,
             WarehouseId = 1,
             SalesOrderId = 100,
-            OutboundOrderStatus = new OutboundOrderStatus { Name = "COMPLETED" },
+            OutboundOrderStatus = new OutboundOrderStatus { Name = "Hoàn thành", Code = OutboundOrderStatusNames.Completed },
             SalesOrder = salesOrder
         };
         var outboundItem = new OutboundOrderItem { Id = 60, OutboundOrderId = 50, ProductVariantId = 5 };

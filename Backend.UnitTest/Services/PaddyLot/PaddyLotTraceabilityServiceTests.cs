@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Security.Claims;
 using System.Threading.Tasks;
+using Backend.Application.Constants;
 using Backend.Application.DTOs.PaddyLots;
 using Backend.Application.Implements;
 using Backend.Infrastructure.Persistence;
@@ -117,8 +118,8 @@ public class PaddyLotTraceabilityServiceTests
         var loc2 = new LocationEntity { Id = 2, WarehouseId = 1, ZoneName = "Zone A", SlotCode = "LOC-02", QrCode = "LC-02" };
         var userInspector = new UserEntity { Id = 10, Username = "inspector1", Email = "inspector1@test.com", PasswordHash = "hash", FirstName = "Văn B", LastName = "Trần" };
 
-        var obStatus = new OutboundOrderStatusEntity { Id = 1, Name = "Hoàn thành", Color = "#10B981" };
-        var soStatus = new SalesOrderStatusEntity { Id = 1, Name = "Đã duyệt", Color = "#10B981" };
+        var obStatus = new OutboundOrderStatusEntity { Id = 1, Name = "Hoàn thành", Code = OutboundOrderStatusNames.Completed, Color = "#10B981" };
+        var soStatus = new SalesOrderStatusEntity { Id = 1, Name = "Hoàn tất", Code = SalesOrderStatusNames.Completed, Color = "#10B981" };
         var moStatus = new MillingOrderStatusEntity { Id = 1, Name = "Hoàn thành", Code = "COMPLETED", Color = "#10B981" };
 
         db.Organizations.Add(org);

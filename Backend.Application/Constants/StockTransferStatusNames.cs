@@ -5,8 +5,8 @@ namespace Backend.Application.Constants;
 /// </summary>
 public static class StockTransferStatusNames
 {
-    public const string Draft = "Nháp";
-    public const string InTransit = "Đang chuyển";
-    public const string Completed = "Hoàn tất";
-    public const string Cancelled = "Hủy";
+    public const string Draft = "DRAFT";
+    public const string InTransit = "IN_TRANSIT";
+    public const string Completed = "COMPLETED";
+    public const string Cancelled = "CANCELLED";
 }

@@ -74,9 +74,9 @@ public class DashboardService : IDashboardService
     {
         if (_completedSalesStatusId.HasValue) return _completedSalesStatusId.Value;
         var status = await _salesOrderStatusRepository.FirstOrDefaultAsync(
-            x => x.Name == SalesOrderStatusNames.Completed && !x.IsDeleted);
+            x => x.Code == SalesOrderStatusNames.Completed && !x.IsDeleted);
         _completedSalesStatusId = status?.Id
-            ?? throw new InvalidOperationException($"SalesOrderStatus '{SalesOrderStatusNames.Completed}' not found.");
+            ?? throw new InvalidOperationException($"SalesOrderStatus with code '{SalesOrderStatusNames.Completed}' not found.");
         return _completedSalesStatusId.Value;
     }
 
@@ -312,8 +312,8 @@ public class DashboardService : IDashboardService
 
         var pendingDeliveryOrders = await _salesOrderRepository
             .FindByCondition(x => !x.IsDeleted, false)
-            .Where(x => pendingDeliveryStatuses.Contains(x.Status.Name) || x.Status.Name == SalesOrderStatusNames.New)
-            .Select(x => new { x.Status.Name })
+            .Where(x => pendingDeliveryStatuses.Contains(x.Status.Code) || x.Status.Code == SalesOrderStatusNames.New)
+            .Select(x => new { Name = x.Status.Code })
             .ToListAsync();
 
         salesSummary.PendingDeliveryCount = pendingDeliveryOrders.Count;
@@ -1645,7 +1645,7 @@ public class DashboardService : IDashboardService
                 x.ExpectedDeliveryDate,
                 x.SOCode,
                 CustomerName = x.Customer.Name,
-                StatusName = x.Status.Name,
+                StatusName = x.Status.Code,
                 x.Channel,
                 Items = x.SalesOrderItems.Select(i => new { i.ProductVariant.Name, Quantity = i.QuantityOrdered })
             })

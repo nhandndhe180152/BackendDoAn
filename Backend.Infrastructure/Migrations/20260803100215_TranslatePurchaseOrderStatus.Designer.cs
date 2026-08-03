@@ -4,6 +4,7 @@ using Backend.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Backend.Infrastructure.Migrations
 {
     [DbContext(typeof(BackendContext))]
-    partial class BackendContextModelSnapshot : ModelSnapshot
+    [Migration("20260803100215_TranslatePurchaseOrderStatus")]
+    partial class TranslatePurchaseOrderStatus
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1429,11 +1432,6 @@ namespace Backend.Infrastructure.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
                     b.Property<string>("Color")
                         .IsRequired()
                         .HasColumnType("longtext");
@@ -1459,16 +1457,12 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Code")
-                        .IsUnique();
-
                     b.ToTable("InboundOrderStatus", (string)null);
 
                     b.HasData(
                         new
                         {
                             Id = 1,
-                            Code = "DRAFT",
                             Color = "#6B7280",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -1477,7 +1471,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 2,
-                            Code = "SUBMITTED",
                             Color = "#3B82F6",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -1486,7 +1479,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 3,
-                            Code = "APPROVED",
                             Color = "#8B5CF6",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -1495,7 +1487,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 4,
-                            Code = "REJECTED",
                             Color = "#EF4444",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -1504,7 +1495,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 5,
-                            Code = "RECEIVING",
                             Color = "#06B6D4",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -1513,7 +1503,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 6,
-                            Code = "PARTIALLY_RECEIVED",
                             Color = "#F59E0B",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -1522,7 +1511,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 7,
-                            Code = "CONFIRMED",
                             Color = "#10B981",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -1531,7 +1519,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 8,
-                            Code = "CANCELLED",
                             Color = "#EF4444",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -2829,11 +2816,6 @@ namespace Backend.Infrastructure.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
                     b.Property<string>("Color")
                         .IsRequired()
                         .HasColumnType("longtext");
@@ -2859,16 +2841,12 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Code")
-                        .IsUnique();
-
                     b.ToTable("OutboundOrderStatus", (string)null);
 
                     b.HasData(
                         new
                         {
                             Id = 1,
-                            Code = "DRAFT",
                             Color = "#6B7280",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -2877,7 +2855,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 2,
-                            Code = "PICKING",
                             Color = "#3B82F6",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -2886,7 +2863,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 3,
-                            Code = "PACKED",
                             Color = "#8B5CF6",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -2895,7 +2871,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 4,
-                            Code = "DISPATCHED",
                             Color = "#F97316",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -2904,7 +2879,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 5,
-                            Code = "COMPLETED",
                             Color = "#10B981",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -2913,7 +2887,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 6,
-                            Code = "CANCELLED",
                             Color = "#EF4444",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -2922,7 +2895,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 7,
-                            Code = "DELIVERY_FAILED",
                             Color = "#EF4444",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -3914,11 +3886,6 @@ namespace Backend.Infrastructure.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
                     b.Property<string>("Color")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -3946,16 +3913,12 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Code")
-                        .IsUnique();
-
                     b.ToTable("PurchaseOrderStatus", (string)null);
 
                     b.HasData(
                         new
                         {
                             Id = 1,
-                            Code = "DRAFT",
                             Color = "#6B7280",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -3964,7 +3927,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 2,
-                            Code = "CONFIRMED",
                             Color = "#3B82F6",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -3973,7 +3935,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 3,
-                            Code = "PARTIALLY_RECEIVED",
                             Color = "#F59E0B",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -3982,7 +3943,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 4,
-                            Code = "RECEIVED",
                             Color = "#10B981",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -3991,7 +3951,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 5,
-                            Code = "CANCELLED",
                             Color = "#EF4444",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -4295,11 +4254,6 @@ namespace Backend.Infrastructure.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
                     b.Property<string>("Color")
                         .IsRequired()
                         .HasMaxLength(30)
@@ -4327,16 +4281,12 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Code")
-                        .IsUnique();
-
                     b.ToTable("ReturnToSupplierOrderStatus", (string)null);
 
                     b.HasData(
                         new
                         {
                             Id = 1,
-                            Code = "DRAFT",
                             Color = "#F59E0B",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -4345,7 +4295,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 2,
-                            Code = "APPROVED",
                             Color = "#3B82F6",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -4354,7 +4303,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 3,
-                            Code = "COMPLETED",
                             Color = "#16A34A",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -4363,7 +4311,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 4,
-                            Code = "CANCELLED",
                             Color = "#EF4444",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -4651,11 +4598,6 @@ namespace Backend.Infrastructure.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
                     b.Property<string>("Color")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -4683,16 +4625,12 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Code")
-                        .IsUnique();
-
                     b.ToTable("SalesOrderStatus", (string)null);
 
                     b.HasData(
                         new
                         {
                             Id = 1,
-                            Code = "NEW",
                             Color = "#6B7280",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -4701,7 +4639,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 2,
-                            Code = "PENDING_CONFIRM",
                             Color = "#3B82F6",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -4710,7 +4647,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 3,
-                            Code = "RESERVED",
                             Color = "#8B5CF6",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -4719,7 +4655,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 4,
-                            Code = "AWAITING_MILLING",
                             Color = "#F59E0B",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -4728,7 +4663,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 5,
-                            Code = "PREPARING",
                             Color = "#06B6D4",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -4737,7 +4671,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 6,
-                            Code = "DELIVERING",
                             Color = "#F97316",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -4746,7 +4679,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 7,
-                            Code = "COMPLETED",
                             Color = "#10B981",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -4755,7 +4687,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 8,
-                            Code = "CANCELLED",
                             Color = "#EF4444",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -5165,11 +5096,6 @@ namespace Backend.Infrastructure.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
                     b.Property<string>("Color")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -5197,16 +5123,12 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Code")
-                        .IsUnique();
-
                     b.ToTable("StockTransferStatus", (string)null);
 
                     b.HasData(
                         new
                         {
                             Id = 1,
-                            Code = "DRAFT",
                             Color = "#6B7280",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -5215,7 +5137,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 2,
-                            Code = "IN_TRANSIT",
                             Color = "#F59E0B",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -5224,7 +5145,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 3,
-                            Code = "COMPLETED",
                             Color = "#10B981",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,
@@ -5233,7 +5153,6 @@ namespace Backend.Infrastructure.Migrations
                         new
                         {
                             Id = 4,
-                            Code = "CANCELLED",
                             Color = "#EF4444",
                             CreatedDate = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             IsDeleted = false,

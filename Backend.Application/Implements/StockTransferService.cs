@@ -168,17 +168,17 @@ public class StockTransferService : IStockTransferService
         var transfersThisMonth = await query.CountAsync(x =>
             x.TransferDate >= monthStart &&
             x.TransferDate < nextMonth &&
-            x.Status.Name != StockTransferStatusNames.Cancelled);
+            x.Status.Code != StockTransferStatusNames.Cancelled);
 
         var inTransitCount = await query.CountAsync(x =>
-            x.Status.Name == StockTransferStatusNames.InTransit);
+            x.Status.Code == StockTransferStatusNames.InTransit);
 
         var totalTransferredWeightKg = await query
             .Where(x =>
                 x.TransferDate >= monthStart &&
                 x.TransferDate < nextMonth &&
-                (x.Status.Name == StockTransferStatusNames.InTransit ||
-                 x.Status.Name == StockTransferStatusNames.Completed))
+                (x.Status.Code == StockTransferStatusNames.InTransit ||
+                 x.Status.Code == StockTransferStatusNames.Completed))
             .SelectMany(x => x.StockTransferItems.Where(i => !i.IsDeleted))
             .SumAsync(i => (decimal?)i.WeightKg) ?? 0m;
 
@@ -912,8 +912,8 @@ public class StockTransferService : IStockTransferService
         return status != null && status.Code == LotStatusCodeConstants.Quarantine;
     }
 
-    private Task<StockTransferStatus?> GetStatusAsync(string name)
-        => _statusRepository.FirstOrDefaultAsync(x => x.Name == name && !x.IsDeleted);
+    private Task<StockTransferStatus?> GetStatusAsync(string code)
+        => _statusRepository.FirstOrDefaultAsync(x => x.Code == code && !x.IsDeleted);
 
     private async Task<string> GenerateTransferCodeAsync(DateTime now)
     {
@@ -949,8 +949,8 @@ public class StockTransferService : IStockTransferService
         return $"{baseCode}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
     }
 
-    private static bool IsStatus(StockTransfer transfer, string statusName)
-        => string.Equals(transfer.Status?.Name, statusName, StringComparison.OrdinalIgnoreCase);
+    private static bool IsStatus(StockTransfer transfer, string statusCode)
+        => string.Equals(transfer.Status?.Code, statusCode, StringComparison.OrdinalIgnoreCase);
 
     private static StockTransferItem ToEntity(
         StockTransferItemDto item,

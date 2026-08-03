@@ -91,10 +91,10 @@ public class SalesOrderService : ISalesOrderService
             ?? throw new InvalidOperationException("Không tìm thấy tổ chức hoạt động nào trong hệ thống.");
     }
 
-    private async Task<int> GetStatusIdAsync(string name)
+    private async Task<int> GetStatusIdAsync(string code)
     {
-        var status = await _salesOrderStatusRepository.FirstOrDefaultAsync(x => x.Name == name && !x.IsDeleted);
-        return status?.Id ?? throw new InvalidOperationException($"SalesOrderStatus '{name}' not found.");
+        var status = await _salesOrderStatusRepository.FirstOrDefaultAsync(x => x.Code == code && !x.IsDeleted);
+        return status?.Id ?? throw new InvalidOperationException($"SalesOrderStatus with code '{code}' not found.");
     }
 
     private static SalesOrderDetailDto MapDetail(SalesOrder so)
@@ -288,7 +288,7 @@ public class SalesOrderService : ISalesOrderService
             return ApiResponse.NotFound("Không tìm thấy đơn bán.", ApiCodeConstants.SalesOrder.NotFound);
 
         // Chỉ cho sửa khi đang ở NEW
-        if (so.Status?.Name != SalesOrderStatusNames.New)
+        if (so.Status?.Code != SalesOrderStatusNames.New)
             return ApiResponse.Conflict("Chỉ có thể chỉnh sửa đơn ở trạng thái Mới tạo.",
                 ApiCodeConstants.SalesOrder.InvalidState);
 
@@ -347,7 +347,7 @@ public class SalesOrderService : ISalesOrderService
         if (so == null || so.IsDeleted)
             return ApiResponse.NotFound("Không tìm thấy đơn bán.", ApiCodeConstants.SalesOrder.NotFound);
 
-        if (so.Status?.Name != SalesOrderStatusNames.New)
+        if (so.Status?.Code != SalesOrderStatusNames.New)
             return ApiResponse.Conflict(
                 $"Đơn đang ở trạng thái '{so.Status?.Name}', không thể xác nhận.",
                 ApiCodeConstants.SalesOrder.InvalidState);
@@ -376,7 +376,7 @@ public class SalesOrderService : ISalesOrderService
         if (so == null || so.IsDeleted)
             return ApiResponse.Error("Không tìm thấy đơn bán.", 404, ApiCodeConstants.SalesOrder.NotFound);
 
-        if (so.Status?.Name != SalesOrderStatusNames.PendingConfirm)
+        if (so.Status?.Code != SalesOrderStatusNames.PendingConfirm)
             return ApiResponse.Error(
                 $"Đơn đang ở trạng thái '{so.Status?.Name}', chỉ có thể giữ hàng khi ở Chờ xác nhận.",
                 409, ApiCodeConstants.SalesOrder.InvalidState);
@@ -521,7 +521,7 @@ public class SalesOrderService : ISalesOrderService
             SalesOrderStatusNames.Reserved,
             SalesOrderStatusNames.Preparing
         };
-        if (!allowedStates.Contains(so.Status?.Name))
+        if (!allowedStates.Contains(so.Status?.Code))
             return ApiResponse.Error(
                 $"Không thể hủy đơn ở trạng thái '{so.Status?.Name}'.",
                 409, ApiCodeConstants.SalesOrder.InvalidState);
@@ -537,11 +537,11 @@ public class SalesOrderService : ISalesOrderService
                 .FindByCondition(x => x.SalesOrderId == id && !x.IsDeleted, false, x => x.OutboundOrderStatus)
                 .ToListAsync();
 
-            if (outbounds.Any(x => x.OutboundOrderStatus?.Name != OutboundOrderStatusNames.Cancelled && x.OutboundOrderStatus?.Name != OutboundOrderStatusNames.Draft))
+            if (outbounds.Any(x => x.OutboundOrderStatus?.Code != OutboundOrderStatusNames.Cancelled && x.OutboundOrderStatus?.Code != OutboundOrderStatusNames.Draft))
                 return ApiResponse.Error("Không thể hủy đơn bán vì đã có Phiếu xuất đang xử lý. Vui lòng hủy phiếu xuất trước.", 409, ApiCodeConstants.SalesOrder.InvalidState);
 
             // Xóa OutboundOrder DRAFT
-            foreach (var draft in outbounds.Where(x => x.OutboundOrderStatus?.Name == OutboundOrderStatusNames.Draft))
+            foreach (var draft in outbounds.Where(x => x.OutboundOrderStatus?.Code == OutboundOrderStatusNames.Draft))
             {
                 draft.IsDeleted = true;
                 draft.LastModifiedDate = now;
@@ -550,7 +550,7 @@ public class SalesOrderService : ISalesOrderService
             }
 
             // Giải phóng QuantityReserved nếu đang RESERVED hoặc PREPARING
-            if (so.Status?.Name == SalesOrderStatusNames.Reserved || so.Status?.Name == SalesOrderStatusNames.Preparing)
+            if (so.Status?.Code == SalesOrderStatusNames.Reserved || so.Status?.Code == SalesOrderStatusNames.Preparing)
             {
                 var reserveTxs = await _inventoryTransactionRepository
                     .FindByCondition(x => x.ReferenceType == InventoryReferenceTypeConstants.SalesOrder 
@@ -634,13 +634,13 @@ public class SalesOrderService : ISalesOrderService
             SalesOrderStatusNames.Reserved,
             SalesOrderStatusNames.Preparing
         };
-        if (!allowedStates.Contains(so.Status?.Name))
+        if (!allowedStates.Contains(so.Status?.Code))
             return ApiResponse.Error(
                 $"Không thể tạo phiếu xuất từ đơn ở trạng thái '{so.Status?.Name}'.",
                 409, ApiCodeConstants.SalesOrder.InvalidState);
 
         var draftStatus = await _outboundOrderStatusRepository.FirstOrDefaultAsync(
-            x => x.Name == OutboundOrderStatusNames.Draft && !x.IsDeleted);
+            x => x.Code == OutboundOrderStatusNames.Draft && !x.IsDeleted);
         var draftStatusId = draftStatus?.Id
             ?? throw new InvalidOperationException("OutboundOrderStatus DRAFT not found.");
 
@@ -667,7 +667,7 @@ public class SalesOrderService : ISalesOrderService
             var existingOutbounds = await _outboundOrderRepository
                 .FindByCondition(x => x.SalesOrderId == id && !x.IsDeleted && 
                                       x.OutboundOrderStatus != null && 
-                                      x.OutboundOrderStatus.Name != OutboundOrderStatusNames.Cancelled,
+                                      x.OutboundOrderStatus.Code != OutboundOrderStatusNames.Cancelled,
                                       false, x => x.OutboundOrderItems)
                 .ToListAsync();
 
@@ -704,7 +704,7 @@ public class SalesOrderService : ISalesOrderService
             await _outboundOrderRepository.CreateAsync(outbound);
 
             // Chuyển SalesOrder → PREPARING
-            if (so.Status?.Name == SalesOrderStatusNames.Reserved)
+            if (so.Status?.Code == SalesOrderStatusNames.Reserved)
             {
                 so.StatusId         = await GetStatusIdAsync(SalesOrderStatusNames.Preparing);
                 so.LastModifiedDate = now;

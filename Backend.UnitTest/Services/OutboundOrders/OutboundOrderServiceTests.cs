@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using Backend.Application.Constants;
 using Backend.Application.Implements;
 using Backend.Application.Interfaces;
 using Backend.Domain.Abstractions.Repositories;
@@ -48,7 +49,7 @@ public class OutboundOrderServiceTests
         var order = new OutboundOrder
         {
             Id = 1,
-            OutboundOrderStatus = new OutboundOrderStatus { Name = "DISPATCHED" }
+            OutboundOrderStatus = new OutboundOrderStatus { Name = "Đang giao hàng", Code = OutboundOrderStatusNames.Dispatched }
         };
         _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
 
@@ -86,7 +87,7 @@ public class OutboundOrderServiceTests
         var order = new OutboundOrder
         {
             Id = 1,
-            OutboundOrderStatus = new OutboundOrderStatus { Name = "PACKED" },
+            OutboundOrderStatus = new OutboundOrderStatus { Name = "Đã đóng gói", Code = OutboundOrderStatusNames.Packed },
             OutboundOrderItems = new List<OutboundOrderItem> { item }
         };
 
@@ -97,7 +98,7 @@ public class OutboundOrderServiceTests
             It.IsAny<System.Linq.Expressions.Expression<System.Func<OutboundOrderStatus, bool>>>(),
             It.IsAny<bool>(),
             It.IsAny<System.Linq.Expressions.Expression<System.Func<OutboundOrderStatus, object>>[]>()))
-            .ReturnsAsync(new OutboundOrderStatus { Id = 3, Name = "Dispatched" });
+            .ReturnsAsync(new OutboundOrderStatus { Id = 3, Name = "Đang giao hàng", Code = OutboundOrderStatusNames.Dispatched });
 
         // Act
         var result = await Sut().ConfirmDispatchAsync(1, new Backend.Application.DTOs.OutboundOrders.ConfirmDispatchDto());

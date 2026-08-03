@@ -30,14 +30,6 @@ public class ReturnToSupplierOrderService : IReturnToSupplierOrderService
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<ReturnToSupplierOrderService> _logger;
 
-    private static class StatusNames
-    {
-        public const string Draft = "Chờ duyệt";
-        public const string Approved = "Đã duyệt";
-        public const string Completed = "Hoàn thành";
-        public const string Cancelled = "Đã huỷ";
-    }
-
     private readonly IScheduledJobService? _scheduledJobService;
 
     public ReturnToSupplierOrderService(
@@ -55,14 +47,15 @@ public class ReturnToSupplierOrderService : IReturnToSupplierOrderService
     private int GetCurrentUserId() => _httpContextAccessor.HttpContext?.GetCurrentUserId() ?? 1;
 
     /// <summary>Lazy-seed trạng thái (bảng ReturnToSupplierOrderStatus chưa có dữ liệu seed).</summary>
-    private async Task<ReturnToSupplierOrderStatus> EnsureStatusAsync(string name, string color, CancellationToken ct)
+    private async Task<ReturnToSupplierOrderStatus> EnsureStatusAsync(string code, string name, string color, CancellationToken ct)
     {
         var st = await _context.ReturnToSupplierOrderStatuses
-            .FirstOrDefaultAsync(x => x.Name == name && !x.IsDeleted, ct);
+            .FirstOrDefaultAsync(x => x.Code == code && !x.IsDeleted, ct);
         if (st == null)
         {
             st = new ReturnToSupplierOrderStatus
             {
+                Code = code,
                 Name = name,
                 Color = color,
                 CreatedBy = GetCurrentUserId(),
@@ -103,7 +96,7 @@ public class ReturnToSupplierOrderService : IReturnToSupplierOrderService
             returnCode = $"{baseCode}-{(cnt + 1 + attempts):D6}";
         }
 
-        var draft = await EnsureStatusAsync(StatusNames.Draft, "#f59e0b", cancellationToken);
+        var draft = await EnsureStatusAsync(ReturnToSupplierOrderStatusNames.Draft, "Chờ duyệt", "#f59e0b", cancellationToken);
 
         var order = new ReturnToSupplierOrder
         {
@@ -145,10 +138,10 @@ public class ReturnToSupplierOrderService : IReturnToSupplierOrderService
             .FirstOrDefaultAsync(o => o.Id == id && !o.IsDeleted, cancellationToken);
         if (order == null) return ApiResponse.NotFound(message: "Không tìm thấy đơn trả hàng.");
 
-        if (order.ReturnToSupplierOrderStatus.Name != StatusNames.Draft)
+        if (order.ReturnToSupplierOrderStatus.Code != ReturnToSupplierOrderStatusNames.Draft)
             return ApiResponse.UnprocessableEntity("Chỉ duyệt đơn đang ở trạng thái Chờ duyệt.");
 
-        var approved = await EnsureStatusAsync(StatusNames.Approved, "#3b82f6", cancellationToken);
+        var approved = await EnsureStatusAsync(ReturnToSupplierOrderStatusNames.Approved, "Đã duyệt", "#3b82f6", cancellationToken);
         order.ReturnToSupplierOrderStatusId = approved.Id;
         order.ApprovedDate = DateTimeHelper.VietnamNow();
         order.ApprovedBy = GetCurrentUserId();
@@ -169,13 +162,13 @@ public class ReturnToSupplierOrderService : IReturnToSupplierOrderService
             .FirstOrDefaultAsync(o => o.Id == id && !o.IsDeleted, cancellationToken);
         if (order == null) return ApiResponse.NotFound(message: "Không tìm thấy đơn trả hàng.");
 
-        var curName = order.ReturnToSupplierOrderStatus.Name;
-        if (curName == StatusNames.Completed)
+        var curCode = order.ReturnToSupplierOrderStatus.Code;
+        if (curCode == ReturnToSupplierOrderStatusNames.Completed)
             return ApiResponse.BadRequest(message: "Đơn trả hàng đã hoàn thành trước đó.", code: "RTS_ALREADY_COMPLETED");
-        if (curName != StatusNames.Draft && curName != StatusNames.Approved)
+        if (curCode != ReturnToSupplierOrderStatusNames.Draft && curCode != ReturnToSupplierOrderStatusNames.Approved)
             return ApiResponse.UnprocessableEntity("Chỉ xác nhận đơn đang ở trạng thái Chờ duyệt hoặc Đã duyệt.");
 
-        var completed = await EnsureStatusAsync(StatusNames.Completed, "#16a34a", cancellationToken);
+        var completed = await EnsureStatusAsync(ReturnToSupplierOrderStatusNames.Completed, "Hoàn thành", "#16a34a", cancellationToken);
         var now = DateTimeHelper.VietnamNow();
         var userId = GetCurrentUserId();
 
@@ -353,11 +346,11 @@ public class ReturnToSupplierOrderService : IReturnToSupplierOrderService
             .FirstOrDefaultAsync(o => o.Id == id && !o.IsDeleted, cancellationToken);
         if (order == null) return ApiResponse.NotFound(message: "Không tìm thấy đơn trả hàng.");
 
-        var curName = order.ReturnToSupplierOrderStatus.Name;
-        if (curName != StatusNames.Draft && curName != StatusNames.Approved)
+        var curCode = order.ReturnToSupplierOrderStatus.Code;
+        if (curCode != ReturnToSupplierOrderStatusNames.Draft && curCode != ReturnToSupplierOrderStatusNames.Approved)
             return ApiResponse.UnprocessableEntity("Chỉ huỷ đơn đang ở trạng thái Chờ duyệt hoặc Đã duyệt.");
 
-        var cancelled = await EnsureStatusAsync(StatusNames.Cancelled, "#ef4444", cancellationToken);
+        var cancelled = await EnsureStatusAsync(ReturnToSupplierOrderStatusNames.Cancelled, "Đã huỷ", "#ef4444", cancellationToken);
         order.ReturnToSupplierOrderStatusId = cancelled.Id;
         order.Note = string.IsNullOrWhiteSpace(order.Note) ? $"Huỷ: {reason}" : $"{order.Note} | Huỷ: {reason}";
         order.UpdatedBy = GetCurrentUserId();

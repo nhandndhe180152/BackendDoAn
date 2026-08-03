@@ -1096,7 +1096,7 @@ public class QualityInspectionService : IQualityInspectionService
         if (lines.Count == 0) return;
 
         var draftStatus = await _context.InboundOrderStatuses
-            .FirstOrDefaultAsync(x => x.Name == InboundOrderStatusNames.Draft && !x.IsDeleted)
+            .FirstOrDefaultAsync(x => x.Code == InboundOrderStatusNames.Draft && !x.IsDeleted)
             ?? await _context.InboundOrderStatuses.FirstOrDefaultAsync(x => !x.IsDeleted)
             ?? throw new InvalidOperationException("Không tìm thấy InboundOrderStatus trong hệ thống.");
 
