@@ -63,16 +63,16 @@ public class PurchaseOrderService : IPurchaseOrderService
     private int GetCurrentUserId()
         => _httpContextAccessor.HttpContext?.GetCurrentUserId() ?? 0;
 
-    private async Task<int> GetPoStatusIdAsync(string name)
+    private async Task<int> GetPoStatusIdAsync(string code)
     {
-        var s = await _purchaseOrderStatusRepository.FirstOrDefaultAsync(x => x.Name == name && !x.IsDeleted);
-        return s?.Id ?? throw new InvalidOperationException($"PurchaseOrderStatus '{name}' not found.");
+        var s = await _purchaseOrderStatusRepository.FirstOrDefaultAsync(x => x.Code == code && !x.IsDeleted);
+        return s?.Id ?? throw new InvalidOperationException($"PurchaseOrderStatus with code '{code}' not found.");
     }
 
-    private async Task<int> GetInboundStatusIdAsync(string name)
+    private async Task<int> GetInboundStatusIdAsync(string code)
     {
-        var s = await _inboundOrderStatusRepository.FirstOrDefaultAsync(x => x.Name == name && !x.IsDeleted);
-        return s?.Id ?? throw new InvalidOperationException($"InboundOrderStatus '{name}' not found.");
+        var s = await _inboundOrderStatusRepository.FirstOrDefaultAsync(x => x.Code == code && !x.IsDeleted);
+        return s?.Id ?? throw new InvalidOperationException($"InboundOrderStatus with code '{code}' not found.");
     }
 
     private async Task<PurchaseOrder?> LoadDetailAsync(int id)
@@ -289,7 +289,7 @@ public class PurchaseOrderService : IPurchaseOrderService
         if (po == null)
             return ApiResponse.NotFound("Không tìm thấy đơn mua.", ApiCodeConstants.PurchaseOrder.NotFound);
 
-        if (po.Status?.Name != PurchaseOrderStatusNames.Draft)
+        if (po.Status?.Code != PurchaseOrderStatusNames.Draft)
             return ApiResponse.Conflict("Chỉ có thể chỉnh sửa đơn mua ở trạng thái Draft.",
                 ApiCodeConstants.PurchaseOrder.InvalidState);
 
@@ -341,7 +341,7 @@ public class PurchaseOrderService : IPurchaseOrderService
         if (po == null)
             return ApiResponse.NotFound("Không tìm thấy đơn mua.", ApiCodeConstants.PurchaseOrder.NotFound);
 
-        if (po.Status?.Name != PurchaseOrderStatusNames.Draft)
+        if (po.Status?.Code != PurchaseOrderStatusNames.Draft)
             return ApiResponse.Conflict(
                 $"Đơn mua đang ở trạng thái '{po.Status?.Name}', không thể xác nhận.",
                 ApiCodeConstants.PurchaseOrder.InvalidState);
@@ -376,7 +376,7 @@ public class PurchaseOrderService : IPurchaseOrderService
             PurchaseOrderStatusNames.Confirmed,
             PurchaseOrderStatusNames.PartiallyReceived
         };
-        if (!allowedStates.Contains(po.Status?.Name))
+        if (!allowedStates.Contains(po.Status?.Code))
             return ApiResponse.Conflict(
                 $"Đơn mua phải ở trạng thái Confirmed hoặc PartiallyReceived để tạo phiếu nhập. Hiện tại: '{po.Status?.Name}'.",
                 ApiCodeConstants.PurchaseOrder.InvalidState);
@@ -474,7 +474,7 @@ public class PurchaseOrderService : IPurchaseOrderService
             PurchaseOrderStatusNames.Draft,
             PurchaseOrderStatusNames.Confirmed
         };
-        if (!cancellableStates.Contains(po.Status?.Name))
+        if (!cancellableStates.Contains(po.Status?.Code))
             return ApiResponse.Conflict(
                 $"Không thể hủy đơn mua ở trạng thái '{po.Status?.Name}'.",
                 ApiCodeConstants.PurchaseOrder.InvalidState);

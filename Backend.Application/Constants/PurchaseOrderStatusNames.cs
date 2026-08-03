@@ -5,9 +5,9 @@ namespace Backend.Application.Constants;
 /// </summary>
 public static class PurchaseOrderStatusNames
 {
-    public const string Draft             = "Draft";
-    public const string Confirmed         = "Confirmed";
-    public const string PartiallyReceived = "PartiallyReceived";
-    public const string Received          = "Received";
-    public const string Cancelled         = "Cancelled";
+    public const string Draft             = "DRAFT";
+    public const string Confirmed         = "CONFIRMED";
+    public const string PartiallyReceived = "PARTIALLY_RECEIVED";
+    public const string Received          = "RECEIVED";
+    public const string Cancelled         = "CANCELLED";
 }

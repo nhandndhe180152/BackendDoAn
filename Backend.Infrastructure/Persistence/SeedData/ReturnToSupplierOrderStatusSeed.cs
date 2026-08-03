@@ -14,10 +14,10 @@ public static class ReturnToSupplierOrderStatusSeed
     {
         return new[]
         {
-            new ReturnToSupplierOrderStatus { Id = 1, Name = "Chờ duyệt",  Color = "#F59E0B", CreatedDate = new DateTime(2026, 1, 1) },
-            new ReturnToSupplierOrderStatus { Id = 2, Name = "Đã duyệt",   Color = "#3B82F6", CreatedDate = new DateTime(2026, 1, 1) },
-            new ReturnToSupplierOrderStatus { Id = 3, Name = "Hoàn thành", Color = "#16A34A", CreatedDate = new DateTime(2026, 1, 1) },
-            new ReturnToSupplierOrderStatus { Id = 4, Name = "Đã huỷ",     Color = "#EF4444", CreatedDate = new DateTime(2026, 1, 1) },
+            new ReturnToSupplierOrderStatus { Id = 1, Name = "Chờ duyệt",  Code = "DRAFT",     Color = "#F59E0B", CreatedDate = new DateTime(2026, 1, 1) },
+            new ReturnToSupplierOrderStatus { Id = 2, Name = "Đã duyệt",   Code = "APPROVED",  Color = "#3B82F6", CreatedDate = new DateTime(2026, 1, 1) },
+            new ReturnToSupplierOrderStatus { Id = 3, Name = "Hoàn thành", Code = "COMPLETED", Color = "#16A34A", CreatedDate = new DateTime(2026, 1, 1) },
+            new ReturnToSupplierOrderStatus { Id = 4, Name = "Đã huỷ",     Code = "CANCELLED", Color = "#EF4444", CreatedDate = new DateTime(2026, 1, 1) },
         };
     }
 }

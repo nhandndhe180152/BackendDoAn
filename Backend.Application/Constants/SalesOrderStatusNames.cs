@@ -5,12 +5,12 @@ namespace Backend.Application.Constants;
 /// </summary>
 public static class SalesOrderStatusNames
 {
-    public const string New              = "Mới tạo";
-    public const string PendingConfirm   = "Chờ xác nhận";
-    public const string Reserved         = "Đã giữ hàng";
-    public const string AwaitingMilling  = "Chờ xay";
-    public const string Preparing        = "Đang chuẩn bị";
-    public const string Delivering       = "Đang giao";
-    public const string Completed        = "Hoàn tất";
-    public const string Cancelled        = "Hủy";
+    public const string New              = "NEW";
+    public const string PendingConfirm   = "PENDING_CONFIRM";
+    public const string Reserved         = "RESERVED";
+    public const string AwaitingMilling  = "AWAITING_MILLING";
+    public const string Preparing        = "PREPARING";
+    public const string Delivering       = "DELIVERING";
+    public const string Completed        = "COMPLETED";
+    public const string Cancelled        = "CANCELLED";
 }

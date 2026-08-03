@@ -709,7 +709,7 @@ public class PutawaySuggestionServiceTests
                 It.IsAny<Expression<Func<InboundOrderStatus, bool>>>(),
                 It.IsAny<bool>(),
                 It.IsAny<Expression<Func<InboundOrderStatus, object>>[]>()))
-            .ReturnsAsync(new InboundOrderStatus { Id = 1, Name = InboundOrderStatusNames.Confirmed });
+            .ReturnsAsync(new InboundOrderStatus { Id = 1, Name = "Đã nhận hàng", Code = InboundOrderStatusNames.Confirmed });
 
         productVariantRepoMock.Setup(r => r.FindByCondition(
                 It.IsAny<Expression<Func<ProductVariant, bool>>>(),
@@ -770,204 +770,6 @@ public class PutawaySuggestionServiceTests
         scheduleRepoMock.Verify(r => r.UpdateAsync(It.Is<Backend.Domain.Entities.PaddyPurchaseSchedule>(s => s.StatusId == 4)), Times.Once);
     }
 
-    [Fact(Skip = "Legacy buffer-zone expectation removed by the direct Rice Purchase store-in flow.")]
-    [Trait("Service", "Putaway")]
-    public async Task Test_ConfirmStoreIn_ToànBộ_KhuĐệmVề0_VịTríThậtTăngĐúng_LịchSTOCKED()
-    {
-        var schedule = new Backend.Domain.Entities.PaddyPurchaseSchedule { Id = 100, StatusId = 4 }; // 4 = WEIGHED
-        _paddyPurchaseSchedules.Add(schedule);
-
-        _paddyPurchaseScheduleStatuses.Add(new Backend.Domain.Entities.PaddyPurchaseScheduleStatus { Id = 4, Code = "WEIGHED" });
-        _paddyPurchaseScheduleStatuses.Add(new Backend.Domain.Entities.PaddyPurchaseScheduleStatus { Id = 5, Code = "STOCKED" });
-        _paddyPurchaseScheduleStatuses.Add(new Backend.Domain.Entities.PaddyPurchaseScheduleStatus { Id = 7, Code = "PARTIALLY_STOCKED" });
-
-        var receipt = new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1, ActualWeightKg = 1000, ScheduleId = 100 };
-        _paddyPurchaseReceipts.Add(receipt);
-
-        var lot = new Backend.Domain.Entities.PaddyLot { Id = 30, SourceReceiptId = 10, ProductVariantId = 2, WarehouseId = 1 };
-        _paddyLots.Add(lot);
-
-        _productVariants.Add(new ProductVariant { Id = 2 });
-        _locations.Add(new Location { Id = 101, WarehouseId = 1, IsActive = true });
-
-        // Buffer inventory: QuantityOnHand = 1000
-        var bufferInv = new Backend.Domain.Entities.Inventory
-        {
-            Id = 50,
-            WarehouseId = 1,
-            LocationId = null,
-            ProductVariantId = 2,
-            PaddyLotId = 30,
-            QuantityOnHand = 1000,
-            CostPrice = 10
-        };
-        _inventories.Add(bufferInv);
-
-        _locationRepositoryMock
-            .Setup(r => r.UpdateCapacitySafetyAsync(101, 1, 1000, 2, It.IsAny<bool>(), 1))
-            .ReturnsAsync(1);
-
-        var request = new ConfirmStoreInRequest
-        {
-            ProductVariantId = 2,
-            SelectedLocationId = 101,
-            SuggestedLocationId = 101,
-            WeightKg = 1000,
-            PaddyLotId = 30
-        };
-
-        var result = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 10, request, CancellationToken.None);
-
-        result.IsSucceeded.Should().BeTrue();
-        bufferInv.QuantityOnHand.Should().Be(0); // buffer is now empty
-
-        var realInv = _inventories.FirstOrDefault(x => x.LocationId == 101);
-        realInv.Should().NotBeNull();
-        realInv.QuantityOnHand.Should().Be(1000);
-        realInv.CostPrice.Should().Be(10); // cost price preserved
-
-        schedule.StatusId.Should().Be(5); // STOCKED
-    }
-
-    [Fact(Skip = "Legacy buffer-zone expectation removed by the direct Rice Purchase store-in flow.")]
-    [Trait("Service", "Putaway")]
-    public async Task Test_ConfirmStoreIn_MộtPhần_TổngTồnKhôngĐổi_LịchPARTIALLY_STOCKED()
-    {
-        var schedule = new Backend.Domain.Entities.PaddyPurchaseSchedule { Id = 100, StatusId = 4 };
-        _paddyPurchaseSchedules.Add(schedule);
-
-        _paddyPurchaseScheduleStatuses.Add(new Backend.Domain.Entities.PaddyPurchaseScheduleStatus { Id = 4, Code = "WEIGHED" });
-        _paddyPurchaseScheduleStatuses.Add(new Backend.Domain.Entities.PaddyPurchaseScheduleStatus { Id = 5, Code = "STOCKED" });
-        _paddyPurchaseScheduleStatuses.Add(new Backend.Domain.Entities.PaddyPurchaseScheduleStatus { Id = 7, Code = "PARTIALLY_STOCKED" });
-
-        var receipt = new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1, ActualWeightKg = 1000, ScheduleId = 100 };
-        _paddyPurchaseReceipts.Add(receipt);
-
-        var lot = new Backend.Domain.Entities.PaddyLot { Id = 30, SourceReceiptId = 10, ProductVariantId = 2, WarehouseId = 1 };
-        _paddyLots.Add(lot);
-
-        _productVariants.Add(new ProductVariant { Id = 2 });
-        _locations.Add(new Location { Id = 101, WarehouseId = 1, IsActive = true });
-
-        var bufferInv = new Backend.Domain.Entities.Inventory
-        {
-            Id = 50,
-            WarehouseId = 1,
-            LocationId = null,
-            ProductVariantId = 2,
-            PaddyLotId = 30,
-            QuantityOnHand = 1000,
-            CostPrice = 10
-        };
-        _inventories.Add(bufferInv);
-
-        _locationRepositoryMock
-            .Setup(r => r.UpdateCapacitySafetyAsync(101, 1, 400, 2, It.IsAny<bool>(), 1))
-            .ReturnsAsync(1);
-
-        var request = new ConfirmStoreInRequest
-        {
-            ProductVariantId = 2,
-            SelectedLocationId = 101,
-            SuggestedLocationId = 101,
-            WeightKg = 400,
-            PaddyLotId = 30
-        };
-
-        var result = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 10, request, CancellationToken.None);
-
-        result.IsSucceeded.Should().BeTrue();
-        bufferInv.QuantityOnHand.Should().Be(600); // 1000 - 400
-
-        foreach (var item in _inventories)
-        {
-            System.Console.WriteLine($"[DEBUG] Inventory: Id={item.Id}, LocationId={item.LocationId}, Qty={item.QuantityOnHand}");
-        }
-
-        var realInv = _inventories.FirstOrDefault(x => x.LocationId == 101);
-        realInv.Should().NotBeNull();
-        realInv.QuantityOnHand.Should().Be(400);
-
-        var totalQty = bufferInv.QuantityOnHand + realInv.QuantityOnHand;
-        totalQty.Should().Be(1000); // total stock preserved
-
-        schedule.StatusId.Should().Be(7); // PARTIALLY_STOCKED
-    }
-
-    [Fact(Skip = "Legacy buffer-zone expectation removed by the direct Rice Purchase store-in flow.")]
-    [Trait("Service", "Putaway")]
-    public async Task Test_ConfirmStoreIn_ChiaNhiềuVịTrí()
-    {
-        var schedule = new Backend.Domain.Entities.PaddyPurchaseSchedule { Id = 100, StatusId = 4 };
-        _paddyPurchaseSchedules.Add(schedule);
-
-        _paddyPurchaseScheduleStatuses.Add(new Backend.Domain.Entities.PaddyPurchaseScheduleStatus { Id = 4, Code = "WEIGHED" });
-        _paddyPurchaseScheduleStatuses.Add(new Backend.Domain.Entities.PaddyPurchaseScheduleStatus { Id = 7, Code = "PARTIALLY_STOCKED" });
-
-        var receipt = new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1, ActualWeightKg = 1000, ScheduleId = 100 };
-        _paddyPurchaseReceipts.Add(receipt);
-
-        var lot = new Backend.Domain.Entities.PaddyLot { Id = 30, SourceReceiptId = 10, ProductVariantId = 2, WarehouseId = 1 };
-        _paddyLots.Add(lot);
-
-        _productVariants.Add(new ProductVariant { Id = 2 });
-        _locations.Add(new Location { Id = 101, WarehouseId = 1, IsActive = true });
-        _locations.Add(new Location { Id = 102, WarehouseId = 1, IsActive = true });
-
-        var bufferInv = new Backend.Domain.Entities.Inventory
-        {
-            Id = 50,
-            WarehouseId = 1,
-            LocationId = null,
-            ProductVariantId = 2,
-            PaddyLotId = 30,
-            QuantityOnHand = 1000,
-            CostPrice = 10
-        };
-        _inventories.Add(bufferInv);
-
-        _locationRepositoryMock
-            .Setup(r => r.UpdateCapacitySafetyAsync(101, 1, 300, 2, It.IsAny<bool>(), 1))
-            .ReturnsAsync(1);
-        _locationRepositoryMock
-            .Setup(r => r.UpdateCapacitySafetyAsync(102, 1, 500, 2, It.IsAny<bool>(), 1))
-            .ReturnsAsync(1);
-
-        // Store 300 to Location 101
-        var request1 = new ConfirmStoreInRequest
-        {
-            ProductVariantId = 2,
-            SelectedLocationId = 101,
-            SuggestedLocationId = 101,
-            WeightKg = 300,
-            PaddyLotId = 30
-        };
-        var res1 = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 10, request1, CancellationToken.None);
-        res1.IsSucceeded.Should().BeTrue();
-
-        // Store 500 to Location 102
-        var request2 = new ConfirmStoreInRequest
-        {
-            ProductVariantId = 2,
-            SelectedLocationId = 102,
-            SuggestedLocationId = 102,
-            WeightKg = 500,
-            PaddyLotId = 30
-        };
-        var res2 = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 10, request2, CancellationToken.None);
-        res2.IsSucceeded.Should().BeTrue();
-
-        bufferInv.QuantityOnHand.Should().Be(200); // 1000 - 300 - 500
-
-        var real1 = _inventories.FirstOrDefault(x => x.LocationId == 101);
-        var real2 = _inventories.FirstOrDefault(x => x.LocationId == 102);
-
-        real1.QuantityOnHand.Should().Be(300);
-        real2.QuantityOnHand.Should().Be(500);
-
-        schedule.StatusId.Should().Be(7); // PARTIALLY_STOCKED
-    }
-
     [Fact]
     [Trait("Service", "Putaway")]
     public async Task Test_ConfirmStoreIn_ThiếuPaddyLotId_TrảLỗi()
@@ -990,7 +792,7 @@ public class PutawaySuggestionServiceTests
     [Trait("Service", "Putaway")]
     public async Task Test_ConfirmStoreIn_PaddyLotIdKhôngThuộcPhiếu_TrảLỗi()
     {
-        _locations.Add(new Location { Id = 101, WarehouseId = 1, IsActive = true });
+        _locations.Add(new Location { Id = 101, WarehouseId = 1, MaxCapacity = 2000, IsActive = true });
         _paddyPurchaseReceipts.Add(new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1 });
         // Lot belongs to receipt 99
         _paddyLots.Add(new Backend.Domain.Entities.PaddyLot { Id = 30, SourceReceiptId = 99, WarehouseId = 1, ProductVariantId = 2 });
@@ -1007,63 +809,6 @@ public class PutawaySuggestionServiceTests
 
         result.Status.Should().Be((int)HttpStatusCode.Conflict);
         result.Message.Should().Contain("không thuộc về phiếu thu mua này");
-    }
-
-    [Fact(Skip = "A buffer inventory is intentionally no longer required.")]
-    [Trait("Service", "Putaway")]
-    public async Task Test_ConfirmStoreIn_KhôngTìmThấyTồnKhuĐệm_KhôngTăngTồnVịTrí()
-    {
-        _locations.Add(new Location { Id = 101, WarehouseId = 1, IsActive = true });
-        _paddyPurchaseReceipts.Add(new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1, ActualWeightKg = 1000 });
-        _paddyLots.Add(new Backend.Domain.Entities.PaddyLot { Id = 30, SourceReceiptId = 10, WarehouseId = 1, ProductVariantId = 2 });
-
-        // No inventory record for buffer zone
-
-        var request = new ConfirmStoreInRequest
-        {
-            ProductVariantId = 2,
-            SelectedLocationId = 101,
-            WeightKg = 100,
-            PaddyLotId = 30
-        };
-
-        var result = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 10, request, CancellationToken.None);
-
-        result.Status.Should().Be((int)HttpStatusCode.Conflict);
-        result.Message.Should().Contain("tồn kho đệm");
-    }
-
-    [Fact(Skip = "A buffer inventory is intentionally no longer used as the remaining-weight source.")]
-    [Trait("Service", "Putaway")]
-    public async Task Test_ConfirmStoreIn_TồnKhuĐệmKhôngĐủ_Rollback()
-    {
-        _locations.Add(new Location { Id = 101, WarehouseId = 1, IsActive = true });
-        _paddyPurchaseReceipts.Add(new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1, ActualWeightKg = 1000 });
-        _paddyLots.Add(new Backend.Domain.Entities.PaddyLot { Id = 30, SourceReceiptId = 10, WarehouseId = 1, ProductVariantId = 2 });
-
-        // Buffer has only 200kg
-        var bufferInv = new Backend.Domain.Entities.Inventory
-        {
-            WarehouseId = 1,
-            LocationId = null,
-            ProductVariantId = 2,
-            PaddyLotId = 30,
-            QuantityOnHand = 200
-        };
-        _inventories.Add(bufferInv);
-
-        var request = new ConfirmStoreInRequest
-        {
-            ProductVariantId = 2,
-            SelectedLocationId = 101,
-            WeightKg = 300, // demands 300kg (insufficient)
-            PaddyLotId = 30
-        };
-
-        var result = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 10, request, CancellationToken.None);
-
-        result.Status.Should().Be((int)HttpStatusCode.Conflict);
-        result.Message.Should().Contain("không đủ để chuyển đi");
     }
 
     [Fact]
@@ -1123,65 +868,6 @@ public class PutawaySuggestionServiceTests
         result.Message.Should().Contain("đã được nhập kho đầy đủ");
     }
 
-    [Fact(Skip = "Legacy cost transfer from buffer removed; cost now comes directly from PaddyLot.")]
-    [Trait("Service", "Putaway")]
-    public async Task Test_ConfirmStoreIn_GiáVốnChuyểnĐúng_BảoToànTổngGiáTrị()
-    {
-        _locations.Add(new Location { Id = 101, WarehouseId = 1, IsActive = true });
-        _paddyPurchaseReceipts.Add(new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1, ActualWeightKg = 1500 });
-        _paddyLots.Add(new Backend.Domain.Entities.PaddyLot { Id = 30, SourceReceiptId = 10, WarehouseId = 1, ProductVariantId = 2 });
-
-        // Buffer has 1000kg with cost price 12.5
-        var buffer = new Backend.Domain.Entities.Inventory
-        {
-            WarehouseId = 1,
-            LocationId = null,
-            ProductVariantId = 2,
-            PaddyLotId = 30,
-            QuantityOnHand = 1000,
-            CostPrice = 12.5m
-        };
-        _inventories.Add(buffer);
-
-        // Real location has 500kg with cost price 10.0
-        var real = new Backend.Domain.Entities.Inventory
-        {
-            WarehouseId = 1,
-            LocationId = 101,
-            ProductVariantId = 2,
-            PaddyLotId = 30,
-            QuantityOnHand = 500,
-            CostPrice = 10.0m
-        };
-        _inventories.Add(real);
-
-        _locationRepositoryMock
-            .Setup(r => r.UpdateCapacitySafetyAsync(101, 1, 500, 2, It.IsAny<bool>(), 1))
-            .ReturnsAsync(1);
-
-        var request = new ConfirmStoreInRequest
-        {
-            ProductVariantId = 2,
-            SelectedLocationId = 101,
-            WeightKg = 500,
-            PaddyLotId = 30
-        };
-
-        var result = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 10, request, CancellationToken.None);
-
-        result.IsSucceeded.Should().BeTrue();
-
-        // Value calculations check
-        // Real cost price = ((500 * 10.0) + (500 * 12.5)) / 1000 = 11.25
-        real.CostPrice.Should().Be(11.25m);
-        real.QuantityOnHand.Should().Be(1000);
-        buffer.QuantityOnHand.Should().Be(500);
-
-        var totalBefore = (1000 * 12.5m) + (500 * 10.0m); // 17500
-        var totalAfter = (buffer.QuantityOnHand * buffer.CostPrice) + (real.QuantityOnHand * real.CostPrice); // 500 * 12.5 + 1000 * 11.25 = 6250 + 11250 = 17500
-        totalAfter.Should().Be(totalBefore);
-    }
-
     [Fact]
     [Trait("Service", "Putaway")]
     public async Task Test_ConfirmStoreIn_LỗiBấtKỳBướcNào_RollbackToànBộ()
@@ -1220,55 +906,7 @@ public class PutawaySuggestionServiceTests
         result.Message.Should().Contain("Lỗi xác nhận nhập kho");
     }
 
-    [Fact(Skip = "Legacy multi-receipt buffer fixture; covered by direct-flow progress tests.")]
-    [Trait("Service", "Putaway")]
-    public async Task Test_ConfirmStoreIn_NhiềuPhiếuCùngLịch_ChỉSTOCKEDKhiTấtCảĐủ()
-    {
-        var schedule = new Backend.Domain.Entities.PaddyPurchaseSchedule { Id = 100, StatusId = 4 };
-        _paddyPurchaseSchedules.Add(schedule);
-
-        _paddyPurchaseScheduleStatuses.Add(new Backend.Domain.Entities.PaddyPurchaseScheduleStatus { Id = 4, Code = "WEIGHED" });
-        _paddyPurchaseScheduleStatuses.Add(new Backend.Domain.Entities.PaddyPurchaseScheduleStatus { Id = 5, Code = "STOCKED" });
-        _paddyPurchaseScheduleStatuses.Add(new Backend.Domain.Entities.PaddyPurchaseScheduleStatus { Id = 7, Code = "PARTIALLY_STOCKED" });
-
-        // Two receipts associated with schedule 100
-        var r1 = new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1, ActualWeightKg = 1000, ScheduleId = 100 };
-        var r2 = new PaddyPurchaseReceipt { Id = 11, WarehouseId = 1, ActualWeightKg = 1000, ScheduleId = 100 };
-        _paddyPurchaseReceipts.Add(r1);
-        _paddyPurchaseReceipts.Add(r2);
-
-        _paddyLots.Add(new Backend.Domain.Entities.PaddyLot { Id = 30, SourceReceiptId = 10, WarehouseId = 1, ProductVariantId = 2 });
-        _paddyLots.Add(new Backend.Domain.Entities.PaddyLot { Id = 31, SourceReceiptId = 11, WarehouseId = 1, ProductVariantId = 2 });
-
-        _locations.Add(new Location { Id = 101, WarehouseId = 1, IsActive = true });
-        _productVariants.Add(new ProductVariant { Id = 2 });
-
-        _inventories.Add(new Backend.Domain.Entities.Inventory { WarehouseId = 1, LocationId = null, ProductVariantId = 2, PaddyLotId = 30, QuantityOnHand = 1000 });
-        _inventories.Add(new Backend.Domain.Entities.Inventory { WarehouseId = 1, LocationId = null, ProductVariantId = 2, PaddyLotId = 31, QuantityOnHand = 1000 });
-
-        _locationRepositoryMock
-            .Setup(r => r.UpdateCapacitySafetyAsync(101, 1, 1000, 2, It.IsAny<bool>(), 1))
-            .ReturnsAsync(1);
-
-        // Store-in fully for r1
-        var request1 = new ConfirmStoreInRequest { ProductVariantId = 2, SelectedLocationId = 101, WeightKg = 1000, PaddyLotId = 30 };
-        var res1 = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 10, request1, CancellationToken.None);
-
-        res1.IsSucceeded.Should().BeTrue();
-        schedule.StatusId.Should().Be(7); // PARTIALLY_STOCKED because r2 is not yet stored!
-
-        // Mock next save changes and decision records
-        _decisions.Add(new PutawayDecision { ReferenceType = "PADDY_PURCHASE", ReferenceId = 10, RequiredWeightKg = 1000 });
-
-        // Store-in fully for r2
-        var request2 = new ConfirmStoreInRequest { ProductVariantId = 2, SelectedLocationId = 101, WeightKg = 1000, PaddyLotId = 31 };
-        var res2 = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 11, request2, CancellationToken.None);
-
-        res2.IsSucceeded.Should().BeTrue();
-        schedule.StatusId.Should().Be(5); // STOCKED (both receipts completed)
-    }
-
-    [Fact(Skip = "Legacy buffer fixture; cancellation behavior remains in the service.")]
+    [Fact]
     [Trait("Service", "Putaway")]
     public async Task Test_ConfirmStoreIn_LịchCANCELLED_KhôngThayĐổiTrạngThái()
     {
@@ -1281,21 +919,19 @@ public class PutawaySuggestionServiceTests
         var receipt = new PaddyPurchaseReceipt { Id = 10, WarehouseId = 1, ActualWeightKg = 1000, ScheduleId = 100 };
         _paddyPurchaseReceipts.Add(receipt);
 
-        var lot = new Backend.Domain.Entities.PaddyLot { Id = 30, SourceReceiptId = 10, ProductVariantId = 2, WarehouseId = 1 };
+        var lot = new Backend.Domain.Entities.PaddyLot
+        {
+            Id = 30,
+            SourceReceiptId = 10,
+            ProductVariantId = 2,
+            WarehouseId = 1,
+            InitialWeightKg = 1000,
+            CostPricePerKg = 10
+        };
         _paddyLots.Add(lot);
 
         _productVariants.Add(new ProductVariant { Id = 2 });
-        _locations.Add(new Location { Id = 101, WarehouseId = 1, IsActive = true });
-
-        var bufferInv = new Backend.Domain.Entities.Inventory
-        {
-            WarehouseId = 1,
-            LocationId = null,
-            ProductVariantId = 2,
-            PaddyLotId = 30,
-            QuantityOnHand = 1000
-        };
-        _inventories.Add(bufferInv);
+        _locations.Add(new Location { Id = 101, WarehouseId = 1, MaxCapacity = 2000, IsActive = true });
 
         _locationRepositoryMock
             .Setup(r => r.UpdateCapacitySafetyAsync(101, 1, 1000, 2, It.IsAny<bool>(), 1))
@@ -1311,7 +947,12 @@ public class PutawaySuggestionServiceTests
 
         var result = await Sut().ConfirmStoreInAsync("PADDY_PURCHASE", 10, request, CancellationToken.None);
 
-        result.IsSucceeded.Should().BeTrue();
+        result.IsSucceeded.Should().BeTrue(result.Message);
         schedule.StatusId.Should().Be(6); // kept CANCELLED, not modified
+        _inventories.Should().ContainSingle(x =>
+            x.LocationId == 101 &&
+            x.PaddyLotId == 30 &&
+            x.QuantityOnHand == 1000);
+        _inventories.Should().NotContain(x => x.LocationId == null);
     }
 }

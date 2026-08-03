@@ -1,12 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Backend.Application.DTOs.PurchaseOrders;
+using Backend.Application.Constants;
 using Backend.Application.Implements;
 using Backend.Application.Interfaces;
 using Backend.Domain.Abstractions.Repositories;
 using Backend.Domain.Entities;
+using Backend.UnitTest.Fixtures;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Moq;
@@ -61,5 +64,39 @@ public class PurchaseOrderServiceTests
         var result = await Sut().CreateAsync(dto);
 
         result.Status.Should().Be(422);
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_LocalizedName_ResolvesNextStatusByCode()
+    {
+        var order = new PurchaseOrder
+        {
+            Id = 1,
+            POCode = "PO-1",
+            Status = new PurchaseOrderStatus { Id = 1, Name = "Nháp", Code = PurchaseOrderStatusNames.Draft },
+            PurchaseOrderItems = new List<PurchaseOrderItem>()
+        };
+        _poRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<PurchaseOrder, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<PurchaseOrder, object>>[]>()))
+            .Returns(new[] { order }.AsQueryable().BuildMock());
+        _poStatusRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<PurchaseOrderStatus, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<PurchaseOrderStatus, object>>[]>()))
+            .ReturnsAsync((Expression<Func<PurchaseOrderStatus, bool>> predicate, bool _, Expression<Func<PurchaseOrderStatus, object>>[] __) =>
+                predicate.Compile()(new PurchaseOrderStatus { Id = 2, Name = "Đã xác nhận", Code = PurchaseOrderStatusNames.Confirmed })
+                    ? new PurchaseOrderStatus { Id = 2, Name = "Đã xác nhận", Code = PurchaseOrderStatusNames.Confirmed }
+                    : null);
+        _dispatcher.Setup(d => d.DispatchAsync(
+                It.IsAny<string>(), It.IsAny<NotificationTarget>(), It.IsAny<object[]?>(),
+                It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<int?>()))
+            .Returns(Task.CompletedTask);
+
+        var result = await Sut().ConfirmAsync(1);
+
+        result.Status.Should().Be(200);
+        order.StatusId.Should().Be(2);
     }
 }

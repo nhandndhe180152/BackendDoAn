@@ -8,5 +8,6 @@ namespace Backend.Domain.Entities;
 public class PurchaseOrderStatus : EntityAuditBase<int>
 {
     public string Name { get; set; } = null!;
+    public string Code { get; set; } = null!;
     public string Color { get; set; } = null!;
 }

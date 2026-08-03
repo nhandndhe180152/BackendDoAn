@@ -75,16 +75,16 @@ public class OutboundOrderService : IOutboundOrderService
     private int GetCurrentUserId()
         => _httpContextAccessor.HttpContext?.GetCurrentUserId() ?? 0;
 
-    private async Task<int> GetOutboundStatusIdAsync(string name)
+    private async Task<int> GetOutboundStatusIdAsync(string code)
     {
-        var s = await _outboundStatusRepository.FirstOrDefaultAsync(x => x.Name == name && !x.IsDeleted);
-        return s?.Id ?? throw new InvalidOperationException($"OutboundOrderStatus '{name}' not found.");
+        var s = await _outboundStatusRepository.FirstOrDefaultAsync(x => x.Code == code && !x.IsDeleted);
+        return s?.Id ?? throw new InvalidOperationException($"OutboundOrderStatus with code '{code}' not found.");
     }
 
-    private async Task<int> GetSalesStatusIdAsync(string name)
+    private async Task<int> GetSalesStatusIdAsync(string code)
     {
-        var s = await _salesOrderStatusRepository.FirstOrDefaultAsync(x => x.Name == name && !x.IsDeleted);
-        return s?.Id ?? throw new InvalidOperationException($"SalesOrderStatus '{name}' not found.");
+        var s = await _salesOrderStatusRepository.FirstOrDefaultAsync(x => x.Code == code && !x.IsDeleted);
+        return s?.Id ?? throw new InvalidOperationException($"SalesOrderStatus with code '{code}' not found.");
     }
 
     private static OutboundOrderDetailDto MapDetail(OutboundOrder o)
@@ -182,7 +182,7 @@ public class OutboundOrderService : IOutboundOrderService
         if (order == null || order.IsDeleted)
             return ApiResponse.NotFound("Không tìm thấy phiếu xuất.", ApiCodeConstants.OutboundOrder.NotFound);
 
-        if (order.OutboundOrderStatus?.Name != OutboundOrderStatusNames.Draft)
+        if (order.OutboundOrderStatus?.Code != OutboundOrderStatusNames.Draft)
             return ApiResponse.Conflict(
                 $"Phiếu xuất đang ở trạng thái '{order.OutboundOrderStatus?.Name}', chỉ có thể phân bổ khi ở DRAFT.",
                 ApiCodeConstants.OutboundOrder.InvalidState);
@@ -381,7 +381,7 @@ public class OutboundOrderService : IOutboundOrderService
         if (order == null || order.IsDeleted)
             return ApiResponse.NotFound("Không tìm thấy phiếu xuất.", ApiCodeConstants.OutboundOrder.NotFound);
 
-        if (order.OutboundOrderStatus?.Name != OutboundOrderStatusNames.Picking)
+        if (order.OutboundOrderStatus?.Code != OutboundOrderStatusNames.Picking)
             return ApiResponse.Conflict(
                 $"Phiếu xuất phải ở trạng thái PICKING để cập nhật picking.",
                 ApiCodeConstants.OutboundOrder.InvalidState);
@@ -433,7 +433,7 @@ public class OutboundOrderService : IOutboundOrderService
         if (order == null || order.IsDeleted)
             return ApiResponse.NotFound("Không tìm thấy phiếu xuất.", ApiCodeConstants.OutboundOrder.NotFound);
 
-        if (order.OutboundOrderStatus?.Name != OutboundOrderStatusNames.Picking)
+        if (order.OutboundOrderStatus?.Code != OutboundOrderStatusNames.Picking)
             return ApiResponse.Conflict(
                 "Phiếu xuất phải ở trạng thái PICKING để xác nhận đóng gói.",
                 ApiCodeConstants.OutboundOrder.InvalidState);
@@ -474,7 +474,7 @@ public class OutboundOrderService : IOutboundOrderService
             return ApiResponse.NotFound("Không tìm thấy phiếu xuất.", ApiCodeConstants.OutboundOrder.NotFound);
 
         // 1. Validate trạng thái
-        if (order.OutboundOrderStatus?.Name != OutboundOrderStatusNames.Packed)
+        if (order.OutboundOrderStatus?.Code != OutboundOrderStatusNames.Packed)
             return ApiResponse.Conflict(
                 $"Phiếu xuất phải ở trạng thái PACKED để xác nhận xuất kho. " +
                 $"Trạng thái hiện tại: {order.OutboundOrderStatus?.Name}.",
@@ -772,7 +772,7 @@ public class OutboundOrderService : IOutboundOrderService
         if (order == null || order.IsDeleted)
             return ApiResponse.NotFound("Không tìm thấy phiếu xuất.", ApiCodeConstants.OutboundOrder.NotFound);
 
-        if (order.OutboundOrderStatus?.Name != OutboundOrderStatusNames.Dispatched)
+        if (order.OutboundOrderStatus?.Code != OutboundOrderStatusNames.Dispatched)
             return ApiResponse.Conflict(
                 $"Phiếu xuất phải ở trạng thái DISPATCHED để xác nhận giao hàng thành công. Trạng thái hiện tại: '{order.OutboundOrderStatus?.Name}'.",
                 ApiCodeConstants.OutboundOrder.InvalidState);
@@ -805,7 +805,7 @@ public class OutboundOrderService : IOutboundOrderService
                 foreach (var salesItem in salesOrder.SalesOrderItems.Where(i => !i.IsDeleted))
                 {
                     var totalDispatched = outboundOrders
-                        .Where(o => o.OutboundOrderStatus?.Name == OutboundOrderStatusNames.Completed)
+                        .Where(o => o.OutboundOrderStatus?.Code == OutboundOrderStatusNames.Completed)
                         .SelectMany(o => o.OutboundOrderItems)
                         .Where(item => item.ProductVariantId == salesItem.ProductVariantId)
                         .Sum(item => item.QuantityPicked);
@@ -844,7 +844,7 @@ public class OutboundOrderService : IOutboundOrderService
         if (order == null || order.IsDeleted)
             return ApiResponse.NotFound("Không tìm thấy phiếu xuất.", ApiCodeConstants.OutboundOrder.NotFound);
 
-        if (order.OutboundOrderStatus?.Name != OutboundOrderStatusNames.Dispatched)
+        if (order.OutboundOrderStatus?.Code != OutboundOrderStatusNames.Dispatched)
             return ApiResponse.Conflict(
                 $"Phiếu xuất phải ở trạng thái DISPATCHED để xác nhận giao hàng thất bại. Trạng thái hiện tại: '{order.OutboundOrderStatus?.Name}'.",
                 ApiCodeConstants.OutboundOrder.InvalidState);
@@ -973,7 +973,7 @@ public class OutboundOrderService : IOutboundOrderService
                 }
 
                 // Chuyển trạng thái SalesOrder trở lại PREPARING nếu nó đang ở DELIVERING
-                if (salesOrder.Status?.Name == SalesOrderStatusNames.Delivering)
+                if (salesOrder.Status?.Code == SalesOrderStatusNames.Delivering)
                 {
                     // Kiểm tra xem còn phiếu xuất nào khác đang giao (DISPATCHED) không
                     var otherDelivering = await _outboundOrderRepository.AnyAsync(x =>
@@ -981,7 +981,7 @@ public class OutboundOrderService : IOutboundOrderService
                         x.Id != order.Id &&
                         !x.IsDeleted &&
                         x.OutboundOrderStatus != null &&
-                        x.OutboundOrderStatus.Name == OutboundOrderStatusNames.Dispatched);
+                        x.OutboundOrderStatus.Code == OutboundOrderStatusNames.Dispatched);
 
                     if (!otherDelivering)
                     {
@@ -1026,7 +1026,7 @@ public class OutboundOrderService : IOutboundOrderService
             OutboundOrderStatusNames.Picking,
             OutboundOrderStatusNames.Packed
         };
-        if (!cancellableStates.Contains(order.OutboundOrderStatus?.Name))
+        if (!cancellableStates.Contains(order.OutboundOrderStatus?.Code))
             return ApiResponse.Conflict(
                 $"Không thể hủy phiếu xuất ở trạng thái '{order.OutboundOrderStatus?.Name}'.",
                 ApiCodeConstants.OutboundOrder.InvalidState);
@@ -1035,7 +1035,7 @@ public class OutboundOrderService : IOutboundOrderService
         var userId = GetCurrentUserId();
 
         // Nếu đã phân bổ → giải phóng reserved
-        if (order.OutboundOrderStatus?.Name is OutboundOrderStatusNames.Picking or OutboundOrderStatusNames.Packed)
+        if (order.OutboundOrderStatus?.Code is OutboundOrderStatusNames.Picking or OutboundOrderStatusNames.Packed)
         {
             foreach (var item in order.OutboundOrderItems.Where(i => !i.IsDeleted))
             {

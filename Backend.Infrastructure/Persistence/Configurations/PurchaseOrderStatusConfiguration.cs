@@ -15,5 +15,7 @@ public class PurchaseOrderStatusConfiguration : IEntityTypeConfiguration<Purchas
 
         builder.Property(x => x.Name).HasMaxLength(100).IsRequired();
         builder.Property(x => x.Color).HasMaxLength(50).IsRequired();
+        builder.Property(x => x.Code).IsRequired().HasMaxLength(100);
+        builder.HasIndex(x => x.Code).IsUnique();
     }
 }

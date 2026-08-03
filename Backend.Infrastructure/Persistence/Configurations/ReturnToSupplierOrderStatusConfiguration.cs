@@ -17,5 +17,7 @@ public class ReturnToSupplierOrderStatusConfiguration : IEntityTypeConfiguration
 
         builder.Property(x => x.Name).HasMaxLength(100);
         builder.Property(x => x.Color).HasMaxLength(30);
+        builder.Property(x => x.Code).IsRequired().HasMaxLength(100);
+        builder.HasIndex(x => x.Code).IsUnique();
     }
 }

@@ -91,7 +91,7 @@ public class StockTransferServiceTests
             FromWarehouseId = 1,
             ToWarehouseId = 2,
             StatusId = 1,
-            Status = new StockTransferStatus { Id = 1, Name = StockTransferStatusNames.Draft },
+            Status = new StockTransferStatus { Id = 1, Name = "Nháp", Code = StockTransferStatusNames.Draft },
             TransferCode = "ST-1",
             StockTransferItems = new List<StockTransferItem> { item }
         };
@@ -142,7 +142,7 @@ public class StockTransferServiceTests
         var transfer = new global::Backend.Domain.Entities.StockTransfer
         {
             Id = 1, FromWarehouseId = 1, ToWarehouseId = 2, StatusId = 1,
-            Status = new StockTransferStatus { Id = 1, Name = StockTransferStatusNames.Draft },
+            Status = new StockTransferStatus { Id = 1, Name = "Nháp", Code = StockTransferStatusNames.Draft },
             TransferCode = "ST-1",
             StockTransferItems = new List<StockTransferItem> { item }
         };
@@ -188,7 +188,7 @@ public class StockTransferServiceTests
                 It.IsAny<Expression<Func<StockTransferStatus, bool>>>(),
                 It.IsAny<bool>(),
                 It.IsAny<Expression<Func<StockTransferStatus, object>>[]>()))
-            .ReturnsAsync(new StockTransferStatus { Id = 9, Name = "Completed" });
+            .ReturnsAsync(new StockTransferStatus { Id = 9, Name = "Hoàn tất", Code = StockTransferStatusNames.Completed });
 
         _transferRepo.Setup(r => r.BeginTransactionAsync())
             .ReturnsAsync(new Mock<IDbContextTransaction>().Object);

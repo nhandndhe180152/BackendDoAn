@@ -191,6 +191,7 @@ public class BackendContext : DbContext, IApplicationDbContext
         modelBuilder.Entity<PurchaseOrderStatus>().HasData(PurchaseOrderStatusSeed.GetStatuses());
         modelBuilder.Entity<StockTransferStatus>().HasData(StockTransferStatusSeed.GetStatuses());
         modelBuilder.Entity<OutboundOrderStatus>().HasData(OutboundOrderStatusSeed.GetStatuses());
+        modelBuilder.Entity<InboundOrderStatus>().HasData(InboundOrderStatusSeed.GetStatuses());
         modelBuilder.Entity<CustomerReturnOrderStatus>().HasData(CustomerReturnOrderStatusSeed.GetStatuses());
         modelBuilder.Entity<ReturnToSupplierOrderStatus>().HasData(ReturnToSupplierOrderStatusSeed.GetStatuses());
         // ── RC-2 fix: Seed Product/Variant đại diện lúa/gạo/phụ phẩm ────────

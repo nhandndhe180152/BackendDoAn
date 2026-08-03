@@ -100,12 +100,12 @@ public class InboundOrderService : IInboundOrderService
         _paddyPurchaseReceiptService   = paddyPurchaseReceiptService;
     }
 
-    private async Task<int> GetStatusIdAsync(string name)
+    private async Task<int> GetStatusIdAsync(string code)
     {
-        var status = await _inboundOrderStatusRepository.FirstOrDefaultAsync(x => x.Name == name && !x.IsDeleted);
+        var status = await _inboundOrderStatusRepository.FirstOrDefaultAsync(x => x.Code == code && !x.IsDeleted);
         if (status == null)
         {
-            throw new InvalidOperationException($"InboundOrderStatus with name '{name}' not found.");
+            throw new InvalidOperationException($"InboundOrderStatus with code '{code}' not found.");
         }
         return status.Id;
     }
@@ -405,9 +405,9 @@ public class InboundOrderService : IInboundOrderService
             .FindByCondition(
                 x => !x.IsDeleted
                      && (x.SourceType == "RECEIPT" || x.SourceType == "PADDY_PURCHASE" || x.PaddyPurchaseReceiptId != null)
-                     && x.InboundOrderStatus.Name != InboundOrderStatusNames.Confirmed
-                     && x.InboundOrderStatus.Name != InboundOrderStatusNames.Cancelled
-                     && x.InboundOrderStatus.Name != InboundOrderStatusNames.Rejected
+                     && x.InboundOrderStatus.Code != InboundOrderStatusNames.Confirmed
+                     && x.InboundOrderStatus.Code != InboundOrderStatusNames.Cancelled
+                     && x.InboundOrderStatus.Code != InboundOrderStatusNames.Rejected
                      // Ẩn lô đang CHỜ KIỂM ĐỊNH (AWAITING_QC): phải kiểm tra chất lượng xong mới được xếp kho.
                      && !x.InboundOrderItems.Any(i =>
                             i.PaddyLot != null
@@ -685,7 +685,7 @@ public class InboundOrderService : IInboundOrderService
         if (order == null)
             return ApiResponse.NotFound("Không tìm thấy phiếu nhập.", ApiCodeConstants.Common.NotFound);
 
-        var allowedStatusNames = new[] {
+        var allowedStatusCodes = new[] {
             InboundOrderStatusNames.Draft,
             InboundOrderStatusNames.Submitted,
             InboundOrderStatusNames.Approved,
@@ -693,7 +693,7 @@ public class InboundOrderService : IInboundOrderService
         };
 
         var orderStatus = await _inboundOrderStatusRepository.GetByIdAsync(order.InboundOrderStatusId);
-        if (orderStatus == null || !allowedStatusNames.Contains(orderStatus.Name))
+        if (orderStatus == null || !allowedStatusCodes.Contains(orderStatus.Code))
             return ApiResponse.UnprocessableEntity("Trạng thái hiện tại của phiếu nhập không cho phép hủy.", ApiCodeConstants.Common.UnprocessableEntity);
 
         // Check if any confirmed receipt exists. Confirmed receipt means QuantityReceived > 0
@@ -737,7 +737,7 @@ public class InboundOrderService : IInboundOrderService
             return ApiResponse.NotFound("Không tìm thấy phiếu nhập.", ApiCodeConstants.Common.NotFound);
 
         var allowedStatusNames = new[] { InboundOrderStatusNames.Approved, InboundOrderStatusNames.Receiving };
-        if (!allowedStatusNames.Contains(order.InboundOrderStatus.Name))
+        if (!allowedStatusNames.Contains(order.InboundOrderStatus.Code))
             return ApiResponse.UnprocessableEntity("Phiếu nhập phải ở trạng thái Approved hoặc Receiving mới có thể bắt đầu nhận hàng.", ApiCodeConstants.Common.UnprocessableEntity);
 
         var item = await _inboundOrderItemRepository.FirstOrDefaultAsync(x => x.Id == dto.InboundOrderItemId && !x.IsDeleted && x.InboundOrderId == orderId, true);
@@ -768,7 +768,7 @@ public class InboundOrderService : IInboundOrderService
         await _inboundOrderItemRepository.UpdateAsync(item);
 
         // If document is Approved, move to Receiving
-        if (order.InboundOrderStatus.Name == InboundOrderStatusNames.Approved)
+        if (order.InboundOrderStatus.Code == InboundOrderStatusNames.Approved)
         {
             order.InboundOrderStatusId = await GetStatusIdAsync(InboundOrderStatusNames.Receiving);
             await _inboundOrderRepository.UpdateAsync(order);
@@ -1963,12 +1963,12 @@ public class InboundOrderService : IInboundOrderService
                     return received >= i.QuantityOrdered;
                 });
 
-                var newPoStatusName = allReceived
+                var newPoStatusCode = allReceived
                     ? PurchaseOrderStatusNames.Received
                     : PurchaseOrderStatusNames.PartiallyReceived;
 
                 var poStatus = await _purchaseOrderStatusRepository.FirstOrDefaultAsync(
-                    x => x.Name == newPoStatusName && !x.IsDeleted);
+                    x => x.Code == newPoStatusCode && !x.IsDeleted);
                 if (poStatus != null)
                 {
                     po.StatusId         = poStatus.Id;

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
+using Backend.Application.Constants;
 using Backend.Application.DTOs.ReturnToSuppliers;
 using Backend.Application.Implements;
 using Backend.Application.Interfaces;
@@ -116,7 +117,7 @@ public class ReturnToSupplierOrderServiceTests
         _orders.Should().ContainSingle();
         _orders[0].SupplierId.Should().Be(7);
         _orders[0].ReturnCode.Should().StartWith("RTS-");
-        _statuses.Should().ContainSingle(s => s.Name == "Chờ duyệt"); // lazy-seed
+        _statuses.Should().ContainSingle(s => s.Code == ReturnToSupplierOrderStatusNames.Draft); // lazy-seed
     }
 
     [Fact]
@@ -148,7 +149,7 @@ public class ReturnToSupplierOrderServiceTests
     [Fact]
     public async Task ApproveAsync_DraftOrder_MovesToApproved()
     {
-        var draft = new ReturnToSupplierOrderStatus { Id = 1, Name = "Chờ duyệt", Color = "#f59e0b" };
+        var draft = new ReturnToSupplierOrderStatus { Id = 1, Name = "Chờ duyệt", Code = ReturnToSupplierOrderStatusNames.Draft, Color = "#f59e0b" };
         _statuses.Add(draft);
         var order = new ReturnToSupplierOrder { Id = 1, SupplierId = 7, WarehouseId = 1, ReturnCode = "RTS-1", ReturnToSupplierOrderStatusId = 1, ReturnToSupplierOrderStatus = draft };
         _orders.Add(order);
@@ -157,13 +158,13 @@ public class ReturnToSupplierOrderServiceTests
 
         result.Status.Should().Be(200);
         order.ApprovedDate.Should().NotBeNull();
-        _statuses.Should().Contain(s => s.Name == "Đã duyệt");
+        _statuses.Should().Contain(s => s.Code == ReturnToSupplierOrderStatusNames.Approved);
     }
 
     [Fact]
     public async Task ApproveAsync_NonDraft_ReturnsUnprocessable()
     {
-        var completed = new ReturnToSupplierOrderStatus { Id = 3, Name = "Hoàn thành", Color = "#16a34a" };
+        var completed = new ReturnToSupplierOrderStatus { Id = 3, Name = "Hoàn thành", Code = ReturnToSupplierOrderStatusNames.Completed, Color = "#16a34a" };
         _statuses.Add(completed);
         _orders.Add(new ReturnToSupplierOrder { Id = 1, ReturnToSupplierOrderStatusId = 3, ReturnToSupplierOrderStatus = completed });
 
@@ -176,10 +177,10 @@ public class ReturnToSupplierOrderServiceTests
     [Fact]
     public async Task ConfirmAsync_HappyPath_ExportsStock_ReducesLotAndPayable_Completes()
     {
-        var approved = new ReturnToSupplierOrderStatus { Id = 2, Name = "Đã duyệt", Color = "#3b82f6" };
+        var approved = new ReturnToSupplierOrderStatus { Id = 2, Name = "Đã duyệt", Code = ReturnToSupplierOrderStatusNames.Approved, Color = "#3b82f6" };
         _statuses.Add(approved);
         // Seed sẵn status "Hoàn thành" (Id=3) để EnsureStatus tìm thấy thay vì tạo mới Id=0
-        _statuses.Add(new ReturnToSupplierOrderStatus { Id = 3, Name = "Hoàn thành", Color = "#16a34a" });
+        _statuses.Add(new ReturnToSupplierOrderStatus { Id = 3, Name = "Hoàn thành", Code = ReturnToSupplierOrderStatusNames.Completed, Color = "#16a34a" });
 
         var item = new ReturnToSupplierOrderItem { Id = 11, ProductVariantId = 5, QuarantineLocationId = 99, QuantityToReturn = 10 };
         var order = new ReturnToSupplierOrder
@@ -218,7 +219,7 @@ public class ReturnToSupplierOrderServiceTests
     [Fact]
     public async Task ConfirmAsync_InsufficientStock_ReturnsUnprocessable()
     {
-        var approved = new ReturnToSupplierOrderStatus { Id = 2, Name = "Đã duyệt", Color = "#3b82f6" };
+        var approved = new ReturnToSupplierOrderStatus { Id = 2, Name = "Đã duyệt", Code = ReturnToSupplierOrderStatusNames.Approved, Color = "#3b82f6" };
         _statuses.Add(approved);
 
         var item = new ReturnToSupplierOrderItem { Id = 11, ProductVariantId = 5, QuarantineLocationId = 99, QuantityToReturn = 50 };
@@ -236,7 +237,7 @@ public class ReturnToSupplierOrderServiceTests
     [Fact]
     public async Task ConfirmAsync_AlreadyCompleted_ReturnsBadRequest()
     {
-        var completed = new ReturnToSupplierOrderStatus { Id = 3, Name = "Hoàn thành", Color = "#16a34a" };
+        var completed = new ReturnToSupplierOrderStatus { Id = 3, Name = "Hoàn thành", Code = ReturnToSupplierOrderStatusNames.Completed, Color = "#16a34a" };
         _statuses.Add(completed);
         _orders.Add(new ReturnToSupplierOrder { Id = 1, ReturnToSupplierOrderStatusId = 3, ReturnToSupplierOrderStatus = completed });
 
@@ -249,20 +250,20 @@ public class ReturnToSupplierOrderServiceTests
     [Fact]
     public async Task CancelAsync_DraftOrder_MovesToCancelled()
     {
-        var draft = new ReturnToSupplierOrderStatus { Id = 1, Name = "Chờ duyệt", Color = "#f59e0b" };
+        var draft = new ReturnToSupplierOrderStatus { Id = 1, Name = "Chờ duyệt", Code = ReturnToSupplierOrderStatusNames.Draft, Color = "#f59e0b" };
         _statuses.Add(draft);
         var order = new ReturnToSupplierOrder { Id = 1, ReturnToSupplierOrderStatusId = 1, ReturnToSupplierOrderStatus = draft };
         _orders.Add(order);
 
         var result = await _sut.CancelAsync(1, "Nhầm");
         result.Status.Should().Be(200);
-        _statuses.Should().Contain(s => s.Name == "Đã huỷ");
+        _statuses.Should().Contain(s => s.Code == ReturnToSupplierOrderStatusNames.Cancelled);
     }
 
     [Fact]
     public async Task CancelAsync_Completed_ReturnsUnprocessable()
     {
-        var completed = new ReturnToSupplierOrderStatus { Id = 3, Name = "Hoàn thành", Color = "#16a34a" };
+        var completed = new ReturnToSupplierOrderStatus { Id = 3, Name = "Hoàn thành", Code = ReturnToSupplierOrderStatusNames.Completed, Color = "#16a34a" };
         _statuses.Add(completed);
         _orders.Add(new ReturnToSupplierOrder { Id = 1, ReturnToSupplierOrderStatusId = 3, ReturnToSupplierOrderStatus = completed });
 
@@ -282,7 +283,7 @@ public class ReturnToSupplierOrderServiceTests
     [Fact]
     public async Task GetAllAsync_ReturnsSuccess()
     {
-        var st = new ReturnToSupplierOrderStatus { Id = 1, Name = "Chờ duyệt" };
+        var st = new ReturnToSupplierOrderStatus { Id = 1, Name = "Chờ duyệt", Code = ReturnToSupplierOrderStatusNames.Draft };
         _statuses.Add(st);
         _orders.Add(new ReturnToSupplierOrder { Id = 1, SupplierId = 7, WarehouseId = 1, ReturnCode = "RTS-1", ReturnToSupplierOrderStatusId = 1, ReturnToSupplierOrderStatus = st });
 
