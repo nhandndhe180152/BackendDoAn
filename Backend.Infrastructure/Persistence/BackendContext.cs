@@ -192,6 +192,7 @@ public class BackendContext : DbContext, IApplicationDbContext
         modelBuilder.Entity<StockTransferStatus>().HasData(StockTransferStatusSeed.GetStatuses());
         modelBuilder.Entity<OutboundOrderStatus>().HasData(OutboundOrderStatusSeed.GetStatuses());
         modelBuilder.Entity<CustomerReturnOrderStatus>().HasData(CustomerReturnOrderStatusSeed.GetStatuses());
+        modelBuilder.Entity<ReturnToSupplierOrderStatus>().HasData(ReturnToSupplierOrderStatusSeed.GetStatuses());
         // ── RC-2 fix: Seed Product/Variant đại diện lúa/gạo/phụ phẩm ────────
         // Thứ tự quan trọng: UoM → Category → Product → Variant (theo FK chain)
         modelBuilder.Entity<UnitOfMeasure>().HasData(UnitOfMeasureSeed.GetUnits());
