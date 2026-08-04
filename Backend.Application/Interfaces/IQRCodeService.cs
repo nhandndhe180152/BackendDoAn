@@ -57,4 +57,6 @@ public interface IQRCodeService
     Task<byte[]> GenerateBulkBagLabelsPngZipAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken = default);
     Task<QrResolveResponseDto> ResolveQrAsync(QrResolveRequestDto request, CancellationToken cancellationToken = default);
     Task<QrLabelPreviewDto> GetQrLabelPreviewAsync(string? labelType, int? subjectId, string? template, CancellationToken cancellationToken = default);
+    Task<QrLabelSummaryDto> GetQrLabelSummaryAsync(CancellationToken cancellationToken = default);
+    Task<QrLabelHistoryResultDto> GetQrLabelHistoryAsync(QrLabelHistoryQueryDto request, CancellationToken cancellationToken = default);
 }

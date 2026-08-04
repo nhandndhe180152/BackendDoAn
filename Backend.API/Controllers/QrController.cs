@@ -133,6 +133,21 @@ namespace Backend.API.Controllers
             }
         }
 
+        [HttpGet("qr-labels/summary")]
+        public async Task<IActionResult> GetQrLabelSummaryAsync(CancellationToken cancellationToken)
+        {
+            var result = await _qrCodeService.GetQrLabelSummaryAsync(cancellationToken);
+            return Ok(ApiResponse.Success(result));
+        }
+
+        [HttpPost("qr-labels/history/paged")]
+        public async Task<IActionResult> GetQrLabelHistoryAsync([FromBody] QrLabelHistoryQueryDto request, CancellationToken cancellationToken)
+        {
+            request ??= new QrLabelHistoryQueryDto();
+            var result = await _qrCodeService.GetQrLabelHistoryAsync(request, cancellationToken);
+            return Ok(ApiResponse.Success(result));
+        }
+
         [HttpPost("qr-labels/paddy-lots/batch")]
         [CustomAuthorize(Enums.Menu.PADDY_LOTS, Enums.Action.READ)]
         public async Task<IActionResult> BatchPrintPaddyLotsAsync([FromBody] BatchQrLabelPrintDto request, CancellationToken cancellationToken)

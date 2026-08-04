@@ -142,6 +142,7 @@ public class LabelPreviewDataDto
     public string? WarehouseName { get; set; }
     public string? LocationName { get; set; }
     public bool IsQuarantined { get; set; }
+    public string? QrImageDataUrl { get; set; }
 }
 
 public class QrLabelTemplateInfoDto
@@ -150,5 +151,45 @@ public class QrLabelTemplateInfoDto
     public string Name { get; set; } = null!;
     public float WidthMm { get; set; }
     public float HeightMm { get; set; }
+}
+
+public class QrLabelSummaryDto
+{
+    public int TotalLabelsThisMonth { get; set; }
+    public int TotalJobsThisMonth { get; set; }
+    public string PrintMode { get; set; } = "BROWSER";
+}
+
+public class QrLabelHistoryQueryDto
+{
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 10;
+    public string? Search { get; set; }
+    public string? LabelType { get; set; }
+    public DateTime? DateFrom { get; set; }
+    public DateTime? DateTo { get; set; }
+}
+
+public class QrLabelHistoryItemDto
+{
+    public int Id { get; set; }
+    public string JobCode { get; set; } = null!;
+    public string LabelType { get; set; } = null!;
+    public string TargetIds { get; set; } = null!;
+    public string Content { get; set; } = null!;
+    public int Quantity { get; set; }
+    public string PrintedBy { get; set; } = null!;
+    public string Format { get; set; } = null!;
+    public string Template { get; set; } = null!;
+    public string Status { get; set; } = "GENERATED";
+    public DateTime CreatedDate { get; set; }
+}
+
+public class QrLabelHistoryResultDto
+{
+    public List<QrLabelHistoryItemDto> Items { get; set; } = new();
+    public int Total { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
 }
 
