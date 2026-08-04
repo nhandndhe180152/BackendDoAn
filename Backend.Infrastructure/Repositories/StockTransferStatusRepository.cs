@@ -41,6 +41,7 @@ public class StockTransferStatusRepository : RepositoryBase<StockTransferStatus,
             .Where(x => !x.IsDeleted)
             .Select(x => new StockTransferStatusAggregate
             {
+                Code = x.Code,
                 Color = x.Color,
                 CreatedDate = x.CreatedDate,
                 Id = x.Id,
@@ -53,6 +54,7 @@ public class StockTransferStatusRepository : RepositoryBase<StockTransferStatus,
         {
                 query = query
                     .Where(x => EF.Functions.Collate(x.Name, SQLParams.Latin_General).Contains(keyword) ||
+                        x.Code.Contains(keyword) ||
                         x.CreatedDate.ToVietnameseDateTime().Contains(keyword)
                     );
         }
@@ -66,6 +68,9 @@ public class StockTransferStatusRepository : RepositoryBase<StockTransferStatus,
             if (string.IsNullOrEmpty(search)) continue;
             switch (column.Data)
             {
+                case "code":
+                    query = query.Where(r => r.Code.Contains(search));
+                    break;
                 case "name":
                     query = query
                         .Where(r => EF.Functions.Collate(r.Name, SQLParams.Latin_General).Contains(search));
