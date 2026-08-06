@@ -39,6 +39,7 @@ public class OutboundOrderService : IOutboundOrderService
     private readonly IPaddyLotRepository _paddyLotRepository;
     private readonly INotificationDispatcher _notificationDispatcher;
     private readonly IScheduledJobService? _scheduledJobService;
+    private readonly IDebtAgingCalculationService? _debtAgingService;
 
     public OutboundOrderService(
         IOutboundOrderRepository outboundOrderRepository,
@@ -53,7 +54,8 @@ public class OutboundOrderService : IOutboundOrderService
         IHttpContextAccessor httpContextAccessor,
         IPaddyLotRepository paddyLotRepository,
         INotificationDispatcher notificationDispatcher,
-        IScheduledJobService? scheduledJobService = null)
+        IScheduledJobService? scheduledJobService = null,
+        IDebtAgingCalculationService? debtAgingService = null)
     {
         _outboundOrderRepository       = outboundOrderRepository;
         _outboundStatusRepository      = outboundStatusRepository;
@@ -68,6 +70,7 @@ public class OutboundOrderService : IOutboundOrderService
         _paddyLotRepository            = paddyLotRepository;
         _notificationDispatcher        = notificationDispatcher;
         _scheduledJobService           = scheduledJobService;
+        _debtAgingService              = debtAgingService;
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
@@ -507,6 +510,24 @@ public class OutboundOrderService : IOutboundOrderService
         }
 
         var now    = DateTimeHelper.VietnamNow();
+        var amountToChargeOnDispatch = order.OutboundOrderItems
+            .Where(i => !i.IsDeleted)
+            .Sum(item =>
+            {
+                var unitSalePrice = item.SalesOrderItem != null && item.SalesOrderItem.QuantityOrdered > 0
+                    ? item.SalesOrderItem.LineAmount / item.SalesOrderItem.QuantityOrdered
+                    : item.SalesOrderItem?.UnitSalePrice ?? 0;
+                return item.Allocations.Sum(a => a.QuantityPicked) * unitSalePrice;
+            });
+
+        if (amountToChargeOnDispatch > 0)
+        {
+            if (!dto.DueDate.HasValue)
+                return ApiResponse.UnprocessableEntity("Vui lòng chọn hạn thanh toán trước khi xác nhận xuất kho có phát sinh công nợ.");
+            if (dto.DueDate.Value.Date < now.Date)
+                return ApiResponse.UnprocessableEntity("Hạn thanh toán không được trước ngày hiện tại.");
+        }
+
         var userId = GetCurrentUserId();
         decimal totalDispatchedValue = 0;
         decimal totalDispatchedSaleValue = 0;
@@ -681,6 +702,7 @@ public class OutboundOrderService : IOutboundOrderService
                             RefType         = "OUTBOUND_ORDER",
                             RefId           = order.Id,
                             TransactionDate = now,
+                            DueDate         = dto.DueDate!.Value.Date,
                             Note            = $"Công nợ phát sinh từ phiếu xuất {order.Id} (Đơn bán {salesOrder.SOCode})",
                             CreatedDate     = now,
                             CreatedBy       = userId
@@ -777,12 +799,103 @@ public class OutboundOrderService : IOutboundOrderService
                 $"Phiếu xuất phải ở trạng thái DISPATCHED để xác nhận giao hàng thành công. Trạng thái hiện tại: '{order.OutboundOrderStatus?.Name}'.",
                 ApiCodeConstants.OutboundOrder.InvalidState);
 
+        if (dto.PaymentAmount < 0)
+            return ApiResponse.UnprocessableEntity("Số tiền khách thanh toán thêm không được âm.");
+
         var now = DateTimeHelper.VietnamNow();
         var userId = GetCurrentUserId();
+        PartyDebt? paidPartyDebt = null;
+        decimal? remainingDebt = null;
 
         await using var tx = await _outboundOrderRepository.BeginTransactionAsync();
         try
         {
+            if (dto.PaymentAmount > 0)
+            {
+                var charge = await _debtTransactionRepository.FirstOrDefaultAsync(x =>
+                    x.RefType == "OUTBOUND_ORDER" &&
+                    x.RefId == order.Id &&
+                    x.TransactionType == LookupCodes.DebtTransactionType.Charge &&
+                    !x.IsDeleted);
+
+                if (charge == null)
+                {
+                    await tx.RollbackAsync();
+                    return ApiResponse.UnprocessableEntity("Phiếu xuất này không có công nợ phải thu để ghi nhận thanh toán.");
+                }
+
+                paidPartyDebt = await _partyDebtRepository.GetByIdAsync(charge.PartyDebtId);
+                if (paidPartyDebt == null || paidPartyDebt.IsDeleted || !paidPartyDebt.IsActive)
+                {
+                    await tx.RollbackAsync();
+                    return ApiResponse.UnprocessableEntity("Sổ công nợ khách hàng không tồn tại hoặc đang bị khóa.");
+                }
+
+                var debtTransactions = await _debtTransactionRepository
+                    .FindByCondition(x => x.PartyDebtId == paidPartyDebt.Id && !x.IsDeleted)
+                    .ToListAsync();
+
+                decimal outstandingAmount;
+                if (_debtAgingService != null)
+                {
+                    outstandingAmount = _debtAgingService
+                        .CalculateDebtDocuments(paidPartyDebt, debtTransactions)
+                        .Where(x => x.RefType == "OUTBOUND_ORDER" && x.RefId == order.Id)
+                        .OrderBy(x => x.TransactionDate)
+                        .FirstOrDefault(x => x.OutstandingAmount > 0m)?
+                        .OutstandingAmount ?? 0m;
+                }
+                else
+                {
+                    outstandingAmount = Math.Max(0m, charge.Amount - debtTransactions
+                        .Where(x => x.RefType == "OUTBOUND_ORDER" &&
+                                    x.RefId == order.Id &&
+                                    x.TransactionType == LookupCodes.DebtTransactionType.Payment)
+                        .Sum(x => x.Amount));
+                }
+
+                if (outstandingAmount <= 0)
+                {
+                    await tx.RollbackAsync();
+                    return ApiResponse.UnprocessableEntity("Công nợ của phiếu xuất này đã được thanh toán hết.");
+                }
+
+                if (dto.PaymentAmount > outstandingAmount)
+                {
+                    await tx.RollbackAsync();
+                    return ApiResponse.UnprocessableEntity(
+                        $"Số tiền thanh toán ({dto.PaymentAmount:N0} VNĐ) vượt quá số còn nợ của phiếu xuất ({outstandingAmount:N0} VNĐ).");
+                }
+
+                if (dto.PaymentAmount > paidPartyDebt.CurrentBalance)
+                {
+                    await tx.RollbackAsync();
+                    return ApiResponse.UnprocessableEntity("Số tiền thanh toán vượt quá tổng dư nợ hiện tại của khách hàng.");
+                }
+
+                paidPartyDebt.CurrentBalance -= dto.PaymentAmount;
+                paidPartyDebt.LastModifiedDate = now;
+                paidPartyDebt.UpdatedBy = userId;
+                await _partyDebtRepository.UpdateAsync(paidPartyDebt);
+
+                await _debtTransactionRepository.CreateAsync(new DebtTransaction
+                {
+                    PartyDebtId = paidPartyDebt.Id,
+                    TransactionType = LookupCodes.DebtTransactionType.Payment,
+                    Amount = dto.PaymentAmount,
+                    BalanceAfter = paidPartyDebt.CurrentBalance,
+                    RefType = "OUTBOUND_ORDER",
+                    RefId = order.Id,
+                    TransactionDate = now,
+                    Note = $"Khách hàng thanh toán khi nhận hàng - phiếu xuất {order.Id}",
+                    DeduplicationKey = $"DELIVERY_PAYMENT-{order.Id}",
+                    CreatedDate = now,
+                    CreatedBy = userId
+                });
+
+                remainingDebt = outstandingAmount - dto.PaymentAmount;
+            }
+
             order.OutboundOrderStatusId = await GetOutboundStatusIdAsync(OutboundOrderStatusNames.Completed);
             order.ReceiverName = dto.ReceiverName;
             order.DeliveryNote = dto.DeliveryNote;
@@ -828,14 +941,26 @@ public class OutboundOrderService : IOutboundOrderService
 
             await _outboundOrderRepository.SaveChangesAsync();
             await tx.CommitAsync();
-
-            return ApiResponse.Success(message: "Xác nhận giao hàng thành công.");
         }
         catch (Exception)
         {
             await tx.RollbackAsync();
             throw;
         }
+
+        if (_scheduledJobService != null && paidPartyDebt != null)
+        {
+            _scheduledJobService.Enqueue<IDebtDueAndOverdueReminderService>(s =>
+                s.EvaluatePartyDebtAsync(paidPartyDebt.Id, CancellationToken.None));
+        }
+
+        return ApiResponse.Success(new
+        {
+            PaymentAmount = dto.PaymentAmount,
+            RemainingDebt = remainingDebt
+        }, dto.PaymentAmount > 0
+            ? "Xác nhận giao hàng và ghi nhận thanh toán thành công."
+            : "Xác nhận giao hàng thành công.");
     }
 
     public async Task<ApiResponse> FailDeliveryAsync(int id, FailDeliveryDto dto)

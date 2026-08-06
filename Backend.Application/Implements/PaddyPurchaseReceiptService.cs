@@ -211,7 +211,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
     /// Chốt phiếu: sinh PaddyLot, tạo InboundOrder Draft + Item và ghi công nợ.
     /// Tồn kho chỉ tăng khi Inbound xác nhận Put-away.
     /// </summary>
-    public async Task<ApiResponse> ConfirmReceiptAsync(int receiptId, int confirmedById)
+    public async Task<ApiResponse> ConfirmReceiptAsync(int receiptId, ConfirmPaddyPurchaseReceiptDto dto, int confirmedById)
     {
         // 1. Load phiếu
         var receipt = await _receiptRepository
@@ -226,6 +226,13 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             return ApiResponse.UnprocessableEntity("Phiếu này đã được chốt trước đó.");
 
         var now = DateTimeHelper.VietnamNow();
+        if (receipt.DebtAmount > 0)
+        {
+            if (!dto.DueDate.HasValue)
+                return ApiResponse.UnprocessableEntity("Vui lòng chọn hạn thanh toán trước khi chốt phiếu có phát sinh công nợ.");
+            if (dto.DueDate.Value.Date < now.Date)
+                return ApiResponse.UnprocessableEntity("Hạn thanh toán không được trước ngày hiện tại.");
+        }
 
         // 2. Tự động sinh mã lô hàng (LotCode): LOT-PADDY-YYYYMMDD-XXXX
         var datePart = now.ToString("yyyyMMdd");
@@ -300,7 +307,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             // 6. GHI NHẬN CÔNG NỢ (Record Debt) nếu số tiền nợ (DebtAmount) > 0
             if (receipt.DebtAmount > 0)
             {
-                await RecordDebtAsync(receipt, confirmedById, now);
+                await RecordDebtAsync(receipt, dto.DueDate!.Value.Date, confirmedById, now);
             }
 
             // 7. Lịch chỉ chuyển sang WEIGHED; STOCKED chỉ sau khi Inbound xác nhận đủ.
@@ -391,7 +398,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
     }
 
 
-    private async Task RecordDebtAsync(PaddyPurchaseReceipt receipt, int userId, DateTime now)
+    private async Task RecordDebtAsync(PaddyPurchaseReceipt receipt, DateTime dueDate, int userId, DateTime now)
     {
         // Tìm hoặc tạo PartyDebt PAYABLE cho nông dân
         var partyDebt = await _partyDebtRepository.FirstOrDefaultAsync(x =>
@@ -434,6 +441,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             RefType = "PADDY_RECEIPT",
             RefId = receipt.Id,
             TransactionDate = receipt.ReceiptDate,
+            DueDate = dueDate,
             Note = $"Phát sinh nợ từ phiếu mua lúa {receipt.ReceiptCode}",
             CreatedBy = userId,
             CreatedDate = now

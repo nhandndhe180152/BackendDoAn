@@ -759,7 +759,10 @@ public class PutawaySuggestionServiceTests
             new Mock<Backend.Application.Interfaces.INotificationDispatcher>().Object
         );
 
-        var res = await service.ConfirmReceiptAsync(10, 1);
+        var res = await service.ConfirmReceiptAsync(10, new Backend.Application.DTOs.PaddyPurchaseReceipts.ConfirmPaddyPurchaseReceiptDto
+        {
+            DueDate = DateTime.Today.AddDays(7)
+        }, 1);
 
         res.IsSucceeded.Should().BeTrue(res.Message);
         inventoryRepoMock.Verify(r => r.CreateAsync(It.IsAny<Backend.Domain.Entities.Inventory>()), Times.Never);

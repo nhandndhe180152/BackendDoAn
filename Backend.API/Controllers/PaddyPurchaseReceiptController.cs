@@ -71,10 +71,10 @@ namespace Backend.API.Controllers
 
         [HttpPost("{id}/confirm")]
         [CustomAuthorize(Enums.Menu.RICE_PURCHASE, Enums.Action.UPDATE)]
-        public async Task<IActionResult> ConfirmAsync(int id)
+        public async Task<IActionResult> ConfirmAsync(int id, [FromBody] ConfirmPaddyPurchaseReceiptDto dto)
         {
             var userId = this.GetLoggedInUserId();
-            var result = await _receiptService.ConfirmReceiptAsync(id, userId);
+            var result = await _receiptService.ConfirmReceiptAsync(id, dto, userId);
             return BaseResult(result);
         }
 

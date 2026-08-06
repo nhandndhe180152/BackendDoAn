@@ -127,6 +127,8 @@ public class PickAllocationDto
 /// </summary>
 public class ConfirmDispatchDto
 {
+    public DateTime? DueDate { get; set; }
+
     public string? Note { get; set; }
 }
 
@@ -144,6 +146,9 @@ public class CompleteDeliveryDto
     [Required(ErrorMessage = "Tên người nhận không được để trống")]
     [MaxLength(255)]
     public string ReceiverName { get; set; } = null!;
+
+    [Range(0, double.MaxValue, ErrorMessage = "Số tiền khách thanh toán thêm không được âm")]
+    public decimal PaymentAmount { get; set; }
 
     [MaxLength(1000)]
     public string? DeliveryNote { get; set; }
