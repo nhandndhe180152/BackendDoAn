@@ -54,6 +54,59 @@ public class InventoryServiceTests
 
     [Fact]
     [Trait("Service", "Inventory")]
+    [Trait("Method", "GetStockSummary")]
+    public async Task GetStockSummaryAsync_ValidParameters_ReturnsStockSummaryDto()
+    {
+        // Arrange
+        var parameters = new InventorySummaryParameters();
+        var mockAggregate = new InventoryStockSummaryAggregate
+        {
+            TotalOnHand = 1000,
+            TotalAvailable = 800,
+            TotalReserved = 150,
+            TotalProcessing = 50,
+            TotalQuarantine = 0,
+            TotalOnHandWeightKg = 10000,
+            TotalAvailableWeightKg = 8000,
+            TotalReservedWeightKg = 1500,
+            TotalProcessingWeightKg = 500,
+            TotalQuarantineWeightKg = 0,
+            LineCount = 10,
+            QuarantineLotCount = 0,
+            LowStockCount = 2
+        };
+
+        _inventoryRepository
+            .Setup(repo => repo.GetStockSummaryAsync(parameters))
+            .ReturnsAsync(mockAggregate);
+
+        // Act
+        var response = await _sut.GetStockSummaryAsync(parameters);
+
+        // Assert
+        response.IsSucceeded.Should().BeTrue();
+        response.Status.Should().Be(200);
+        
+        var dto = response.Resources as InventoryStockSummaryDto;
+        dto.Should().NotBeNull();
+        dto!.TotalOnHand.Should().Be(mockAggregate.TotalOnHand);
+        dto.TotalAvailable.Should().Be(mockAggregate.TotalAvailable);
+        dto.TotalReserved.Should().Be(mockAggregate.TotalReserved);
+        dto.TotalProcessing.Should().Be(mockAggregate.TotalProcessing);
+        dto.TotalQuarantine.Should().Be(mockAggregate.TotalQuarantine);
+        dto.TotalOnHandWeightKg.Should().Be(mockAggregate.TotalOnHandWeightKg);
+        dto.TotalAvailableWeightKg.Should().Be(mockAggregate.TotalAvailableWeightKg);
+        dto.TotalReservedWeightKg.Should().Be(mockAggregate.TotalReservedWeightKg);
+        dto.TotalProcessingWeightKg.Should().Be(mockAggregate.TotalProcessingWeightKg);
+        dto.TotalQuarantineWeightKg.Should().Be(mockAggregate.TotalQuarantineWeightKg);
+        dto.LineCount.Should().Be(mockAggregate.LineCount);
+        dto.QuarantineLotCount.Should().Be(mockAggregate.QuarantineLotCount);
+        dto.LowStockCount.Should().Be(mockAggregate.LowStockCount);
+    }
+
+
+    [Fact]
+    [Trait("Service", "Inventory")]
     [Trait("Method", "GetById")]
     public async Task GetByIdAsync_WhenNotExists_ReturnsNotFound()
     {
