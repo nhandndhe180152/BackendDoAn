@@ -158,6 +158,7 @@ public class InventoryTransactionRepository : RepositoryBase<InventoryTransactio
     public async Task<InventoryTransaction?> GetByIdDetailAsync(int id)
     {
         return await _context.InventoryTransactions
+            .AsNoTracking() // chỉ đọc để hiển thị chi tiết
             .Include(x => x.Inventory)
             .Include(x => x.Warehouse)
             .Include(x => x.Location)
@@ -175,6 +176,7 @@ public class InventoryTransactionRepository : RepositoryBase<InventoryTransactio
     public async Task<List<InventoryTransaction>> GetByProductVariantAsync(int productVariantId, int limit = 100)
     {
         return await _context.InventoryTransactions
+            .AsNoTracking() // chỉ đọc để hiển thị lịch sử
             .Include(x => x.Inventory)
             .Include(x => x.Warehouse)
             .Include(x => x.Location)

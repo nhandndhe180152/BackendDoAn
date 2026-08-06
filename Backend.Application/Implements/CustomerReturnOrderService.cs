@@ -509,6 +509,10 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             .Include(o => o.Items.Where(i => !i.IsDeleted))
                 .ThenInclude(i => i.Allocations.Where(a => !a.IsDeleted))
                     .ThenInclude(a => a.QuarantineLocation)
+            // Chỉ đọc để map DTO: bỏ change-tracking + tách SELECT theo từng collection
+            // (Items × Allocations × 4 nhánh Location) tránh nổ tích Descartes. Kết quả không đổi.
+            .AsNoTracking()
+            .AsSplitQuery()
             .FirstOrDefaultAsync(o => o.Id == id && !o.IsDeleted, cancellationToken);
 
         if (order == null)
@@ -658,6 +662,9 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             .OrderByDescending(o => o.CreatedDate)
             .Skip((query.Page - 1) * query.PageSize)
             .Take(query.PageSize)
+            // Tách SELECT theo từng collection (Items, Allocations) để không nhân bản dòng
+            // trên cả trang dữ liệu. Kết quả trả về không đổi.
+            .AsSplitQuery()
             .ToListAsync(cancellationToken);
 
         var list = items.Select(order => new CustomerReturnOrderListDto

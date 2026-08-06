@@ -321,6 +321,7 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
     public async Task<Inventory?> GetByIdDetailAsync(int id)
     {
         return await _context.Inventories
+            .AsNoTracking() // chỉ đọc để hiển thị chi tiết
             .Include(x => x.Warehouse)
             .Include(x => x.Location)
             .Include(x => x.ProductVariant)
@@ -354,6 +355,7 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
     public async Task<List<Inventory>> GetByProductVariantAsync(int productVariantId)
     {
         return await _context.Inventories
+            .AsNoTracking() // chỉ đọc để hiển thị
             .Include(x => x.Warehouse)
             .Include(x => x.Location)
             .Include(x => x.ProductVariant)
@@ -373,6 +375,7 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
     public async Task<List<Inventory>> GetLowStockAsync(int? warehouseId, int limit = 50)
     {
         var query = _context.Inventories
+            .AsNoTracking() // chỉ đọc để hiển thị / cảnh báo tồn thấp
             .Include(x => x.Warehouse)
             .Include(x => x.Location)
             .Include(x => x.ProductVariant)

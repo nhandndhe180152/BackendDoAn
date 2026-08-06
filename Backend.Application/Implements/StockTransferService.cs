@@ -120,8 +120,9 @@ public class StockTransferService : IStockTransferService
 
     public async Task<ApiResponse> GetAllAsync()
     {
+        // Chỉ đọc để map DTO → dùng no-tracking (theo quy ước repo: trackChanges=true ⇒ AsNoTracking).
         var entities = await _transferRepository
-            .FindByCondition(x => !x.IsDeleted, false)
+            .FindByCondition(x => !x.IsDeleted, true)
             .Include(x => x.Status)
             .Include(x => x.FromWarehouse)
             .Include(x => x.ToWarehouse)

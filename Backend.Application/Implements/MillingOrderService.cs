@@ -143,7 +143,7 @@ public class MillingOrderService : IMillingOrderService
     public async Task<ApiResponse> GetAllAsync()
     {
         var entities = await _millingOrderRepository
-            .FindByCondition(x => !x.IsDeleted, false, x => x.Status, x => x.Warehouse)
+            .FindByCondition(x => !x.IsDeleted, true, x => x.Status, x => x.Warehouse)
             .OrderByDescending(x => x.CreatedDate)
             .ToListAsync();
 
@@ -154,7 +154,7 @@ public class MillingOrderService : IMillingOrderService
     {
         var entity = await _millingOrderRepository
             .FindByCondition(x => x.Id == id && !x.IsDeleted,
-                false,
+                true, // no-tracking (chỉ đọc để hiển thị)
                 x => x.Status,
                 x => x.Warehouse,
                 x => x.MillingOrderInputs,
@@ -171,7 +171,7 @@ public class MillingOrderService : IMillingOrderService
     public async Task<ApiResponse> GetBySalesOrderAsync(int salesOrderId)
     {
         var entities = await _millingOrderRepository
-            .FindByCondition(x => x.SalesOrderId == salesOrderId && !x.IsDeleted, false, x => x.Status, x => x.Warehouse)
+            .FindByCondition(x => x.SalesOrderId == salesOrderId && !x.IsDeleted, true, x => x.Status, x => x.Warehouse)
             .OrderByDescending(x => x.CreatedDate)
             .ToListAsync();
 

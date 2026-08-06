@@ -587,7 +587,9 @@ public class OutboundOrderService : IOutboundOrderService
                     // - Điều này đảm bảo tính đồng nhất giữa Dashboard (đọc từ PaddyLot) và Giám sát kho (đọc từ Inventory).
                     if (alloc.PaddyLotId.HasValue)
                     {
-                        var lot = await _paddyLotRepository.GetByIdAsync(alloc.PaddyLotId.Value);
+                        // PaddyLot đã được Include sẵn trong GetByIdDetailAsync (cùng DbContext ⇒ cùng
+                        // instance tracked) → dùng trực tiếp, bỏ GetByIdAsync để tránh N+1 SELECT mỗi allocation.
+                        var lot = alloc.PaddyLot;
                         if (lot != null && !lot.IsDeleted)
                         {
                             lot.RemainingWeightKg = Math.Max(0m, lot.RemainingWeightKg - alloc.QuantityPicked);

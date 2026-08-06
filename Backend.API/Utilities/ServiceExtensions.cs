@@ -48,6 +48,21 @@ public static class ServiceExtensions
                     .AllowCredentials(); // Cần cho SignalR (WebSocket) gửi kèm access_token
             });
         });
+        // Nén response (Gzip/Brotli) — giảm mạnh thời gian truyền các payload JSON danh sách lớn.
+        // Chỉ ảnh hưởng byte truyền đi, không đổi nội dung/logic API.
+        services.AddResponseCompression(options =>
+        {
+            options.EnableForHttps = true;
+            options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProvider>();
+            options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();
+            options.MimeTypes = Microsoft.AspNetCore.ResponseCompression.ResponseCompressionDefaults.MimeTypes
+                .Concat(new[] { "application/json", "application/json; charset=utf-8" });
+        });
+        services.Configure<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProviderOptions>(o =>
+            o.Level = System.IO.Compression.CompressionLevel.Fastest);
+        services.Configure<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProviderOptions>(o =>
+            o.Level = System.IO.Compression.CompressionLevel.Fastest);
+
         services.AddControllers()
             .AddNewtonsoftJson()
             .ConfigureApiBehaviorOptions(opt =>

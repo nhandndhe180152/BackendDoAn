@@ -130,9 +130,9 @@ public class DashboardService : IDashboardService
             ByproductKg = aggregates.Where(x => x.LotType == LotTypeConstants.ByProduct || (x.LotType == null && x.IsVariantByproduct)).Sum(x => x.TotalOnHandKg)
         };
 
-        // 2. Debt Summary
+        // 2. Debt Summary — chỉ đọc để tổng hợp (no-tracking, quy ước repo: true ⇒ AsNoTracking)
         var debts = await _partyDebtRepository
-            .FindByCondition(x => !x.IsDeleted && x.IsActive, false)
+            .FindByCondition(x => !x.IsDeleted && x.IsActive, true)
             .ToListAsync();
 
         var farmerPayable      = debts.Where(x => x.PartyType == LookupCodes.PartyType.Farmer && x.Direction == LookupCodes.DebtDirection.Payable).Sum(x => x.CurrentBalance);
@@ -621,7 +621,7 @@ public class DashboardService : IDashboardService
     public async Task<ApiResponse> GetTwoWayDebtReportAsync(DashboardQuery query)
     {
         var debts = await _partyDebtRepository
-            .FindByCondition(x => !x.IsDeleted && x.IsActive, false)
+            .FindByCondition(x => !x.IsDeleted && x.IsActive, true) // no-tracking: báo cáo chỉ đọc
             .ToListAsync();
 
         if (debts.Count == 0)

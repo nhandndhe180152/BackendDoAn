@@ -47,6 +47,7 @@ public static class ApplicationExtensions
             await next();
         });
 
+        app.UseResponseCompression();
         app.UseStaticFiles();
         app.UseHttpsRedirection();
         app.UseCors("Default");
