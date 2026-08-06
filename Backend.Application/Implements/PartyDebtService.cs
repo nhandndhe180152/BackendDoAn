@@ -779,20 +779,45 @@ public class PartyDebtService : IPartyDebtService
                      order.Column >= 0 &&
                      order.Column < parameters.Columns.Length
             ? parameters.Columns[order.Column].Data
-            : "dueDate";
+            : "transactionDate";
         var ascending = order?.Dir == DTOrderDir.ASC;
-        Func<DebtDocumentDto, object> selector = column switch
+
+        // Mặc định (không chỉ định cột): sắp theo NGÀY PHÁT SINH (TransactionDate)
+        // giảm dần — chứng từ mới nhất lên đầu, cũ hơn xếp dần xuống dưới.
+        // Các cột khác vẫn được tôn trọng nhưng luôn có tiebreak ổn định theo
+        // ngày phát sinh giảm dần rồi ChargeTransactionId giảm dần.
+        IOrderedEnumerable<DebtDocumentDto> ordered = column switch
         {
-            "partyName" => x => x.PartyName,
-            "documentCode" => x => x.DocumentCode,
-            "totalAmount" => x => x.TotalAmount,
-            "paidAmount" => x => x.PaidAmount,
-            "outstandingAmount" => x => x.OutstandingAmount,
-            "status" => x => x.Status,
-            "transactionDate" => x => x.TransactionDate,
-            _ => x => x.DueDate ?? DateTime.MaxValue
+            "partyName" => ascending
+                ? rows.OrderBy(x => x.PartyName)
+                : rows.OrderByDescending(x => x.PartyName),
+            "documentCode" => ascending
+                ? rows.OrderBy(x => x.DocumentCode)
+                : rows.OrderByDescending(x => x.DocumentCode),
+            "totalAmount" => ascending
+                ? rows.OrderBy(x => x.TotalAmount)
+                : rows.OrderByDescending(x => x.TotalAmount),
+            "paidAmount" => ascending
+                ? rows.OrderBy(x => x.PaidAmount)
+                : rows.OrderByDescending(x => x.PaidAmount),
+            "outstandingAmount" => ascending
+                ? rows.OrderBy(x => x.OutstandingAmount)
+                : rows.OrderByDescending(x => x.OutstandingAmount),
+            "status" => ascending
+                ? rows.OrderBy(x => x.Status)
+                : rows.OrderByDescending(x => x.Status),
+            // Null dueDate ("Chưa có hạn") luôn nằm cuối bất kể chiều sắp xếp.
+            "dueDate" => ascending
+                ? rows.OrderBy(x => x.DueDate ?? DateTime.MaxValue)
+                : rows.OrderByDescending(x => x.DueDate ?? DateTime.MinValue),
+            _ => ascending
+                ? rows.OrderBy(x => x.TransactionDate)
+                : rows.OrderByDescending(x => x.TransactionDate)
         };
-        return ascending ? rows.OrderBy(selector) : rows.OrderByDescending(selector);
+
+        return ordered
+            .ThenByDescending(x => x.TransactionDate)
+            .ThenByDescending(x => x.ChargeTransactionId);
     }
 
     private static IEnumerable<DebtTransactionListItemDto> ApplyTransactionSort(

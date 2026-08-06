@@ -709,11 +709,21 @@ public class OutboundOrderService : IOutboundOrderService
                         });
 
                         // #7: Ghi nhận tiền cọc (deposit) đã thu của đơn bán như một khoản thanh toán,
-                        // giảm công nợ phải thu — CHỈ MỘT LẦN cho mỗi đơn bán (dedup theo RefType/RefId).
+                        // giảm công nợ phải thu — CHỈ MỘT LẦN cho mỗi đơn bán.
+                        //
+                        // Cọc phải được GẮN ĐÚNG vào chứng từ công nợ của phiếu xuất này
+                        // (RefType=OUTBOUND_ORDER, RefId=order.Id) — TRÙNG với giao dịch CHARGE ở trên.
+                        // Nếu ghi RefType="SALES_ORDER_DEPOSIT"/RefId=SalesOrderId (không khớp bất kỳ
+                        // chứng từ nào), thuật toán đối soát công nợ sẽ không match được và rơi xuống
+                        // phân bổ FIFO theo hạn thanh toán → tiền cọc bị "chảy" nhầm sang chứng từ khác
+                        // của cùng khách hàng (cọc hiển thị nhiều hơn thực tế). Dedup theo
+                        // DeduplicationKey để vẫn chỉ ghi 1 lần cho mỗi đơn bán dù đơn được tách
+                        // thành nhiều phiếu xuất.
                         if (salesOrder.DepositAmount.HasValue && salesOrder.DepositAmount.Value > 0)
                         {
+                            var depositKey = $"SALES_ORDER_DEPOSIT-{salesOrder.Id}";
                             var depositRecorded = await _debtTransactionRepository.FirstOrDefaultAsync(x =>
-                                x.RefType == "SALES_ORDER_DEPOSIT" && x.RefId == salesOrder.Id && !x.IsDeleted);
+                                x.DeduplicationKey == depositKey && !x.IsDeleted);
 
                             if (depositRecorded == null)
                             {
@@ -725,16 +735,17 @@ public class OutboundOrderService : IOutboundOrderService
 
                                 await _debtTransactionRepository.CreateAsync(new DebtTransaction
                                 {
-                                    PartyDebtId     = partyDebt.Id,
-                                    TransactionType = LookupCodes.DebtTransactionType.Payment,
-                                    Amount          = depositAmount,
-                                    BalanceAfter    = partyDebt.CurrentBalance,
-                                    RefType         = "SALES_ORDER_DEPOSIT",
-                                    RefId           = salesOrder.Id,
-                                    TransactionDate = now,
-                                    Note            = $"Ghi nhận tiền cọc đã thu của đơn bán {salesOrder.SOCode}",
-                                    CreatedDate     = now,
-                                    CreatedBy       = userId
+                                    PartyDebtId       = partyDebt.Id,
+                                    TransactionType   = LookupCodes.DebtTransactionType.Payment,
+                                    Amount            = depositAmount,
+                                    BalanceAfter      = partyDebt.CurrentBalance,
+                                    RefType           = "OUTBOUND_ORDER",
+                                    RefId             = order.Id,
+                                    TransactionDate   = now,
+                                    DeduplicationKey  = depositKey,
+                                    Note              = $"Ghi nhận tiền cọc đã thu của đơn bán {salesOrder.SOCode}",
+                                    CreatedDate       = now,
+                                    CreatedBy         = userId
                                 });
                             }
                         }
