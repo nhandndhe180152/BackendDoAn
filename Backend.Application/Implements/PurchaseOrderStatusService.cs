@@ -11,6 +11,15 @@ namespace Backend.Application.Implements;
 
 public class PurchaseOrderStatusService : IPurchaseOrderStatusService
 {
+    private static readonly HashSet<string> ProtectedCodes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        PurchaseOrderStatusNames.Draft,
+        PurchaseOrderStatusNames.Confirmed,
+        PurchaseOrderStatusNames.PartiallyReceived,
+        PurchaseOrderStatusNames.Received,
+        PurchaseOrderStatusNames.Cancelled
+    };
+
     private readonly IPurchaseOrderStatusRepository _purchaseOrderStatusRepository;
 
     public PurchaseOrderStatusService(IPurchaseOrderStatusRepository purchaseOrderStatusRepository)
@@ -20,7 +29,15 @@ public class PurchaseOrderStatusService : IPurchaseOrderStatusService
 
     public async Task<ApiResponse> CreateAsync(CreatePurchaseOrderStatusDto obj)
     {
-        var isExistName = await _purchaseOrderStatusRepository.AnyAsync(x => !x.IsDeleted && x.Name.ToLower() == obj.Name.ToLower());
+        var normalizedCode = obj.Code.Trim().ToUpperInvariant();
+        var isExistCode = await _purchaseOrderStatusRepository.AnyAsync(x => x.Code == normalizedCode);
+        if (isExistCode)
+            return ApiResponse.UnprocessableEntity(
+                ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", normalizedCode),
+                ApiCodeConstants.Common.DuplicatedData);
+
+        var normalizedName = obj.Name.Trim();
+        var isExistName = await _purchaseOrderStatusRepository.AnyAsync(x => !x.IsDeleted && x.Name.ToLower() == normalizedName.ToLower());
         if (isExistName)
             return ApiResponse.UnprocessableEntity(
                 ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Name),
@@ -34,7 +51,16 @@ public class PurchaseOrderStatusService : IPurchaseOrderStatusService
 
     public async Task<ApiResponse> CreateListAsync(IEnumerable<CreatePurchaseOrderStatusDto> objs)
     {
-        var models = objs.Select(x => x.ToEntity());
+        var input = objs.ToList();
+        var normalizedCodes = input.Select(x => x.Code.Trim().ToUpperInvariant()).ToList();
+        var normalizedNames = input.Select(x => x.Name.Trim().ToLower()).ToList();
+        if (normalizedCodes.Count != normalizedCodes.Distinct(StringComparer.OrdinalIgnoreCase).Count() ||
+            normalizedNames.Count != normalizedNames.Distinct(StringComparer.OrdinalIgnoreCase).Count() ||
+            await _purchaseOrderStatusRepository.AnyAsync(x => normalizedCodes.Contains(x.Code)) ||
+            await _purchaseOrderStatusRepository.AnyAsync(x => !x.IsDeleted && normalizedNames.Contains(x.Name.ToLower())))
+            return ApiResponse.UnprocessableEntity("Danh sách trạng thái chứa tên hoặc mã bị trùng.", ApiCodeConstants.Common.DuplicatedData);
+
+        var models = input.Select(x => x.ToEntity()).ToList();
         await _purchaseOrderStatusRepository.CreateListAsync(models);
         await _purchaseOrderStatusRepository.SaveChangesAsync();
         return ApiResponse.Created(models.Select(x => x.Id));
@@ -47,6 +73,7 @@ public class PurchaseOrderStatusService : IPurchaseOrderStatusService
             .Select(x => new PurchaseOrderStatusListDto()
             {
                 Id = x.Id,
+                Code = x.Code,
                 Name = x.Name,
                 Color = x.Color,
                 CreatedDate = x.CreatedDate
@@ -61,6 +88,7 @@ public class PurchaseOrderStatusService : IPurchaseOrderStatusService
             .Select(x => new PurchaseOrderStatusDetailDto()
             {
                 Id = x.Id,
+                Code = x.Code,
                 Name = x.Name,
                 Color = x.Color,
                 CreatedDate = x.CreatedDate,
@@ -79,6 +107,7 @@ public class PurchaseOrderStatusService : IPurchaseOrderStatusService
             .Select(x => new PurchaseOrderStatusListDto
             {
                 Id = x.Id,
+                Code = x.Code,
                 Name = x.Name,
                 Color = x.Color,
                 CreatedDate = x.CreatedDate
@@ -87,7 +116,8 @@ public class PurchaseOrderStatusService : IPurchaseOrderStatusService
         var totalRecord = await data.CountAsync();
         if (!string.IsNullOrEmpty(query.Keyword))
         {
-            data = data.Where(x => x.Name.ToLower().Contains(query.Keyword.ToLower()));
+            var keyword = query.Keyword.ToLower();
+            data = data.Where(x => x.Name.ToLower().Contains(keyword) || x.Code.ToLower().Contains(keyword));
         }
 
         var pagedData = new PagingData<PurchaseOrderStatusListDto>
@@ -115,6 +145,12 @@ public class PurchaseOrderStatusService : IPurchaseOrderStatusService
 
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {
+        var status = await _purchaseOrderStatusRepository.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted);
+        if (status == null)
+            return ApiResponse.NotFound();
+        if (ProtectedCodes.Contains(status.Code))
+            return ApiResponse.Conflict("Không thể xóa trạng thái hệ thống đang được nghiệp vụ sử dụng.");
+
         var isDeleted = await _purchaseOrderStatusRepository.SoftDeleteAsync(id);
         if (!isDeleted)
             return ApiResponse.BadRequest();
@@ -125,15 +161,24 @@ public class PurchaseOrderStatusService : IPurchaseOrderStatusService
 
     public async Task<ApiResponse> SoftDeleteListAsync(IEnumerable<int> objs)
     {
-        var isDeleted = await _purchaseOrderStatusRepository.SoftDeleteListAsync(objs);
+        var ids = objs.Distinct().ToList();
+        var statuses = await _purchaseOrderStatusRepository.FindByCondition(x => ids.Contains(x.Id) && !x.IsDeleted).ToListAsync();
+        if (statuses.Count != ids.Count)
+            return ApiResponse.NotFound();
+        if (statuses.Any(x => ProtectedCodes.Contains(x.Code)))
+            return ApiResponse.Conflict("Không thể xóa trạng thái hệ thống đang được nghiệp vụ sử dụng.");
+
+        var isDeleted = await _purchaseOrderStatusRepository.SoftDeleteListAsync(ids);
         if (!isDeleted)
             return ApiResponse.BadRequest();
+        await _purchaseOrderStatusRepository.SaveChangesAsync();
         return ApiResponse.Success(isDeleted);
     }
 
     public async Task<ApiResponse> UpdateAsync(UpdatePurchaseOrderStatusDto obj)
     {
-        var isExistName = await _purchaseOrderStatusRepository.AnyAsync(x => !x.IsDeleted && x.Name.ToLower() == obj.Name.ToLower() && x.Id != obj.Id);
+        var normalizedName = obj.Name.Trim();
+        var isExistName = await _purchaseOrderStatusRepository.AnyAsync(x => !x.IsDeleted && x.Name.ToLower() == normalizedName.ToLower() && x.Id != obj.Id);
         if (isExistName)
             return ApiResponse.UnprocessableEntity(
                 ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Name),
