@@ -46,16 +46,16 @@ public class StockTakeServiceTests
     {
         _sysConfigRepo
             .Setup(r => r.GetValueByKey(SystemConfigConstants.Keys.StockTakeSmallVariancePercent))
-            .ReturnsAsync(smallPct.ToString());
+            .ReturnsAsync(smallPct.ToString(System.Globalization.CultureInfo.InvariantCulture));
         _sysConfigRepo
             .Setup(r => r.GetValueByKey(SystemConfigConstants.Keys.StockTakeMediumVariancePercent))
-            .ReturnsAsync(mediumPct.ToString());
+            .ReturnsAsync(mediumPct.ToString(System.Globalization.CultureInfo.InvariantCulture));
         _sysConfigRepo
             .Setup(r => r.GetValueByKey(SystemConfigConstants.Keys.StockTakeSmallVarianceKg))
-            .ReturnsAsync(smallKg.ToString());
+            .ReturnsAsync(smallKg.ToString(System.Globalization.CultureInfo.InvariantCulture));
         _sysConfigRepo
             .Setup(r => r.GetValueByKey(SystemConfigConstants.Keys.StockTakeMediumVarianceKg))
-            .ReturnsAsync(mediumKg.ToString());
+            .ReturnsAsync(mediumKg.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
     /// <summary>Setup SystemConfig mock không có bản ghi → service dùng Defaults constants.</summary>
