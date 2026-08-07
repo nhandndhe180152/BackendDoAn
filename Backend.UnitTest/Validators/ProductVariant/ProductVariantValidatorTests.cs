@@ -1,0 +1,30 @@
+using Backend.Application.DTOs.ProductVariants;
+using Backend.Application.Validators.ProductVariants;
+using FluentAssertions;
+
+namespace Backend.UnitTest.Validators.ProductVariant;
+
+public class CreateProductVariantDtoValidatorTests
+{
+    private readonly CreateProductVariantDtoValidator _validator=new();
+    private static CreateProductVariantDto Valid()=>new(){Name="Variant",ProductId=1,UnitOfMeasureId=1,SKU="SKU",Description="D",QRCode="Q",CostPrice=0,SalePrice=0,Weight=0,MinStockLevel=null};
+    [Fact] public void Validate_ValidDto_Passes(){var r=_validator.Validate(Valid());r.IsValid.Should().BeTrue();r.Errors.Should().BeEmpty();}
+    [Theory] [InlineData("Name",null)] [InlineData("Name","")] [InlineData("Name","   ")] [InlineData("SKU",null)] [InlineData("SKU","")] [InlineData("SKU","   ")] public void Validate_RequiredTextIsMissing_Fails(string p,string? v){var d=Valid();if(p==nameof(d.Name))d.Name=v!;else d.SKU=v!;_validator.Validate(d).Errors.Should().Contain(x=>x.PropertyName==p);}
+    [Theory] [InlineData("ProductId",0)] [InlineData("ProductId",-1)] [InlineData("UnitOfMeasureId",0)] [InlineData("UnitOfMeasureId",-1)] public void Validate_RequiredIdIsEmpty_Fails(string p,int v){var d=Valid();if(p==nameof(d.ProductId))d.ProductId=v;else d.UnitOfMeasureId=v;var r=_validator.Validate(d);if(v==0)r.Errors.Should().Contain(x=>x.PropertyName==p);else r.Errors.Should().NotContain(x=>x.PropertyName==p);}
+    [Theory] [InlineData("Name",255,true)] [InlineData("Name",256,false)] [InlineData("SKU",50,true)] [InlineData("SKU",51,false)] [InlineData("Description",500,true)] [InlineData("Description",501,false)] [InlineData("QRCode",255,true)] [InlineData("QRCode",256,false)] public void Validate_TextLength_ReturnsExpectedResult(string p,int n,bool expected){var d=Valid();var v=new string('a',n);switch(p){case "Name":d.Name=v;break;case "SKU":d.SKU=v;break;case "Description":d.Description=v;break;default:d.QRCode=v;break;}var r=_validator.Validate(d);r.IsValid.Should().Be(expected);if(!expected)r.Errors.Should().Contain(x=>x.PropertyName==p);}
+    [Theory] [InlineData("CostPrice","0",true)] [InlineData("CostPrice","-1",false)] [InlineData("SalePrice","0",true)] [InlineData("SalePrice","-1",false)] [InlineData("Weight","0",true)] [InlineData("Weight","-1",false)] public void Validate_NonNegativeValue_ReturnsExpectedResult(string p,string text,bool expected){var d=Valid();var v=decimal.Parse(text);if(p==nameof(d.CostPrice))d.CostPrice=v;else if(p==nameof(d.SalePrice))d.SalePrice=v;else d.Weight=v;var r=_validator.Validate(d);r.IsValid.Should().Be(expected);if(!expected)r.Errors.Should().Contain(x=>x.PropertyName==p);}
+    [Theory] [InlineData(null,true)] [InlineData("0",true)] [InlineData("-1",false)] public void Validate_MinStockLevel_ReturnsExpectedResult(string? text,bool expected){var d=Valid();d.MinStockLevel=text is null?null:decimal.Parse(text);var r=_validator.Validate(d);r.IsValid.Should().Be(expected);if(!expected)r.Errors.Should().Contain(x=>x.PropertyName==nameof(d.MinStockLevel));}
+}
+
+public class UpdateProductVariantDtoValidatorTests
+{
+    private readonly UpdateProductVariantDtoValidator _validator=new();
+    private static UpdateProductVariantDto Valid()=>new(){Id=1,Name="Variant",ProductId=1,UnitOfMeasureId=1,SKU="SKU",Description="D",QRCode="Q",CostPrice=0,SalePrice=0,Weight=0,MinStockLevel=null};
+    [Fact] public void Validate_ValidDto_Passes(){var r=_validator.Validate(Valid());r.IsValid.Should().BeTrue();r.Errors.Should().BeEmpty();}
+    [Theory] [InlineData(0)] [InlineData(-1)] public void Validate_IdRuleMatchesNotEmptySemantics(int id){var d=Valid();d.Id=id;var r=_validator.Validate(d);if(id==0)r.Errors.Should().Contain(x=>x.PropertyName==nameof(d.Id));else r.Errors.Should().NotContain(x=>x.PropertyName==nameof(d.Id));}
+    [Theory] [InlineData("Name",null)] [InlineData("Name","")] [InlineData("Name","   ")] [InlineData("SKU",null)] [InlineData("SKU","")] [InlineData("SKU","   ")] public void Validate_RequiredTextIsMissing_Fails(string p,string? v){var d=Valid();if(p==nameof(d.Name))d.Name=v!;else d.SKU=v!;_validator.Validate(d).Errors.Should().Contain(x=>x.PropertyName==p);}
+    [Theory] [InlineData("ProductId",0)] [InlineData("UnitOfMeasureId",0)] public void Validate_RequiredIdIsEmpty_Fails(string p,int v){var d=Valid();if(p==nameof(d.ProductId))d.ProductId=v;else d.UnitOfMeasureId=v;_validator.Validate(d).Errors.Should().Contain(x=>x.PropertyName==p);}
+    [Theory] [InlineData("Name",255,true)] [InlineData("Name",256,false)] [InlineData("SKU",50,true)] [InlineData("SKU",51,false)] [InlineData("Description",500,true)] [InlineData("Description",501,false)] [InlineData("QRCode",255,true)] [InlineData("QRCode",256,false)] public void Validate_TextLength_ReturnsExpectedResult(string p,int n,bool expected){var d=Valid();var v=new string('a',n);switch(p){case "Name":d.Name=v;break;case "SKU":d.SKU=v;break;case "Description":d.Description=v;break;default:d.QRCode=v;break;}var r=_validator.Validate(d);r.IsValid.Should().Be(expected);if(!expected)r.Errors.Should().Contain(x=>x.PropertyName==p);}
+    [Theory] [InlineData("CostPrice","0",true)] [InlineData("CostPrice","-1",false)] [InlineData("SalePrice","0",true)] [InlineData("SalePrice","-1",false)] [InlineData("Weight","0",true)] [InlineData("Weight","-1",false)] public void Validate_NonNegativeValue_ReturnsExpectedResult(string p,string text,bool expected){var d=Valid();var v=decimal.Parse(text);if(p==nameof(d.CostPrice))d.CostPrice=v;else if(p==nameof(d.SalePrice))d.SalePrice=v;else d.Weight=v;var r=_validator.Validate(d);r.IsValid.Should().Be(expected);if(!expected)r.Errors.Should().Contain(x=>x.PropertyName==p);}
+    [Theory] [InlineData(null,true)] [InlineData("0",true)] [InlineData("-1",false)] public void Validate_MinStockLevel_ReturnsExpectedResult(string? text,bool expected){var d=Valid();d.MinStockLevel=text is null?null:decimal.Parse(text);var r=_validator.Validate(d);r.IsValid.Should().Be(expected);if(!expected)r.Errors.Should().Contain(x=>x.PropertyName==nameof(d.MinStockLevel));}
+}
