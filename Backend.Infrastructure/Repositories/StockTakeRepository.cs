@@ -46,12 +46,38 @@ public class StockTakeRepository : RepositoryBase<StockTake, int>, IStockTakeRep
                 WarehouseId = x.WarehouseId,
                 WarehouseName = x.Warehouse.Name,
                 StockTakeStatusId = x.StockTakeStatusId,
+                StockTakeStatusCode = x.StockTakeStatus.Code,
+                StockTakeStatusName = x.StockTakeStatus.Name,
+                StockTakeStatusColor = x.StockTakeStatus.Color,
                 Note = x.Note,
                 StartedDate = x.StartedDate,
                 CompletedDate = x.CompletedDate,
                 ApprovedByUserId = x.ApprovedByUserId,
                 ApproveNote = x.ApproveNote,
-                CreatedDate = x.CreatedDate
+                CreatedDate = x.CreatedDate,
+                CreatedByUserId = x.CreatedBy,
+                CreatedByName = _context.Users
+                    .Where(u => u.Id == x.CreatedBy && !u.IsDeleted)
+                    .Select(u => u.FirstName + " " + u.LastName)
+                    .FirstOrDefault(),
+                ScopeDisplay = x.StockTakeItems
+                    .Where(i => !i.IsDeleted)
+                    .OrderBy(i => i.Id)
+                    .Select(i => i.PaddyLot != null
+                        ? "Lô " + i.PaddyLot.LotCode
+                        : i.Location != null
+                            ? i.Location.ZoneName + " / " + (i.Location.SlotCode ?? i.Location.ShelfRow ?? "Vị trí")
+                            : i.ProductVariant != null
+                                ? "SKU " + i.ProductVariant.SKU
+                                : "Toàn kho")
+                    .FirstOrDefault() ?? "Chưa có dòng",
+                ItemCount = x.StockTakeItems.Count(i => !i.IsDeleted),
+                VarianceLineCount = x.StockTakeItems.Count(i =>
+                    !i.IsDeleted && i.ActualQuantity.HasValue &&
+                    i.ActualQuantity.Value != i.SystemQuantity),
+                NetVarianceKg = x.StockTakeItems
+                    .Where(i => !i.IsDeleted && i.ActualQuantity.HasValue)
+                    .Sum(i => (decimal?)(i.ActualQuantity!.Value - i.SystemQuantity)) ?? 0m
             });
 
         var totalRecord = await query.CountAsync();

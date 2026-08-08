@@ -344,5 +344,57 @@ namespace Backend.UnitTest.Services.QRCode
             response.ValidationResult!.Success.Should().BeFalse();
             response.ValidationResult.ErrorCode.Should().Be("LOT_PRODUCT_MISMATCH");
         }
+
+        [Fact]
+        public async Task GetQrLabelPreviewAsync_ReturnsRenderableQrImage()
+        {
+            using var context = CreateContext();
+            await SeedBaseDataAsync(context);
+            var idService = CreateQrIdentifierService(context);
+            var qrService = CreateQRCodeService(context, idService);
+
+            await idService.EnsurePaddyLotQrCodeAsync(1, CancellationToken.None);
+            var result = await qrService.GetQrLabelPreviewAsync(
+                "PADDY_LOT",
+                1,
+                "MEDIUM",
+                CancellationToken.None);
+
+            result.Label.Should().NotBeNull();
+            result.Label!.QrImageDataUrl.Should().StartWith("data:image/png;base64,");
+            result.Label.QrPayload.Should().Contain("|PADDY_LOT|");
+        }
+
+        [Fact]
+        public async Task GetQrLabelSummaryAndHistoryAsync_ReadsPrintAuditMetadata()
+        {
+            using var context = CreateContext();
+            await SeedBaseDataAsync(context);
+            var idService = CreateQrIdentifierService(context);
+            var qrService = CreateQRCodeService(context, idService);
+
+            context.AuditLogs.Add(new AuditLog
+            {
+                Action = "PRINT_QR_LABEL",
+                TargetType = "PaddyLot",
+                TargetId = "1,2",
+                DataAfter = "{\"CopiesPerLabel\":2,\"SubjectCount\":2,\"TotalLabels\":4,\"Format\":\"PDF\",\"Template\":\"MEDIUM\"}",
+                Description = "In hàng loạt nhãn lô hàng",
+                CreatedDate = DateTime.Now,
+                IsDeleted = false
+            });
+            await context.SaveChangesAsync();
+
+            var summary = await qrService.GetQrLabelSummaryAsync(CancellationToken.None);
+            var history = await qrService.GetQrLabelHistoryAsync(
+                new QrLabelHistoryQueryDto { Page = 1, PageSize = 10, LabelType = "PADDY_LOT" },
+                CancellationToken.None);
+
+            summary.TotalJobsThisMonth.Should().Be(1);
+            summary.TotalLabelsThisMonth.Should().Be(4);
+            history.Total.Should().Be(1);
+            history.Items.Single().Quantity.Should().Be(4);
+            history.Items.Single().Status.Should().Be("GENERATED");
+        }
     }
 }

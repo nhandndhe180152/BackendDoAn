@@ -9,6 +9,7 @@ using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
 using Backend.Share.Extensions;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Application.Implements;
 
@@ -193,6 +194,11 @@ public class InventoryTransactionService : IInventoryTransactionService
             try
             {
                 return await ApplyMovementCoreAsync(request, transactionType, newQuantityOnHand);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return ApiResponse.Conflict(
+                    "Dòng tồn kho vừa được cập nhật bởi giao dịch khác. Vui lòng tải lại dữ liệu.");
             }
             catch (Exception)
             {
@@ -380,6 +386,7 @@ public class InventoryTransactionService : IInventoryTransactionService
             WarehouseId = request.WarehouseId,
             LocationId = request.LocationId,
             ProductVariantId = request.ProductVariantId,
+            PaddyLotId = request.PaddyLotId,
             TransactionType = transactionType,
             ReferenceType = referenceType,
             ReferenceId = request.ReferenceId,

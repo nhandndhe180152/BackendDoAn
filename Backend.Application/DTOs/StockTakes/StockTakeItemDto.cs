@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Backend.Application.DTOs.StockTakes;
 
@@ -11,6 +12,14 @@ public class StockTakeItemDto
 
     /// <summary>Lô hàng được gắn vào dòng kiểm kê (null nếu không theo lô).</summary>
     public int? PaddyLotId { get; set; }
+
+    public string? SKU { get; set; }
+    public string? ProductVariantName { get; set; }
+    public decimal UnitWeightKg { get; set; }
+    public string? LocationCode { get; set; }
+    public string? ZoneName { get; set; }
+    public string? LotCode { get; set; }
+    public bool IsQuarantine { get; set; }
 
     public decimal SystemQuantity { get; set; }
     public decimal? ActualQuantity { get; set; }
@@ -33,6 +42,20 @@ public class StockTakeItemDto
 
     public int? RecountConfirmedBy { get; set; }
     public DateTime? RecountConfirmedAt { get; set; }
+
+    public List<StockTakeMovementEvidenceDto> PostSnapshotMovements { get; set; } = new();
+}
+
+public class StockTakeMovementEvidenceDto
+{
+    public int Id { get; set; }
+    public string TransactionType { get; set; } = string.Empty;
+    public decimal Quantity { get; set; }
+    public decimal BeforeQuantity { get; set; }
+    public decimal AfterQuantity { get; set; }
+    public string? Note { get; set; }
+    public DateTime CreatedDate { get; set; }
+    public int? CreatedBy { get; set; }
 }
 
 public class CreateStockTakeItemDto

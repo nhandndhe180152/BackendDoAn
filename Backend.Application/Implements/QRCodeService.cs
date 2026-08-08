@@ -219,8 +219,26 @@ public class QRCodeService : IQRCodeService
 
         var bulkBytes = ms.ToArray();
         var ids = request.Items.Select(x => x.ProductVariantId).ToList();
-        await LogPrintAuditAsync("ProductVariant", string.Join(",", ids), 1, "PDF", "MEDIUM", $"In hàng loạt nhãn SKU biến thể sản phẩm ({request.Items.Count} mặt hàng)", CancellationToken.None);
+        var totalLabels = request.Items.Sum(x =>
+            (int)Math.Max(1, Math.Round((decimal)x.Quantity, MidpointRounding.AwayFromZero)));
+        var templateCode = GetTemplateFromDimensions(request.WidthMm, request.HeightMm);
+        await LogPrintAuditAsync(
+            "ProductVariant",
+            string.Join(",", ids),
+            1,
+            "PDF",
+            templateCode,
+            $"In hàng loạt nhãn SKU biến thể sản phẩm ({request.Items.Count} mặt hàng)",
+            CancellationToken.None,
+            totalLabels);
         return bulkBytes;
+    }
+
+    private static string GetTemplateFromDimensions(float widthMm, float heightMm)
+    {
+        if (Math.Abs(widthMm - 50f) < 0.1f && Math.Abs(heightMm - 30f) < 0.1f) return "SMALL";
+        if (Math.Abs(widthMm - 100f) < 0.1f && Math.Abs(heightMm - 70f) < 0.1f) return "LARGE";
+        return "MEDIUM";
     }
 
     public async Task<string> GenerateAndSaveQRUrlAsync(int productVariantId)
@@ -1318,20 +1336,26 @@ public class QRCodeService : IQRCodeService
         return new QrContextValidationResultDto { Success = true };
     }
 
-    private async Task LogPrintAuditAsync(string targetType, string targetId, int copies, string format, string template, string description, CancellationToken cancellationToken)
+    private async Task LogPrintAuditAsync(string targetType, string targetId, int copies, string format, string template, string description, CancellationToken cancellationToken, int? totalLabels = null)
     {
         var httpContext = _httpContextAccessor?.HttpContext;
         var userId = httpContext?.GetCurrentUserId();
         var ip = httpContext?.GetRemoteHostIpAddress();
         var userAgent = httpContext?.Request?.Headers["User-Agent"].ToString();
 
-        // DataAfter lưu JSON nhỏ gọn chứa đầy đủ thông tin thao tác in
+        var subjectCount = Math.Max(1, targetId.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length);
+
+        // DataAfter lưu JSON nhỏ gọn chứa đầy đủ thông tin thao tác tạo file tem.
         var dataAfter = System.Text.Json.JsonSerializer.Serialize(new
         {
-            Copies    = copies,
-            Format    = format,
-            Template  = template,
-            PrintedAt = DateTimeHelper.VietnamNow().ToString("yyyy-MM-dd HH:mm:ss")
+            CopiesPerLabel = copies,
+            SubjectCount = subjectCount,
+            TotalLabels = totalLabels ?? copies * subjectCount,
+            Format = format.ToUpperInvariant(),
+            Template = template.ToUpperInvariant(),
+            DeliveryMode = "BROWSER",
+            Status = "GENERATED",
+            GeneratedAt = DateTimeHelper.VietnamNow().ToString("yyyy-MM-dd HH:mm:ss")
         });
 
         var audit = new AuditLog
@@ -1515,8 +1539,160 @@ public class QRCodeService : IQRCodeService
         }
 
         result.Label = previewData;
+        if (previewData != null && !string.IsNullOrWhiteSpace(previewData.QrPayload))
+        {
+            var qrBytes = QRCodeHelper.GenerateQRCodePng(previewData.QrPayload, 8);
+            previewData.QrImageDataUrl = $"data:image/png;base64,{Convert.ToBase64String(qrBytes)}";
+        }
         return result;
     }
+
+    public async Task<QrLabelSummaryDto> GetQrLabelSummaryAsync(CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeHelper.VietnamNow();
+        var monthStart = new DateTime(now.Year, now.Month, 1);
+        var nextMonth = monthStart.AddMonths(1);
+
+        var logs = await _context.AuditLogs
+            .AsNoTracking()
+            .Where(x => !x.IsDeleted
+                && x.Action == "PRINT_QR_LABEL"
+                && x.CreatedDate >= monthStart
+                && x.CreatedDate < nextMonth)
+            .Select(x => new { x.TargetId, x.DataAfter })
+            .ToListAsync(cancellationToken);
+
+        return new QrLabelSummaryDto
+        {
+            TotalJobsThisMonth = logs.Count,
+            TotalLabelsThisMonth = logs.Sum(x => ReadPrintAuditMetadata(x.DataAfter, x.TargetId).TotalLabels),
+            PrintMode = "BROWSER"
+        };
+    }
+
+    public async Task<QrLabelHistoryResultDto> GetQrLabelHistoryAsync(QrLabelHistoryQueryDto request, CancellationToken cancellationToken = default)
+    {
+        var page = Math.Max(1, request.Page);
+        var pageSize = Math.Clamp(request.PageSize, 1, 100);
+        var keyword = request.Search?.Trim();
+        var targetType = ToAuditTargetType(request.LabelType);
+
+        var query =
+            from audit in _context.AuditLogs.AsNoTracking()
+            join user in _context.Users.AsNoTracking() on audit.CreatedBy equals user.Id into users
+            from user in users.DefaultIfEmpty()
+            where !audit.IsDeleted && audit.Action == "PRINT_QR_LABEL"
+            select new
+            {
+                Audit = audit,
+                PrintedBy = user == null ? "Hệ thống" : (user.FirstName + " " + user.LastName).Trim()
+            };
+
+        if (!string.IsNullOrWhiteSpace(targetType))
+            query = query.Where(x => x.Audit.TargetType == targetType);
+
+        if (request.DateFrom.HasValue)
+        {
+            var from = request.DateFrom.Value.Date;
+            query = query.Where(x => x.Audit.CreatedDate >= from);
+        }
+
+        if (request.DateTo.HasValue)
+        {
+            var to = request.DateTo.Value.Date.AddDays(1);
+            query = query.Where(x => x.Audit.CreatedDate < to);
+        }
+
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            query = query.Where(x =>
+                (x.Audit.TargetId != null && x.Audit.TargetId.Contains(keyword))
+                || (x.Audit.Description != null && x.Audit.Description.Contains(keyword))
+                || x.PrintedBy.Contains(keyword));
+        }
+
+        var total = await query.CountAsync(cancellationToken);
+        var rows = await query
+            .OrderByDescending(x => x.Audit.CreatedDate)
+            .ThenByDescending(x => x.Audit.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        var items = rows.Select(x =>
+        {
+            var metadata = ReadPrintAuditMetadata(x.Audit.DataAfter, x.Audit.TargetId);
+            return new QrLabelHistoryItemDto
+            {
+                Id = x.Audit.Id,
+                JobCode = $"QR-{x.Audit.CreatedDate:yyyy}-{x.Audit.Id:D6}",
+                LabelType = FromAuditTargetType(x.Audit.TargetType),
+                TargetIds = x.Audit.TargetId ?? string.Empty,
+                Content = x.Audit.Description ?? "Tạo file tem QR",
+                Quantity = metadata.TotalLabels,
+                PrintedBy = string.IsNullOrWhiteSpace(x.PrintedBy) ? "Hệ thống" : x.PrintedBy,
+                Format = metadata.Format,
+                Template = metadata.Template,
+                Status = "GENERATED",
+                CreatedDate = x.Audit.CreatedDate
+            };
+        }).ToList();
+
+        return new QrLabelHistoryResultDto
+        {
+            Items = items,
+            Total = total,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+
+    private static string? ToAuditTargetType(string? labelType) => labelType?.ToUpperInvariant() switch
+    {
+        "PADDY_LOT" => "PaddyLot",
+        "BAG" => "Bag",
+        "LOCATION" => "Location",
+        "SKU" => "ProductVariant",
+        _ => null
+    };
+
+    private static string FromAuditTargetType(string targetType) => targetType switch
+    {
+        "PaddyLot" => "PADDY_LOT",
+        "Bag" => "BAG",
+        "Location" => "LOCATION",
+        "ProductVariant" => "SKU",
+        _ => targetType.ToUpperInvariant()
+    };
+
+    private static PrintAuditMetadata ReadPrintAuditMetadata(string? json, string? targetId)
+    {
+        var subjectCount = Math.Max(1, (targetId ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length);
+        if (string.IsNullOrWhiteSpace(json))
+            return new PrintAuditMetadata(subjectCount, "PDF", "MEDIUM");
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var copies = root.TryGetProperty("CopiesPerLabel", out var copiesNode)
+                ? copiesNode.GetInt32()
+                : root.TryGetProperty("Copies", out var legacyCopiesNode) ? legacyCopiesNode.GetInt32() : 1;
+            var total = root.TryGetProperty("TotalLabels", out var totalNode)
+                ? totalNode.GetInt32()
+                : Math.Max(1, copies) * subjectCount;
+            var format = root.TryGetProperty("Format", out var formatNode) ? formatNode.GetString() ?? "PDF" : "PDF";
+            var template = root.TryGetProperty("Template", out var templateNode) ? templateNode.GetString() ?? "MEDIUM" : "MEDIUM";
+            return new PrintAuditMetadata(Math.Max(1, total), format, template);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return new PrintAuditMetadata(subjectCount, "PDF", "MEDIUM");
+        }
+    }
+
+    private sealed record PrintAuditMetadata(int TotalLabels, string Format, string Template);
 
     public async Task<byte[]> GenerateBagLabelPdfAsync(int id, string templateCode, int copies, CancellationToken cancellationToken = default)
     {
