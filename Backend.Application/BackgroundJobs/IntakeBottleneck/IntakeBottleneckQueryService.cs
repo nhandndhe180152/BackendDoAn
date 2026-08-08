@@ -143,24 +143,29 @@ public class IntakeBottleneckQueryService : IIntakeBottleneckQueryService
 
     public async Task<decimal?> GetLabourCapacityAsync(int warehouseId, CancellationToken cancellationToken)
     {
-        var key = $"{IntakeBottleneckConstants.ConfigKey.LabourCapacityPrefix}{warehouseId}";
-        var configVal = await _context.SystemConfigs
+        var perWarehouseKey = $"{IntakeBottleneckConstants.ConfigKey.LabourCapacityPrefix}{warehouseId}";
+        var globalKey = IntakeBottleneckConstants.ConfigKey.LabourCapacityGlobal;
+
+        var configs = await _context.SystemConfigs
             .AsNoTracking()
-            .Where(c => c.ConfigKey == key && !c.IsDeleted)
-            .Select(c => c.ConfigValue)
-            .FirstOrDefaultAsync(cancellationToken);
+            .Where(c => (c.ConfigKey == perWarehouseKey || c.ConfigKey == globalKey) && !c.IsDeleted)
+            .ToDictionaryAsync(c => c.ConfigKey, c => c.ConfigValue, cancellationToken);
 
-        if (string.IsNullOrWhiteSpace(configVal))
+        // Ưu tiên cấu hình riêng theo kho -> cấu hình toàn cục -> giá trị mặc định.
+        // Nhờ vậy khi thêm kho mới không bắt buộc phải tạo key IntakeLabourCapacity:{IdKho}.
+        if (configs.TryGetValue(perWarehouseKey, out var perVal)
+            && decimal.TryParse(perVal, NumberStyles.Number, CultureInfo.InvariantCulture, out var perParsed))
         {
-            return null;
+            return perParsed;
         }
 
-        if (decimal.TryParse(configVal, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsedVal))
+        if (configs.TryGetValue(globalKey, out var globalVal)
+            && decimal.TryParse(globalVal, NumberStyles.Number, CultureInfo.InvariantCulture, out var globalParsed))
         {
-            return parsedVal;
+            return globalParsed;
         }
 
-        return null;
+        return IntakeBottleneckConstants.Default.LabourCapacityKg;
     }
 
     public async Task<(decimal? WindowHours, decimal? WarningRatio, decimal? CriticalRatio)> GetGlobalThresholdConfigsAsync(CancellationToken cancellationToken)

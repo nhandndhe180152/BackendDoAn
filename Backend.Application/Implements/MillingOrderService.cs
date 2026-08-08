@@ -875,6 +875,7 @@ public class MillingOrderService : IMillingOrderService
         MillingCode = x.MillingCode,
         StatusId = x.StatusId,
         StatusName = x.Status?.Name,
+        StatusCode = x.Status?.Code,
         WarehouseId = x.WarehouseId,
         WarehouseName = x.Warehouse?.Name,
         Reason = x.Reason,

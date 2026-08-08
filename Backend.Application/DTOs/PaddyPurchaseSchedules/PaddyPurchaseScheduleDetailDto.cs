@@ -11,6 +11,7 @@ public class PaddyPurchaseScheduleDetailDto
     public string? FarmerName { get; set; }
     public int StatusId { get; set; }
     public string? StatusName { get; set; }
+    public string? StatusCode { get; set; }
     public int? RiceVarietyId { get; set; }
     public string? RiceVarietyName { get; set; }
     public DateTime ScheduleDate { get; set; }

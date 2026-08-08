@@ -193,6 +193,7 @@ public class SalesRevenueReportDto
     public decimal AmountCollected { get; set; }   // Tổng đã thu = Deposit + Payments
     public decimal OutstandingAmount { get; set; } // Còn lại phải thu = Total - Collected
     public string StatusName { get; set; } = null!;
+    public string StatusCode { get; set; } = null!;
 }
 
 public class QualityAlertReportDto

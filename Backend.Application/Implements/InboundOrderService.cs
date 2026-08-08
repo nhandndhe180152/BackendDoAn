@@ -184,6 +184,7 @@ public class InboundOrderService : IInboundOrderService
                 SupplierName = x.SourceType == "RECEIPT" && x.PaddyPurchaseReceipt != null && x.PaddyPurchaseReceipt.Farmer != null ? x.PaddyPurchaseReceipt.Farmer.Name : (x.Supplier != null ? x.Supplier.Name : null),
                 InboundOrderStatusId = x.InboundOrderStatusId,
                 InboundOrderStatusName = x.InboundOrderStatus.Name,
+                InboundOrderStatusCode = x.InboundOrderStatus.Code,
                 TotalAssetValue = x.TotalAssetValue,
                 ExpectedDate = x.ExpectedDate,
                 CompletedDate = x.CompletedDate,
@@ -193,7 +194,8 @@ public class InboundOrderService : IInboundOrderService
                 PaddyPurchaseReceiptCode = x.PaddyPurchaseReceipt != null
                     ? x.PaddyPurchaseReceipt.ReceiptCode
                     : null,
-                CreatedDate = x.CreatedDate
+                CreatedDate = x.CreatedDate,
+                CreatedBy = x.CreatedBy
             });
 
         var totalRecord = await query.CountAsync();
@@ -592,6 +594,12 @@ public class InboundOrderService : IInboundOrderService
         var order = await _inboundOrderRepository.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, true);
         if (order == null)
             return ApiResponse.NotFound("Không tìm thấy phiếu nhập.", ApiCodeConstants.Common.NotFound);
+
+        // Tách quyền (segregation of duties): người tạo/gửi phiếu không được tự duyệt
+        // phiếu do chính mình tạo, kể cả khi vai trò có quyền APPROVE.
+        var currentUserId = GetCurrentUserId();
+        if (order.CreatedBy.HasValue && order.CreatedBy.Value == currentUserId)
+            return ApiResponse.Forbidden("Bạn không thể tự duyệt phiếu nhập do chính mình tạo.", ApiCodeConstants.Common.Forbidden);
 
         var submittedId = await GetStatusIdAsync(InboundOrderStatusNames.Submitted);
         if (order.InboundOrderStatusId != submittedId)
@@ -1265,6 +1273,11 @@ public class InboundOrderService : IInboundOrderService
 
         try
         {
+            // Tự cập nhật CurrentOccupancy = TỔNG TỒN THỰC (self-healing) trong hàm này,
+            // nên phải TẮT interceptor tự động của BackendContext để tránh cộng đôi sức chứa.
+            if (_httpContextAccessor.HttpContext != null)
+                _httpContextAccessor.HttpContext.Items["BypassLocationOccupancyInterceptor"] = true;
+
             var order = await _inboundOrderRepository.FirstOrDefaultAsync(
                 x => x.Id == orderId && !x.IsDeleted,
                 true,
@@ -1500,6 +1513,10 @@ public class InboundOrderService : IInboundOrderService
             _logger.LogError(ex, "Failed to confirm receipt.");
             return ApiResponse.InternalServerError();
         }
+        finally
+        {
+            _httpContextAccessor.HttpContext?.Items.Remove("BypassLocationOccupancyInterceptor");
+        }
     }
 
     public async Task<ApiResponse> GetReceiptsAsync(int orderId)
@@ -1524,6 +1541,10 @@ public class InboundOrderService : IInboundOrderService
         await using var transaction = await _inboundOrderRepository.BeginTransactionAsync();
         try
         {
+            // Tự tính lại CurrentOccupancy theo tổng tồn thực -> tắt interceptor để tránh trừ đôi sức chứa.
+            if (_httpContextAccessor.HttpContext != null)
+                _httpContextAccessor.HttpContext.Items["BypassLocationOccupancyInterceptor"] = true;
+
             var order = await _inboundOrderRepository.FirstOrDefaultAsync(
                 x => x.Id == orderId && !x.IsDeleted, true, x => x.InboundOrderItems);
             if (order == null)
@@ -1650,6 +1671,10 @@ public class InboundOrderService : IInboundOrderService
             await transaction.RollbackAsync();
             _logger.LogError(ex, "Failed to reverse receipt.");
             return ApiResponse.InternalServerError();
+        }
+        finally
+        {
+            _httpContextAccessor.HttpContext?.Items.Remove("BypassLocationOccupancyInterceptor");
         }
     }
 

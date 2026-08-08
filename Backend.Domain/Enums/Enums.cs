@@ -105,6 +105,7 @@ public static class Enums
         {
             ADMIN = 1001,
             USER,
+            AUDITOR,
         }
 
     // Các kiểu giao dịch phát sinh trong kho hàng

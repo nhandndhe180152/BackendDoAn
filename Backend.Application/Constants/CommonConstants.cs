@@ -125,6 +125,7 @@ public static class CommonConstants
         public static int WAREHOUSE => Lookup.RoleIdOrDefault(LookupCodes.Role.Warehouse, 1008);
         public static int MILLING => Lookup.RoleIdOrDefault(LookupCodes.Role.Milling, 1009);
         public static int SALES => Lookup.RoleIdOrDefault(LookupCodes.Role.Sales, 1010);
+        public static int AUDITOR => Lookup.RoleIdOrDefault(LookupCodes.Role.Auditor, 1011);
 
         /// <summary>
         /// Các Code role hệ thống mà code backend đang tham chiếu — dùng để bảo vệ khỏi bị xoá.
@@ -138,6 +139,7 @@ public static class CommonConstants
             LookupCodes.Role.Warehouse,
             LookupCodes.Role.Milling,
             LookupCodes.Role.Sales,
+            LookupCodes.Role.Auditor,
         };
     }
 
@@ -149,6 +151,7 @@ public static class CommonConstants
             Role.WAREHOUSE,
             Role.MILLING,
             Role.SALES,
+            Role.AUDITOR,
         };
 
     /// <summary>Các vai trò làm việc nội bộ (dùng hệ thống quản lý).</summary>
@@ -159,6 +162,7 @@ public static class CommonConstants
             Role.WAREHOUSE,
             Role.MILLING,
             Role.SALES,
+            Role.AUDITOR,
         };
 
     public static readonly HashSet<int> ListRoleForUserManagement = new()
@@ -169,6 +173,7 @@ public static class CommonConstants
             Role.WAREHOUSE,
             Role.MILLING,
             Role.SALES,
+            Role.AUDITOR,
         };
 
     public static class UserVerificationTokenPurpose

@@ -16,6 +16,7 @@ public class PaddyLotDetailDto
     public string? RiceVarietyName { get; set; }
     public int StatusId { get; set; }
     public string? StatusName { get; set; }
+    public string? StatusCode { get; set; }
     public int? SourceReceiptId { get; set; }
     public int? SourceMillingOrderId { get; set; }
     public int WarehouseId { get; set; }

@@ -122,7 +122,7 @@ public class InboundOrderController : BaseController
     }
 
     [HttpPost("{id}/approve")]
-    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.APPROVE)]
     public async Task<IActionResult> ApproveAsync(int id)
     {
         if (!IsManagerOrAdmin())
@@ -135,7 +135,7 @@ public class InboundOrderController : BaseController
     }
 
     [HttpPost("{id}/reject")]
-    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.APPROVE)]
     public async Task<IActionResult> RejectAsync(int id, [FromBody] string reason)
     {
         if (!IsManagerOrAdmin())

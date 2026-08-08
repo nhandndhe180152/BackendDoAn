@@ -110,6 +110,7 @@ public class PurchaseOrderService : IPurchaseOrderService
             SupplierName   = po.Supplier?.Name ?? "",
             StatusId       = po.StatusId,
             StatusName     = po.Status?.Name ?? "",
+            StatusCode     = po.Status?.Code ?? "",
             StatusColor    = po.Status?.Color ?? "",
             WarehouseId    = po.WarehouseId,
             WarehouseName  = po.Warehouse?.Name,
@@ -140,6 +141,7 @@ public class PurchaseOrderService : IPurchaseOrderService
                 {
                     Id                = io.Id,
                     InboundStatusName = io.InboundOrderStatus?.Name ?? "",
+                    InboundStatusCode = io.InboundOrderStatus?.Code ?? "",
                     CompletedDate     = io.CompletedDate
                 }).ToList()
         };
@@ -176,6 +178,7 @@ public class PurchaseOrderService : IPurchaseOrderService
                 SupplierName  = po.Supplier.Name,
                 StatusId      = po.StatusId,
                 StatusName    = po.Status.Name,
+                StatusCode    = po.Status.Code,
                 StatusColor   = po.Status.Color,
                 WarehouseId   = po.WarehouseId,
                 WarehouseName = po.Warehouse != null ? po.Warehouse.Name : null,

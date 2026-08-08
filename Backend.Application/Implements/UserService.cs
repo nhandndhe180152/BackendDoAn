@@ -545,6 +545,7 @@ public class UserService : IUserService
                 CreatedDate = x.CreatedDate,
                 UserStatusId = x.UserStatusId,
                 UserStatusName = x.UserStatus.Name,
+                UserStatusCode = x.UserStatus.Code,
                 IdentityNumber = x.IdentityNumber,
                 AddressDetail = x.AddresDetail
             })
@@ -628,6 +629,7 @@ public class UserService : IUserService
                 AvatarUrl = x.Avatar == null ? null : _storageService.GetOriginalUrl(x.Avatar.FileKey),
                 UserStatusId = x.UserStatusId,
                 UserStatusName = x.UserStatus.Name,
+                UserStatusCode = x.UserStatus.Code,
                 IdentityNumber = x.IdentityNumber,
                 AddressDetail = x.AddresDetail,
                 CreatedDate = x.CreatedDate,
@@ -915,6 +917,7 @@ public class UserService : IUserService
                         CreatedDate = u.CreatedDate,
                         UserStatusId = u.UserStatusId,
                         UserStatusName = u.UserStatus.Name,
+                        UserStatusCode = u.UserStatus.Code,
                         IdentityNumber = u.IdentityNumber,
                     });
 
@@ -989,6 +992,7 @@ public class UserService : IUserService
                               CreatedDate = u.CreatedDate,
                               UserStatusId = u.UserStatusId,
                               UserStatusName = u.UserStatus.Name,
+                              UserStatusCode = u.UserStatus.Code,
                           })
                     .GroupBy(x => new
                     {

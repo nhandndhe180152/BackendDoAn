@@ -78,6 +78,7 @@ public class PurchaseOrderListDto
     public string SupplierName { get; set; } = null!;
     public int StatusId { get; set; }
     public string StatusName { get; set; } = null!;
+    public string StatusCode { get; set; } = null!;
     public string StatusColor { get; set; } = null!;
     public int? WarehouseId { get; set; }
     public string? WarehouseName { get; set; }
@@ -97,6 +98,7 @@ public class PurchaseOrderDetailDto
     public string? SupplierPhone { get; set; }
     public int StatusId { get; set; }
     public string StatusName { get; set; } = null!;
+    public string StatusCode { get; set; } = null!;
     public string StatusColor { get; set; } = null!;
     public int? WarehouseId { get; set; }
     public string? WarehouseName { get; set; }
@@ -127,6 +129,7 @@ public class PurchaseOrderInboundSummaryDto
 {
     public int Id { get; set; }
     public string InboundStatusName { get; set; } = null!;
+    public string InboundStatusCode { get; set; } = null!;
     public DateTime? CompletedDate { get; set; }
 }
 

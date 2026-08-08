@@ -78,6 +78,7 @@ public class InboundOrderListDto
     public string? SupplierName { get; set; }
     public int InboundOrderStatusId { get; set; }
     public string InboundOrderStatusName { get; set; } = null!;
+    public string InboundOrderStatusCode { get; set; } = null!;
     public decimal TotalAssetValue { get; set; }
     public DateTime? ExpectedDate { get; set; }
     public DateTime? CompletedDate { get; set; }
@@ -86,6 +87,8 @@ public class InboundOrderListDto
     public int? PaddyPurchaseReceiptId { get; set; }
     public string? PaddyPurchaseReceiptCode { get; set; }
     public DateTime CreatedDate { get; set; }
+    /// <summary>Người tạo phiếu — FE dùng để ẩn nút Duyệt của chính người tạo (tách quyền).</summary>
+    public int? CreatedBy { get; set; }
 }
 
 public class InboundOrderDetailDto
@@ -98,6 +101,7 @@ public class InboundOrderDetailDto
     public string? SupplierName { get; set; }
     public int InboundOrderStatusId { get; set; }
     public string InboundOrderStatusName { get; set; } = null!;
+    public string InboundOrderStatusCode { get; set; } = null!;
     public decimal TotalAssetValue { get; set; }
     public DateTime? ExpectedDate { get; set; }
     public DateTime? CompletedDate { get; set; }
@@ -106,6 +110,8 @@ public class InboundOrderDetailDto
     public int? PaddyPurchaseReceiptId { get; set; }
     public string? PaddyPurchaseReceiptCode { get; set; }
     public DateTime CreatedDate { get; set; }
+    /// <summary>Người tạo phiếu — FE dùng để ẩn nút Duyệt của chính người tạo (tách quyền).</summary>
+    public int? CreatedBy { get; set; }
     public List<InboundOrderItemDto> Items { get; set; } = new();
 
     /// <summary>Chứng từ giao hàng (ảnh + thông tin OCR) gắn với phiếu nhập, null nếu chưa có.</summary>

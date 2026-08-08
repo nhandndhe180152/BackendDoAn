@@ -30,6 +30,7 @@ public class TraceabilityLotDto
     public string? RiceVarietyName { get; set; }
     public int StatusId { get; set; }
     public string? StatusName { get; set; }
+    public string? StatusCode { get; set; }
     public bool IsSellable { get; set; }
     public bool IsQuarantined { get; set; }
     public int WarehouseId { get; set; }
@@ -92,6 +93,7 @@ public class TraceabilityMillingDto
     public string MillingCode { get; set; } = string.Empty;
     public int StatusId { get; set; }
     public string? StatusName { get; set; }
+    public string? StatusCode { get; set; }
     public int WarehouseId { get; set; }
     public string? WarehouseCode { get; set; }
     public string? WarehouseName { get; set; }
@@ -143,6 +145,7 @@ public class TraceabilityOutboundDto
     public int OutboundOrderId { get; set; }
     public int OutboundStatusId { get; set; }
     public string? OutboundStatusName { get; set; }
+    public string? OutboundStatusCode { get; set; }
     public DateTime? CompletedDate { get; set; }
     public int WarehouseId { get; set; }
     public string? WarehouseCode { get; set; }
@@ -151,6 +154,7 @@ public class TraceabilityOutboundDto
     public string? SalesOrderCode { get; set; }
     public int? SalesOrderStatusId { get; set; }
     public string? SalesOrderStatusName { get; set; }
+    public string? SalesOrderStatusCode { get; set; }
     public string? Channel { get; set; }
     public DateTime? SalesOrderDate { get; set; }
     public int? CustomerId { get; set; }

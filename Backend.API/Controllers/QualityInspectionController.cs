@@ -69,7 +69,7 @@ namespace Backend.API.Controllers
 
         /// <summary>Kiểm tra lại chất lượng lô đang CÁCH LY; nếu đạt sẽ rút hàng khỏi ô cách ly và tạo phiếu nhập kho để xếp lại vào ô thường.</summary>
         [HttpPost("recheck")]
-        [CustomAuthorize(Enums.Menu.QUALITY_INSPECTIONS, Enums.Action.CREATE)]
+        [CustomAuthorize(Enums.Menu.QUALITY_INSPECTIONS, Enums.Action.APPROVE)]
         public async Task<IActionResult> RecheckAsync([FromBody] CreateQualityInspectionDto dto)
         {
             dto.CreatedBy = this.GetLoggedInUserId();

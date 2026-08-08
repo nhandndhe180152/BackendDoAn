@@ -71,6 +71,10 @@ public class StockTransferRepository : RepositoryBase<StockTransfer, int>, IStoc
                     case "StatusName":
                         entityQuery = entityQuery.Where(x => x.Status.Name == search);
                         break;
+                    case "statusCode":
+                    case "StatusCode":
+                        entityQuery = entityQuery.Where(x => x.Status.Code == search);
+                        break;
                     case "fromWarehouseId":
                     case "FromWarehouseId":
                         if (int.TryParse(search, out var fwId))
@@ -119,6 +123,7 @@ public class StockTransferRepository : RepositoryBase<StockTransfer, int>, IStoc
             TransferCode = x.TransferCode,
             StatusId = x.StatusId,
             StatusName = x.Status.Name,
+            StatusCode = x.Status.Code,
             StatusColor = x.Status.Color,
             FromWarehouseId = x.FromWarehouseId,
             FromWarehouseName = x.FromWarehouse.Name,

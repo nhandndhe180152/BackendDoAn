@@ -59,6 +59,7 @@ public static class PaddyPurchaseMapping
             FarmerName = entity.Farmer?.Name,
             StatusId = entity.StatusId,
             StatusName = entity.Status?.Name,
+            StatusCode = entity.Status?.Code,
             RiceVarietyId = entity.RiceVarietyId,
             RiceVarietyName = entity.RiceVariety?.Name,
             ScheduleDate = entity.ScheduleDate,

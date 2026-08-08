@@ -868,6 +868,11 @@ public class StockTakeService : IStockTakeService
         if (existData == null)
             return ApiResponse.NotFound();
 
+        // Tách quyền (segregation of duties): người tạo phiếu không được tự duyệt
+        // phiếu kiểm kê do chính mình tạo, kể cả khi vai trò có quyền APPROVE.
+        if (existData.CreatedBy.HasValue && existData.CreatedBy.Value == userId)
+            return ApiResponse.Forbidden(message: "Bạn không thể tự duyệt phiếu kiểm kê do chính mình tạo.", code: ApiCodeConstants.Common.Forbidden);
+
         if (existData.StockTakeStatusId != Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Submitted))
             return ApiResponse.UnprocessableEntity("Chỉ có thể duyệt phiếu kiểm kho ở trạng thái chờ duyệt.", ApiCodeConstants.Common.UnprocessableEntity);
 

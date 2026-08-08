@@ -53,6 +53,7 @@ public static class InboundOrderMapping
             SupplierName = entity.SourceType == "RECEIPT" ? entity.PaddyPurchaseReceipt?.Farmer?.Name : entity.Supplier?.Name,
             InboundOrderStatusId = entity.InboundOrderStatusId,
             InboundOrderStatusName = entity.InboundOrderStatus?.Name ?? string.Empty,
+            InboundOrderStatusCode = entity.InboundOrderStatus?.Code ?? string.Empty,
             TotalAssetValue = entity.TotalAssetValue,
             ExpectedDate = entity.ExpectedDate,
             CompletedDate = entity.CompletedDate,
@@ -60,7 +61,8 @@ public static class InboundOrderMapping
             SourceType = entity.SourceType,
             PaddyPurchaseReceiptId = entity.PaddyPurchaseReceiptId,
             PaddyPurchaseReceiptCode = entity.PaddyPurchaseReceipt?.ReceiptCode,
-            CreatedDate = entity.CreatedDate
+            CreatedDate = entity.CreatedDate,
+            CreatedBy = entity.CreatedBy
         };
     }
 
@@ -76,6 +78,7 @@ public static class InboundOrderMapping
             SupplierName = entity.SourceType == "RECEIPT" ? entity.PaddyPurchaseReceipt?.Farmer?.Name : entity.Supplier?.Name,
             InboundOrderStatusId = entity.InboundOrderStatusId,
             InboundOrderStatusName = entity.InboundOrderStatus?.Name ?? string.Empty,
+            InboundOrderStatusCode = entity.InboundOrderStatus?.Code ?? string.Empty,
             TotalAssetValue = entity.TotalAssetValue,
             ExpectedDate = entity.ExpectedDate,
             CompletedDate = entity.CompletedDate,
@@ -84,6 +87,7 @@ public static class InboundOrderMapping
             PaddyPurchaseReceiptId = entity.PaddyPurchaseReceiptId,
             PaddyPurchaseReceiptCode = entity.PaddyPurchaseReceipt?.ReceiptCode,
             CreatedDate = entity.CreatedDate,
+            CreatedBy = entity.CreatedBy,
             Items = entity.InboundOrderItems?.Select(x => x.ToDto()).ToList() ?? new()
         };
     }
