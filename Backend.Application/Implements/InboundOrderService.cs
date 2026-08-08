@@ -1266,6 +1266,11 @@ public class InboundOrderService : IInboundOrderService
 
         try
         {
+            // Tự cập nhật CurrentOccupancy = TỔNG TỒN THỰC (self-healing) trong hàm này,
+            // nên phải TẮT interceptor tự động của BackendContext để tránh cộng đôi sức chứa.
+            if (_httpContextAccessor.HttpContext != null)
+                _httpContextAccessor.HttpContext.Items["BypassLocationOccupancyInterceptor"] = true;
+
             var order = await _inboundOrderRepository.FirstOrDefaultAsync(
                 x => x.Id == orderId && !x.IsDeleted,
                 true,
@@ -1501,6 +1506,10 @@ public class InboundOrderService : IInboundOrderService
             _logger.LogError(ex, "Failed to confirm receipt.");
             return ApiResponse.InternalServerError();
         }
+        finally
+        {
+            _httpContextAccessor.HttpContext?.Items.Remove("BypassLocationOccupancyInterceptor");
+        }
     }
 
     public async Task<ApiResponse> GetReceiptsAsync(int orderId)
@@ -1525,6 +1534,10 @@ public class InboundOrderService : IInboundOrderService
         await using var transaction = await _inboundOrderRepository.BeginTransactionAsync();
         try
         {
+            // Tự tính lại CurrentOccupancy theo tổng tồn thực -> tắt interceptor để tránh trừ đôi sức chứa.
+            if (_httpContextAccessor.HttpContext != null)
+                _httpContextAccessor.HttpContext.Items["BypassLocationOccupancyInterceptor"] = true;
+
             var order = await _inboundOrderRepository.FirstOrDefaultAsync(
                 x => x.Id == orderId && !x.IsDeleted, true, x => x.InboundOrderItems);
             if (order == null)
@@ -1651,6 +1664,10 @@ public class InboundOrderService : IInboundOrderService
             await transaction.RollbackAsync();
             _logger.LogError(ex, "Failed to reverse receipt.");
             return ApiResponse.InternalServerError();
+        }
+        finally
+        {
+            _httpContextAccessor.HttpContext?.Items.Remove("BypassLocationOccupancyInterceptor");
         }
     }
 
