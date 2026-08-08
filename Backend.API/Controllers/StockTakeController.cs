@@ -74,7 +74,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("{id}/approve")]
-        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.UPDATE)]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.APPROVE)]
         public async Task<IActionResult> ApproveAsync(int id, [FromBody] ApproveStockTakeDto dto)
         {
             var result = await _stockTakeService.ApproveAsync(id, dto.ApproveNote, this.GetLoggedInUserId());
@@ -82,7 +82,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("{id}/reject")]
-        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.UPDATE)]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.APPROVE)]
         public async Task<IActionResult> RejectAsync(int id, [FromBody] RejectStockTakeDto dto)
         {
             var result = await _stockTakeService.RejectAsync(id, dto.Reason, this.GetLoggedInUserId());

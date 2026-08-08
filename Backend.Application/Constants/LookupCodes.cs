@@ -42,6 +42,7 @@ public static class LookupCodes
         public const string Warehouse = "WAREHOUSE";   // Nhân viên kho
         public const string Milling = "MILLING";       // Nhân viên xay xát
         public const string Sales = "SALES";           // Nhân viên bán hàng
+        public const string Auditor = "AUDITOR";       // Kiểm toán viên (chỉ đọc + xuất báo cáo/log)
 
         // Legacy roles (from stashed changes)
         public const string EndUser = "END_USER";
