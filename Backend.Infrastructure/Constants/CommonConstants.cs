@@ -58,6 +58,8 @@ public static class CommonConstants
             "InboundOrder",
             "Inventory",
             "InventoryTransaction",
+            "StockTake",
+            "StockTakeItem",
             "Alert",
             "SystemConfig",
             "Notification",

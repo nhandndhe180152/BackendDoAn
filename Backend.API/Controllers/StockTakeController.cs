@@ -12,6 +12,7 @@ namespace Backend.API.Controllers
 {
     [Authorize]
     [ApiVersion(1)]
+    [Route("api/v{version:apiVersion}/stocktakes")]
     [Route("api/v{version:apiVersion}/stocktake")]
     [ApiController]
     public class StockTakeController : BaseController
@@ -39,11 +40,27 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
-        [HttpGet("{id}")]
+        [HttpGet("{id:int}")]
         [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var result = await _stockTakeService.GetByIdAsync(id);
+            return BaseResult(result);
+        }
+
+        [HttpGet("summary")]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.READ)]
+        public async Task<IActionResult> GetSummaryAsync()
+        {
+            var result = await _stockTakeService.GetSummaryAsync();
+            return BaseResult(result);
+        }
+
+        [HttpGet("thresholds")]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.READ)]
+        public async Task<IActionResult> GetThresholdsAsync()
+        {
+            var result = await _stockTakeService.GetThresholdsAsync();
             return BaseResult(result);
         }
 
@@ -65,6 +82,22 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        [HttpPut("{id:int}/counts")]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.UPDATE)]
+        public async Task<IActionResult> SaveCountsAsync(int id, [FromBody] SaveStockTakeCountsDto dto)
+        {
+            var result = await _stockTakeService.SaveCountsAsync(id, dto, this.GetLoggedInUserId());
+            return BaseResult(result);
+        }
+
+        [HttpPut("{id:int}/submit")]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.UPDATE)]
+        public async Task<IActionResult> SubmitAsync(int id, [FromBody] SubmitStockTakeDto dto)
+        {
+            var result = await _stockTakeService.SubmitAsync(id, dto, this.GetLoggedInUserId());
+            return BaseResult(result);
+        }
+
         [HttpDelete("{id}")]
         [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
@@ -73,16 +106,18 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
-        [HttpPost("{id}/approve")]
-        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.UPDATE)]
+        [HttpPut("{id:int}/approve")]
+        [HttpPost("{id:int}/approve")]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.APPROVE)]
         public async Task<IActionResult> ApproveAsync(int id, [FromBody] ApproveStockTakeDto dto)
         {
             var result = await _stockTakeService.ApproveAsync(id, dto.ApproveNote, this.GetLoggedInUserId());
             return BaseResult(result);
         }
 
-        [HttpPost("{id}/reject")]
-        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.UPDATE)]
+        [HttpPut("{id:int}/reject")]
+        [HttpPost("{id:int}/reject")]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.APPROVE)]
         public async Task<IActionResult> RejectAsync(int id, [FromBody] RejectStockTakeDto dto)
         {
             var result = await _stockTakeService.RejectAsync(id, dto.Reason, this.GetLoggedInUserId());

@@ -395,6 +395,48 @@ public class StockTakeServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_LotLocationNullButInventoryAtSelectedLocation_IsAccepted()
+    {
+        var lot = new PaddyLot
+        {
+            Id = 94,
+            WarehouseId = 1,
+            ProductVariantId = 1,
+            LocationId = null,
+            IsDeleted = false
+        };
+        var inventory = new Inventory
+        {
+            Id = 500,
+            WarehouseId = 1,
+            LocationId = 7,
+            ProductVariantId = 1,
+            PaddyLotId = 94,
+            QuantityOnHand = 120m,
+            IsDeleted = false
+        };
+        _dbContext.Setup(c => c.PaddyLots)
+            .Returns(new List<PaddyLot> { lot }.AsQueryable().BuildMockDbSet().Object);
+        _dbContext.Setup(c => c.Inventories)
+            .Returns(new List<Inventory> { inventory }.AsQueryable().BuildMockDbSet().Object);
+        _invRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<Inventory, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns(new List<Inventory> { inventory }.AsQueryable().BuildMock());
+
+        var result = await Sut().CreateAsync(new CreateStockTakeDto
+        {
+            WarehouseId = 1,
+            StockTakeItems = new List<CreateStockTakeItemDto>
+            {
+                new() { LocationId = 7, ProductVariantId = 1, PaddyLotId = 94 }
+            }
+        });
+
+        result.Status.Should().Be(201);
+    }
+
+    [Fact]
     public async Task UpdateAsync_RecountConfirmedAuditFieldsUpdated_WhenChangedToTrue()
     {
         // Arrange
@@ -445,5 +487,47 @@ public class StockTakeServiceTests
         updatedItem.RecountConfirmed.Should().BeTrue();
         updatedItem.RecountConfirmedBy.Should().Be(99);
         updatedItem.RecountConfirmedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task SaveCountsAsync_SubmittedPhiếu_Returns422AndDoesNotChangeEvidence()
+    {
+        var item = MakeItem(system: 100m, actual: null);
+        var stockTake = MakeStockTake(1, item);
+        stockTake.StockTakeStatusId = Backend.Application.Common.Lookup.StockTakeStatusId(
+            LookupCodes.StockTakeStatus.Submitted);
+        SetupStockTakeFind(stockTake);
+
+        var result = await Sut().SaveCountsAsync(1, new SaveStockTakeCountsDto
+        {
+            Items = new List<SaveStockTakeCountItemDto>
+            {
+                new() { Id = item.Id, ActualQuantity = 95m, Note = "Sai lệch" }
+            }
+        }, userId: 99);
+
+        result.Status.Should().Be(422);
+        item.ActualQuantity.Should().BeNull("phiếu đã gửi duyệt phải giữ nguyên bằng chứng");
+    }
+
+    [Fact]
+    public async Task SaveCountsAsync_NegativeActualQuantity_Returns400()
+    {
+        var item = MakeItem(system: 100m, actual: null);
+        var stockTake = MakeStockTake(1, item);
+        stockTake.StockTakeStatusId = Backend.Application.Common.Lookup.StockTakeStatusId(
+            LookupCodes.StockTakeStatus.Draft);
+        SetupStockTakeFind(stockTake);
+
+        var result = await Sut().SaveCountsAsync(1, new SaveStockTakeCountsDto
+        {
+            Items = new List<SaveStockTakeCountItemDto>
+            {
+                new() { Id = item.Id, ActualQuantity = -1m }
+            }
+        }, userId: 99);
+
+        result.Status.Should().Be(400);
+        item.ActualQuantity.Should().BeNull();
     }
 }

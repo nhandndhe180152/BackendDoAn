@@ -169,6 +169,30 @@ public class StockTakeService : IStockTakeService
         return false;
     }
 
+    private static string BuildScopeDisplay(IEnumerable<StockTakeItemDto> items)
+    {
+        var rows = items.ToList();
+        if (!rows.Any()) return "Chưa có dòng";
+
+        var lotCodes = rows.Where(x => !string.IsNullOrWhiteSpace(x.LotCode)).Select(x => x.LotCode!).Distinct().ToList();
+        if (lotCodes.Count == 1 && rows.All(x => x.LotCode == lotCodes[0]))
+            return $"Lô {lotCodes[0]}";
+
+        var locations = rows.Select(x => x.LocationId).Distinct().ToList();
+        if (locations.Count == 1)
+            return $"{rows[0].ZoneName ?? "Khu"} / {rows[0].LocationCode ?? "Vị trí"}";
+
+        var zones = rows.Where(x => !string.IsNullOrWhiteSpace(x.ZoneName)).Select(x => x.ZoneName!).Distinct().ToList();
+        if (zones.Count == 1)
+            return $"Khu {zones[0]}";
+
+        var skus = rows.Where(x => !string.IsNullOrWhiteSpace(x.SKU)).Select(x => x.SKU!).Distinct().ToList();
+        if (skus.Count == 1)
+            return $"SKU {skus[0]}";
+
+        return "Toàn kho";
+    }
+
     /// <summary>
     /// STK-04: Kiểm tra PaddyLotId có hợp lệ không (tồn tại, đúng sản phẩm, đúng kho, đúng vị trí).
     /// Trả về error message nếu không hợp lệ, null nếu OK.
@@ -187,8 +211,23 @@ public class StockTakeService : IStockTakeService
         if (lot.WarehouseId != warehouseId)
             return $"Lô hàng ID {paddyLotId} thuộc kho ID {lot.WarehouseId}, không phải kho ID {warehouseId} của phiếu kiểm kê.";
 
-        if (locationId.HasValue && lot.LocationId != locationId.Value)
-            return $"Lô hàng ID {paddyLotId} hiện nằm ở vị trí ID {lot.LocationId}, không phải vị trí ID {locationId.Value} trong dòng kiểm kê.";
+        if (locationId.HasValue)
+        {
+            // Vị trí vận hành của một lô phải lấy từ dòng Inventory hiện tại.
+            // PaddyLot.LocationId có thể null hoặc chưa kịp đồng bộ sau put-away/transfer,
+            // vì vậy không được dùng riêng trường đó để bác bỏ một snapshot hợp lệ.
+            var hasInventoryAtLocation = await _context.Inventories
+                .AsNoTracking()
+                .AnyAsync(x =>
+                    !x.IsDeleted &&
+                    x.WarehouseId == warehouseId &&
+                    x.LocationId == locationId.Value &&
+                    x.ProductVariantId == lot.ProductVariantId &&
+                    x.PaddyLotId == paddyLotId);
+
+            if (!hasInventoryAtLocation)
+                return $"Lô hàng ID {paddyLotId} không có dòng tồn kho tại vị trí ID {locationId.Value}.";
+        }
 
         return null; // hợp lệ
     }
@@ -197,6 +236,67 @@ public class StockTakeService : IStockTakeService
 
     public async Task<ApiResponse> CreateAsync(CreateStockTakeDto obj)
     {
+        // Màn Stocktake mới chỉ gửi phạm vi. Backend tự sinh dòng và chụp tồn sổ sách,
+        // không tin SystemQuantity do client truyền lên.
+        if (!obj.StockTakeItems.Any())
+        {
+            var scopeType = (obj.ScopeType ?? string.Empty).Trim().ToUpperInvariant();
+            if (string.IsNullOrEmpty(scopeType))
+                return ApiResponse.BadRequest(message: "Phạm vi kiểm kê là bắt buộc.");
+
+            var inventoryQuery = _context.Inventories
+                .AsNoTracking()
+                .Where(x => !x.IsDeleted && x.WarehouseId == obj.WarehouseId && x.LocationId != null);
+
+            switch (scopeType)
+            {
+                case "WAREHOUSE":
+                    break;
+                case "ZONE":
+                    if (string.IsNullOrWhiteSpace(obj.ZoneName))
+                        return ApiResponse.BadRequest(message: "Khu vực kiểm kê là bắt buộc.");
+                    inventoryQuery = inventoryQuery.Where(x => x.Location != null && x.Location.ZoneName == obj.ZoneName);
+                    break;
+                case "COLUMN":
+                    if (!obj.LocationId.HasValue)
+                        return ApiResponse.BadRequest(message: "Cột/vị trí kiểm kê là bắt buộc.");
+                    inventoryQuery = inventoryQuery.Where(x => x.LocationId == obj.LocationId);
+                    break;
+                case "LOT":
+                    if (!obj.PaddyLotId.HasValue)
+                        return ApiResponse.BadRequest(message: "Lô kiểm kê là bắt buộc.");
+                    inventoryQuery = inventoryQuery.Where(x => x.PaddyLotId == obj.PaddyLotId);
+                    break;
+                case "SKU":
+                    if (!obj.ProductVariantId.HasValue)
+                        return ApiResponse.BadRequest(message: "SKU kiểm kê là bắt buộc.");
+                    inventoryQuery = inventoryQuery.Where(x => x.ProductVariantId == obj.ProductVariantId);
+                    break;
+                default:
+                    return ApiResponse.BadRequest(message: "Phạm vi kiểm kê không hợp lệ.");
+            }
+
+            obj.StockTakeItems = await inventoryQuery
+                .OrderBy(x => x.LocationId)
+                .ThenBy(x => x.ProductVariantId)
+                .ThenBy(x => x.PaddyLotId)
+                .Select(x => new CreateStockTakeItemDto
+                {
+                    ProductVariantId = x.ProductVariantId,
+                    LocationId = x.LocationId,
+                    PaddyLotId = x.PaddyLotId,
+                    ActualQuantity = null,
+                    QRScanned = false,
+                    RecountConfirmed = false
+                })
+                .ToListAsync();
+
+            if (!obj.StockTakeItems.Any())
+                return ApiResponse.UnprocessableEntity(
+                    "Phạm vi đã chọn không có dòng tồn kho để kiểm kê.",
+                    ApiCodeConstants.Common.UnprocessableEntity);
+        }
+
         // STK-03 — Validate từng dòng phải có ProductVariantId và LocationId
         for (int idx = 0; idx < obj.StockTakeItems.Count; idx++)
         {
@@ -282,7 +382,14 @@ public class StockTakeService : IStockTakeService
     {
         var data = await _stockTakeRepository
             .FindByCondition(x => !x.IsDeleted && x.Id == id)
+            .Include(x => x.Warehouse)
+            .Include(x => x.StockTakeStatus)
             .Include(x => x.StockTakeItems)
+                .ThenInclude(x => x.ProductVariant)
+            .Include(x => x.StockTakeItems)
+                .ThenInclude(x => x.Location)
+            .Include(x => x.StockTakeItems)
+                .ThenInclude(x => x.PaddyLot)
             .FirstOrDefaultAsync();
 
         if (data == null)
@@ -290,6 +397,47 @@ public class StockTakeService : IStockTakeService
 
         var dto = data.ToDto();
         await EnrichVarianceSeverityAsync(dto);
+
+        if (data.CreatedBy.HasValue)
+        {
+            dto.CreatedByName = await _context.Users
+                .Where(x => x.Id == data.CreatedBy.Value && !x.IsDeleted)
+                .Select(x => x.FirstName + " " + x.LastName)
+                .FirstOrDefaultAsync();
+        }
+
+        dto.ScopeDisplay = BuildScopeDisplay(dto.StockTakeItems);
+        dto.VarianceLineCount = dto.StockTakeItems.Count(x => x.ActualQuantity.HasValue && x.Difference != 0);
+        dto.NetVarianceKg = dto.StockTakeItems.Where(x => x.ActualQuantity.HasValue).Sum(x => x.Difference);
+
+        if (data.StartedDate.HasValue)
+        {
+            var movements = await _context.InventoryTransactions
+                .AsNoTracking()
+                .Where(x => !x.IsDeleted && x.WarehouseId == data.WarehouseId && x.CreatedDate > data.StartedDate.Value)
+                .OrderByDescending(x => x.CreatedDate)
+                .ToListAsync();
+
+            foreach (var item in dto.StockTakeItems)
+            {
+                item.PostSnapshotMovements = movements
+                    .Where(x => x.ProductVariantId == item.ProductVariantId &&
+                                x.LocationId == item.LocationId &&
+                                x.PaddyLotId == item.PaddyLotId)
+                    .Select(x => new StockTakeMovementEvidenceDto
+                    {
+                        Id = x.Id,
+                        TransactionType = x.TransactionType,
+                        Quantity = x.Quantity,
+                        BeforeQuantity = x.BeforeQuantity,
+                        AfterQuantity = x.AfterQuantity,
+                        Note = x.Note,
+                        CreatedDate = x.CreatedDate,
+                        CreatedBy = x.CreatedBy
+                    })
+                    .ToList();
+            }
+        }
 
         return ApiResponse.Success(dto);
     }
@@ -310,6 +458,187 @@ public class StockTakeService : IStockTakeService
         return ApiResponse.Success(data);
     }
 
+    public async Task<ApiResponse> GetSummaryAsync()
+    {
+        var draftId = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Draft);
+        var submittedId = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Submitted);
+
+        var headers = _context.StockTakes.AsNoTracking().Where(x => !x.IsDeleted);
+        var submittedItems = _context.StockTakeItems.AsNoTracking()
+            .Where(x => !x.IsDeleted && x.StockTake.StockTakeStatusId == submittedId && x.ActualQuantity.HasValue);
+
+        var summary = new StockTakeSummaryDto
+        {
+            DraftCount = await headers.CountAsync(x => x.StockTakeStatusId == draftId),
+            SubmittedCount = await headers.CountAsync(x => x.StockTakeStatusId == submittedId),
+            VarianceLineCount = await submittedItems.CountAsync(x => x.ActualQuantity!.Value != x.SystemQuantity),
+            NetAdjustmentKg = await submittedItems.SumAsync(x => (decimal?)(x.ActualQuantity!.Value - x.SystemQuantity)) ?? 0m
+        };
+
+        return ApiResponse.Success(summary);
+    }
+
+    public async Task<ApiResponse> GetThresholdsAsync()
+    {
+        var (smallPct, mediumPct, smallKg, mediumKg) = await ResolveVarianceThresholdsAsync();
+        return ApiResponse.Success(new StockTakeThresholdDto
+        {
+            SmallVariancePercent = smallPct,
+            MediumVariancePercent = mediumPct,
+            SmallVarianceKg = smallKg,
+            MediumVarianceKg = mediumKg
+        });
+    }
+
+    public async Task<ApiResponse> SaveCountsAsync(int id, SaveStockTakeCountsDto dto, int userId)
+    {
+        var draftId = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Draft);
+        var stockTake = await _stockTakeRepository
+            .FindByCondition(x => !x.IsDeleted && x.Id == id)
+            .Include(x => x.StockTakeItems)
+            .FirstOrDefaultAsync();
+
+        if (stockTake == null) return ApiResponse.NotFound();
+        if (stockTake.StockTakeStatusId != draftId)
+            return ApiResponse.UnprocessableEntity(
+                "Chỉ có thể cập nhật kết quả kiểm đếm khi phiếu đang ở trạng thái Nháp/Đang kiểm.",
+                ApiCodeConstants.Common.UnprocessableEntity);
+
+        var duplicateIds = dto.Items.GroupBy(x => x.Id).Where(x => x.Count() > 1).Select(x => x.Key).ToList();
+        if (duplicateIds.Any())
+            return ApiResponse.BadRequest(message: "Danh sách kết quả kiểm đếm có dòng bị trùng.");
+
+        var now = DateTimeHelper.VietnamNow();
+        foreach (var line in dto.Items)
+        {
+            var item = stockTake.StockTakeItems.FirstOrDefault(x => !x.IsDeleted && x.Id == line.Id);
+            if (item == null)
+                return ApiResponse.BadRequest(message: $"Dòng kiểm kê ID {line.Id} không thuộc phiếu này.");
+            if (line.ActualQuantity.HasValue && line.ActualQuantity.Value < 0)
+                return ApiResponse.BadRequest(message: "Số lượng kiểm đếm phải lớn hơn hoặc bằng 0.");
+
+            item.ActualQuantity = line.ActualQuantity;
+            item.Note = line.Note?.Trim();
+            item.QRScanned = line.QRScanned;
+            item.LastModifiedDate = now;
+            item.UpdatedBy = userId;
+
+            if (!item.RecountConfirmed && line.RecountConfirmed)
+            {
+                item.RecountConfirmed = true;
+                item.RecountConfirmedBy = userId;
+                item.RecountConfirmedAt = now;
+            }
+            else if (item.RecountConfirmed && !line.RecountConfirmed)
+            {
+                item.RecountConfirmed = false;
+                item.RecountConfirmedBy = null;
+                item.RecountConfirmedAt = null;
+            }
+        }
+
+        stockTake.Note = dto.Note?.Trim() ?? stockTake.Note;
+        stockTake.LastModifiedDate = now;
+        stockTake.UpdatedBy = userId;
+        await _stockTakeRepository.UpdateAsync(stockTake);
+        await _stockTakeRepository.SaveChangesAsync();
+        return ApiResponse.Success(message: "Đã lưu kết quả kiểm đếm.");
+    }
+
+    public async Task<ApiResponse> SubmitAsync(int id, SubmitStockTakeDto dto, int userId)
+    {
+        var draftId = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Draft);
+        var submittedId = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Submitted);
+        var stockTake = await _stockTakeRepository
+            .FindByCondition(x => !x.IsDeleted && x.Id == id)
+            .Include(x => x.StockTakeItems)
+                .ThenInclude(x => x.ProductVariant)
+            .FirstOrDefaultAsync();
+
+        if (stockTake == null) return ApiResponse.NotFound();
+        if (stockTake.StockTakeStatusId != draftId)
+            return ApiResponse.UnprocessableEntity(
+                "Chỉ có thể gửi duyệt phiếu đang ở trạng thái Nháp/Đang kiểm.",
+                ApiCodeConstants.Common.UnprocessableEntity);
+        if (!stockTake.StockTakeItems.Any(x => !x.IsDeleted))
+            return ApiResponse.UnprocessableEntity("Phiếu kiểm kê không có dòng nào.", ApiCodeConstants.Common.UnprocessableEntity);
+
+        var unfinished = stockTake.StockTakeItems.Where(x => !x.IsDeleted && !x.ActualQuantity.HasValue).ToList();
+        if (unfinished.Any())
+            return ApiResponse.UnprocessableEntity(
+                $"Phiếu còn {unfinished.Count} dòng chưa nhập số lượng kiểm đếm.",
+                ApiCodeConstants.Common.UnprocessableEntity);
+
+        var (smallPct, mediumPct, smallKg, mediumKg) = await ResolveVarianceThresholdsAsync();
+        var largeItems = new List<StockTakeItem>();
+        foreach (var item in stockTake.StockTakeItems.Where(x => !x.IsDeleted && x.ActualQuantity.HasValue))
+        {
+            if (item.Difference == 0) continue;
+
+            var isZeroWithActual = item.SystemQuantity == 0 && item.ActualQuantity!.Value > 0;
+            var severity = ClassifySeverity(item.VariancePercent, item.AbsoluteVarianceKg,
+                smallPct, mediumPct, smallKg, mediumKg, isZeroWithActual);
+            var name = item.ProductVariant?.Name ?? $"ProductVariantId={item.ProductVariantId}";
+
+            // BR-28: SMALL không bắt buộc lý do; MEDIUM/LARGE phải có lý do.
+            if ((severity == "MEDIUM" || severity == "LARGE") && string.IsNullOrWhiteSpace(item.Note))
+                return ApiResponse.UnprocessableEntity(
+                    $"Dòng kiểm kê '{name}' có chênh lệch — bắt buộc nhập lý do trước khi gửi duyệt.",
+                    ApiCodeConstants.Common.UnprocessableEntity);
+            if (severity == "LARGE" && !item.RecountConfirmed)
+                return ApiResponse.UnprocessableEntity(
+                    $"Dòng kiểm kê '{name}' có chênh lệch LARGE — bắt buộc xác nhận kiểm đếm lại.",
+                    ApiCodeConstants.Common.UnprocessableEntity);
+            if (severity == "LARGE") largeItems.Add(item);
+        }
+
+        await using var transaction = await _stockTakeRepository.BeginTransactionAsync();
+        try
+        {
+            var now = DateTimeHelper.VietnamNow();
+            stockTake.StockTakeStatusId = submittedId;
+            stockTake.Note = dto.Note?.Trim() ?? stockTake.Note;
+            stockTake.LastModifiedDate = now;
+            stockTake.UpdatedBy = userId;
+
+            foreach (var item in largeItems)
+            {
+                var dedupKey = $"STOCKTAKE_LARGE_{stockTake.Id}_{item.Id}";
+                if (await _context.Alerts.AnyAsync(x => !x.IsDeleted && x.DeduplicationKey == dedupKey && x.Status != "RESOLVED"))
+                    continue;
+
+                await _context.Alerts.AddAsync(new Alert
+                {
+                    AlertType = "STOCK_TAKE_LARGE_VARIANCE",
+                    Severity = "CRITICAL",
+                    WarehouseId = stockTake.WarehouseId,
+                    ProductVariantId = item.ProductVariantId,
+                    LocationId = item.LocationId,
+                    Message = $"[{stockTake.STCode}] Chênh lệch LARGE: {item.ProductVariant?.Name ?? $"PV#{item.ProductVariantId}"} — " +
+                              $"Hệ thống: {item.SystemQuantity:F2} kg, Thực tế: {item.ActualQuantity:F2} kg, " +
+                              $"Chênh: {item.AbsoluteVarianceKg:F2} kg. Lý do: {item.Note}",
+                    RelatedEntityType = "StockTakeItem",
+                    RelatedEntityId = item.Id,
+                    Status = "OPEN",
+                    DeduplicationKey = dedupKey,
+                    CreatedDate = now,
+                    CreatedBy = userId
+                });
+            }
+
+            await _stockTakeRepository.UpdateAsync(stockTake);
+            await _stockTakeRepository.SaveChangesAsync();
+            if (largeItems.Any()) await _context.SaveChangesAsync(default);
+            await transaction.CommitAsync();
+            return ApiResponse.Success(message: "Đã gửi phiếu kiểm kê để Chủ kho duyệt.");
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
+
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {
         var existData = await _stockTakeRepository.FindByCondition(x => x.Id == id).FirstOrDefaultAsync();
@@ -320,6 +649,13 @@ public class StockTakeService : IStockTakeService
             existData.StockTakeStatusId == Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Rejected))
         {
             return ApiResponse.UnprocessableEntity("Không thể xóa phiếu đã duyệt hoặc bị từ chối.", ApiCodeConstants.Common.UnprocessableEntity);
+        }
+
+        if (existData.StockTakeStatusId != Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Draft))
+        {
+            return ApiResponse.UnprocessableEntity(
+                "Phiếu đã gửi duyệt được khóa để bảo toàn bằng chứng kiểm kê.",
+                ApiCodeConstants.Common.UnprocessableEntity);
         }
 
         var isDeleted = await _stockTakeRepository.SoftDeleteAsync(id);
@@ -351,16 +687,18 @@ public class StockTakeService : IStockTakeService
             return ApiResponse.UnprocessableEntity("Không thể cập nhật phiếu đã duyệt hoặc bị từ chối.", ApiCodeConstants.Common.UnprocessableEntity);
         }
 
-        if (obj.StockTakeStatusId == Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Approved) ||
-            obj.StockTakeStatusId == Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Rejected))
+        if (existData.StockTakeStatusId != Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Draft))
         {
-            return ApiResponse.UnprocessableEntity("Không thể cập nhật trạng thái Duyệt/Từ chối qua chức năng này.", ApiCodeConstants.Common.UnprocessableEntity);
+            return ApiResponse.UnprocessableEntity(
+                "Phiếu đã gửi duyệt được khóa để bảo toàn bằng chứng kiểm kê.",
+                ApiCodeConstants.Common.UnprocessableEntity);
         }
 
-        if (obj.StockTakeStatusId == Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Submitted) &&
-            existData.StockTakeStatusId != Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Draft))
+        if (obj.StockTakeStatusId != Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Draft))
         {
-            return ApiResponse.UnprocessableEntity("Chỉ có thể Gửi duyệt phiếu đang ở trạng thái Nháp.", ApiCodeConstants.Common.UnprocessableEntity);
+            return ApiResponse.UnprocessableEntity(
+                "Hãy dùng chức năng Gửi duyệt/Duyệt/Từ chối để chuyển trạng thái phiếu.",
+                ApiCodeConstants.Common.UnprocessableEntity);
         }
 
         // STK-03 — Validate từng dòng phải có ProductVariantId và LocationId
@@ -401,6 +739,14 @@ public class StockTakeService : IStockTakeService
                     existingItem.ProductVariantId != itemDto.ProductVariantId ||
                     existingItem.LocationId != itemDto.LocationId ||
                     existingItem.PaddyLotId != itemDto.PaddyLotId;
+
+                if (scopeChanged && itemDto.PaddyLotId.HasValue)
+                {
+                    var lotError = await ValidatePaddyLotRelationAsync(
+                        itemDto.PaddyLotId.Value, itemDto.ProductVariantId, existData.WarehouseId, itemDto.LocationId);
+                    if (lotError != null)
+                        return ApiResponse.BadRequest(message: $"Dòng ID {itemDto.Id}: {lotError}");
+                }
 
                 existingItem.ProductVariantId   = itemDto.ProductVariantId;
                 existingItem.LocationId         = itemDto.LocationId;
@@ -479,7 +825,7 @@ public class StockTakeService : IStockTakeService
                 ActualQuantity   = itemDto.ActualQuantity,
                 Note             = itemDto.Note,
                 QRScanned        = itemDto.QRScanned,
-                RecountConfirmed = itemDto.RecountConfirmed,
+                RecountConfirmed = false,
                 CreatedDate      = now
             });
         }
@@ -555,6 +901,10 @@ public class StockTakeService : IStockTakeService
                 ApiCodeConstants.Common.UnprocessableEntity);
         }
 
+        // Mở transaction trước bước kiểm tra snapshot. RowVersion của Inventory tiếp tục
+        // bảo vệ trường hợp một giao dịch khác chen vào giữa bước kiểm tra và bước ghi.
+        await using var transaction = await _stockTakeRepository.BeginTransactionAsync();
+
         // --- ĐỌC NGƯỠNG TỪ DB ---
         var (smallPct, mediumPct, smallKg, mediumKg) = await ResolveVarianceThresholdsAsync();
 
@@ -583,6 +933,22 @@ public class StockTakeService : IStockTakeService
                     "Vui lòng tải lại phiếu kiểm kê và cập nhật số liệu trước khi duyệt.");
             }
 
+            var hasPostSnapshotMovement = existData.StartedDate.HasValue &&
+                await _context.InventoryTransactions.AsNoTracking().AnyAsync(x =>
+                    !x.IsDeleted &&
+                    x.WarehouseId == existData.WarehouseId &&
+                    x.ProductVariantId == item.ProductVariantId &&
+                    x.LocationId == item.LocationId &&
+                    x.PaddyLotId == item.PaddyLotId &&
+                    x.CreatedDate > existData.StartedDate.Value &&
+                    !(x.ReferenceType == "STOCKTAKE" && x.ReferenceId == existData.Id));
+            if (hasPostSnapshotMovement)
+            {
+                return ApiResponse.Conflict(
+                    $"Đã phát sinh giao dịch tồn kho cho '{variantName}' sau thời điểm chụp số liệu. " +
+                    "Vui lòng lập lại phiếu hoặc cập nhật snapshot trước khi duyệt.");
+            }
+
             // 3.11 — Chặn khi newQuantityOnHand < QuantityReserved
             if (currentInventory != null)
             {
@@ -596,7 +962,7 @@ public class StockTakeService : IStockTakeService
                 }
             }
 
-            // 3.2 — MEDIUM bắt buộc lý do
+            // BR-28: MEDIUM/LARGE bắt buộc lý do; SMALL được phép không có lý do.
             if ((severity == "MEDIUM" || severity == "LARGE") && string.IsNullOrWhiteSpace(item.Note))
             {
                 return ApiResponse.UnprocessableEntity(
@@ -613,8 +979,7 @@ public class StockTakeService : IStockTakeService
             }
         }
 
-        // --- MỞ TRANSACTION VÀ THỰC HIỆN ĐIỀU CHỈNH TỒN KHO ---
-        await using var transaction = await _stockTakeRepository.BeginTransactionAsync();
+        // --- THỰC HIỆN ĐIỀU CHỈNH TỒN KHO ---
         try
         {
             existData.StockTakeStatusId  = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Approved);
@@ -658,6 +1023,8 @@ public class StockTakeService : IStockTakeService
                 if (!result.IsSucceeded)
                 {
                     await transaction.RollbackAsync();
+                    if (result.Status == 409)
+                        return ApiResponse.Conflict($"Xung đột khi điều chỉnh tồn kho: {result.Message}");
                     return ApiResponse.UnprocessableEntity($"Lỗi điều chỉnh tồn kho: {result.Message}", ApiCodeConstants.Common.UnprocessableEntity);
                 }
             }
@@ -668,6 +1035,11 @@ public class StockTakeService : IStockTakeService
             // 3.4 — Tạo Alert CRITICAL cho từng dòng LARGE, trong cùng transaction
             foreach (var (item, severity) in largeItems)
             {
+                var dedupKey = $"STOCKTAKE_LARGE_{existData.Id}_{item.Id}";
+                if (await _context.Alerts.AnyAsync(x =>
+                        !x.IsDeleted && x.DeduplicationKey == dedupKey && x.Status != "RESOLVED"))
+                    continue;
+
                 var lotInfo = item.PaddyLotId.HasValue ? $" (Lô #{item.PaddyLotId})" : "";
                 var alert = new Alert
                 {
@@ -683,7 +1055,7 @@ public class StockTakeService : IStockTakeService
                     RelatedEntityType  = "StockTakeItem",
                     RelatedEntityId    = item.Id,
                     Status             = "OPEN",
-                    DeduplicationKey   = $"STOCKTAKE_LARGE_{existData.Id}_{item.Id}",
+                    DeduplicationKey   = dedupKey,
                     CreatedDate        = DateTimeHelper.VietnamNow(),
                     CreatedBy          = userId
                 };
@@ -706,6 +1078,12 @@ public class StockTakeService : IStockTakeService
                 userId);
 
             return ApiResponse.Success();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await transaction.RollbackAsync();
+            return ApiResponse.Conflict(
+                "Tồn kho vừa được cập nhật bởi giao dịch khác. Phiếu chưa được duyệt; vui lòng tải lại dữ liệu.");
         }
         catch
         {
@@ -740,6 +1118,8 @@ public class StockTakeService : IStockTakeService
         {
             existData.StockTakeStatusId  = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Rejected);
             existData.Note               = string.IsNullOrWhiteSpace(existData.Note) ? $"Từ chối: {reason}" : $"{existData.Note} | Từ chối: {reason}";
+            existData.ApproveNote        = reason;
+            existData.CompletedDate      = DateTimeHelper.VietnamNow();
             existData.LastModifiedDate   = DateTimeHelper.VietnamNow();
             existData.UpdatedBy          = userId;
 
