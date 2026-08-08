@@ -61,7 +61,8 @@ public static class InboundOrderMapping
             SourceType = entity.SourceType,
             PaddyPurchaseReceiptId = entity.PaddyPurchaseReceiptId,
             PaddyPurchaseReceiptCode = entity.PaddyPurchaseReceipt?.ReceiptCode,
-            CreatedDate = entity.CreatedDate
+            CreatedDate = entity.CreatedDate,
+            CreatedBy = entity.CreatedBy
         };
     }
 
@@ -86,6 +87,7 @@ public static class InboundOrderMapping
             PaddyPurchaseReceiptId = entity.PaddyPurchaseReceiptId,
             PaddyPurchaseReceiptCode = entity.PaddyPurchaseReceipt?.ReceiptCode,
             CreatedDate = entity.CreatedDate,
+            CreatedBy = entity.CreatedBy,
             Items = entity.InboundOrderItems?.Select(x => x.ToDto()).ToList() ?? new()
         };
     }

@@ -194,7 +194,8 @@ public class InboundOrderService : IInboundOrderService
                 PaddyPurchaseReceiptCode = x.PaddyPurchaseReceipt != null
                     ? x.PaddyPurchaseReceipt.ReceiptCode
                     : null,
-                CreatedDate = x.CreatedDate
+                CreatedDate = x.CreatedDate,
+                CreatedBy = x.CreatedBy
             });
 
         var totalRecord = await query.CountAsync();
@@ -593,6 +594,12 @@ public class InboundOrderService : IInboundOrderService
         var order = await _inboundOrderRepository.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, true);
         if (order == null)
             return ApiResponse.NotFound("Không tìm thấy phiếu nhập.", ApiCodeConstants.Common.NotFound);
+
+        // Tách quyền (segregation of duties): người tạo/gửi phiếu không được tự duyệt
+        // phiếu do chính mình tạo, kể cả khi vai trò có quyền APPROVE.
+        var currentUserId = GetCurrentUserId();
+        if (order.CreatedBy.HasValue && order.CreatedBy.Value == currentUserId)
+            return ApiResponse.Forbidden("Bạn không thể tự duyệt phiếu nhập do chính mình tạo.", ApiCodeConstants.Common.Forbidden);
 
         var submittedId = await GetStatusIdAsync(InboundOrderStatusNames.Submitted);
         if (order.InboundOrderStatusId != submittedId)
