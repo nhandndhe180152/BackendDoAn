@@ -134,6 +134,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("qr-labels/summary")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> GetQrLabelSummaryAsync(CancellationToken cancellationToken)
         {
             var result = await _qrCodeService.GetQrLabelSummaryAsync(cancellationToken);
@@ -141,6 +142,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("qr-labels/history/paged")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
         public async Task<IActionResult> GetQrLabelHistoryAsync([FromBody] QrLabelHistoryQueryDto request, CancellationToken cancellationToken)
         {
             request ??= new QrLabelHistoryQueryDto();
