@@ -993,6 +993,7 @@ public class StockTransferService : IStockTransferService
             TransferCode = x.TransferCode,
             StatusId = x.StatusId,
             StatusName = x.Status?.Name,
+            StatusCode = x.Status?.Code,
             StatusColor = x.Status?.Color,
             FromWarehouseId = x.FromWarehouseId,
             FromWarehouseName = x.FromWarehouse?.Name,

@@ -1009,6 +1009,7 @@ public class DashboardService : IDashboardService
                 x.TotalAmount,
                 DepositAmount = x.DepositAmount ?? 0,
                 StatusName = x.Status.Name,
+                StatusCode = x.Status.Code,
                 Items = x.SalesOrderItems.Where(i => !i.IsDeleted).Select(i => new
                 {
                     i.QuantityOrdered,

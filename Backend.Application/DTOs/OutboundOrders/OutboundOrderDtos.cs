@@ -14,6 +14,7 @@ public class OutboundOrderListDto
     public string CustomerName { get; set; } = null!;
     public int OutboundStatusId { get; set; }
     public string OutboundStatusName { get; set; } = null!;
+    public string OutboundStatusCode { get; set; } = null!;
     public string OutboundStatusColor { get; set; } = null!;
     public int? WarehouseId { get; set; }
     public string? WarehouseName { get; set; }
@@ -33,6 +34,7 @@ public class OutboundOrderDetailDto
     public string CustomerName { get; set; } = null!;
     public int OutboundStatusId { get; set; }
     public string OutboundStatusName { get; set; } = null!;
+    public string OutboundStatusCode { get; set; } = null!;
     public string OutboundStatusColor { get; set; } = null!;
     public int WarehouseId { get; set; }
     public string WarehouseName { get; set; } = null!;

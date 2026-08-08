@@ -109,6 +109,7 @@ public class SalesOrderService : ISalesOrderService
             CustomerPhone        = so.Customer?.Phone,
             StatusId             = so.StatusId,
             StatusName           = so.Status?.Name ?? "",
+            StatusCode           = so.Status?.Code ?? "",
             StatusColor          = so.Status?.Color ?? "",
             Channel              = so.Channel,
             WarehouseId          = so.WarehouseId,
@@ -139,6 +140,7 @@ public class SalesOrderService : ISalesOrderService
                 Id                   = o.Id,
                 OutboundStatusId     = o.OutboundOrderStatusId,
                 OutboundStatusName   = o.OutboundOrderStatus?.Name ?? "",
+                OutboundStatusCode   = o.OutboundOrderStatus?.Code ?? "",
                 TotalDispatchedValue = o.TotalDispatchedValue,
                 TotalDispatchedSaleValue = o.TotalDispatchedSaleValue,
                 CompletedDate        = o.CompletedDate
@@ -162,6 +164,7 @@ public class SalesOrderService : ISalesOrderService
             CustomerName         = so.Customer?.Name ?? "",
             StatusId             = so.StatusId,
             StatusName           = so.Status?.Name ?? "",
+            StatusCode           = so.Status?.Code ?? "",
             StatusColor          = so.Status?.Color ?? "",
             Channel              = so.Channel,
             WarehouseId          = so.WarehouseId,

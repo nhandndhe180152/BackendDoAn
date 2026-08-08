@@ -399,6 +399,7 @@ public class ReturnToSupplierOrderService : IReturnToSupplierOrderService
         SupplierName = o.Supplier?.Name,
         StatusId = o.ReturnToSupplierOrderStatusId,
         StatusName = o.ReturnToSupplierOrderStatus?.Name,
+        StatusCode = o.ReturnToSupplierOrderStatus?.Code,
         InboundOrderId = o.InboundOrderId,
         Note = o.Note,
         ApprovedDate = o.ApprovedDate,

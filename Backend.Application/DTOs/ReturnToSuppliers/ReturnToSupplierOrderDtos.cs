@@ -49,6 +49,7 @@ public class ReturnToSupplierOrderDetailDto
     public string? SupplierName { get; set; }
     public int StatusId { get; set; }
     public string? StatusName { get; set; }
+    public string? StatusCode { get; set; }
     public int? InboundOrderId { get; set; }
     public string? Note { get; set; }
     public DateTime? ApprovedDate { get; set; }

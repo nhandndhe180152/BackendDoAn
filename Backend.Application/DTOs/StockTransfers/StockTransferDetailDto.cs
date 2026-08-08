@@ -10,6 +10,7 @@ public class StockTransferDetailDto
     public string TransferCode { get; set; } = null!;
     public int StatusId { get; set; }
     public string? StatusName { get; set; }
+    public string? StatusCode { get; set; }
     public string? StatusColor { get; set; }
     public int FromWarehouseId { get; set; }
     public string? FromWarehouseName { get; set; }

@@ -78,6 +78,7 @@ public class InboundOrderListDto
     public string? SupplierName { get; set; }
     public int InboundOrderStatusId { get; set; }
     public string InboundOrderStatusName { get; set; } = null!;
+    public string InboundOrderStatusCode { get; set; } = null!;
     public decimal TotalAssetValue { get; set; }
     public DateTime? ExpectedDate { get; set; }
     public DateTime? CompletedDate { get; set; }
@@ -98,6 +99,7 @@ public class InboundOrderDetailDto
     public string? SupplierName { get; set; }
     public int InboundOrderStatusId { get; set; }
     public string InboundOrderStatusName { get; set; } = null!;
+    public string InboundOrderStatusCode { get; set; } = null!;
     public decimal TotalAssetValue { get; set; }
     public DateTime? ExpectedDate { get; set; }
     public DateTime? CompletedDate { get; set; }

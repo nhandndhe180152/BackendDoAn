@@ -66,6 +66,7 @@ public static class PaddyLotMapping
             RiceVarietyName = entity.RiceVariety?.Name,
             StatusId = entity.StatusId,
             StatusName = entity.Status?.Name,
+            StatusCode = entity.Status?.Code,
             SourceReceiptId = entity.SourceReceiptId,
             SourceMillingOrderId = entity.SourceMillingOrderId,
             WarehouseId = entity.WarehouseId,

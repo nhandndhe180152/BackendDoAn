@@ -10,6 +10,7 @@ public class MillingOrderDetailDto
     public string MillingCode { get; set; } = null!;
     public int StatusId { get; set; }
     public string? StatusName { get; set; }
+    public string? StatusCode { get; set; }
     public int WarehouseId { get; set; }
     public string? WarehouseName { get; set; }
     public string? Reason { get; set; }

@@ -184,6 +184,7 @@ public class InboundOrderService : IInboundOrderService
                 SupplierName = x.SourceType == "RECEIPT" && x.PaddyPurchaseReceipt != null && x.PaddyPurchaseReceipt.Farmer != null ? x.PaddyPurchaseReceipt.Farmer.Name : (x.Supplier != null ? x.Supplier.Name : null),
                 InboundOrderStatusId = x.InboundOrderStatusId,
                 InboundOrderStatusName = x.InboundOrderStatus.Name,
+                InboundOrderStatusCode = x.InboundOrderStatus.Code,
                 TotalAssetValue = x.TotalAssetValue,
                 ExpectedDate = x.ExpectedDate,
                 CompletedDate = x.CompletedDate,

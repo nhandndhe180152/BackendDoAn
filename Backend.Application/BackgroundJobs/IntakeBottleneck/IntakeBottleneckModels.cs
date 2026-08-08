@@ -68,6 +68,14 @@ public static class IntakeBottleneckConstants
         public const string WarningRatio = "IntakeBottleneckWarningRatio";
         public const string CriticalRatio = "IntakeBottleneckCriticalRatio";
         public const string LabourCapacityPrefix = "IntakeLabourCapacity:";
+        // Key toàn cục (không kèm WarehouseId) - dùng làm fallback chung cho mọi kho.
+        public const string LabourCapacityGlobal = "IntakeLabourCapacity";
+    }
+
+    public static class Default
+    {
+        // Năng lực nhân công tiếp nhận mặc định (kg) khi không có cấu hình theo kho lẫn toàn cục.
+        public const decimal LabourCapacityKg = 50000m;
     }
 
     public static class ScheduleStatus

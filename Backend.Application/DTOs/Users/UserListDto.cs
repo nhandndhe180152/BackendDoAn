@@ -17,6 +17,7 @@ public class UserListDto
     public DateTime? LockEndDate { get; set; }
     public int UserStatusId { get; set; }
     public string UserStatusName { get; set; } = null!;
+    public string UserStatusCode { get; set; } = null!;
     public int? AvatarId { get; set; }
     public string? AvatarKey { get; set; }
     public string? AvatarUrl { get; set; }

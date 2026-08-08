@@ -97,6 +97,7 @@ public class SalesOrderListDto
     public string CustomerName { get; set; } = null!;
     public int StatusId { get; set; }
     public string StatusName { get; set; } = null!;
+    public string StatusCode { get; set; } = null!;
     public string StatusColor { get; set; } = null!;
     public string Channel { get; set; } = null!;
     public int? WarehouseId { get; set; }
@@ -119,6 +120,7 @@ public class SalesOrderDetailDto
     public string? CustomerPhone { get; set; }
     public int StatusId { get; set; }
     public string StatusName { get; set; } = null!;
+    public string StatusCode { get; set; } = null!;
     public string StatusColor { get; set; } = null!;
     public string Channel { get; set; } = null!;
     public int? WarehouseId { get; set; }
@@ -154,6 +156,7 @@ public class SalesOrderOutboundSummaryDto
     public int Id { get; set; }
     public int OutboundStatusId { get; set; }
     public string OutboundStatusName { get; set; } = null!;
+    public string OutboundStatusCode { get; set; } = null!;
     public decimal TotalDispatchedValue { get; set; }
     public decimal TotalDispatchedSaleValue { get; set; }
     public DateTime? CompletedDate { get; set; }
