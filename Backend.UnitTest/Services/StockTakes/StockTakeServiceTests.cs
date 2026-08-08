@@ -15,6 +15,10 @@ using Microsoft.AspNetCore.Http;
 using Moq;
 using MockQueryable.Moq;
 using Xunit;
+// Alias tránh CS0118: trong Backend.UnitTest.Services đã có namespace con tên PaddyLot/Inventory,
+// khiến tên rút gọn bị hiểu là namespace thay vì entity. Ép về đúng entity domain.
+using PaddyLot = Backend.Domain.Entities.PaddyLot;
+using Inventory = Backend.Domain.Entities.Inventory;
 
 namespace Backend.UnitTest.Services.StockTakes;
 

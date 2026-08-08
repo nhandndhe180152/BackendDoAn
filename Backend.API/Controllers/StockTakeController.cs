@@ -107,7 +107,6 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut("{id:int}/approve")]
-        [HttpPost("{id:int}/approve")]
         [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.APPROVE)]
         public async Task<IActionResult> ApproveAsync(int id, [FromBody] ApproveStockTakeDto dto)
         {
@@ -116,7 +115,6 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut("{id:int}/reject")]
-        [HttpPost("{id:int}/reject")]
         [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.APPROVE)]
         public async Task<IActionResult> RejectAsync(int id, [FromBody] RejectStockTakeDto dto)
         {
