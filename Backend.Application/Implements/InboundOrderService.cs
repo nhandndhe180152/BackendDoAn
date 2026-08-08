@@ -308,7 +308,7 @@ public class InboundOrderService : IInboundOrderService
     {
         var order = await _inboundOrderRepository.FindByCondition(
             x => x.Id == id && !x.IsDeleted,
-            false,
+            true, // no-tracking: chỉ đọc để hiển thị (hydrate + map DTO gán navigation thủ công)
             x => x.Warehouse,
             x => x.Supplier,
             x => x.InboundOrderStatus,
@@ -413,7 +413,7 @@ public class InboundOrderService : IInboundOrderService
                             i.PaddyLot != null
                             && i.PaddyLot.Status != null
                             && i.PaddyLot.Status.Code == LotStatusCodeConstants.AwaitingQc),
-                false,
+                true, // no-tracking: danh sách chỉ đọc để hiển thị
                 x => x.Warehouse,
                 x => x.Supplier,
                 x => x.InboundOrderStatus,

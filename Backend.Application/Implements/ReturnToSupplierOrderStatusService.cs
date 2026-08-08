@@ -11,6 +11,14 @@ namespace Backend.Application.Implements;
 
 public class ReturnToSupplierOrderStatusService : IReturnToSupplierOrderStatusService
 {
+    private static readonly HashSet<string> ProtectedCodes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ReturnToSupplierOrderStatusNames.Draft,
+        ReturnToSupplierOrderStatusNames.Approved,
+        ReturnToSupplierOrderStatusNames.Completed,
+        ReturnToSupplierOrderStatusNames.Cancelled
+    };
+
     private readonly IReturnToSupplierOrderStatusRepository _returnToSupplierOrderStatusRepository;
 
     public ReturnToSupplierOrderStatusService(IReturnToSupplierOrderStatusRepository returnToSupplierOrderStatusRepository)
@@ -20,7 +28,15 @@ public class ReturnToSupplierOrderStatusService : IReturnToSupplierOrderStatusSe
 
     public async Task<ApiResponse> CreateAsync(CreateReturnToSupplierOrderStatusDto obj)
     {
-        var isExistName = await _returnToSupplierOrderStatusRepository.AnyAsync(x => !x.IsDeleted && x.Name.ToLower() == obj.Name.ToLower());
+        var normalizedCode = obj.Code.Trim().ToUpperInvariant();
+        var isExistCode = await _returnToSupplierOrderStatusRepository.AnyAsync(x => x.Code == normalizedCode);
+        if (isExistCode)
+            return ApiResponse.UnprocessableEntity(
+                ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", normalizedCode),
+                ApiCodeConstants.Common.DuplicatedData);
+
+        var normalizedName = obj.Name.Trim();
+        var isExistName = await _returnToSupplierOrderStatusRepository.AnyAsync(x => !x.IsDeleted && x.Name.ToLower() == normalizedName.ToLower());
         if (isExistName)
             return ApiResponse.UnprocessableEntity(
                 ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Name),
@@ -34,7 +50,16 @@ public class ReturnToSupplierOrderStatusService : IReturnToSupplierOrderStatusSe
 
     public async Task<ApiResponse> CreateListAsync(IEnumerable<CreateReturnToSupplierOrderStatusDto> objs)
     {
-        var models = objs.Select(x => x.ToEntity());
+        var input = objs.ToList();
+        var normalizedCodes = input.Select(x => x.Code.Trim().ToUpperInvariant()).ToList();
+        var normalizedNames = input.Select(x => x.Name.Trim().ToLower()).ToList();
+        if (normalizedCodes.Count != normalizedCodes.Distinct(StringComparer.OrdinalIgnoreCase).Count() ||
+            normalizedNames.Count != normalizedNames.Distinct(StringComparer.OrdinalIgnoreCase).Count() ||
+            await _returnToSupplierOrderStatusRepository.AnyAsync(x => normalizedCodes.Contains(x.Code)) ||
+            await _returnToSupplierOrderStatusRepository.AnyAsync(x => !x.IsDeleted && normalizedNames.Contains(x.Name.ToLower())))
+            return ApiResponse.UnprocessableEntity("Danh sách trạng thái chứa tên hoặc mã bị trùng.", ApiCodeConstants.Common.DuplicatedData);
+
+        var models = input.Select(x => x.ToEntity()).ToList();
         await _returnToSupplierOrderStatusRepository.CreateListAsync(models);
         await _returnToSupplierOrderStatusRepository.SaveChangesAsync();
         return ApiResponse.Created(models.Select(x => x.Id));
@@ -47,6 +72,7 @@ public class ReturnToSupplierOrderStatusService : IReturnToSupplierOrderStatusSe
             .Select(x => new ReturnToSupplierOrderStatusListDto()
             {
                 Id = x.Id,
+                Code = x.Code,
                 Name = x.Name,
                 Color = x.Color,
                 CreatedDate = x.CreatedDate
@@ -61,6 +87,7 @@ public class ReturnToSupplierOrderStatusService : IReturnToSupplierOrderStatusSe
             .Select(x => new ReturnToSupplierOrderStatusDetailDto()
             {
                 Id = x.Id,
+                Code = x.Code,
                 Name = x.Name,
                 Color = x.Color,
                 CreatedDate = x.CreatedDate,
@@ -79,6 +106,7 @@ public class ReturnToSupplierOrderStatusService : IReturnToSupplierOrderStatusSe
             .Select(x => new ReturnToSupplierOrderStatusListDto
             {
                 Id = x.Id,
+                Code = x.Code,
                 Name = x.Name,
                 Color = x.Color,
                 CreatedDate = x.CreatedDate
@@ -87,7 +115,8 @@ public class ReturnToSupplierOrderStatusService : IReturnToSupplierOrderStatusSe
         var totalRecord = await data.CountAsync();
         if (!string.IsNullOrEmpty(query.Keyword))
         {
-            data = data.Where(x => x.Name.ToLower().Contains(query.Keyword.ToLower()));
+            var keyword = query.Keyword.ToLower();
+            data = data.Where(x => x.Name.ToLower().Contains(keyword) || x.Code.ToLower().Contains(keyword));
         }
 
         var pagedData = new PagingData<ReturnToSupplierOrderStatusListDto>
@@ -115,6 +144,12 @@ public class ReturnToSupplierOrderStatusService : IReturnToSupplierOrderStatusSe
 
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {
+        var status = await _returnToSupplierOrderStatusRepository.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted);
+        if (status == null)
+            return ApiResponse.NotFound();
+        if (ProtectedCodes.Contains(status.Code))
+            return ApiResponse.Conflict("Không thể xóa trạng thái hệ thống đang được nghiệp vụ sử dụng.");
+
         var isDeleted = await _returnToSupplierOrderStatusRepository.SoftDeleteAsync(id);
         if (!isDeleted)
             return ApiResponse.BadRequest();
@@ -125,15 +160,24 @@ public class ReturnToSupplierOrderStatusService : IReturnToSupplierOrderStatusSe
 
     public async Task<ApiResponse> SoftDeleteListAsync(IEnumerable<int> objs)
     {
-        var isDeleted = await _returnToSupplierOrderStatusRepository.SoftDeleteListAsync(objs);
+        var ids = objs.Distinct().ToList();
+        var statuses = await _returnToSupplierOrderStatusRepository.FindByCondition(x => ids.Contains(x.Id) && !x.IsDeleted).ToListAsync();
+        if (statuses.Count != ids.Count)
+            return ApiResponse.NotFound();
+        if (statuses.Any(x => ProtectedCodes.Contains(x.Code)))
+            return ApiResponse.Conflict("Không thể xóa trạng thái hệ thống đang được nghiệp vụ sử dụng.");
+
+        var isDeleted = await _returnToSupplierOrderStatusRepository.SoftDeleteListAsync(ids);
         if (!isDeleted)
             return ApiResponse.BadRequest();
+        await _returnToSupplierOrderStatusRepository.SaveChangesAsync();
         return ApiResponse.Success(isDeleted);
     }
 
     public async Task<ApiResponse> UpdateAsync(UpdateReturnToSupplierOrderStatusDto obj)
     {
-        var isExistName = await _returnToSupplierOrderStatusRepository.AnyAsync(x => !x.IsDeleted && x.Name.ToLower() == obj.Name.ToLower() && x.Id != obj.Id);
+        var normalizedName = obj.Name.Trim();
+        var isExistName = await _returnToSupplierOrderStatusRepository.AnyAsync(x => !x.IsDeleted && x.Name.ToLower() == normalizedName.ToLower() && x.Id != obj.Id);
         if (isExistName)
             return ApiResponse.UnprocessableEntity(
                 ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Name),

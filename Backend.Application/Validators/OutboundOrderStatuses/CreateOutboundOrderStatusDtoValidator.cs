@@ -9,6 +9,12 @@ public class CreateOutboundOrderStatusDtoValidator : AbstractValidator<CreateOut
 {
     public CreateOutboundOrderStatusDtoValidator()
     {
+        RuleFor(x => x.Code)
+            .NotEmpty()
+            .MaximumLength(100)
+            .Matches("^[A-Za-z][A-Za-z0-9_]*$")
+            .WithMessage("Mã trạng thái chỉ được chứa chữ cái, chữ số và dấu gạch dưới, đồng thời phải bắt đầu bằng chữ cái.");
+
         RuleFor(x => x.Name)
             .NotNull()
             .WithName("Tên")

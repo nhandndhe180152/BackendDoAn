@@ -11,6 +11,17 @@ namespace Backend.Application.Implements;
 
 public class OutboundOrderStatusService : IOutboundOrderStatusService
 {
+    private static readonly HashSet<string> ProtectedCodes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        OutboundOrderStatusNames.Draft,
+        OutboundOrderStatusNames.Picking,
+        OutboundOrderStatusNames.Packed,
+        OutboundOrderStatusNames.Dispatched,
+        OutboundOrderStatusNames.Completed,
+        OutboundOrderStatusNames.Cancelled,
+        OutboundOrderStatusNames.DeliveryFailed
+    };
+
     private readonly IOutboundOrderStatusRepository _outboundOrderStatusRepository;
 
     public OutboundOrderStatusService(IOutboundOrderStatusRepository outboundOrderStatusRepository)
@@ -20,7 +31,15 @@ public class OutboundOrderStatusService : IOutboundOrderStatusService
 
     public async Task<ApiResponse> CreateAsync(CreateOutboundOrderStatusDto obj)
     {
-        var isExistName = await _outboundOrderStatusRepository.AnyAsync(x => !x.IsDeleted && x.Name.ToLower() == obj.Name.ToLower());
+        var normalizedCode = obj.Code.Trim().ToUpperInvariant();
+        var isExistCode = await _outboundOrderStatusRepository.AnyAsync(x => x.Code == normalizedCode);
+        if (isExistCode)
+            return ApiResponse.UnprocessableEntity(
+                ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", normalizedCode),
+                ApiCodeConstants.Common.DuplicatedData);
+
+        var normalizedName = obj.Name.Trim();
+        var isExistName = await _outboundOrderStatusRepository.AnyAsync(x => !x.IsDeleted && x.Name.ToLower() == normalizedName.ToLower());
         if (isExistName)
             return ApiResponse.UnprocessableEntity(
                 ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Name),
@@ -34,7 +53,16 @@ public class OutboundOrderStatusService : IOutboundOrderStatusService
 
     public async Task<ApiResponse> CreateListAsync(IEnumerable<CreateOutboundOrderStatusDto> objs)
     {
-        var models = objs.Select(x => x.ToEntity());
+        var input = objs.ToList();
+        var normalizedCodes = input.Select(x => x.Code.Trim().ToUpperInvariant()).ToList();
+        var normalizedNames = input.Select(x => x.Name.Trim().ToLower()).ToList();
+        if (normalizedCodes.Count != normalizedCodes.Distinct(StringComparer.OrdinalIgnoreCase).Count() ||
+            normalizedNames.Count != normalizedNames.Distinct(StringComparer.OrdinalIgnoreCase).Count() ||
+            await _outboundOrderStatusRepository.AnyAsync(x => normalizedCodes.Contains(x.Code)) ||
+            await _outboundOrderStatusRepository.AnyAsync(x => !x.IsDeleted && normalizedNames.Contains(x.Name.ToLower())))
+            return ApiResponse.UnprocessableEntity("Danh sách trạng thái chứa tên hoặc mã bị trùng.", ApiCodeConstants.Common.DuplicatedData);
+
+        var models = input.Select(x => x.ToEntity()).ToList();
         await _outboundOrderStatusRepository.CreateListAsync(models);
         await _outboundOrderStatusRepository.SaveChangesAsync();
         return ApiResponse.Created(models.Select(x => x.Id));
@@ -47,6 +75,7 @@ public class OutboundOrderStatusService : IOutboundOrderStatusService
             .Select(x => new OutboundOrderStatusListDto()
             {
                 Id = x.Id,
+                Code = x.Code,
                 Name = x.Name,
                 Color = x.Color,
                 CreatedDate = x.CreatedDate
@@ -61,6 +90,7 @@ public class OutboundOrderStatusService : IOutboundOrderStatusService
             .Select(x => new OutboundOrderStatusDetailDto()
             {
                 Id = x.Id,
+                Code = x.Code,
                 Name = x.Name,
                 Color = x.Color,
                 CreatedDate = x.CreatedDate,
@@ -79,6 +109,7 @@ public class OutboundOrderStatusService : IOutboundOrderStatusService
             .Select(x => new OutboundOrderStatusListDto
             {
                 Id = x.Id,
+                Code = x.Code,
                 Name = x.Name,
                 Color = x.Color,
                 CreatedDate = x.CreatedDate
@@ -87,7 +118,8 @@ public class OutboundOrderStatusService : IOutboundOrderStatusService
         var totalRecord = await data.CountAsync();
         if (!string.IsNullOrEmpty(query.Keyword))
         {
-            data = data.Where(x => x.Name.ToLower().Contains(query.Keyword.ToLower()));
+            var keyword = query.Keyword.ToLower();
+            data = data.Where(x => x.Name.ToLower().Contains(keyword) || x.Code.ToLower().Contains(keyword));
         }
 
         var pagedData = new PagingData<OutboundOrderStatusListDto>
@@ -115,6 +147,12 @@ public class OutboundOrderStatusService : IOutboundOrderStatusService
 
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {
+        var status = await _outboundOrderStatusRepository.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted);
+        if (status == null)
+            return ApiResponse.NotFound();
+        if (ProtectedCodes.Contains(status.Code))
+            return ApiResponse.Conflict("Không thể xóa trạng thái hệ thống đang được nghiệp vụ sử dụng.");
+
         var isDeleted = await _outboundOrderStatusRepository.SoftDeleteAsync(id);
         if (!isDeleted)
             return ApiResponse.BadRequest();
@@ -125,15 +163,24 @@ public class OutboundOrderStatusService : IOutboundOrderStatusService
 
     public async Task<ApiResponse> SoftDeleteListAsync(IEnumerable<int> objs)
     {
-        var isDeleted = await _outboundOrderStatusRepository.SoftDeleteListAsync(objs);
+        var ids = objs.Distinct().ToList();
+        var statuses = await _outboundOrderStatusRepository.FindByCondition(x => ids.Contains(x.Id) && !x.IsDeleted).ToListAsync();
+        if (statuses.Count != ids.Count)
+            return ApiResponse.NotFound();
+        if (statuses.Any(x => ProtectedCodes.Contains(x.Code)))
+            return ApiResponse.Conflict("Không thể xóa trạng thái hệ thống đang được nghiệp vụ sử dụng.");
+
+        var isDeleted = await _outboundOrderStatusRepository.SoftDeleteListAsync(ids);
         if (!isDeleted)
             return ApiResponse.BadRequest();
+        await _outboundOrderStatusRepository.SaveChangesAsync();
         return ApiResponse.Success(isDeleted);
     }
 
     public async Task<ApiResponse> UpdateAsync(UpdateOutboundOrderStatusDto obj)
     {
-        var isExistName = await _outboundOrderStatusRepository.AnyAsync(x => !x.IsDeleted && x.Name.ToLower() == obj.Name.ToLower() && x.Id != obj.Id);
+        var normalizedName = obj.Name.Trim();
+        var isExistName = await _outboundOrderStatusRepository.AnyAsync(x => !x.IsDeleted && x.Name.ToLower() == normalizedName.ToLower() && x.Id != obj.Id);
         if (isExistName)
             return ApiResponse.UnprocessableEntity(
                 ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Name),
