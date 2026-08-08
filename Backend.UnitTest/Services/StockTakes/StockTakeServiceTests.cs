@@ -15,10 +15,6 @@ using Microsoft.AspNetCore.Http;
 using Moq;
 using MockQueryable.Moq;
 using Xunit;
-// Alias tránh CS0118: trong Backend.UnitTest.Services đã có namespace con tên PaddyLot/Inventory,
-// khiến tên rút gọn bị hiểu là namespace thay vì entity. Ép về đúng entity domain.
-using PaddyLot = Backend.Domain.Entities.PaddyLot;
-using Inventory = Backend.Domain.Entities.Inventory;
 
 namespace Backend.UnitTest.Services.StockTakes;
 
@@ -401,7 +397,7 @@ public class StockTakeServiceTests
     [Fact]
     public async Task CreateAsync_LotLocationNullButInventoryAtSelectedLocation_IsAccepted()
     {
-        var lot = new PaddyLot
+        var lot = new Backend.Domain.Entities.PaddyLot
         {
             Id = 94,
             WarehouseId = 1,
@@ -409,7 +405,7 @@ public class StockTakeServiceTests
             LocationId = null,
             IsDeleted = false
         };
-        var inventory = new Inventory
+        var inventory = new Backend.Domain.Entities.Inventory
         {
             Id = 500,
             WarehouseId = 1,
@@ -420,13 +416,13 @@ public class StockTakeServiceTests
             IsDeleted = false
         };
         _dbContext.Setup(c => c.PaddyLots)
-            .Returns(new List<PaddyLot> { lot }.AsQueryable().BuildMockDbSet().Object);
+            .Returns(new List<Backend.Domain.Entities.PaddyLot> { lot }.AsQueryable().BuildMockDbSet().Object);
         _dbContext.Setup(c => c.Inventories)
-            .Returns(new List<Inventory> { inventory }.AsQueryable().BuildMockDbSet().Object);
+            .Returns(new List<Backend.Domain.Entities.Inventory> { inventory }.AsQueryable().BuildMockDbSet().Object);
         _invRepo.Setup(r => r.FindByCondition(
-                It.IsAny<Expression<Func<Inventory, bool>>>(),
+                It.IsAny<Expression<Func<Backend.Domain.Entities.Inventory, bool>>>(),
                 It.IsAny<bool>()))
-            .Returns(new List<Inventory> { inventory }.AsQueryable().BuildMock());
+            .Returns(new List<Backend.Domain.Entities.Inventory> { inventory }.AsQueryable().BuildMock());
 
         var result = await Sut().CreateAsync(new CreateStockTakeDto
         {
