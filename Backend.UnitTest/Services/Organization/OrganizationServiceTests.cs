@@ -83,6 +83,28 @@ public class OrganizationServiceTests
     [Fact]
     [Trait("Service", "Organization")]
     [Trait("Method", "Create")]
+    public async Task Create_DuplicatePhone_ReturnsUnprocessableEntity()
+    {
+        _repo.Setup(r => r.AnyAsync(It.IsAny<Expression<Func<OrganizationEntity, bool>>>()))
+             .ReturnsAsync((Expression<Func<OrganizationEntity, bool>> expr) =>
+             {
+                 var str = expr.ToString();
+                 if (str.Contains("Code")) return false;
+                 if (str.Contains("ContactPhone")) return true;
+                 return false;
+             });
+
+        var result = await _sut.CreateAsync(ValidCreate());
+
+        result.IsSucceeded.Should().BeFalse();
+        result.Status.Should().Be(422);
+        result.Code.Should().Be(ApiCodeConstants.Common.DuplicatedData);
+        _repo.Verify(r => r.CreateAsync(It.IsAny<OrganizationEntity>()), Times.Never);
+    }
+
+    [Fact]
+    [Trait("Service", "Organization")]
+    [Trait("Method", "Create")]
     public async Task Create_Valid_ReturnsCreated_AndPersists()
     {
         _repo.Setup(r => r.AnyAsync(It.IsAny<Expression<Func<OrganizationEntity, bool>>>()))
@@ -248,6 +270,32 @@ public class OrganizationServiceTests
              .ReturnsAsync(true);
 
         var result = await _sut.UpdateAsync(ValidUpdate());
+
+        result.IsSucceeded.Should().BeFalse();
+        result.Status.Should().Be(422);
+        result.Code.Should().Be(ApiCodeConstants.Common.DuplicatedData);
+        _repo.Verify(r => r.UpdateAsync(It.IsAny<OrganizationEntity>()), Times.Never);
+    }
+
+    [Fact]
+    [Trait("Service", "Organization")]
+    [Trait("Method", "Update")]
+    public async Task Update_DuplicatePhone_ReturnsUnprocessableEntity()
+    {
+        _repo.Setup(r => r.GetByIdAsync(It.IsAny<int>()))
+             .ReturnsAsync(Existing(1));
+        _repo.Setup(r => r.AnyAsync(It.IsAny<Expression<Func<OrganizationEntity, bool>>>()))
+             .ReturnsAsync((Expression<Func<OrganizationEntity, bool>> expr) =>
+             {
+                 var str = expr.ToString();
+                 if (str.Contains("Code")) return false;
+                 if (str.Contains("ContactPhone")) return true;
+                 return false;
+             });
+
+        var dto = ValidUpdate();
+        dto.ContactPhone = "0900112233";
+        var result = await _sut.UpdateAsync(dto);
 
         result.IsSucceeded.Should().BeFalse();
         result.Status.Should().Be(422);

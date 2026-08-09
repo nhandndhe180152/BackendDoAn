@@ -94,10 +94,19 @@ public class PhoneHelperTests
     [InlineData("0712345678", true)]   // đầu 07 hợp lệ
     [InlineData("0512345678", true)]   // đầu 05 hợp lệ
     [InlineData("0312345678", true)]   // đầu 03 hợp lệ
-    [InlineData("0112345678", false)]  // đầu số không hợp lệ
-    [InlineData("01234567", false)]  // thiếu số
-    [InlineData("09123456789", false)]  // thừa số
+    [InlineData("02412345678", true)]  // đầu 02 (cố định) 11 số hợp lệ
+    [InlineData("02812345678", true)]  // đầu 02 (cố định) 11 số hợp lệ
+    
+    [InlineData("0112345678", false)]  // đầu số di động cũ/không hợp lệ
+    [InlineData("01234567", false)]  // thiếu số di động
+    [InlineData("09123456789", false)]  // thừa số di động (11 số di động)
     [InlineData("09abcdefgh", false)]  // không phải số
+    
+    [InlineData("0241234567", false)]  // số cố định thiếu số (10 số)
+    [InlineData("024123456789", false)] // số cố định thừa số (12 số)
+    [InlineData("090912345678", false)] // thừa số (12 số có 2 đầu số hợp lệ - lỗi dấu + cũ)
+    [InlineData("0|12345678", false)]  // chứa ký tự | (lỗi dấu | trong [3|5...] cũ)
+    
     [InlineData("", false)]
     [InlineData("   ", false)]
     public void IsValidVietnamPhone_VariousInputs_ReturnsExpected(string phone, bool expected)

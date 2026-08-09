@@ -38,6 +38,17 @@ public class SupplierService : ISupplierService
                 ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Code),
                 ApiCodeConstants.Common.DuplicatedData);
 
+        if (!string.IsNullOrWhiteSpace(obj.Phone))
+        {
+            var normalizedPhone = obj.Phone.Trim();
+            var isDuplicatePhone = await _supplierRepository.AnyAsync(
+                x => x.Phone == normalizedPhone && !x.IsDeleted);
+            if (isDuplicatePhone)
+                return ApiResponse.UnprocessableEntity(
+                    ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Phone),
+                    ApiCodeConstants.Common.DuplicatedData);
+        }
+
         var model = obj.ToEntity();
 
         await _supplierRepository.CreateAsync(model);
@@ -103,6 +114,17 @@ public class SupplierService : ISupplierService
             return ApiResponse.UnprocessableEntity(
                 ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Code),
                 ApiCodeConstants.Common.DuplicatedData);
+
+        if (!string.IsNullOrWhiteSpace(obj.Phone))
+        {
+            var normalizedPhone = obj.Phone.Trim();
+            var isDuplicatePhone = await _supplierRepository.AnyAsync(
+                x => x.Phone == normalizedPhone && x.Id != obj.Id && !x.IsDeleted);
+            if (isDuplicatePhone)
+                return ApiResponse.UnprocessableEntity(
+                    ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Phone),
+                    ApiCodeConstants.Common.DuplicatedData);
+        }
 
         obj.ToEntity(existData);
 

@@ -36,6 +36,17 @@ public class OrganizationService : IOrganizationService
                 ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Code),
                 ApiCodeConstants.Common.DuplicatedData);
 
+        if (!string.IsNullOrWhiteSpace(obj.ContactPhone))
+        {
+            var normalizedPhone = obj.ContactPhone.Trim();
+            var isDuplicatePhone = await _organizationRepository.AnyAsync(
+                x => x.ContactPhone == normalizedPhone && !x.IsDeleted);
+            if (isDuplicatePhone)
+                return ApiResponse.UnprocessableEntity(
+                    ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.ContactPhone),
+                    ApiCodeConstants.Common.DuplicatedData);
+        }
+
         var model = obj.ToEntity();
 
         await _organizationRepository.CreateAsync(model);
@@ -101,6 +112,17 @@ public class OrganizationService : IOrganizationService
             return ApiResponse.UnprocessableEntity(
                 ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Code),
                 ApiCodeConstants.Common.DuplicatedData);
+
+        if (!string.IsNullOrWhiteSpace(obj.ContactPhone))
+        {
+            var normalizedPhone = obj.ContactPhone.Trim();
+            var isDuplicatePhone = await _organizationRepository.AnyAsync(
+                x => x.ContactPhone == normalizedPhone && x.Id != obj.Id && !x.IsDeleted);
+            if (isDuplicatePhone)
+                return ApiResponse.UnprocessableEntity(
+                    ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.ContactPhone),
+                    ApiCodeConstants.Common.DuplicatedData);
+        }
 
         obj.ToEntity(existData);
 
