@@ -36,6 +36,17 @@ public class FarmerService : IFarmerService
                 ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Code),
                 ApiCodeConstants.Common.DuplicatedData);
 
+        if (!string.IsNullOrWhiteSpace(obj.Phone))
+        {
+            var normalizedPhone = obj.Phone.Trim();
+            var isDuplicatePhone = await _farmerRepository.AnyAsync(
+                x => x.Phone == normalizedPhone && !x.IsDeleted);
+            if (isDuplicatePhone)
+                return ApiResponse.UnprocessableEntity(
+                    ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Phone),
+                    ApiCodeConstants.Common.DuplicatedData);
+        }
+
         var model = obj.ToEntity();
 
         await _farmerRepository.CreateAsync(model);
@@ -101,6 +112,17 @@ public class FarmerService : IFarmerService
             return ApiResponse.UnprocessableEntity(
                 ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Code),
                 ApiCodeConstants.Common.DuplicatedData);
+
+        if (!string.IsNullOrWhiteSpace(obj.Phone))
+        {
+            var normalizedPhone = obj.Phone.Trim();
+            var isDuplicatePhone = await _farmerRepository.AnyAsync(
+                x => x.Phone == normalizedPhone && x.Id != obj.Id && !x.IsDeleted);
+            if (isDuplicatePhone)
+                return ApiResponse.UnprocessableEntity(
+                    ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Phone),
+                    ApiCodeConstants.Common.DuplicatedData);
+        }
 
         obj.ToEntity(existData);
 

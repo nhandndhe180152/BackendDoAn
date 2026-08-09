@@ -85,6 +85,28 @@ public class CustomerServiceTests
     [Fact]
     [Trait("Service", "Customer")]
     [Trait("Method", "Create")]
+    public async Task Create_DuplicatePhone_ReturnsUnprocessableEntity()
+    {
+        _repo.Setup(r => r.AnyAsync(It.IsAny<Expression<Func<CustomerEntity, bool>>>()))
+             .ReturnsAsync((Expression<Func<CustomerEntity, bool>> expr) =>
+             {
+                 var str = expr.ToString();
+                 if (str.Contains("Code")) return false;
+                 if (str.Contains("Phone")) return true;
+                 return false;
+             });
+
+        var result = await _sut.CreateAsync(ValidCreate());
+
+        result.IsSucceeded.Should().BeFalse();
+        result.Status.Should().Be(422);
+        result.Code.Should().Be(ApiCodeConstants.Common.DuplicatedData);
+        _repo.Verify(r => r.CreateAsync(It.IsAny<CustomerEntity>()), Times.Never);
+    }
+
+    [Fact]
+    [Trait("Service", "Customer")]
+    [Trait("Method", "Create")]
     public async Task Create_Valid_ReturnsCreated_AndPersists()
     {
         _repo.Setup(r => r.AnyAsync(It.IsAny<Expression<Func<CustomerEntity, bool>>>()))
@@ -248,6 +270,30 @@ public class CustomerServiceTests
              .ReturnsAsync(Existing(1));
         _repo.Setup(r => r.AnyAsync(It.IsAny<Expression<Func<CustomerEntity, bool>>>()))
              .ReturnsAsync(true);
+
+        var result = await _sut.UpdateAsync(ValidUpdate());
+
+        result.IsSucceeded.Should().BeFalse();
+        result.Status.Should().Be(422);
+        result.Code.Should().Be(ApiCodeConstants.Common.DuplicatedData);
+        _repo.Verify(r => r.UpdateAsync(It.IsAny<CustomerEntity>()), Times.Never);
+    }
+
+    [Fact]
+    [Trait("Service", "Customer")]
+    [Trait("Method", "Update")]
+    public async Task Update_DuplicatePhone_ReturnsUnprocessableEntity()
+    {
+        _repo.Setup(r => r.GetByIdAsync(It.IsAny<int>()))
+             .ReturnsAsync(Existing(1));
+        _repo.Setup(r => r.AnyAsync(It.IsAny<Expression<Func<CustomerEntity, bool>>>()))
+             .ReturnsAsync((Expression<Func<CustomerEntity, bool>> expr) =>
+             {
+                 var str = expr.ToString();
+                 if (str.Contains("Code")) return false;
+                 if (str.Contains("Phone")) return true;
+                 return false;
+             });
 
         var result = await _sut.UpdateAsync(ValidUpdate());
 

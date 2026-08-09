@@ -1,6 +1,7 @@
 using System;
 using Backend.Application.Constants;
 using Backend.Application.DTOs.Farmers;
+using Backend.Share.Helpers;
 using FluentValidation;
 
 namespace Backend.Application.Validators.Farmers;
@@ -33,7 +34,10 @@ public class UpdateFarmerDtoValidator : AbstractValidator<UpdateFarmerDto>
         RuleFor(x => x.Phone)
             .MaximumLength(50)
             .WithName("Số điện thoại")
-            .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.MaxLengthMessage));
+            .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.MaxLengthMessage))
+            .Must(phone => string.IsNullOrEmpty(phone) || PhoneHelper.IsValidVietnamPhone(phone))
+            .WithName("Số điện thoại")
+            .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.InvalidFormatMessage));
 
         RuleFor(x => x.Address)
             .MaximumLength(500)

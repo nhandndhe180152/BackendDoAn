@@ -552,6 +552,38 @@ public class UserServiceTests
 
     [Fact]
     [Trait("Service", "User")]
+    [Trait("Method", "UpdateProfile")]
+    public async Task UpdateProfile_DuplicatePhone_ReturnsUnprocessableEntity()
+    {
+        // Arrange
+        var user = TestDataBuilder.DefaultUser();
+        var dto = new UpdateUserProfileDto
+        {
+            FirstName = "New",
+            LastName = "Name",
+            PhoneNumber = "0988000111",
+            Gender = 1,
+            IdentityNumber = "123456789012",
+            AddresDetail = "Ha Noi",
+            AvatarId = 10
+        };
+
+        _userRepo.Setup(r => r.GetByIdAsync(user.Id)).ReturnsAsync(user);
+        _userRepo.Setup(r => r.AnyAsync(It.IsAny<Expression<Func<Domain.Entities.User, bool>>>()))
+                 .ReturnsAsync(true);
+
+        // Act
+        var result = await _sut.UpdateProfileAsync(user.Id, dto);
+
+        // Assert
+        result.IsSucceeded.Should().BeFalse();
+        result.Status.Should().Be(422);
+        result.Code.Should().Be(ApiCodeConstants.User.DuplicatedPhoneNumber);
+        _userRepo.Verify(r => r.UpdateAsync(It.IsAny<Domain.Entities.User>()), Times.Never);
+    }
+
+    [Fact]
+    [Trait("Service", "User")]
     [Trait("Method", "Deactivate")]
     public async Task Deactivate_ExistingUser_DeactivatesUserAndSessions()
     {

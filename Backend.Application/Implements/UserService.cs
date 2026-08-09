@@ -836,6 +836,20 @@ public class UserService : IUserService
 
         if (user == null)
             return ApiResponse.NotFound(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.UserNotFound), ApiCodeConstants.Auth.UserNotFound);
+
+        if (!string.IsNullOrEmpty(obj.PhoneNumber))
+        {
+            var duplicatePhone = await _userRepository
+                .AnyAsync(x => x.PhoneNumber == obj.PhoneNumber && x.Id != userId && !x.IsDeleted);
+            if (duplicatePhone)
+            {
+                return ApiResponse.UnprocessableEntity(
+                    ErrorMessagesConstants.GetMessage(ApiCodeConstants.User.DuplicatedPhoneNumber).Replace("{key}", obj.PhoneNumber),
+                    ApiCodeConstants.User.DuplicatedPhoneNumber
+                );
+            }
+        }
+
         user.FirstName = obj.FirstName;
         user.LastName = obj.LastName;
         user.PhoneNumber = obj.PhoneNumber;
