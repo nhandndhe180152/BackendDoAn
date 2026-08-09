@@ -43,3 +43,9 @@ public class LogoutDeviceDto
     public int? UserId { get; set; }
     public string DeviceId { get; set; } = null!;
 }
+
+/// <summary>Đăng xuất một thiết bị theo Id bản ghi (dùng cho thiết bị không có DeviceId).</summary>
+public class LogoutDeviceByIdDto
+{
+    public int Id { get; set; }
+}
