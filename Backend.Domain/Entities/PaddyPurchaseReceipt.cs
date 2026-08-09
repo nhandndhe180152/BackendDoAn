@@ -14,6 +14,10 @@ public class PaddyPurchaseReceipt : EntityAuditBase<int>
     public int? ScheduleId { get; set; }
     public int FarmerId { get; set; }
     public int? RiceVarietyId { get; set; }
+
+    /// <summary>Biến thể sản phẩm lúa được chọn khi lập phiếu (lọc theo giống lúa). Dùng trực tiếp khi chốt phiếu → sinh lô.</summary>
+    public int? ProductVariantId { get; set; }
+
     public int WarehouseId { get; set; }
     public decimal ActualWeightKg { get; set; }
     public int? BagCount { get; set; }
@@ -30,6 +34,7 @@ public class PaddyPurchaseReceipt : EntityAuditBase<int>
     public virtual PaddyPurchaseSchedule? Schedule { get; set; }
     public virtual Farmer Farmer { get; set; } = null!;
     public virtual RiceVariety? RiceVariety { get; set; }
+    public virtual ProductVariant? ProductVariant { get; set; }
     public virtual Warehouse Warehouse { get; set; } = null!;
     public virtual PaddyLot? PaddyLot { get; set; }
 }

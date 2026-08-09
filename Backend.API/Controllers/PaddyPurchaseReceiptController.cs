@@ -35,6 +35,14 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        [HttpGet("product-variants")]
+        [CustomAuthorize(Enums.Menu.RICE_PURCHASE, Enums.Action.READ)]
+        public async Task<IActionResult> GetProductVariantLookupAsync()
+        {
+            var result = await _receiptService.GetProductVariantLookupAsync();
+            return BaseResult(result);
+        }
+
         [HttpPost("paged-advanced")]
         [CustomAuthorize(Enums.Menu.RICE_PURCHASE, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)

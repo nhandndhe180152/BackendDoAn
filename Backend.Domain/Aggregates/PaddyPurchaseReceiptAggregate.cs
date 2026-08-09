@@ -13,6 +13,9 @@ public class PaddyPurchaseReceiptAggregate
     public string? FarmerName { get; set; }
     public int? RiceVarietyId { get; set; }
     public string? RiceVarietyName { get; set; }
+    public int? ProductVariantId { get; set; }
+    public string? ProductVariantName { get; set; }
+    public string? ProductVariantSku { get; set; }
     public int WarehouseId { get; set; }
     public string? WarehouseName { get; set; }
     public decimal ActualWeightKg { get; set; }

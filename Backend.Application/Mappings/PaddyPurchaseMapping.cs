@@ -86,6 +86,7 @@ public static class PaddyPurchaseMapping
             ScheduleId = dto.ScheduleId,
             FarmerId = dto.FarmerId,
             RiceVarietyId = dto.RiceVarietyId,
+            ProductVariantId = dto.ProductVariantId,
             WarehouseId = dto.WarehouseId,
             ActualWeightKg = dto.ActualWeightKg,
             BagCount = dto.BagCount,
@@ -107,6 +108,7 @@ public static class PaddyPurchaseMapping
         existData.ScheduleId = dto.ScheduleId;
         existData.FarmerId = dto.FarmerId;
         existData.RiceVarietyId = dto.RiceVarietyId;
+        existData.ProductVariantId = dto.ProductVariantId;
         existData.WarehouseId = dto.WarehouseId;
         existData.ActualWeightKg = dto.ActualWeightKg;
         existData.BagCount = dto.BagCount;
@@ -135,6 +137,9 @@ public static class PaddyPurchaseMapping
             FarmerName = entity.Farmer?.Name,
             RiceVarietyId = entity.RiceVarietyId,
             RiceVarietyName = entity.RiceVariety?.Name,
+            ProductVariantId = entity.ProductVariantId,
+            ProductVariantName = entity.ProductVariant?.Name,
+            ProductVariantSku = entity.ProductVariant?.SKU,
             WarehouseId = entity.WarehouseId,
             WarehouseName = entity.Warehouse?.Name,
             ActualWeightKg = entity.ActualWeightKg,

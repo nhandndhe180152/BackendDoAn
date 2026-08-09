@@ -116,7 +116,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
     public async Task<ApiResponse> GetAllAsync()
     {
         var entities = await _receiptRepository
-            .FindByCondition(x => !x.IsDeleted, false, x => x.Farmer, x => x.Warehouse)
+            .FindByCondition(x => !x.IsDeleted, false, x => x.Farmer, x => x.Warehouse, x => x.RiceVariety, x => x.ProductVariant)
             .OrderByDescending(x => x.ReceiptDate)
             .ToListAsync();
 
@@ -130,6 +130,8 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                 false,
                 x => x.Farmer,
                 x => x.Warehouse,
+                x => x.RiceVariety,
+                x => x.ProductVariant,
                 x => x.PaddyLot,
                 x => x.Schedule)
             .FirstOrDefaultAsync();
@@ -261,8 +263,9 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         await using var tx = await _receiptRepository.BeginTransactionAsync();
         try
         {
-            // Xác định Id của Variant lúa mặc định
-            var productVariantId = await GetDefaultPaddyVariantIdAsync(receipt);
+            // Xác định Id của Variant sản phẩm: ưu tiên biến thể người dùng đã chọn trên phiếu,
+            // nếu phiếu chưa có (dữ liệu cũ) thì suy ra mặc định theo giống lúa.
+            var productVariantId = await ResolvePaddyVariantIdAsync(receipt);
 
             // Lô đã được định danh nhưng chưa nằm trong tồn kho vật lý.
             var lot = new PaddyLot
@@ -352,10 +355,61 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         }
     }
 
+    /// <summary>
+    /// Danh sách biến thể lúa (không phải phụ phẩm) đang hoạt động để chọn trên phiếu mua.
+    /// FE lọc tiếp theo giống lúa (RiceVarietyId) của phiếu.
+    /// </summary>
+    public async Task<ApiResponse> GetProductVariantLookupAsync()
+    {
+        var items = await _productVariantRepository
+            .FindByCondition(x => !x.IsDeleted && x.IsActive && !x.IsByproduct)
+            .Select(x => new PaddyProductVariantLookupDto
+            {
+                Id = x.Id,
+                Name = x.Name,
+                Sku = x.SKU,
+                RiceVarietyId = x.RiceVarietyId,
+                RiceVarietyName = x.RiceVariety == null ? null : x.RiceVariety.Name,
+                IsActive = x.IsActive
+            })
+            .ToListAsync();
+
+        return ApiResponse.Success(items);
+    }
+
     // ── Private helpers ─────────────────────────────────────────────────────
 
     /// <summary>
-    /// Tìm ProductVariantId đại diện cho lúa thô. 
+    /// Xác định biến thể sản phẩm cho lô sinh ra từ phiếu mua.
+    /// Ưu tiên biến thể người dùng đã chọn trên phiếu (ProductVariantId); nếu hợp lệ thì dùng luôn.
+    /// Nếu phiếu chưa chọn (dữ liệu cũ) hoặc biến thể không còn hợp lệ thì suy ra mặc định theo giống lúa.
+    /// </summary>
+    private async Task<int> ResolvePaddyVariantIdAsync(PaddyPurchaseReceipt receipt)
+    {
+        if (receipt.ProductVariantId.HasValue)
+        {
+            var chosen = await _productVariantRepository
+                .FindByCondition(x => x.Id == receipt.ProductVariantId.Value && !x.IsDeleted)
+                .FirstOrDefaultAsync();
+
+            if (chosen == null)
+                throw new InvalidOperationException("Sản phẩm đã chọn trên phiếu không tồn tại hoặc đã bị xoá. Vui lòng chọn lại sản phẩm.");
+
+            // Nếu phiếu có giống lúa, biến thể phải khớp giống lúa đó.
+            if (receipt.RiceVarietyId.HasValue
+                && chosen.RiceVarietyId.HasValue
+                && chosen.RiceVarietyId.Value != receipt.RiceVarietyId.Value)
+                throw new InvalidOperationException("Sản phẩm đã chọn không thuộc giống lúa của phiếu. Vui lòng chọn lại sản phẩm.");
+
+            return chosen.Id;
+        }
+
+        // Dữ liệu cũ: phiếu chưa gắn biến thể → suy ra mặc định theo giống lúa.
+        return await GetDefaultPaddyVariantIdAsync(receipt);
+    }
+
+    /// <summary>
+    /// Tìm ProductVariantId đại diện cho lúa thô.
     /// </summary>
     private async Task<int> GetDefaultPaddyVariantIdAsync(PaddyPurchaseReceipt receipt)
     {

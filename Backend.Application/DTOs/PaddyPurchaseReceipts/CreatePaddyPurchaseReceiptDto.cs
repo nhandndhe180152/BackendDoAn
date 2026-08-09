@@ -8,6 +8,7 @@ public class CreatePaddyPurchaseReceiptDto
     public int? ScheduleId { get; set; }
     public int FarmerId { get; set; }
     public int? RiceVarietyId { get; set; }
+    public int? ProductVariantId { get; set; }
     public int WarehouseId { get; set; }
     public decimal ActualWeightKg { get; set; }
     public int? BagCount { get; set; }
