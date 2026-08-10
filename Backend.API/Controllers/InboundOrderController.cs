@@ -25,6 +25,14 @@ public class InboundOrderController : BaseController
         _inboundOrderService = inboundOrderService;
     }
 
+    private bool IsInboundOperator()
+    {
+        var roles = this.GetLoggedInRoleIds();
+        return roles.Contains(CommonConstants.Role.ADMIN) ||
+               roles.Contains(CommonConstants.Role.OWNER) ||
+               roles.Contains(CommonConstants.Role.WAREHOUSE);
+    }
+
     [HttpGet]
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.READ)]
     public async Task<IActionResult> GetPagedAsync([FromQuery] SearchQuery query)
