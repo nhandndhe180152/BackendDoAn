@@ -60,6 +60,10 @@ public class GoogleEmailService : IEmailService<GoogleMailRequest>
                 // Giới hạn thời gian kết nối để không treo ~2 phút khi cổng SMTP bị chặn
                 // (vd Render gói Free chặn outbound SMTP) — thất bại nhanh sau 15s.
                 client.Timeout = 15000;
+                // Bỏ qua bước kiểm tra thu hồi chứng chỉ (CRL/OCSP). Trên macOS/Linux hoặc
+                // mạng chặn OCSP, bước này không hoàn tất được và làm TLS handshake thất bại
+                // với "An incomplete certificate revocation check occurred", dù chứng chỉ Gmail hợp lệ.
+                client.CheckCertificateRevocation = false;
                 await client.ConnectAsync(_smtpSettings.Server, _smtpSettings.Port, MailKit.Security.SecureSocketOptions.StartTls);
                 await client.AuthenticateAsync(_smtpSettings.UserName, _smtpSettings.Password);
                 await client.SendAsync(emailMessage);

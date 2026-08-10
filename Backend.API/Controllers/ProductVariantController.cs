@@ -42,7 +42,7 @@ namespace Backend.API.Controllers
 
         /// API lấy toàn bộ danh sách các biến thể sản phẩm
         [HttpGet]
-        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
+        // Dropdown dùng chung: bỏ CustomAuthorize READ để role không có quyền xem menu vẫn lấy được danh sách cho dropdown
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _productVariantService.GetAllAsync();
@@ -97,7 +97,7 @@ namespace Backend.API.Controllers
 
         /// API lọc nâng cao các biến thể theo ProductId hoặc trạng thái hoạt động
         [HttpGet("search")]
-        [CustomAuthorize(Enums.Menu.PRODUCT_VARIANTS, Enums.Action.READ)]
+        // Dropdown dùng chung: bỏ CustomAuthorize READ để role không có quyền xem menu vẫn lấy được danh sách cho dropdown
         public async Task<IActionResult> Search([FromQuery] ProductVariantSearchQuery query)
         {
             var data = await _productVariantService.GetPagedAsync(query);

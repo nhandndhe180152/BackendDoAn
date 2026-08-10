@@ -40,7 +40,7 @@ namespace Backend.API.Controllers
 
         /// API lấy toàn bộ danh sách các thuộc tính sản phẩm
         [HttpGet]
-        [CustomAuthorize(Enums.Menu.PRODUCT_ATTRIBUTES, Enums.Action.READ)]
+        // Dropdown dùng chung: bỏ CustomAuthorize READ để role không có quyền xem menu vẫn lấy được danh sách cho dropdown
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _productAttributeService.GetAllAsync();
