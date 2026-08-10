@@ -1,0 +1,22 @@
+name: Deploy Backend to Local Server
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  deploy-backend:
+    runs-on: self-hosted   # Chạy trên máy chủ sale đã cài Runner
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Sync code to api folder
+        run: |
+          rsync -av --exclude='.git' ./ /opt/stocklite/
+
+      - name: Rebuild and Restart API Container
+        run: |
+          cd /opt/stocklite
+          docker compose up --build -d api
