@@ -23,9 +23,6 @@ public class SalesOrderController : BaseController
         _salesOrderService = salesOrderService;
     }
 
-    private bool IsManagerOrAdmin()
-        => this.GetLoggedInRoleIds().Contains(CommonConstants.Role.ADMIN);
-
     // ── Queries ─────────────────────────────────────────────────────────
 
     [HttpPost("paged")]

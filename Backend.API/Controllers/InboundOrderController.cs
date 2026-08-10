@@ -25,21 +25,6 @@ public class InboundOrderController : BaseController
         _inboundOrderService = inboundOrderService;
     }
 
-    private bool IsManagerOrAdmin()
-    {
-        var roles = this.GetLoggedInRoleIds();
-        return roles.Contains(CommonConstants.Role.ADMIN) ||
-               roles.Contains(CommonConstants.Role.OWNER);
-    }
-
-    private bool IsInboundOperator()
-    {
-        var roles = this.GetLoggedInRoleIds();
-        return roles.Contains(CommonConstants.Role.ADMIN) ||
-               roles.Contains(CommonConstants.Role.OWNER) ||
-               roles.Contains(CommonConstants.Role.WAREHOUSE);
-    }
-
     [HttpGet]
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.READ)]
     public async Task<IActionResult> GetPagedAsync([FromQuery] SearchQuery query)
@@ -62,11 +47,6 @@ public class InboundOrderController : BaseController
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.READ)]
     public async Task<IActionResult> GetPutawayPendingAsync()
     {
-        if (!IsInboundOperator())
-        {
-            return BaseResult(ApiResponse.Forbidden("Vai trò hiện tại không có quyền xử lý xếp kho.", ApiCodeConstants.Common.Forbidden));
-        }
-
         var result = await _inboundOrderService.GetPutawayPendingAsync();
         return BaseResult(result);
     }
@@ -83,11 +63,6 @@ public class InboundOrderController : BaseController
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.CREATE)]
     public async Task<IActionResult> CreateAsync([FromBody] CreateInboundOrderDto dto)
     {
-        if (!IsManagerOrAdmin())
-        {
-            return BaseResult(ApiResponse.Forbidden(message: "Chỉ có Warehouse Manager hoặc System Admin mới có quyền tạo phiếu nhập.", code: ApiCodeConstants.Common.Forbidden));
-        }
-
         dto.CreatedBy = this.GetLoggedInUserId();
         var result = await _inboundOrderService.CreateAsync(dto);
         return BaseResult(result);
@@ -97,11 +72,6 @@ public class InboundOrderController : BaseController
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> UpdateAsync(int id, [FromBody] UpdateInboundOrderDto dto)
     {
-        if (!IsManagerOrAdmin())
-        {
-            return BaseResult(ApiResponse.Forbidden(message: "Chỉ có Warehouse Manager hoặc System Admin mới có quyền chỉnh sửa phiếu nhập.", code: ApiCodeConstants.Common.Forbidden));
-        }
-
         dto.Id = id;
         dto.UpdatedBy = this.GetLoggedInUserId();
         var result = await _inboundOrderService.UpdateAsync(dto);
@@ -112,11 +82,6 @@ public class InboundOrderController : BaseController
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> SubmitAsync(int id)
     {
-        if (!IsInboundOperator())
-        {
-            return BaseResult(ApiResponse.Forbidden(message: "Chỉ Quản trị viên, Chủ kho hoặc Nhân viên kho mới có quyền gửi duyệt phiếu nhập.", code: ApiCodeConstants.Common.Forbidden));
-        }
-
         var result = await _inboundOrderService.SubmitAsync(id);
         return BaseResult(result);
     }
@@ -125,11 +90,6 @@ public class InboundOrderController : BaseController
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.APPROVE)]
     public async Task<IActionResult> ApproveAsync(int id)
     {
-        if (!IsManagerOrAdmin())
-        {
-            return BaseResult(ApiResponse.Forbidden(message: "Chỉ có Warehouse Manager hoặc System Admin mới có quyền duyệt phiếu nhập.", code: ApiCodeConstants.Common.Forbidden));
-        }
-
         var result = await _inboundOrderService.ApproveAsync(id);
         return BaseResult(result);
     }
@@ -138,11 +98,6 @@ public class InboundOrderController : BaseController
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.APPROVE)]
     public async Task<IActionResult> RejectAsync(int id, [FromBody] string reason)
     {
-        if (!IsManagerOrAdmin())
-        {
-            return BaseResult(ApiResponse.Forbidden(message: "Chỉ có Warehouse Manager hoặc System Admin mới có quyền từ chối phiếu nhập.", code: ApiCodeConstants.Common.Forbidden));
-        }
-
         var result = await _inboundOrderService.RejectAsync(id, reason);
         return BaseResult(result);
     }
@@ -151,11 +106,6 @@ public class InboundOrderController : BaseController
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> CancelAsync(int id)
     {
-        if (!IsManagerOrAdmin())
-        {
-            return BaseResult(ApiResponse.Forbidden(message: "Chỉ có Warehouse Manager hoặc System Admin mới có quyền hủy phiếu nhập.", code: ApiCodeConstants.Common.Forbidden));
-        }
-
         var result = await _inboundOrderService.CancelAsync(id);
         return BaseResult(result);
     }
@@ -165,11 +115,6 @@ public class InboundOrderController : BaseController
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> StartReceiptAsync(int id, [FromBody] StartReceiptDto dto)
     {
-        if (!IsInboundOperator())
-        {
-            return BaseResult(ApiResponse.Forbidden(message: "Chỉ Quản trị viên, Chủ kho hoặc Nhân viên kho mới có quyền bắt đầu nhận hàng.", code: ApiCodeConstants.Common.Forbidden));
-        }
-
         var result = await _inboundOrderService.StartReceiptAsync(id, dto);
         return BaseResult(result);
     }
@@ -178,11 +123,6 @@ public class InboundOrderController : BaseController
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> ScanQrAsync(int id, int receiptId, [FromBody] ScanQrDto dto)
     {
-        if (!IsInboundOperator())
-        {
-            return BaseResult(ApiResponse.Forbidden(message: "Vai trò hiện tại không có quyền quét nhận hàng.", code: ApiCodeConstants.Common.Forbidden));
-        }
-
         var result = await _inboundOrderService.ScanQrAsync(id, receiptId, dto);
         return BaseResult(result);
     }
@@ -191,11 +131,6 @@ public class InboundOrderController : BaseController
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> RecordQuantityAsync(int id, int receiptId, [FromBody] RecordQuantityDto dto)
     {
-        if (!IsInboundOperator())
-        {
-            return BaseResult(ApiResponse.Forbidden(message: "Vai trò hiện tại không có quyền ghi nhận số lượng nhập.", code: ApiCodeConstants.Common.Forbidden));
-        }
-
         var result = await _inboundOrderService.RecordQuantityAsync(id, receiptId, dto);
         return BaseResult(result);
     }
@@ -204,11 +139,6 @@ public class InboundOrderController : BaseController
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> AttachWeightAsync(int id, int receiptId, [FromBody] AttachWeightDto dto)
     {
-        if (!IsInboundOperator())
-        {
-            return BaseResult(ApiResponse.Forbidden(message: "Vai trò hiện tại không có quyền gắn bằng chứng cân.", code: ApiCodeConstants.Common.Forbidden));
-        }
-
         var result = await _inboundOrderService.AttachWeightAsync(id, receiptId, dto);
         return BaseResult(result);
     }
@@ -217,11 +147,6 @@ public class InboundOrderController : BaseController
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> ReviewExceptionAsync(int id, int receiptId, [FromBody] ReviewExceptionDto dto)
     {
-        if (!IsManagerOrAdmin())
-        {
-            return BaseResult(ApiResponse.Forbidden(message: "Chỉ có Warehouse Manager hoặc System Admin mới có quyền duyệt ngoại lệ.", code: ApiCodeConstants.Common.Forbidden));
-        }
-
         var result = await _inboundOrderService.ReviewExceptionAsync(id, receiptId, dto);
         return BaseResult(result);
     }
@@ -230,11 +155,6 @@ public class InboundOrderController : BaseController
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.READ)]
     public async Task<IActionResult> GetPutawaySuggestionsAsync(int id, int receiptId)
     {
-        if (!IsInboundOperator())
-        {
-            return BaseResult(ApiResponse.Forbidden(message: "Vai trò hiện tại không có quyền xử lý gợi ý xếp kho.", code: ApiCodeConstants.Common.Forbidden));
-        }
-
         var result = await _inboundOrderService.GetPutawaySuggestionsAsync(id, receiptId);
         return BaseResult(result);
     }
@@ -252,15 +172,6 @@ public class InboundOrderController : BaseController
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> SelectPutawayAsync(int id, int receiptId, [FromBody] SelectPutawayDto dto)
     {
-        if (!IsInboundOperator())
-        {
-            return BaseResult(ApiResponse.Forbidden(message: "Vai trò hiện tại không có quyền chọn vị trí xếp kho.", code: ApiCodeConstants.Common.Forbidden));
-        }
-        if (dto.IsOverride && !IsManagerOrAdmin())
-        {
-            return BaseResult(ApiResponse.Forbidden(message: "Chỉ Quản trị viên hoặc Chủ kho mới có quyền ghi đè vị trí đề xuất.", code: ApiCodeConstants.Common.Forbidden));
-        }
-
         var result = await _inboundOrderService.SelectPutawayAsync(id, receiptId, dto);
         return BaseResult(result);
     }
@@ -269,11 +180,6 @@ public class InboundOrderController : BaseController
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> ConfirmReceiptAsync(int id, int receiptId, [FromBody] ConfirmReceiptDto dto)
     {
-        if (!IsInboundOperator())
-        {
-            return BaseResult(ApiResponse.Forbidden(message: "Vai trò hiện tại không có quyền xác nhận nhập kho.", code: ApiCodeConstants.Common.Forbidden));
-        }
-
         var result = await _inboundOrderService.ConfirmReceiptAsync(id, receiptId, dto);
         return BaseResult(result);
     }
@@ -283,11 +189,6 @@ public class InboundOrderController : BaseController
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> ReverseReceiptAsync(int id, int receiptId, [FromQuery] string reason)
     {
-        if (!IsManagerOrAdmin())
-        {
-            return BaseResult(ApiResponse.Forbidden(message: "Chỉ Quản trị viên hoặc Chủ kho mới có quyền đảo ngược nhập kho.", code: ApiCodeConstants.Common.Forbidden));
-        }
-
         var result = await _inboundOrderService.ReverseReceiptAsync(id, receiptId, reason);
         return BaseResult(result);
     }

@@ -73,6 +73,14 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        /// <summary>Đăng xuất một thiết bị theo Id bản ghi (cho thiết bị không có DeviceId).</summary>
+        [HttpPost("logout-by-id")]
+        public async Task<IActionResult> LogoutDeviceById([FromBody] LogoutDeviceByIdDto dto)
+        {
+            var result = await _userDeviceService.LogoutDeviceByIdAsync(this.GetLoggedInUserId(), dto.Id);
+            return BaseResult(result);
+        }
+
         /// <summary>Đăng xuất khỏi tất cả thiết bị khác, giữ lại thiết bị hiện tại.</summary>
         [HttpPost("logout-others")]
         public async Task<IActionResult> LogoutOtherDevices([FromBody] LogoutDeviceDto dto)

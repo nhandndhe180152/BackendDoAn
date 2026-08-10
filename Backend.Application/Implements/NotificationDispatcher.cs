@@ -87,6 +87,14 @@ public class NotificationDispatcher : INotificationDispatcher
             var title = (args != null && args.Length > 0) ? string.Format(tpl.Title, args) : tpl.Title;
             var content = (args != null && args.Length > 0) ? string.Format(tpl.Content, args) : tpl.Content;
 
+            // Với thông báo HÀNH ĐỘNG (có người thực hiện), bổ sung dòng "Người thực hiện: Tên (Vai trò)".
+            // Cảnh báo nền (job) có createdBy = null nên KHÔNG kèm dòng này.
+            var actorSuffix = await BuildActorSuffixAsync(createdBy);
+            if (!string.IsNullOrEmpty(actorSuffix))
+            {
+                content += actorSuffix;
+            }
+
             // LOẠI + DANH MỤC lấy từ dữ liệu đã lưu trong DB (phân giải theo TÊN, không hard-code Id).
             var typeId = await ResolveTypeIdByNameAsync(NotificationConstants.TypeName.System);
             if (typeId == null)
@@ -242,6 +250,42 @@ public class NotificationDispatcher : INotificationDispatcher
         {
             _logger.LogError(ex, "[Notify] Lỗi gửi thông báo {Code}: {Message}", code, ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Dựng dòng "Người thực hiện: {Họ tên} ({Vai trò})" cho thông báo hành động.
+    /// Trả về chuỗi rỗng nếu không có người thực hiện (thông báo/cảnh báo do hệ thống phát)
+    /// hoặc không tìm thấy người dùng — khi đó nội dung giữ nguyên như cũ.
+    /// </summary>
+    private async Task<string> BuildActorSuffixAsync(int? createdBy)
+    {
+        if (createdBy == null || createdBy <= 0) return string.Empty;
+
+        var actor = await _context.Users
+            .AsNoTracking()
+            .Where(u => u.Id == createdBy && !u.IsDeleted)
+            .Select(u => new
+            {
+                u.FirstName,
+                u.LastName,
+                RoleNames = _context.UserRoles
+                    .Where(ur => ur.UserId == u.Id && !ur.IsDeleted)
+                    .Join(_context.Roles.Where(r => !r.IsDeleted),
+                          ur => ur.RoleId, r => r.Id, (ur, r) => r.Name)
+                    .ToList()
+            })
+            .FirstOrDefaultAsync();
+
+        if (actor == null) return string.Empty;
+
+        var fullName = $"{actor.FirstName} {actor.LastName}".Trim();
+        if (string.IsNullOrWhiteSpace(fullName)) return string.Empty;
+
+        var rolePrefix = actor.RoleNames != null && actor.RoleNames.Count > 0
+            ? $"{string.Join(", ", actor.RoleNames)} "
+            : string.Empty;
+
+        return $"\nNgười thực hiện: {rolePrefix}{fullName}.";
     }
 
     /// <summary>

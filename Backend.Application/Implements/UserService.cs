@@ -547,7 +547,14 @@ public class UserService : IUserService
                 UserStatusName = x.UserStatus.Name,
                 UserStatusCode = x.UserStatus.Code,
                 IdentityNumber = x.IdentityNumber,
-                AddressDetail = x.AddresDetail
+                AddressDetail = x.AddresDetail,
+                Roles = x.UserRoles
+                    .Where(ur => !ur.IsDeleted)
+                    .Select(ur => new DataItem<int>
+                    {
+                        Id = ur.Role.Id,
+                        Name = ur.Role.Name,
+                    }).ToList()
             })
             .ToListAsync();
 

@@ -75,7 +75,7 @@ namespace Backend.API.Controllers
         }
         /// <summary>Lay danh sach user</summary>
         [HttpGet]
-        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
+        // Dropdown dùng chung: bỏ CustomAuthorize READ để role không có quyền xem menu vẫn lấy được danh sách cho dropdown
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _userService.GetAllAsync();

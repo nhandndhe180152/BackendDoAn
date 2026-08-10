@@ -47,6 +47,11 @@ public class PaddyPurchaseReceiptConfiguration : IEntityTypeConfiguration<PaddyP
             .HasForeignKey(x => x.RiceVarietyId)
             .OnDelete(DeleteBehavior.SetNull);
 
+        builder.HasOne(x => x.ProductVariant)
+            .WithMany()
+            .HasForeignKey(x => x.ProductVariantId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         builder.HasOne(x => x.Warehouse)
             .WithMany()
             .HasForeignKey(x => x.WarehouseId)

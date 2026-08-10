@@ -28,30 +28,6 @@ namespace Backend.API.Controllers
             _millingOrderService = millingOrderService;
         }
 
-        private bool HasAnyRole(params int[] allowedRoleIds)
-        {
-            var roleIds = this.GetLoggedInRoleIds();
-            return allowedRoleIds.Any(roleIds.Contains);
-        }
-
-        private bool CanManageMillingOrder()
-            => HasAnyRole(
-                CommonConstants.Role.ADMIN,
-                CommonConstants.Role.OWNER,
-                CommonConstants.Role.MILLING);
-
-        private bool CanHandleMillingInventory()
-            => HasAnyRole(
-                CommonConstants.Role.ADMIN,
-                CommonConstants.Role.OWNER,
-                CommonConstants.Role.MILLING,
-                CommonConstants.Role.WAREHOUSE);
-
-        private bool IsAdminOrOwner()
-            => HasAnyRole(
-                CommonConstants.Role.ADMIN,
-                CommonConstants.Role.OWNER);
-
         [HttpGet]
         [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync()
@@ -89,13 +65,6 @@ namespace Backend.API.Controllers
         [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreateMillingOrderDto dto)
         {
-            if (!CanManageMillingOrder())
-            {
-                return BaseResult(ApiResponse.Forbidden(
-                    message: "Bạn không có quyền tạo lệnh xay xát.",
-                    code: ApiCodeConstants.Common.Forbidden));
-            }
-
             dto.CreatedBy = this.GetLoggedInUserId();
             var result = await _millingOrderService.CreateAsync(dto);
             return BaseResult(result);
@@ -105,13 +74,6 @@ namespace Backend.API.Controllers
         [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateMillingOrderDto dto)
         {
-            if (!CanManageMillingOrder())
-            {
-                return BaseResult(ApiResponse.Forbidden(
-                    message: "Bạn không có quyền chỉnh sửa lệnh xay xát.",
-                    code: ApiCodeConstants.Common.Forbidden));
-            }
-
             dto.UpdatedBy = this.GetLoggedInUserId();
             var result = await _millingOrderService.UpdateAsync(dto);
             return BaseResult(result);
@@ -121,13 +83,6 @@ namespace Backend.API.Controllers
         [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.UPDATE)]
         public async Task<IActionResult> ReserveAsync(int id, [FromBody] ReserveMillingOrderDto dto)
         {
-            if (!CanHandleMillingInventory())
-            {
-                return BaseResult(ApiResponse.Forbidden(
-                    message: "Bạn không có quyền giữ lúa cho lệnh xay.",
-                    code: ApiCodeConstants.Common.Forbidden));
-            }
-
             var userId = this.GetLoggedInUserId();
             var result = await _millingOrderService.ReserveAsync(id, dto, userId);
             return BaseResult(result);
@@ -137,13 +92,6 @@ namespace Backend.API.Controllers
         [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.UPDATE)]
         public async Task<IActionResult> StartAsync(int id)
         {
-            if (!CanManageMillingOrder())
-            {
-                return BaseResult(ApiResponse.Forbidden(
-                    message: "Bạn không có quyền bắt đầu lệnh xay.",
-                    code: ApiCodeConstants.Common.Forbidden));
-            }
-
             var userId = this.GetLoggedInUserId();
             var result = await _millingOrderService.StartAsync(id, userId);
             return BaseResult(result);
@@ -153,13 +101,6 @@ namespace Backend.API.Controllers
         [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.UPDATE)]
         public async Task<IActionResult> CompleteAsync(int id, [FromBody] CompleteMillingOrderDto dto)
         {
-            if (!CanHandleMillingInventory())
-            {
-                return BaseResult(ApiResponse.Forbidden(
-                    message: "Bạn không có quyền hoàn tất và nhập kho kết quả xay.",
-                    code: ApiCodeConstants.Common.Forbidden));
-            }
-
             var userId = this.GetLoggedInUserId();
             var result = await _millingOrderService.CompleteMillingOrderAsync(id, dto, userId);
             return BaseResult(result);
@@ -169,13 +110,6 @@ namespace Backend.API.Controllers
         [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.UPDATE)]
         public async Task<IActionResult> CancelAsync(int id)
         {
-            if (!CanManageMillingOrder())
-            {
-                return BaseResult(ApiResponse.Forbidden(
-                    message: "Bạn không có quyền hủy lệnh xay.",
-                    code: ApiCodeConstants.Common.Forbidden));
-            }
-
             var userId = this.GetLoggedInUserId();
             var result = await _millingOrderService.CancelAsync(id, userId);
             return BaseResult(result);
@@ -185,13 +119,6 @@ namespace Backend.API.Controllers
         [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
-            if (!IsAdminOrOwner())
-            {
-                return BaseResult(ApiResponse.Forbidden(
-                    message: "Chỉ Admin hoặc Chủ cơ sở mới có quyền xóa lệnh xay.",
-                    code: ApiCodeConstants.Common.Forbidden));
-            }
-
             var result = await _millingOrderService.SoftDeleteAsync(id);
             return BaseResult(result);
         }

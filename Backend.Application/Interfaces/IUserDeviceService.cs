@@ -18,6 +18,9 @@ public interface IUserDeviceService : IServiceBase<int, CreateUserDeviceDto, Upd
     /// <summary>Đăng xuất khỏi một thiết bị (thu hồi phiên của thiết bị + xóa đăng ký).</summary>
     Task<ApiResponse> LogoutDeviceAsync(int userId, string deviceId);
 
+    /// <summary>Đăng xuất một thiết bị theo Id bản ghi (dùng cho thiết bị không có DeviceId).</summary>
+    Task<ApiResponse> LogoutDeviceByIdAsync(int userId, int deviceRowId);
+
     /// <summary>Đăng xuất khỏi tất cả thiết bị khác, giữ lại thiết bị hiện tại.</summary>
     Task<ApiResponse> LogoutOtherDevicesAsync(int userId, string currentDeviceId);
 }

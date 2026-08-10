@@ -140,6 +140,38 @@ public class UserDeviceService : IUserDeviceService
         return ApiResponse.Success();
     }
 
+    public async Task<ApiResponse> LogoutDeviceByIdAsync(int userId, int deviceRowId)
+    {
+        var device = await _userDeviceRepository.FirstOrDefaultAsync(
+            x => x.UserId == userId && x.Id == deviceRowId && !x.IsDeleted);
+        if (device == null)
+            return ApiResponse.NotFound();
+
+        // Thu hồi các phiên gắn với thiết bị này.
+        var sessions = await _userSessionRepository.FindByConditionAsync(
+            x => x.UserId == userId && x.UserDeviceId == device.Id && !x.IsRevoked);
+        if (sessions.Any())
+        {
+            foreach (var s in sessions) s.IsRevoked = true;
+            await _userSessionRepository.UpdateListAsync(sessions);
+        }
+
+        // Xóa mềm đăng ký thiết bị -> biến mất khỏi danh sách "thiết bị đang đăng nhập".
+        device.IsDeleted = true;
+        device.LastModifiedDate = DateTime.Now;
+        await _userDeviceRepository.UpdateAsync(device);
+
+        await _userSessionRepository.SaveChangesAsync();
+        await _userDeviceRepository.SaveChangesAsync();
+
+        // Buộc thiết bị đó đăng xuất tại chỗ (nếu có DeviceId) + báo realtime cho danh sách.
+        if (!string.IsNullOrWhiteSpace(device.DeviceId))
+            await _presenceNotifier.ForceLogoutDeviceAsync(device.DeviceId);
+        await _presenceNotifier.NotifyDevicesChangedAsync(userId);
+
+        return ApiResponse.Success();
+    }
+
     public async Task<ApiResponse> LogoutOtherDevicesAsync(int userId, string currentDeviceId)
     {
         var currentDevice = await _userDeviceRepository.FirstOrDefaultAsync(
