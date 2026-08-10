@@ -278,14 +278,14 @@ public class NotificationDispatcher : INotificationDispatcher
 
         if (actor == null) return string.Empty;
 
-        var fullName = $"{actor.LastName} {actor.FirstName}".Trim();
+        var fullName = $"{actor.FirstName} {actor.LastName}".Trim();
         if (string.IsNullOrWhiteSpace(fullName)) return string.Empty;
 
-        var roleText = actor.RoleNames != null && actor.RoleNames.Count > 0
-            ? $" ({string.Join(", ", actor.RoleNames)})"
+        var rolePrefix = actor.RoleNames != null && actor.RoleNames.Count > 0
+            ? $"{string.Join(", ", actor.RoleNames)} "
             : string.Empty;
 
-        return $"\nNgười thực hiện: {fullName}{roleText}.";
+        return $"\nNgười thực hiện: {rolePrefix}{fullName}.";
     }
 
     /// <summary>
