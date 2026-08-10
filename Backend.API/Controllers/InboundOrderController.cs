@@ -239,6 +239,15 @@ public class InboundOrderController : BaseController
         return BaseResult(result);
     }
 
+    [HttpGet("{id}/receipts/{receiptId}/bag-putaway-plan")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.READ)]
+    public async Task<IActionResult> GetBagPutawayPlanAsync(int id, int receiptId)
+    {
+        if (!IsInboundOperator())
+            return BaseResult(ApiResponse.Forbidden(message: "Bạn không có quyền xử lý xếp bao vào kho.", code: ApiCodeConstants.Common.Forbidden));
+        return BaseResult(await _inboundOrderService.GetBagPutawayPlanAsync(id, receiptId));
+    }
+
     [HttpPost("{id}/receipts/{receiptId}/select-putaway")]
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.UPDATE)]
     public async Task<IActionResult> SelectPutawayAsync(int id, int receiptId, [FromBody] SelectPutawayDto dto)

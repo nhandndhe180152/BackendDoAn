@@ -30,4 +30,14 @@ public class PaddyLotDetailDto
     public DateTime CreatedDate { get; set; }
     public DateTime? LastModifiedDate { get; set; }
     public string? LocationCode { get; set; }
+    public List<PaddyLotBagDto> Bags { get; set; } = new();
+}
+
+public class PaddyLotBagDto
+{
+    public int Id { get; set; }
+    public int BagNo { get; set; }
+    public decimal WeightKg { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public int? LocationId { get; set; }
 }

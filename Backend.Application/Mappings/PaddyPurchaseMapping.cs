@@ -1,4 +1,6 @@
 using System;
+using System.Linq;
+using System.Text.Json;
 using Backend.Application.DTOs.PaddyPurchaseReceipts;
 using Backend.Application.DTOs.PaddyPurchaseSchedules;
 using Backend.Domain.Entities;
@@ -87,8 +89,9 @@ public static class PaddyPurchaseMapping
             FarmerId = dto.FarmerId,
             RiceVarietyId = dto.RiceVarietyId,
             WarehouseId = dto.WarehouseId,
-            ActualWeightKg = dto.ActualWeightKg,
-            BagCount = dto.BagCount,
+            ActualWeightKg = dto.Bags?.Sum(x => x.WeightKg) ?? dto.ActualWeightKg,
+            BagCount = dto.Bags?.Count ?? dto.BagCount,
+            BagDetailsJson = dto.Bags is { Count: > 0 } ? JsonSerializer.Serialize(dto.Bags) : null,
             AgreedPrice = dto.AgreedPrice,
             TotalAmount = dto.TotalAmount,
             PaidAmount = dto.PaidAmount,
@@ -108,8 +111,9 @@ public static class PaddyPurchaseMapping
         existData.FarmerId = dto.FarmerId;
         existData.RiceVarietyId = dto.RiceVarietyId;
         existData.WarehouseId = dto.WarehouseId;
-        existData.ActualWeightKg = dto.ActualWeightKg;
-        existData.BagCount = dto.BagCount;
+        existData.ActualWeightKg = dto.Bags?.Sum(x => x.WeightKg) ?? dto.ActualWeightKg;
+        existData.BagCount = dto.Bags?.Count ?? dto.BagCount;
+        existData.BagDetailsJson = dto.Bags is { Count: > 0 } ? JsonSerializer.Serialize(dto.Bags) : existData.BagDetailsJson;
         existData.AgreedPrice = dto.AgreedPrice;
         existData.TotalAmount = dto.TotalAmount;
         existData.PaidAmount = dto.PaidAmount;
@@ -139,6 +143,9 @@ public static class PaddyPurchaseMapping
             WarehouseName = entity.Warehouse?.Name,
             ActualWeightKg = entity.ActualWeightKg,
             BagCount = entity.BagCount,
+            Bags = string.IsNullOrWhiteSpace(entity.BagDetailsJson)
+                ? new()
+                : JsonSerializer.Deserialize<System.Collections.Generic.List<DTOs.InboundOrders.CreateBagDto>>(entity.BagDetailsJson) ?? new(),
             AgreedPrice = entity.AgreedPrice,
             TotalAmount = entity.TotalAmount,
             PaidAmount = entity.PaidAmount,

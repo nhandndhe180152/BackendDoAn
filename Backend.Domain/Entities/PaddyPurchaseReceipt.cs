@@ -17,6 +17,8 @@ public class PaddyPurchaseReceipt : EntityAuditBase<int>
     public int WarehouseId { get; set; }
     public decimal ActualWeightKg { get; set; }
     public int? BagCount { get; set; }
+    /// <summary>JSON danh sách khối lượng từng bao, được chuyển thành PaddyLotBag khi chốt phiếu.</summary>
+    public string? BagDetailsJson { get; set; }
     public decimal AgreedPrice { get; set; }
     public decimal TotalAmount { get; set; }
     public decimal PaidAmount { get; set; }

@@ -19,5 +19,6 @@ public class LocationDetailDto
     public string? AllowedCategoryName { get; set; }
     public int Priority { get; set; }
     public bool IsQuarantine { get; set; }
+    public int? CurrentProductVariantId { get; set; }
     public DateTime CreatedDate { get; set; }
 }

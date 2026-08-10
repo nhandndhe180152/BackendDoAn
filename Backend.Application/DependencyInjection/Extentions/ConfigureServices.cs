@@ -72,6 +72,7 @@ public static class ConfigureServices
             // ── Rice supply chain services ────────────────────────────────────────────
             .AddScoped<IPaddyLotService, PaddyLotService>()
             .AddScoped<IPaddyLotTraceabilityService, PaddyLotTraceabilityService>()
+            .AddScoped<IPaddyLotBagInvariantService, PaddyLotBagInvariantService>()
             .AddScoped<IPaddyPurchaseScheduleService, PaddyPurchaseScheduleService>()
             .AddScoped<IPaddyPurchaseReceiptService, PaddyPurchaseReceiptService>()
             .AddScoped<IMillingOrderService, MillingOrderService>()

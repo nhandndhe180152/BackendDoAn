@@ -76,6 +76,9 @@ public static class TableNames
     public const string PaddyPurchaseReceipt = nameof(PaddyPurchaseReceipt);
     public const string LotStatus = nameof(LotStatus);
     public const string PaddyLot = nameof(PaddyLot);
+    public const string PaddyLotBag = nameof(PaddyLotBag);
+    public const string PaddyLotBagContent = nameof(PaddyLotBagContent);
+    public const string PaddyLotBagMovement = nameof(PaddyLotBagMovement);
     public const string QualityInspection = nameof(QualityInspection);
     public const string MillingOrderStatus = nameof(MillingOrderStatus);
     public const string MillingYieldConfig = nameof(MillingYieldConfig);

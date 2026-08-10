@@ -27,6 +27,7 @@ public class CustomerReturnOrderItemAllocation : EntityAuditBase<int>
     public decimal UnitCreditPrice { get; set; }
     public decimal CreditAmount { get; set; }
     public string? Note { get; set; }
+    public string? BagDetailsJson { get; set; }
 
     // Navigation
     public virtual CustomerReturnOrderItem CustomerReturnOrderItem { get; set; } = null!;

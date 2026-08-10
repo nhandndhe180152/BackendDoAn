@@ -44,6 +44,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
     private readonly IRepositoryBase<PutawayDecision, long> _putawayDecisionRepository;
     private readonly INotificationDispatcher _notificationDispatcher;
     private readonly IScheduledJobService? _scheduledJobService;
+    private readonly IRepositoryBase<PaddyLotBag, int>? _paddyLotBagRepository;
 
     public PaddyPurchaseReceiptService(
         IPaddyPurchaseReceiptRepository receiptRepository,
@@ -63,7 +64,8 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         IInventoryTransactionRepository inventoryTransactionRepository,
         IRepositoryBase<PutawayDecision, long> putawayDecisionRepository,
         INotificationDispatcher notificationDispatcher,
-        IScheduledJobService? scheduledJobService = null)
+        IScheduledJobService? scheduledJobService = null,
+        IRepositoryBase<PaddyLotBag, int>? paddyLotBagRepository = null)
     {
         _receiptRepository = receiptRepository;
         _paddyLotRepository = paddyLotRepository;
@@ -83,6 +85,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         _putawayDecisionRepository = putawayDecisionRepository;
         _notificationDispatcher = notificationDispatcher;
         _scheduledJobService = scheduledJobService;
+        _paddyLotBagRepository = paddyLotBagRepository;
     }
 
     private int GetCurrentUserId()
@@ -90,6 +93,11 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
     public async Task<ApiResponse> CreateAsync(CreatePaddyPurchaseReceiptDto obj)
     {
+        NormalizeReceiptAmounts(obj);
+        if (obj.PaidAmount < 0 || obj.PaidAmount > obj.TotalAmount)
+            return ApiResponse.UnprocessableEntity("Số tiền đã trả phải nằm trong khoảng từ 0 đến tổng tiền.");
+        var bagError = ValidateBags(obj.Bags, obj.ActualWeightKg);
+        if (bagError != null) return ApiResponse.UnprocessableEntity(bagError);
         var datePart = DateTimeHelper.VietnamNow().ToString("yyyyMMdd");
         var baseCode = $"PPR-{datePart}";
         var count = await _receiptRepository.FindByCondition(x => x.ReceiptCode.StartsWith(baseCode)).CountAsync();
@@ -151,6 +159,11 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
     public async Task<ApiResponse> UpdateAsync(UpdatePaddyPurchaseReceiptDto obj)
     {
+        NormalizeReceiptAmounts(obj);
+        if (obj.PaidAmount < 0 || obj.PaidAmount > obj.TotalAmount)
+            return ApiResponse.UnprocessableEntity("Số tiền đã trả phải nằm trong khoảng từ 0 đến tổng tiền.");
+        var bagError = ValidateBags(obj.Bags, obj.ActualWeightKg);
+        if (bagError != null) return ApiResponse.UnprocessableEntity(bagError);
         var existData = await _receiptRepository.GetByIdAsync(obj.Id);
         if (existData == null || existData.IsDeleted) return ApiResponse.NotFound();
 
@@ -288,6 +301,30 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             await _paddyLotRepository.CreateAsync(lot);
             await _paddyLotRepository.SaveChangesAsync();
 
+            var bags = string.IsNullOrWhiteSpace(receipt.BagDetailsJson)
+                ? new List<DTOs.InboundOrders.CreateBagDto>()
+                : JsonSerializer.Deserialize<List<DTOs.InboundOrders.CreateBagDto>>(receipt.BagDetailsJson) ?? new();
+            if (bags.Count > 0)
+            {
+                if (_paddyLotBagRepository == null)
+                    throw new InvalidOperationException("Dịch vụ lưu chi tiết bao chưa được cấu hình.");
+                foreach (var bag in bags)
+                {
+                    await _paddyLotBagRepository.CreateAsync(new PaddyLotBag
+                    {
+                        LotId = lot.Id, BagNo = bag.BagNo, WeightKg = bag.WeightKg,
+                        Status = "Pending", QrCode = $"PLB-{Guid.NewGuid():N}".ToUpperInvariant(),
+                        BagKind = "Purchase", IsFull = true,
+                        Contents = new List<PaddyLotBagContent>
+                        {
+                            new() { LotId = lot.Id, WeightKg = bag.WeightKg, CreatedBy = confirmedById, CreatedDate = now }
+                        },
+                        CreatedBy = confirmedById, CreatedDate = now
+                    });
+                }
+                await _paddyLotBagRepository.SaveChangesAsync();
+            }
+
             // 5. TẠO PHIẾU KIỂM ĐỊNH CHẤT LƯỢNG (nháp) — chờ nhập kết quả.
             //    KHÔNG tạo phiếu nhập kho ở bước này. Phiếu nhập kho chỉ được tạo SAU khi
             //    kiểm định (Duyệt đạt / Cách ly) tại màn Chất lượng & cách ly.
@@ -357,6 +394,44 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
     /// <summary>
     /// Tìm ProductVariantId đại diện cho lúa thô. 
     /// </summary>
+    private static string? ValidateBags(IReadOnlyCollection<DTOs.InboundOrders.CreateBagDto>? bags, decimal declaredWeight)
+    {
+        if (bags == null || bags.Count == 0) return null;
+        if (bags.Any(x => x.BagNo <= 0 || x.WeightKg <= 0))
+            return "Số thứ tự bao và khối lượng từng bao phải lớn hơn 0.";
+        if (bags.Select(x => x.BagNo).Distinct().Count() != bags.Count)
+            return "Số thứ tự bao không được trùng trong cùng phiếu.";
+        var orderedNumbers = bags.Select(x => x.BagNo).OrderBy(x => x).ToArray();
+        if (!orderedNumbers.SequenceEqual(Enumerable.Range(1, bags.Count)))
+            return "Số thứ tự bao phải liên tục từ 1 đến số lượng bao.";
+        var sum = bags.Sum(x => x.WeightKg);
+        if (declaredWeight > 0 && Math.Abs(sum - declaredWeight) > 0.001m)
+            return $"Tổng khối lượng các bao ({sum:0.###} kg) không khớp ActualWeightKg ({declaredWeight:0.###} kg).";
+        return null;
+    }
+
+    private static void NormalizeReceiptAmounts(CreatePaddyPurchaseReceiptDto dto)
+    {
+        if (dto.Bags?.Count > 0)
+        {
+            dto.ActualWeightKg = dto.Bags.Sum(x => x.WeightKg);
+            dto.BagCount = dto.Bags.Count;
+        }
+        dto.TotalAmount = decimal.Round(dto.ActualWeightKg * dto.AgreedPrice, 2, MidpointRounding.AwayFromZero);
+        dto.DebtAmount = Math.Max(0, dto.TotalAmount - dto.PaidAmount);
+    }
+
+    private static void NormalizeReceiptAmounts(UpdatePaddyPurchaseReceiptDto dto)
+    {
+        if (dto.Bags?.Count > 0)
+        {
+            dto.ActualWeightKg = dto.Bags.Sum(x => x.WeightKg);
+            dto.BagCount = dto.Bags.Count;
+        }
+        dto.TotalAmount = decimal.Round(dto.ActualWeightKg * dto.AgreedPrice, 2, MidpointRounding.AwayFromZero);
+        dto.DebtAmount = Math.Max(0, dto.TotalAmount - dto.PaidAmount);
+    }
+
     private async Task<int> GetDefaultPaddyVariantIdAsync(PaddyPurchaseReceipt receipt)
     {
         if (receipt.RiceVarietyId.HasValue)

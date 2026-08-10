@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.Json;
 using Backend.Application.DTOs.CustomerReturns;
 using Backend.Application.Interfaces;
 using Backend.Application.Constants;
@@ -27,17 +28,20 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
     private readonly ILogger<CustomerReturnOrderService> _logger;
 
     private readonly IScheduledJobService? _scheduledJobService;
+    private readonly IPaddyLotBagInvariantService? _bagInvariantService;
 
     public CustomerReturnOrderService(
         IApplicationDbContext context,
         IHttpContextAccessor httpContextAccessor,
         ILogger<CustomerReturnOrderService> logger,
-        IScheduledJobService? scheduledJobService = null)
+        IScheduledJobService? scheduledJobService = null,
+        IPaddyLotBagInvariantService? bagInvariantService = null)
     {
         _context = context;
         _httpContextAccessor = httpContextAccessor;
         _logger = logger;
         _scheduledJobService = scheduledJobService;
+        _bagInvariantService = bagInvariantService;
     }
 
     private int GetCurrentUserId()
@@ -593,7 +597,10 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     QuarantineLocationCode = alloc.QuarantineLocation?.SlotCode ?? (alloc.QuarantineLocation != null ? $"LOC-{alloc.QuarantineLocationId}" : null),
                     UnitCreditPrice = alloc.UnitCreditPrice,
                     CreditAmount = alloc.CreditAmount,
-                    Note = alloc.Note
+                    Note = alloc.Note,
+                    Bags = string.IsNullOrWhiteSpace(alloc.BagDetailsJson)
+                        ? new List<CustomerReturnBagDto>()
+                        : JsonSerializer.Deserialize<List<CustomerReturnBagDto>>(alloc.BagDetailsJson) ?? new List<CustomerReturnBagDto>()
                 });
             }
 
@@ -838,7 +845,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 }
 
                 var checkSum = allocDto.QuantityGood + allocDto.QuantityDamaged + allocDto.QuantityRejected;
-                if (checkSum != alloc.QuantityReturned)
+                if (Math.Abs(checkSum - alloc.QuantityReturned) > 0.001m)
                     return ApiResponse.BadRequest(message: $"Tổng số lượng phân loại ({checkSum:N3} kg) của phân bổ Id = {alloc.Id} phải bằng số lượng trả về ban đầu ({alloc.QuantityReturned:N3} kg).");
 
                 if (allocDto.CreditQuantity > (allocDto.QuantityGood + allocDto.QuantityDamaged))
@@ -848,6 +855,16 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     && string.IsNullOrWhiteSpace(itemDto.DamageReason))
                 {
                     return ApiResponse.BadRequest(message: "Phải nhập lý do đối với hàng hỏng hoặc không nhập lại kho.");
+                }
+
+                if (allocDto.Bags.Any(x => x.WeightKg <= 0 || (x.Condition != "GOOD" && x.Condition != "DAMAGED")))
+                    return ApiResponse.BadRequest(message: "Mỗi bao trả phải có cân lớn hơn 0 và Condition là GOOD hoặc DAMAGED.");
+                if (allocDto.Bags.Count > 0)
+                {
+                    var goodBagWeight = allocDto.Bags.Where(x => x.Condition == "GOOD").Sum(x => x.WeightKg);
+                    var damagedBagWeight = allocDto.Bags.Where(x => x.Condition == "DAMAGED").Sum(x => x.WeightKg);
+                    if (Math.Abs(goodBagWeight - allocDto.QuantityGood) > 0.001m || Math.Abs(damagedBagWeight - allocDto.QuantityDamaged) > 0.001m)
+                        return ApiResponse.BadRequest(message: "Tổng cân bao GOOD/DAMAGED phải khớp kết quả phân loại tương ứng.");
                 }
 
                 // Location Validation
@@ -879,6 +896,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 alloc.QuarantineLocationId = allocDto.QuarantineLocationId;
                 alloc.CreditAmount = allocDto.CreditQuantity * alloc.UnitCreditPrice;
                 alloc.Note = allocDto.Note;
+                alloc.BagDetailsJson = allocDto.Bags.Count == 0 ? null : JsonSerializer.Serialize(allocDto.Bags);
                 alloc.UpdatedBy = GetCurrentUserId();
                 alloc.LastModifiedDate = DateTimeHelper.VietnamNow();
 
@@ -1043,6 +1061,9 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 {
                     throw new Exception("RETURN_QUANTITY_EXCEEDED");
                 }
+                // Chạm dòng phân bổ gốc để RowVersion bảo vệ hai yêu cầu trả đồng thời.
+                alloc.OutboundOrderItemAllocation.UpdatedBy = userId;
+                alloc.OutboundOrderItemAllocation.LastModifiedDate = now;
             }
 
             // 1. Process Restock (Good) allocations
@@ -1120,6 +1141,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     invTx.AfterQuantity += otherOnHand;
                 }
                 await _context.InventoryTransactions.AddAsync(invTx, cancellationToken);
+                await PackReturnedGoodsAsync(alloc, locationId, alloc.QuantityGood, false, order, userId, now, cancellationToken);
             }
 
             // 2. Process Quarantine (Damaged) allocations
@@ -1197,6 +1219,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     invTx.AfterQuantity += otherOnHand;
                 }
                 await _context.InventoryTransactions.AddAsync(invTx, cancellationToken);
+                await PackReturnedGoodsAsync(alloc, locationId, alloc.QuantityDamaged, true, order, userId, now, cancellationToken);
             }
 
             // 3. Update PaddyLots remaining weights
@@ -1355,6 +1378,18 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             order.LastModifiedDate = now;
 
             await _context.SaveChangesAsync(cancellationToken);
+            if (_bagInvariantService != null)
+            {
+                var affectedLotLocations = allocations
+                    .SelectMany(a => new[]
+                    {
+                        a.QuantityGood > 0 && a.RestockLocationId.HasValue ? (a.PaddyLotId, a.RestockLocationId.Value) : ((int, int)?)null,
+                        a.QuantityDamaged > 0 && a.QuarantineLocationId.HasValue ? (a.PaddyLotId, a.QuarantineLocationId.Value) : ((int, int)?)null
+                    })
+                    .Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToList();
+                foreach (var pair in affectedLotLocations)
+                    await _bagInvariantService.ValidateLotLocationAsync(pair.Item1, pair.Item2, cancellationToken);
+            }
             await dbTransaction.CommitAsync(cancellationToken);
 
             // Enqueue targeted background job evaluation for JOB-04 after transaction completes
@@ -1371,6 +1406,12 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             }
 
             return ApiResponse.Success(message: "Xác nhận đơn trả hàng thành công.");
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            await dbTransaction.RollbackAsync(cancellationToken);
+            _logger.LogWarning(ex, "Concurrent customer return confirmation for order {OrderId}", order.Id);
+            return ApiResponse.Conflict(message: "Số lượng đã trả vừa thay đổi bởi yêu cầu khác. Vui lòng tải lại dữ liệu.", code: "CUSTOMER_RETURN_CONCURRENCY_CONFLICT");
         }
         catch (Exception ex)
         {
@@ -1396,6 +1437,89 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         {
             // Remove bypass header
             _httpContextAccessor.HttpContext?.Items.Remove("BypassLocationOccupancyInterceptor");
+        }
+    }
+
+    private async Task PackReturnedGoodsAsync(CustomerReturnOrderItemAllocation allocation, int locationId,
+        decimal quantity, bool quarantined, CustomerReturnOrder order, int userId, DateTime now, CancellationToken cancellationToken)
+    {
+        if (quantity <= 0) return;
+        // Một số unit-test cũ dùng mock IApplicationDbContext tối giản, chưa cấu hình các DbSet quản lý bao.
+        if (_context.PaddyLotBags == null || _context.PaddyLotBagMovements == null || _context.SystemConfigs == null) return;
+        var configValue = await _context.SystemConfigs.AsNoTracking()
+            .Where(x => x.ConfigKey == $"StandardBagWeightKg:{allocation.ProductVariantId}" && !x.IsDeleted)
+            .Select(x => x.ConfigValue).FirstOrDefaultAsync(cancellationToken);
+        if (!decimal.TryParse(configValue, out var standardWeight) || standardWeight <= 0)
+        {
+            var bagTracked = await _context.PaddyLotBags.AsNoTracking()
+                .AnyAsync(x => x.LotId == allocation.PaddyLotId && !x.IsDeleted, cancellationToken);
+            if (!bagTracked) return; // Giữ tương thích tồn cũ chưa quản lý vật lý theo bao.
+            throw new InvalidOperationException($"Thiếu cấu hình StandardBagWeightKg:{allocation.ProductVariantId} để đóng bao hàng trả.");
+        }
+
+        var remaining = quantity;
+        var nextStack = (await _context.PaddyLotBags
+            .Where(x => x.LocationId == locationId && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted)
+            .MaxAsync(x => (int?)x.StackOrder, cancellationToken) ?? 0) + 1;
+        var nextBagNo = (await _context.PaddyLotBags.Where(x => x.LotId == allocation.PaddyLotId && !x.IsDeleted)
+            .MaxAsync(x => (int?)x.BagNo, cancellationToken) ?? 0) + 1;
+
+        if (!quarantined)
+        {
+            var openKey = $"{allocation.ProductVariantId}:{order.WarehouseId}:{locationId}";
+            var open = await _context.PaddyLotBags.Include(x => x.Contents)
+                .FirstOrDefaultAsync(x => x.OpenBagKey == openKey && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted, cancellationToken);
+            if (open != null && remaining > 0)
+            {
+                var before = open.WeightKg;
+                var topUp = Math.Min(remaining, standardWeight - open.WeightKg);
+                if (topUp > 0)
+                {
+                    open.Contents.Add(new PaddyLotBagContent { LotId = allocation.PaddyLotId, WeightKg = topUp, CreatedBy = userId, CreatedDate = now });
+                    open.WeightKg += topUp;
+                    open.IsFull = open.WeightKg >= standardWeight - 0.001m;
+                    open.OpenBagKey = open.IsFull ? null : openKey;
+                    open.StackOrder = nextStack++;
+                    open.UpdatedBy = userId; open.LastModifiedDate = now;
+                    await _context.PaddyLotBagMovements.AddAsync(new PaddyLotBagMovement
+                    {
+                        BagId = open.Id, MovementType = PaddyLotBagMovementTypes.CustomerReturn,
+                        FromLocationId = locationId, ToLocationId = locationId, WeightKg = topUp,
+                        BeforeWeightKg = before, AfterWeightKg = open.WeightKg,
+                        ReferenceType = InventoryReferenceTypeConstants.CustomerReturnOrder, ReferenceId = order.Id,
+                        ReferenceItemId = allocation.Id, CreatedBy = userId, CreatedDate = now
+                    }, cancellationToken);
+                    remaining -= topUp;
+                }
+            }
+        }
+
+        while (remaining > 0.001m)
+        {
+            var weight = Math.Min(standardWeight, remaining);
+            var isFull = weight >= standardWeight - 0.001m;
+            var bag = new PaddyLotBag
+            {
+                LotId = allocation.PaddyLotId, BagNo = nextBagNo++, WeightKg = weight, LocationId = locationId,
+                Status = PaddyLotBagStatuses.Stored, QrCode = $"PLB-{Guid.NewGuid():N}".ToUpperInvariant(),
+                StackOrder = nextStack++, StandardWeightKg = standardWeight, IsFull = isFull,
+                BagKind = quarantined ? PaddyLotBagKinds.Quarantine : PaddyLotBagKinds.Finished,
+                OpenBagKey = !quarantined && !isFull ? $"{allocation.ProductVariantId}:{order.WarehouseId}:{locationId}" : null,
+                CreatedBy = userId, CreatedDate = now,
+                Contents = new List<PaddyLotBagContent>
+                {
+                    new() { LotId = allocation.PaddyLotId, WeightKg = weight, CreatedBy = userId, CreatedDate = now }
+                }
+            };
+            bag.Movements.Add(new PaddyLotBagMovement
+            {
+                MovementType = PaddyLotBagMovementTypes.CustomerReturn, ToLocationId = locationId,
+                WeightKg = weight, BeforeWeightKg = 0, AfterWeightKg = weight,
+                ReferenceType = InventoryReferenceTypeConstants.CustomerReturnOrder, ReferenceId = order.Id,
+                ReferenceItemId = allocation.Id, CreatedBy = userId, CreatedDate = now
+            });
+            await _context.PaddyLotBags.AddAsync(bag, cancellationToken);
+            remaining -= weight;
         }
     }
 

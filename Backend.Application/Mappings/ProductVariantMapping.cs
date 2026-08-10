@@ -111,6 +111,7 @@ public static class ProductVariantMapping
             IsDeleted = entity.IsDeleted,
             MinStockLevel = entity.MinStockLevel,
             RiceVarietyId = entity.RiceVarietyId, // Trả về RiceVarietyId
+            IsByproduct = entity.IsByproduct,
             AttributeValuesJson = parsedAttributes,
             LegacyAttributeValues = legacyText,
             EffectiveActiveStatus = entity.IsActive && !entity.IsDeleted && productActive && !productDeleted && !categoryIsDeleted,

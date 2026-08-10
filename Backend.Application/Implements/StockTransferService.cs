@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Text.Json;
 using Backend.Application.Constants;
 using Backend.Application.DTOs.StockTransfers;
 using Backend.Application.Interfaces;
@@ -31,6 +32,9 @@ public class StockTransferService : IStockTransferService
     private readonly IInventoryTransactionRepository _inventoryTransactionRepository;
     private readonly ILocationRepository _locationRepository;
     private readonly INotificationDispatcher _notificationDispatcher;
+    private readonly IRepositoryBase<PaddyLotBag, int>? _bagRepository;
+    private readonly IRepositoryBase<PaddyLotBagContent, int>? _bagContentRepository;
+    private readonly IRepositoryBase<PaddyLotBagMovement, int>? _bagMovementRepository;
 
     public StockTransferService(
         IStockTransferRepository transferRepository,
@@ -43,7 +47,10 @@ public class StockTransferService : IStockTransferService
         IInventoryRepository inventoryRepository,
         IInventoryTransactionRepository inventoryTransactionRepository,
         ILocationRepository locationRepository,
-        INotificationDispatcher notificationDispatcher)
+        INotificationDispatcher notificationDispatcher,
+        IRepositoryBase<PaddyLotBag, int>? bagRepository = null,
+        IRepositoryBase<PaddyLotBagContent, int>? bagContentRepository = null,
+        IRepositoryBase<PaddyLotBagMovement, int>? bagMovementRepository = null)
     {
         _transferRepository = transferRepository;
         _itemRepository = itemRepository;
@@ -56,6 +63,9 @@ public class StockTransferService : IStockTransferService
         _inventoryRepository = inventoryRepository;
         _inventoryTransactionRepository = inventoryTransactionRepository;
         _notificationDispatcher = notificationDispatcher;
+        _bagRepository = bagRepository;
+        _bagContentRepository = bagContentRepository;
+        _bagMovementRepository = bagMovementRepository;
     }
 
     public async Task<ApiResponse> CreateAsync(CreateStockTransferDto obj)
@@ -346,6 +356,24 @@ public class StockTransferService : IStockTransferService
                     now,
                     $"Xuất chuyển từ kho {transfer.FromWarehouseId} đến kho {transfer.ToWarehouseId}",
                     item.PaddyLotId);
+
+                var bagIds = DeserializeBagIds(item.BagIdsJson);
+                if (bagIds.Count > 0 && _bagRepository != null)
+                {
+                    var bags = await _bagRepository.FindByCondition(x => bagIds.Contains(x.Id) && !x.IsDeleted).ToListAsync();
+                    foreach (var bag in bags)
+                    {
+                        var fromLocationId = bag.LocationId;
+                        bag.Status = PaddyLotBagStatuses.InTransit;
+                        bag.LocationId = null;
+                        bag.StackOrder = 0;
+                        bag.OpenBagKey = null;
+                        bag.UpdatedBy = dispatchedById;
+                        bag.LastModifiedDate = now;
+                        await _bagRepository.UpdateAsync(bag);
+                        await RecordBagMovementAsync(bag, PaddyLotBagMovementTypes.TransferDispatch, fromLocationId, null, transfer.Id, item.Id, dispatchedById, now);
+                    }
+                }
             }
 
             transfer.StatusId = inTransitStatus.Id;
@@ -451,6 +479,36 @@ public class StockTransferService : IStockTransferService
                     now,
                     $"Nhận hàng chuyển từ kho {transfer.FromWarehouseId}",
                     targetLotId);
+
+                var bagIds = DeserializeBagIds(item.BagIdsJson);
+                if (bagIds.Count > 0 && _bagRepository != null)
+                {
+                    var bags = await _bagRepository.FindByCondition(x => bagIds.Contains(x.Id) && !x.IsDeleted).ToListAsync();
+                    var nextStackOrder = item.ToLocationId.HasValue
+                        ? (await _bagRepository.FindByCondition(x => x.LocationId == item.ToLocationId && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted).MaxAsync(x => (int?)x.StackOrder) ?? 0) + 1
+                        : 0;
+                    foreach (var bag in bags.OrderByDescending(x => x.WeightKg).ThenBy(x => x.BagNo))
+                    {
+                        var oldLotId = bag.LotId;
+                        if (targetLotId.HasValue && item.PaddyLotId == oldLotId)
+                        {
+                            bag.LotId = targetLotId.Value;
+                            if (_bagContentRepository != null)
+                            {
+                                var contents = await _bagContentRepository.FindByCondition(x => x.BagId == bag.Id && x.LotId == oldLotId && !x.IsDeleted).ToListAsync();
+                                foreach (var content in contents) { content.LotId = targetLotId.Value; await _bagContentRepository.UpdateAsync(content); }
+                            }
+                        }
+                        bag.LocationId = item.ToLocationId;
+                        bag.StackOrder = nextStackOrder++;
+                        bag.Status = PaddyLotBagStatuses.Stored;
+                        bag.OpenBagKey = bag.IsFull || !item.ToLocationId.HasValue ? null : $"{item.ProductVariantId}:{transfer.ToWarehouseId}:{item.ToLocationId}";
+                        bag.UpdatedBy = receivedById;
+                        bag.LastModifiedDate = now;
+                        await _bagRepository.UpdateAsync(bag);
+                        await RecordBagMovementAsync(bag, PaddyLotBagMovementTypes.TransferReceive, null, item.ToLocationId, transfer.Id, item.Id, receivedById, now);
+                    }
+                }
             }
 
             transfer.StatusId = completedStatus.Id;
@@ -576,6 +634,31 @@ public class StockTransferService : IStockTransferService
 
         foreach (var item in items)
         {
+            if (item.BagIds.Count > 0)
+            {
+                if (_bagRepository == null)
+                    return "Dịch vụ quản lý bao chưa được cấu hình.";
+                if (item.BagIds.Distinct().Count() != item.BagIds.Count)
+                    return "Danh sách bao chuyển kho không được trùng lặp.";
+                var selectedBags = await _bagRepository.FindByCondition(x => item.BagIds.Contains(x.Id) && !x.IsDeleted).ToListAsync();
+                if (selectedBags.Count != item.BagIds.Count)
+                    return "Có bao chuyển kho không tồn tại.";
+                if (selectedBags.Any(x => x.Status != PaddyLotBagStatuses.Stored || x.LocationId != item.FromLocationId))
+                    return "Tất cả bao phải đang lưu tại đúng vị trí nguồn.";
+                if (item.PaddyLotId.HasValue && selectedBags.Any(x => x.LotId != item.PaddyLotId.Value))
+                    return "Bao được chọn không thuộc lô trên dòng chuyển kho.";
+                var selectedWeight = selectedBags.Sum(x => x.WeightKg);
+                if (Math.Abs(selectedWeight - item.WeightKg) > 0.001m)
+                    item.WeightKg = selectedWeight;
+                if (item.FromLocationId.HasValue)
+                {
+                    var topIds = await _bagRepository.FindByCondition(x => x.LocationId == item.FromLocationId && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted)
+                        .OrderByDescending(x => x.StackOrder).ThenByDescending(x => x.Id)
+                        .Take(selectedBags.Count).Select(x => x.Id).ToListAsync();
+                    if (topIds.Except(item.BagIds).Any() || item.BagIds.Except(topIds).Any())
+                        return "Chỉ được chuyển các bao trên cùng của chồng (LIFO).";
+                }
+            }
             if (item.WeightKg <= 0)
                 return "Khối lượng chuyển phải lớn hơn 0.";
 
@@ -953,6 +1036,32 @@ public class StockTransferService : IStockTransferService
     private static bool IsStatus(StockTransfer transfer, string statusCode)
         => string.Equals(transfer.Status?.Code, statusCode, StringComparison.OrdinalIgnoreCase);
 
+    private static List<int> DeserializeBagIds(string? json)
+        => string.IsNullOrWhiteSpace(json)
+            ? new List<int>()
+            : JsonSerializer.Deserialize<List<int>>(json) ?? new List<int>();
+
+    private async Task RecordBagMovementAsync(PaddyLotBag bag, string movementType, int? fromLocationId,
+        int? toLocationId, int referenceId, int referenceItemId, int userId, DateTime now)
+    {
+        if (_bagMovementRepository == null) return;
+        await _bagMovementRepository.CreateAsync(new PaddyLotBagMovement
+        {
+            BagId = bag.Id,
+            MovementType = movementType,
+            FromLocationId = fromLocationId,
+            ToLocationId = toLocationId,
+            WeightKg = bag.WeightKg,
+            BeforeWeightKg = bag.WeightKg,
+            AfterWeightKg = bag.WeightKg,
+            ReferenceType = InventoryReferenceTypeConstants.StockTransfer,
+            ReferenceId = referenceId,
+            ReferenceItemId = referenceItemId,
+            CreatedBy = userId,
+            CreatedDate = now
+        });
+    }
+
     private static StockTransferItem ToEntity(
         StockTransferItemDto item,
         int transferId,
@@ -967,6 +1076,7 @@ public class StockTransferService : IStockTransferService
             ToLocationId = item.ToLocationId,
             WeightKg = item.WeightKg,
             Note = item.Note?.Trim(),
+            BagIdsJson = item.BagIds.Count == 0 ? null : JsonSerializer.Serialize(item.BagIds),
             CreatedBy = userId,
             CreatedDate = now
         };
@@ -980,6 +1090,7 @@ public class StockTransferService : IStockTransferService
             ToLocationId = item.ToLocationId,
             WeightKg = item.WeightKg,
             Note = item.Note
+            ,BagIds = string.IsNullOrWhiteSpace(item.BagIdsJson) ? new List<int>() : JsonSerializer.Deserialize<List<int>>(item.BagIdsJson) ?? new List<int>()
         };
 
     private static StockTransferDetailDto ToDto(StockTransfer x)
@@ -1021,7 +1132,10 @@ public class StockTransferService : IStockTransferService
                 ToLocationId = i.ToLocationId,
                 ToLocationName = FormatLocation(i.ToLocation),
                 WeightKg = i.WeightKg,
-                Note = i.Note
+                Note = i.Note,
+                BagIds = string.IsNullOrWhiteSpace(i.BagIdsJson)
+                    ? new List<int>()
+                    : JsonSerializer.Deserialize<List<int>>(i.BagIdsJson) ?? new List<int>()
             }).ToList(),
             CreatedDate = x.CreatedDate,
             LastModifiedDate = x.LastModifiedDate

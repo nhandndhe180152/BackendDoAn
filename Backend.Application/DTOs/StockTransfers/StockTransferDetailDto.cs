@@ -40,6 +40,7 @@ public class StockTransferItemDetailDto
     public string? ToLocationName { get; set; }
     public decimal WeightKg { get; set; }
     public string? Note { get; set; }
+    public List<int> BagIds { get; set; } = new();
 }
 
 public class StockTransferSummaryDto

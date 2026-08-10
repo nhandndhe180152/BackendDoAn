@@ -79,7 +79,18 @@ public static class PaddyLotMapping
             CostPricePerKg = entity.CostPricePerKg,
             QualityStatus = entity.QualityStatus,
             CreatedDate = entity.CreatedDate,
-            LastModifiedDate = entity.LastModifiedDate
+            LastModifiedDate = entity.LastModifiedDate,
+            Bags = entity.Bags
+                .Where(x => !x.IsDeleted && x.Status == "Pending")
+                .OrderBy(x => x.BagNo)
+                .Select(x => new PaddyLotBagDto
+                {
+                    Id = x.Id,
+                    BagNo = x.BagNo,
+                    WeightKg = x.WeightKg,
+                    Status = x.Status,
+                    LocationId = x.LocationId
+                }).ToList()
         };
     }
 }

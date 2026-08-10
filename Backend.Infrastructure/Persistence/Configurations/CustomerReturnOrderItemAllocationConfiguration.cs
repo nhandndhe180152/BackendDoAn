@@ -22,6 +22,7 @@ public class CustomerReturnOrderItemAllocationConfiguration : IEntityTypeConfigu
         builder.Property(x => x.UnitCreditPrice).HasColumnType("decimal(18,2)").IsRequired();
         builder.Property(x => x.CreditAmount).HasColumnType("decimal(18,2)").IsRequired();
         builder.Property(x => x.Note).HasMaxLength(500);
+        builder.Property(x => x.BagDetailsJson).HasColumnType("longtext");
 
         builder.HasOne(x => x.CustomerReturnOrderItem)
             .WithMany(x => x.Allocations)

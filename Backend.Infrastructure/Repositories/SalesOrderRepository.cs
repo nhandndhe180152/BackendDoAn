@@ -31,6 +31,8 @@ public class SalesOrderRepository : RepositoryBase<SalesOrder, int>, ISalesOrder
                     .ThenInclude(pv => pv.Product)
             .Include(x => x.OutboundOrders)
                 .ThenInclude(o => o.OutboundOrderStatus)
+            .Include(x => x.MillingOrders)
+                .ThenInclude(o => o.Status)
             // Tách thành nhiều SELECT theo từng collection để tránh nổ tích Descartes
             // (SalesOrderItems × OutboundOrders). Kết quả trả về không đổi.
             .AsSplitQuery()
@@ -43,6 +45,11 @@ public class SalesOrderRepository : RepositoryBase<SalesOrder, int>, ISalesOrder
             .Include(x => x.Customer)
             .Include(x => x.Status)
             .Include(x => x.Warehouse)
+            .Include(x => x.SalesOrderItems)
+                .ThenInclude(x => x.ProductVariant)
+                    .ThenInclude(x => x.RiceVariety)
+            .Include(x => x.MillingOrders)
+                .ThenInclude(x => x.Status)
             .Where(x => !x.IsDeleted);
 
         if (!string.IsNullOrWhiteSpace(keyword))
@@ -55,6 +62,7 @@ public class SalesOrderRepository : RepositoryBase<SalesOrder, int>, ISalesOrder
         }
 
         return await query
+            .AsSplitQuery()
             .OrderByDescending(x => x.CreatedDate)
             .Skip(skip)
             .Take(take)

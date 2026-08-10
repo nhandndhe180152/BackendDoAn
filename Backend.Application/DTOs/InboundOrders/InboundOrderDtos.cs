@@ -35,6 +35,17 @@ public class CreateInboundOrderItemDto
     public decimal UnitCostPrice { get; set; }
 
     public string? Note { get; set; }
+
+    public List<CreateBagDto>? Bags { get; set; }
+}
+
+public class CreateBagDto
+{
+    [Range(1, int.MaxValue)]
+    public int BagNo { get; set; }
+
+    [Range(0.001, double.MaxValue)]
+    public decimal WeightKg { get; set; }
 }
 
 public class UpdateInboundOrderDto
@@ -200,6 +211,52 @@ public class ConfirmReceiptDto
 {
     [Required]
     public string OperationKey { get; set; } = null!;
+
+    public List<BagPutawayColumnRequestDto>? Columns { get; set; }
+}
+
+public class BagPutawayColumnRequestDto
+{
+    [Required]
+    public int LocationId { get; set; }
+    [Required, MinLength(1)]
+    public List<int> BagIds { get; set; } = new();
+}
+
+public class BagPutawayPlanDto
+{
+    public List<BagPutawayColumnDto> Columns { get; set; } = new();
+    public List<BagPutawayCandidateLocationDto> CandidateLocations { get; set; } = new();
+    public List<int> UnplacedBagIds { get; set; } = new();
+}
+
+public class BagPutawayCandidateLocationDto
+{
+    public int LocationId { get; set; }
+    public string SlotCode { get; set; } = null!;
+    public decimal CapacityAvailableKg { get; set; }
+    public int Priority { get; set; }
+    public bool ContainsSameVariant { get; set; }
+    public string Reason { get; set; } = string.Empty;
+}
+
+public class BagPutawayColumnDto
+{
+    public int LocationId { get; set; }
+    public string SlotCode { get; set; } = null!;
+    public List<int> BagIds { get; set; } = new();
+    public List<BagPutawayBagDto> Bags { get; set; } = new();
+    public decimal TotalKg { get; set; }
+    public decimal CapacityRemainAfter { get; set; }
+    public int PriorityRank { get; set; }
+    public string Reason { get; set; } = string.Empty;
+}
+
+public class BagPutawayBagDto
+{
+    public int Id { get; set; }
+    public int BagNo { get; set; }
+    public decimal WeightKg { get; set; }
 }
 
 /// <summary>

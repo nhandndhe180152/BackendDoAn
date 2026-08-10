@@ -27,6 +27,7 @@ public class ProductVariantDetailDto
     public bool IsDeleted { get; set; }
     public decimal? MinStockLevel { get; set; }
     public int? RiceVarietyId { get; set; }
+    public bool IsByproduct { get; set; }
 
     /// Parsed structured attributes when AttributeValues is valid JSON
     public List<AttributeValueDto>? AttributeValuesJson { get; set; }

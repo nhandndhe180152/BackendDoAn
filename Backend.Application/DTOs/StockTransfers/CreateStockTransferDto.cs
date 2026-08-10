@@ -11,6 +11,7 @@ public class StockTransferItemDto
     public int? ToLocationId { get; set; }
     public decimal WeightKg { get; set; }
     public string? Note { get; set; }
+    public List<int> BagIds { get; set; } = new();
 }
 
 public class CreateStockTransferDto

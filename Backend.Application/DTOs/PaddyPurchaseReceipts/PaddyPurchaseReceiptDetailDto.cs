@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using Backend.Application.DTOs.InboundOrders;
 
 namespace Backend.Application.DTOs.PaddyPurchaseReceipts;
 
@@ -17,6 +19,7 @@ public class PaddyPurchaseReceiptDetailDto
     public string? WarehouseName { get; set; }
     public decimal ActualWeightKg { get; set; }
     public int? BagCount { get; set; }
+    public List<CreateBagDto> Bags { get; set; } = new();
     public decimal AgreedPrice { get; set; }
     public decimal TotalAmount { get; set; }
     public decimal PaidAmount { get; set; }
