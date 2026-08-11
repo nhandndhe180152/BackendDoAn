@@ -58,6 +58,12 @@ public class OutboundOrderItemDto
     public int? SalesOrderItemId { get; set; }
     public string? Note { get; set; }
     public List<OutboundOrderItemAllocationDto> Allocations { get; set; } = new();
+    /// <summary>
+    /// Nhóm các allocation cùng lô, vị trí và khối lượng đơn vị để UI không
+    /// phải hiển thị hàng trăm dòng bao giống nhau. AllocationIds vẫn được
+    /// giữ để client phân bổ ngược khi cập nhật số lượng thực lấy.
+    /// </summary>
+    public List<OutboundOrderAllocationGroupDto> AllocationGroups { get; set; } = new();
 }
 
 public class OutboundOrderItemAllocationDto
@@ -71,6 +77,23 @@ public class OutboundOrderItemAllocationDto
     public decimal QuantityAllocated { get; set; }
     public decimal QuantityPicked { get; set; }
     public decimal UnitCostPrice { get; set; }
+}
+
+public class OutboundOrderAllocationGroupDto
+{
+    public string GroupKey { get; set; } = null!;
+    public List<int> AllocationIds { get; set; } = new();
+    public int InventoryId { get; set; }
+    public int? PaddyLotId { get; set; }
+    public string? PaddyLotCode { get; set; }
+    public int LocationId { get; set; }
+    public string? LocationCode { get; set; }
+    /// <summary>Số dòng bao cùng trọng lượng trong nhóm.</summary>
+    public int BagCount { get; set; }
+    /// <summary>Khối lượng của mỗi dòng bao trong nhóm.</summary>
+    public decimal WeightPerBagKg { get; set; }
+    public decimal TotalAllocatedKg { get; set; }
+    public decimal TotalPickedKg { get; set; }
 }
 
 public class OutboundAllocationCandidateDto

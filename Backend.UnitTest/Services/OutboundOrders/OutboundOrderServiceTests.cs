@@ -46,6 +46,46 @@ public class OutboundOrderServiceTests
     }
 
     [Fact]
+    public async Task GetByIdAsync_GroupsSameWeightAllocations_ForCompactBagUi()
+    {
+        var lot = new PaddyLot { Id = 5, LotCode = "LOT-RICE-001" };
+        var location = new Location { Id = 7, SlotCode = "A-01" };
+        var order = new OutboundOrder
+        {
+            Id = 1,
+            OutboundOrderItems = new List<OutboundOrderItem>
+            {
+                new()
+                {
+                    Id = 20,
+                    Allocations = new List<OutboundOrderItemAllocation>
+                    {
+                        new() { Id = 101, InventoryId = 9, PaddyLotId = 5, PaddyLot = lot, LocationId = 7, Location = location, QuantityAllocated = 50, QuantityPicked = 50 },
+                        new() { Id = 102, InventoryId = 9, PaddyLotId = 5, PaddyLot = lot, LocationId = 7, Location = location, QuantityAllocated = 50, QuantityPicked = 25 },
+                        new() { Id = 103, InventoryId = 9, PaddyLotId = 5, PaddyLot = lot, LocationId = 7, Location = location, QuantityAllocated = 25, QuantityPicked = 0 }
+                    }
+                }
+            }
+        };
+        _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
+
+        var result = await Sut().GetByIdAsync(1);
+
+        var dto = result.Resources.Should()
+            .BeOfType<Backend.Application.DTOs.OutboundOrders.OutboundOrderDetailDto>()
+            .Subject;
+        var groups = dto.Items.Single().AllocationGroups;
+        groups.Should().HaveCount(2);
+        groups[0].BagCount.Should().Be(2);
+        groups[0].WeightPerBagKg.Should().Be(50);
+        groups[0].TotalAllocatedKg.Should().Be(100);
+        groups[0].TotalPickedKg.Should().Be(75);
+        groups[0].AllocationIds.Should().Equal(101, 102);
+        groups[1].BagCount.Should().Be(1);
+        groups[1].WeightPerBagKg.Should().Be(25);
+    }
+
+    [Fact]
     public async Task CancelAsync_NonCancellableState_ReturnsConflict()
     {
         var order = new OutboundOrder

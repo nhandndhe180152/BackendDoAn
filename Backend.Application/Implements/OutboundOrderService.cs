@@ -160,7 +160,7 @@ public class OutboundOrderService : IOutboundOrderService
                 UnitCostPrice    = i.UnitCostPrice,
                 SalesOrderItemId = i.SalesOrderItemId,
                 Note             = i.Note,
-                Allocations = i.Allocations.Select(a => new OutboundOrderItemAllocationDto
+                Allocations = i.Allocations.Where(a => !a.IsDeleted).OrderBy(a => a.Id).Select(a => new OutboundOrderItemAllocationDto
                 {
                     Id                = a.Id,
                     InventoryId       = a.InventoryId,
@@ -171,7 +171,31 @@ public class OutboundOrderService : IOutboundOrderService
                     QuantityAllocated = a.QuantityAllocated,
                     QuantityPicked    = a.QuantityPicked,
                     UnitCostPrice     = a.UnitCostPrice
-                }).ToList()
+                }).ToList(),
+                AllocationGroups = i.Allocations
+                    .Where(a => !a.IsDeleted)
+                    .GroupBy(a => new
+                    {
+                        a.InventoryId,
+                        a.PaddyLotId,
+                        a.LocationId,
+                        a.QuantityAllocated
+                    })
+                    .OrderBy(group => group.Min(a => a.Id))
+                    .Select(group => new OutboundOrderAllocationGroupDto
+                    {
+                        GroupKey = $"{group.Key.InventoryId}:{group.Key.LocationId}:{group.Key.QuantityAllocated:0.###}",
+                        AllocationIds = group.OrderBy(a => a.Id).Select(a => a.Id).ToList(),
+                        InventoryId = group.Key.InventoryId,
+                        PaddyLotId = group.Key.PaddyLotId,
+                        PaddyLotCode = group.Select(a => a.PaddyLot != null ? a.PaddyLot.LotCode : null).FirstOrDefault(),
+                        LocationId = group.Key.LocationId,
+                        LocationCode = FormatLocationCode(group.Select(a => a.Location).FirstOrDefault()),
+                        BagCount = group.Count(),
+                        WeightPerBagKg = group.Key.QuantityAllocated,
+                        TotalAllocatedKg = group.Sum(a => a.QuantityAllocated),
+                        TotalPickedKg = group.Sum(a => a.QuantityPicked)
+                    }).ToList()
             }).ToList()
         };
     }
