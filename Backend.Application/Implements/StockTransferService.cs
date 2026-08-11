@@ -327,8 +327,14 @@ public class StockTransferService : IStockTransferService
                 if (duplicated)
                     throw new InvalidOperationException($"Dòng hàng {item.Id} đã được xuất chuyển trước đó.");
 
+                var bagIds = DeserializeBagIds(item.BagIdsJson);
+                var transferBags = bagIds.Count > 0 && _bagRepository != null
+                    ? await _bagRepository.FindByCondition(x => bagIds.Contains(x.Id) && !x.IsDeleted)
+                        .Include(x => x.Contents).ThenInclude(x => x.Lot).ToListAsync()
+                    : new List<PaddyLotBag>();
+
                 decimal costPrice;
-                if (item.PaddyLotId.HasValue)
+                if (item.PaddyLotId.HasValue && transferBags.Count == 0)
                 {
                     var lot = await _paddyLotRepository.GetByIdAsync(item.PaddyLotId.Value)
                         ?? throw new InvalidOperationException($"Không tìm thấy lô ID {item.PaddyLotId.Value}.");
@@ -343,21 +349,53 @@ public class StockTransferService : IStockTransferService
                     costPrice = sourceInventory?.CostPrice ?? 0m;
                 }
 
-                await MoveInventoryAsync(
-                    item.ProductVariantId,
-                    transfer.FromWarehouseId,
-                    item.FromLocationId,
-                    item.WeightKg,
-                    isExport: true,
-                    costPrice,
-                    transfer.Id,
-                    item.Id,
-                    dispatchedById,
-                    now,
-                    $"Xuất chuyển từ kho {transfer.FromWarehouseId} đến kho {transfer.ToWarehouseId}",
-                    item.PaddyLotId);
+                if (item.ToLocationId.HasValue && bagIds.Count > 0 && _bagRepository != null)
+                {
+                    // Recheck at receive time to prevent another operation from placing bags
+                    // into the destination after the transfer was created.
+                    var destinationBags = await _bagRepository.FindByCondition(x =>
+                        x.LocationId == item.ToLocationId.Value && x.Status == PaddyLotBagStatuses.Stored &&
+                        x.WeightKg > 0 && !x.IsDeleted).ToListAsync();
+                    var incomingBags = await _bagRepository.FindByCondition(x =>
+                        bagIds.Contains(x.Id) && !x.IsDeleted).ToListAsync();
+                    if (destinationBags.Any(x => !x.IsFull))
+                        throw new InvalidOperationException("Cột đích đang có bao mở nên không thể nhận thêm bao.");
+                    if (incomingBags.Any(x => !x.IsFull) && destinationBags.Count > 0)
+                        throw new InvalidOperationException("Bao mở chỉ được chuyển vào cột trống dành cho hàng lẻ.");
+                }
 
-                var bagIds = DeserializeBagIds(item.BagIdsJson);
+                if (transferBags.Count > 0)
+                {
+                    foreach (var contentGroup in transferBags.SelectMany(x => x.Contents)
+                                 .Where(x => !x.IsDeleted && x.WeightKg > 0)
+                                 .GroupBy(x => x.LotId))
+                    {
+                        var sourceLot = contentGroup.First().Lot;
+                        await MoveInventoryAsync(
+                            item.ProductVariantId, transfer.FromWarehouseId, item.FromLocationId,
+                            contentGroup.Sum(x => x.WeightKg), true, sourceLot.CostPricePerKg,
+                            transfer.Id, item.Id, dispatchedById, now,
+                            $"Xuất chuyển thành phần lô {sourceLot.LotCode} từ kho {transfer.FromWarehouseId} đến kho {transfer.ToWarehouseId}",
+                            sourceLot.Id);
+                    }
+                }
+                else
+                {
+                    await MoveInventoryAsync(
+                        item.ProductVariantId,
+                        transfer.FromWarehouseId,
+                        item.FromLocationId,
+                        item.WeightKg,
+                        isExport: true,
+                        costPrice,
+                        transfer.Id,
+                        item.Id,
+                        dispatchedById,
+                        now,
+                        $"Xuất chuyển từ kho {transfer.FromWarehouseId} đến kho {transfer.ToWarehouseId}",
+                        item.PaddyLotId);
+                }
+
                 if (bagIds.Count > 0 && _bagRepository != null)
                 {
                     var bags = await _bagRepository.FindByCondition(x => bagIds.Contains(x.Id) && !x.IsDeleted).ToListAsync();
@@ -436,9 +474,36 @@ public class StockTransferService : IStockTransferService
                     item.ProductVariantId,
                     item.WeightKg);
 
+                var bagIds = DeserializeBagIds(item.BagIdsJson);
+                var receiveBags = bagIds.Count > 0 && _bagRepository != null
+                    ? await _bagRepository.FindByCondition(x => bagIds.Contains(x.Id) && !x.IsDeleted)
+                        .Include(x => x.Contents).ThenInclude(x => x.Lot).ToListAsync()
+                    : new List<PaddyLotBag>();
+                var targetLotMap = new Dictionary<int, int>();
                 var targetLotId = item.PaddyLotId;
                 decimal costPrice;
-                if (item.PaddyLotId.HasValue)
+                if (receiveBags.Count > 0)
+                {
+                    costPrice = 0;
+                    foreach (var contentGroup in receiveBags.SelectMany(x => x.Contents)
+                                 .Where(x => !x.IsDeleted && x.WeightKg > 0)
+                                 .GroupBy(x => x.LotId))
+                    {
+                        var sourceLot = contentGroup.First().Lot;
+                        var contentWeight = contentGroup.Sum(x => x.WeightKg);
+                        var mappedLotId = await MoveLotToDestinationAsync(
+                            sourceLot, contentWeight, transfer.ToWarehouseId, item.ToLocationId,
+                            receivedById, now);
+                        targetLotMap[sourceLot.Id] = mappedLotId;
+                        await MoveInventoryAsync(
+                            item.ProductVariantId, transfer.ToWarehouseId, item.ToLocationId,
+                            contentWeight, false, sourceLot.CostPricePerKg,
+                            transfer.Id, item.Id, receivedById, now,
+                            $"Nhận thành phần lô {sourceLot.LotCode} chuyển từ kho {transfer.FromWarehouseId}",
+                            mappedLotId);
+                    }
+                }
+                else if (item.PaddyLotId.HasValue)
                 {
                     var lot = await _paddyLotRepository.GetByIdAsync(item.PaddyLotId.Value)
                         ?? throw new InvalidOperationException($"Không tìm thấy lô ID {item.PaddyLotId.Value}.");
@@ -466,43 +531,52 @@ public class StockTransferService : IStockTransferService
                     costPrice = sourceInventory?.CostPrice ?? 0m;
                 }
 
-                await MoveInventoryAsync(
-                    item.ProductVariantId,
-                    transfer.ToWarehouseId,
-                    item.ToLocationId,
-                    item.WeightKg,
-                    isExport: false,
-                    costPrice,
-                    transfer.Id,
-                    item.Id,
-                    receivedById,
-                    now,
-                    $"Nhận hàng chuyển từ kho {transfer.FromWarehouseId}",
-                    targetLotId);
+                if (receiveBags.Count == 0)
+                {
+                    await MoveInventoryAsync(
+                        item.ProductVariantId,
+                        transfer.ToWarehouseId,
+                        item.ToLocationId,
+                        item.WeightKg,
+                        isExport: false,
+                        costPrice,
+                        transfer.Id,
+                        item.Id,
+                        receivedById,
+                        now,
+                        $"Nhận hàng chuyển từ kho {transfer.FromWarehouseId}",
+                        targetLotId);
+                }
 
-                var bagIds = DeserializeBagIds(item.BagIdsJson);
                 if (bagIds.Count > 0 && _bagRepository != null)
                 {
-                    var bags = await _bagRepository.FindByCondition(x => bagIds.Contains(x.Id) && !x.IsDeleted).ToListAsync();
+                    var bags = receiveBags;
                     var nextStackOrder = item.ToLocationId.HasValue
                         ? (await _bagRepository.FindByCondition(x => x.LocationId == item.ToLocationId && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted).MaxAsync(x => (int?)x.StackOrder) ?? 0) + 1
                         : 0;
-                    foreach (var bag in bags.OrderByDescending(x => x.WeightKg).ThenBy(x => x.BagNo))
+                    var bagsById = bags.ToDictionary(x => x.Id);
+                    foreach (var bag in bagIds.Where(bagsById.ContainsKey).Select(id => bagsById[id]))
                     {
                         var oldLotId = bag.LotId;
-                        if (targetLotId.HasValue && item.PaddyLotId == oldLotId)
+                        if (_bagContentRepository != null)
                         {
-                            bag.LotId = targetLotId.Value;
-                            if (_bagContentRepository != null)
+                            foreach (var content in bag.Contents.Where(x => !x.IsDeleted && x.WeightKg > 0))
                             {
-                                var contents = await _bagContentRepository.FindByCondition(x => x.BagId == bag.Id && x.LotId == oldLotId && !x.IsDeleted).ToListAsync();
-                                foreach (var content in contents) { content.LotId = targetLotId.Value; await _bagContentRepository.UpdateAsync(content); }
+                                if (targetLotMap.TryGetValue(content.LotId, out var mappedLotId))
+                                {
+                                    content.LotId = mappedLotId;
+                                    await _bagContentRepository.UpdateAsync(content);
+                                }
                             }
                         }
+                        if (targetLotMap.TryGetValue(oldLotId, out var mappedRepresentativeId))
+                            bag.LotId = mappedRepresentativeId;
+                        else
+                            RefreshRepresentativeLot(bag);
                         bag.LocationId = item.ToLocationId;
                         bag.StackOrder = nextStackOrder++;
                         bag.Status = PaddyLotBagStatuses.Stored;
-                        bag.OpenBagKey = bag.IsFull || !item.ToLocationId.HasValue ? null : $"{item.ProductVariantId}:{transfer.ToWarehouseId}:{item.ToLocationId}";
+                        bag.OpenBagKey = bag.IsFull || !item.ToLocationId.HasValue ? null : $"{item.ProductVariantId}:{transfer.ToWarehouseId}";
                         bag.UpdatedBy = receivedById;
                         bag.LastModifiedDate = now;
                         await _bagRepository.UpdateAsync(bag);
@@ -640,16 +714,32 @@ public class StockTransferService : IStockTransferService
                     return "Dịch vụ quản lý bao chưa được cấu hình.";
                 if (item.BagIds.Distinct().Count() != item.BagIds.Count)
                     return "Danh sách bao chuyển kho không được trùng lặp.";
-                var selectedBags = await _bagRepository.FindByCondition(x => item.BagIds.Contains(x.Id) && !x.IsDeleted).ToListAsync();
+                var selectedBags = await _bagRepository.FindByCondition(x => item.BagIds.Contains(x.Id) && !x.IsDeleted)
+                    .Include(x => x.Contents).ThenInclude(x => x.Lot).ToListAsync();
                 if (selectedBags.Count != item.BagIds.Count)
                     return "Có bao chuyển kho không tồn tại.";
                 if (selectedBags.Any(x => x.Status != PaddyLotBagStatuses.Stored || x.LocationId != item.FromLocationId))
                     return "Tất cả bao phải đang lưu tại đúng vị trí nguồn.";
-                if (item.PaddyLotId.HasValue && selectedBags.Any(x => x.LotId != item.PaddyLotId.Value))
-                    return "Bao được chọn không thuộc lô trên dòng chuyển kho.";
+                if (selectedBags.Any(x => Math.Abs(x.WeightKg - x.Contents.Where(c => !c.IsDeleted && c.WeightKg > 0).Sum(c => c.WeightKg)) > 0.001m))
+                    return "Có bao có tổng khối lượng không khớp thành phần lô. Vui lòng đối soát bao trước khi chuyển.";
+                if (selectedBags.SelectMany(x => x.Contents).Any(x => !x.IsDeleted && x.WeightKg > 0 && x.Lot.ProductVariantId != item.ProductVariantId))
+                    return "Bao hỗn hợp có thành phần không cùng SKU với dòng chuyển kho.";
                 var selectedWeight = selectedBags.Sum(x => x.WeightKg);
                 if (Math.Abs(selectedWeight - item.WeightKg) > 0.001m)
                     item.WeightKg = selectedWeight;
+                if (checkAvailableStock)
+                {
+                    foreach (var contentGroup in selectedBags.SelectMany(x => x.Contents)
+                                 .Where(x => !x.IsDeleted && x.WeightKg > 0)
+                                 .GroupBy(x => x.LotId))
+                    {
+                        var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
+                            item.ProductVariantId, fromWarehouseId, item.FromLocationId, contentGroup.Key);
+                        var available = (inventory?.QuantityOnHand ?? 0) - (inventory?.QuantityReserved ?? 0);
+                        if (available + 0.001m < contentGroup.Sum(x => x.WeightKg))
+                            return $"Tồn khả dụng của lô {contentGroup.First().Lot.LotCode} không đủ cho thành phần trong các bao đã chọn.";
+                    }
+                }
                 if (item.FromLocationId.HasValue)
                 {
                     var topIds = await _bagRepository.FindByCondition(x => x.LocationId == item.FromLocationId && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted)
@@ -686,9 +776,29 @@ public class StockTransferService : IStockTransferService
                     return "Vị trí đích không thuộc kho đích.";
                 if (destinationLocation.IsQuarantine)
                     return "Không thể chọn vị trí cách ly làm vị trí nhận hàng.";
+
+                if (_bagRepository != null)
+                {
+                    var destinationHasOpenBag = await _bagRepository.AnyAsync(x =>
+                        x.LocationId == item.ToLocationId.Value && x.Status == PaddyLotBagStatuses.Stored &&
+                        !x.IsFull && x.WeightKg > 0 && !x.IsDeleted);
+                    if (destinationHasOpenBag)
+                        return "Cột đích đang có bao mở nên không thể nhận thêm bao. Hãy chọn một cột trống/hàng lẻ khác.";
+
+                    if (item.BagIds.Count > 0)
+                    {
+                        var incomingHasOpenBag = await _bagRepository.AnyAsync(x =>
+                            item.BagIds.Contains(x.Id) && !x.IsFull && x.WeightKg > 0 && !x.IsDeleted);
+                        var destinationHasStoredBag = await _bagRepository.AnyAsync(x =>
+                            x.LocationId == item.ToLocationId.Value && x.Status == PaddyLotBagStatuses.Stored &&
+                            x.WeightKg > 0 && !x.IsDeleted);
+                        if (incomingHasOpenBag && destinationHasStoredBag)
+                            return "Bao mở chỉ được chuyển vào cột trống dành cho hàng lẻ; không được đặt lên một chồng bao đang có hàng.";
+                    }
+                }
             }
 
-            if (item.PaddyLotId.HasValue)
+            if (item.PaddyLotId.HasValue && item.BagIds.Count == 0)
             {
                 var lot = await _paddyLotRepository.GetByIdAsync(item.PaddyLotId.Value);
                 if (lot == null)
@@ -710,7 +820,7 @@ public class StockTransferService : IStockTransferService
                     return $"Khối lượng chuyển vượt phần còn lại của lô {lot.LotCode}.";
             }
 
-            if (checkAvailableStock)
+            if (checkAvailableStock && item.BagIds.Count == 0)
             {
                 var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
                     item.ProductVariantId,
@@ -1060,6 +1170,15 @@ public class StockTransferService : IStockTransferService
             CreatedBy = userId,
             CreatedDate = now
         });
+    }
+
+    private static void RefreshRepresentativeLot(PaddyLotBag bag)
+    {
+        var active = bag.Contents.Where(x => !x.IsDeleted && x.WeightKg > 0.0005m).ToList();
+        if (active.Count == 0)
+            throw new InvalidOperationException($"Bao #{bag.BagNo} không có thành phần lô hợp lệ.");
+        if (active.Any(x => x.LotId == bag.LotId)) return;
+        bag.LotId = active.OrderByDescending(x => x.WeightKg).ThenBy(x => x.Id).First().LotId;
     }
 
     private static StockTransferItem ToEntity(

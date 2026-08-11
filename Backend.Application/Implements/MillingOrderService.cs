@@ -34,6 +34,8 @@ public class MillingOrderService : IMillingOrderService
     private readonly INotificationDispatcher _notificationDispatcher;
     private readonly IRepositoryBase<PaddyLotBag, int>? _bagRepository;
     private readonly IRepositoryBase<PaddyLotBagContent, int>? _bagContentRepository;
+    private readonly IRepositoryBase<PaddyLotBagAllocation, int>? _bagAllocationRepository;
+    private readonly IRepositoryBase<PaddyLotBagMovement, int>? _bagMovementRepository;
     private readonly ISystemConfigRepository? _systemConfigRepository;
     private readonly ISalesOrderRepository _salesOrderRepository;
 
@@ -53,7 +55,9 @@ public class MillingOrderService : IMillingOrderService
         ISalesOrderRepository salesOrderRepository,
         IRepositoryBase<PaddyLotBag, int>? bagRepository = null,
         IRepositoryBase<PaddyLotBagContent, int>? bagContentRepository = null,
-        ISystemConfigRepository? systemConfigRepository = null)
+        ISystemConfigRepository? systemConfigRepository = null,
+        IRepositoryBase<PaddyLotBagAllocation, int>? bagAllocationRepository = null,
+        IRepositoryBase<PaddyLotBagMovement, int>? bagMovementRepository = null)
     {
         _millingOrderRepository = millingOrderRepository;
         _paddyLotRepository = paddyLotRepository;
@@ -71,6 +75,8 @@ public class MillingOrderService : IMillingOrderService
         _bagRepository = bagRepository;
         _bagContentRepository = bagContentRepository;
         _systemConfigRepository = systemConfigRepository;
+        _bagAllocationRepository = bagAllocationRepository;
+        _bagMovementRepository = bagMovementRepository;
     }
 
     /// <summary>
@@ -166,6 +172,7 @@ public class MillingOrderService : IMillingOrderService
             MillingCode = millingCode,
             StatusId = draftStatus.Id,
             WarehouseId = obj.WarehouseId,
+            RiceVarietyId = obj.RiceVarietyId,
             Reason = obj.Reason?.Trim(),
             SalesOrderId = obj.SalesOrderId,
             YieldRateUsed = stampedYield,
@@ -196,7 +203,7 @@ public class MillingOrderService : IMillingOrderService
     public async Task<ApiResponse> GetAllAsync()
     {
         var entities = await _millingOrderRepository
-            .FindByCondition(x => !x.IsDeleted, true, x => x.Status, x => x.Warehouse)
+            .FindByCondition(x => !x.IsDeleted, true, x => x.Status, x => x.Warehouse, x => x.RiceVariety)
             .OrderByDescending(x => x.CreatedDate)
             .ToListAsync();
 
@@ -210,21 +217,43 @@ public class MillingOrderService : IMillingOrderService
                 true, // no-tracking (chỉ đọc để hiển thị)
                 x => x.Status,
                 x => x.Warehouse,
+                x => x.RiceVariety,
                 x => x.MillingOrderInputs,
                 x => x.MillingOrderOutputs)
+            .Include(x => x.MillingOrderInputs).ThenInclude(x => x.PaddyLot)
+            .Include(x => x.MillingOrderInputs).ThenInclude(x => x.Location)
             // Tách SELECT theo từng collection (Inputs × Outputs) tránh nổ tích Descartes.
             .AsSplitQuery()
             .FirstOrDefaultAsync();
 
         if (entity == null) return ApiResponse.NotFound();
-        return ApiResponse.Success(ToDetailDto(entity));
+        var dto = ToDetailDto(entity);
+        if (_bagAllocationRepository != null)
+        {
+            var allocations = await _bagAllocationRepository
+                .FindByCondition(x => x.ReferenceType == PaddyLotBagAllocationReferenceTypes.MillingOrder &&
+                    x.ReferenceId == entity.Id && !x.IsDeleted, false)
+                .Include(x => x.Bag).ToListAsync();
+            foreach (var input in dto.Inputs)
+                input.Bags = allocations.Where(x => x.ReferenceItemId == input.Id)
+                    .OrderByDescending(x => x.StackOrderSnapshot)
+                    .Select(x => new MillingSelectedBagDto
+                    {
+                        BagId = x.BagId,
+                        BagNo = x.Bag.BagNo,
+                        WeightKg = x.BagWeightSnapshotKg,
+                        StackOrder = x.StackOrderSnapshot,
+                        Status = x.Status
+                    }).ToList();
+        }
+        return ApiResponse.Success(dto);
     }
 
     /// <summary>Gap 2: Lấy các lệnh xay gắn với một đơn bán (điều phối xay-theo-đơn).</summary>
     public async Task<ApiResponse> GetBySalesOrderAsync(int salesOrderId)
     {
         var entities = await _millingOrderRepository
-            .FindByCondition(x => x.SalesOrderId == salesOrderId && !x.IsDeleted, true, x => x.Status, x => x.Warehouse)
+            .FindByCondition(x => x.SalesOrderId == salesOrderId && !x.IsDeleted, true, x => x.Status, x => x.Warehouse, x => x.RiceVariety)
             .OrderByDescending(x => x.CreatedDate)
             .ToListAsync();
 
@@ -293,6 +322,7 @@ public class MillingOrderService : IMillingOrderService
 
         existData.OrganizationId = obj.OrganizationId;
         existData.WarehouseId = obj.WarehouseId;
+        existData.RiceVarietyId = obj.RiceVarietyId;
         existData.Reason = obj.Reason?.Trim();
         existData.SalesOrderId = obj.SalesOrderId;
         existData.YieldRateUsed = stampedYield;
@@ -335,10 +365,18 @@ public class MillingOrderService : IMillingOrderService
             .FirstOrDefaultAsync();
 
         if (order == null) return ApiResponse.Error("Không tìm thấy lệnh xay.", 404);
-        var isInProgressReallocation = order.Status?.Code == LookupCodes.MillingOrderStatus.InProgress;
-        var isReallocation = order.Status?.Code == LookupCodes.MillingOrderStatus.Reserved || isInProgressReallocation;
+        if (order.Status?.Code == LookupCodes.MillingOrderStatus.InProgress)
+            return ApiResponse.UnprocessableEntity("Lệnh đang xay đã khóa nguồn lúa. Chỉ được xem các bao đã giữ, không thể điều chỉnh nguồn.");
+        var isInProgressReallocation = false;
+        var isReallocation = order.Status?.Code == LookupCodes.MillingOrderStatus.Reserved;
         if (order.Status?.Code != LookupCodes.MillingOrderStatus.Draft && !isReallocation)
             return ApiResponse.UnprocessableEntity("Chỉ có thể giữ hoặc điều chỉnh nguồn lúa khi lệnh xay ở trạng thái Nháp/Đã giữ/Đang xay.");
+
+        if (dto.Columns.Count > 0)
+            return await ReservePhysicalBagsAsync(order, dto.Columns, userId, isReallocation, isInProgressReallocation);
+        if (dto.Inputs.Count > 0)
+            return ApiResponse.UnprocessableEntity(
+                "Lệnh xay mới bắt buộc chọn nguyên bao bằng Columns/BagIds; không còn hỗ trợ nhập số kg tùy ý.");
 
         var reservedStatus = await _statusRepository.FirstOrDefaultAsync(x => x.Code == LookupCodes.MillingOrderStatus.Reserved && !x.IsDeleted)
             ?? throw new InvalidOperationException("Không tìm thấy trạng thái RESERVED.");
@@ -461,6 +499,255 @@ public class MillingOrderService : IMillingOrderService
         }
     }
 
+    private async Task<ApiResponse> ReservePhysicalBagsAsync(
+        MillingOrder order,
+        IReadOnlyCollection<MillingBagSelectionColumnDto> columns,
+        int userId,
+        bool isReallocation,
+        bool isInProgressReallocation)
+    {
+        if (_bagRepository == null || _bagAllocationRepository == null)
+            return ApiResponse.Error("Chưa cấu hình kho lưu bao vật lý.", 500);
+        if (columns.Any(x => x.LocationId <= 0 || x.BagIds.Count == 0))
+            return ApiResponse.UnprocessableEntity("Mỗi cột phải có vị trí và ít nhất một bao.");
+        if (columns.GroupBy(x => x.LocationId).Any(x => x.Count() > 1))
+            return ApiResponse.UnprocessableEntity("Mỗi vị trí/cột chỉ được khai báo một lần.");
+        var requestedIds = columns.SelectMany(x => x.BagIds).ToList();
+        if (requestedIds.Distinct().Count() != requestedIds.Count)
+            return ApiResponse.UnprocessableEntity("Một bao không được chọn lặp lại.");
+
+        var selectedBags = new List<PaddyLotBag>();
+        foreach (var column in columns)
+        {
+            var stack = await _bagRepository
+                .FindByCondition(x => x.LocationId == column.LocationId && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted, false)
+                .Include(x => x.Lot).ThenInclude(x => x.Status)
+                .Include(x => x.Allocations)
+                .OrderByDescending(x => x.StackOrder).ThenByDescending(x => x.Id)
+                .ToListAsync();
+            var requestedSequence = column.BagIds.ToList();
+            var expectedTopSequence = stack.Take(requestedSequence.Count).Select(x => x.Id).ToList();
+            if (!requestedSequence.SequenceEqual(expectedTopSequence))
+                return ApiResponse.UnprocessableEntity(
+                    $"Các bao tại vị trí #{column.LocationId} phải được chọn liên tục từ đỉnh cột xuống, đúng thứ tự hiển thị.");
+
+            foreach (var bag in stack.Take(requestedSequence.Count))
+            {
+                if (bag.Lot.WarehouseId != order.WarehouseId || !string.Equals(bag.Lot.LotType, "PADDY", StringComparison.OrdinalIgnoreCase))
+                    return ApiResponse.UnprocessableEntity($"Bao #{bag.BagNo} không phải lúa nguyên liệu trong kho thực hiện.");
+                if (bag.Lot.Status.Code == LotStatusCodeConstants.Quarantine)
+                    return ApiResponse.UnprocessableEntity($"Bao #{bag.BagNo} thuộc lô đang cách ly.");
+                var heldByOther = bag.Allocations.Any(x => !x.IsDeleted && x.Status == PaddyLotBagAllocationStatuses.Active &&
+                    !(x.ReferenceType == PaddyLotBagAllocationReferenceTypes.MillingOrder && x.ReferenceId == order.Id));
+                if (heldByOther)
+                    return ApiResponse.Conflict($"Bao #{bag.BagNo} vừa được chứng từ khác giữ. Vui lòng tải lại danh sách bao.");
+                if (bag.WeightKg <= 0.0005m)
+                    return ApiResponse.UnprocessableEntity($"Bao #{bag.BagNo} không còn khối lượng khả dụng.");
+                selectedBags.Add(bag);
+            }
+        }
+
+        var now = DateTimeHelper.VietnamNow();
+        await using var tx = await _millingOrderRepository.BeginTransactionAsync();
+        try
+        {
+            foreach (var oldInput in order.MillingOrderInputs.Where(x => !x.IsDeleted))
+            {
+                var oldLot = await _paddyLotRepository.GetByIdAsync(oldInput.PaddyLotId);
+                if (oldLot != null)
+                {
+                    var oldLocationId = oldInput.LocationId ?? oldLot.LocationId;
+                    var oldInventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(oldLot.ProductVariantId, oldLot.WarehouseId, oldLocationId, oldLot.Id);
+                    if (oldInventory != null)
+                    {
+                        oldInventory.QuantityReserved = Math.Max(0, oldInventory.QuantityReserved - oldInput.ReservedWeightKg.GetValueOrDefault());
+                        await _inventoryRepository.UpdateAsync(oldInventory);
+                    }
+                }
+                await _inputRepository.SoftDeleteAsync(oldInput.Id);
+            }
+            var oldAllocations = await _bagAllocationRepository.FindByConditionAsync(x =>
+                x.ReferenceType == PaddyLotBagAllocationReferenceTypes.MillingOrder && x.ReferenceId == order.Id &&
+                x.Status == PaddyLotBagAllocationStatuses.Active && !x.IsDeleted, true);
+            foreach (var allocation in oldAllocations)
+            {
+                allocation.Status = PaddyLotBagAllocationStatuses.Released;
+                allocation.UpdatedBy = userId;
+                allocation.LastModifiedDate = now;
+                await _bagAllocationRepository.UpdateAsync(allocation);
+            }
+            await _bagAllocationRepository.SaveChangesAsync();
+
+            foreach (var group in selectedBags.GroupBy(x => new { x.LotId, LocationId = x.LocationId!.Value }))
+            {
+                var lot = group.First().Lot;
+                var weight = group.Sum(x => x.WeightKg);
+                var inventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(lot.ProductVariantId, order.WarehouseId, group.Key.LocationId, lot.Id);
+                if (inventory == null || inventory.QuantityOnHand - inventory.QuantityReserved < weight - 0.0005m)
+                    throw new InvalidOperationException($"Tồn kho lô {lot.LotCode} không đủ để giữ toàn bộ các bao đã chọn.");
+                inventory.QuantityReserved += weight;
+                inventory.LastModifiedDate = now;
+                await _inventoryRepository.UpdateAsync(inventory);
+
+                var input = new MillingOrderInput
+                {
+                    MillingOrderId = order.Id,
+                    PaddyLotId = lot.Id,
+                    LocationId = group.Key.LocationId,
+                    ReservedWeightKg = weight,
+                    ConsumedWeightKg = 0,
+                    Note = $"Giữ nguyên bao: {string.Join(", ", group.Select(x => $"#{x.BagNo}"))}",
+                    CreatedBy = userId,
+                    CreatedDate = now
+                };
+                await _inputRepository.CreateAsync(input);
+                await _inputRepository.SaveChangesAsync();
+                foreach (var bag in group)
+                {
+                    await _bagAllocationRepository.CreateAsync(new PaddyLotBagAllocation
+                    {
+                        BagId = bag.Id,
+                        ReferenceType = PaddyLotBagAllocationReferenceTypes.MillingOrder,
+                        ReferenceId = order.Id,
+                        ReferenceItemId = input.Id,
+                        AllocatedWeightKg = bag.WeightKg,
+                        ConsumedWeightKg = 0,
+                        Status = PaddyLotBagAllocationStatuses.Active,
+                        BagWeightSnapshotKg = bag.WeightKg,
+                        StackOrderSnapshot = bag.StackOrder,
+                        CreatedBy = userId,
+                        CreatedDate = now
+                    });
+                }
+            }
+            await _bagAllocationRepository.SaveChangesAsync();
+            if (!isInProgressReallocation)
+            {
+                var reservedStatus = await _statusRepository.FirstOrDefaultAsync(x => x.Code == LookupCodes.MillingOrderStatus.Reserved && !x.IsDeleted)
+                    ?? throw new InvalidOperationException("Không tìm thấy trạng thái RESERVED.");
+                order.StatusId = reservedStatus.Id;
+            }
+            order.UpdatedBy = userId;
+            order.LastModifiedDate = now;
+            await _millingOrderRepository.UpdateAsync(order);
+            await _millingOrderRepository.SaveChangesAsync();
+            await tx.CommitAsync();
+            var total = selectedBags.Sum(x => x.WeightKg);
+            return ApiResponse.Success(new { order.Id, ActualSelectedPaddyKg = total, PlannedPaddyKg = order.ComputedPaddyKg, DifferenceKg = total - order.ComputedPaddyKg },
+                isReallocation ? "Đã phân bổ lại đúng các bao lúa vật lý." : "Đã giữ đúng các bao lúa vật lý.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync();
+            return ApiResponse.UnprocessableEntity(ex.Message);
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+    }
+
+    public async Task<ApiResponse> SuggestSourcesAsync(int id)
+    {
+        var order = await _millingOrderRepository
+            .FindByCondition(x => x.Id == id && !x.IsDeleted, false, x => x.Status, x => x.MillingOrderInputs)
+            .FirstOrDefaultAsync();
+        if (order == null) return ApiResponse.Error("Không tìm thấy lệnh xay.", 404);
+        if (order.Status?.Code is not (LookupCodes.MillingOrderStatus.Draft or LookupCodes.MillingOrderStatus.Reserved))
+            return ApiResponse.UnprocessableEntity("Chỉ có thể gợi ý nguồn lúa cho lệnh Nháp/Đã giữ/Đang xay.");
+
+        // Ưu tiên giống đã đóng dấu trên lệnh. Các nhánh dưới chỉ dùng để tương
+        // thích dữ liệu cũ được tạo trước khi MillingOrder có RiceVarietyId.
+        int? riceVarietyId = order.RiceVarietyId;
+        var currentLotIds = order.MillingOrderInputs.Where(x => !x.IsDeleted).Select(x => x.PaddyLotId).Distinct().ToList();
+        if (currentLotIds.Count > 0)
+        {
+            riceVarietyId = await _paddyLotRepository.FindByCondition(x => currentLotIds.Contains(x.Id) && !x.IsDeleted)
+                .Where(x => x.RiceVarietyId.HasValue)
+                .Select(x => x.RiceVarietyId)
+                .FirstOrDefaultAsync();
+        }
+        if (!riceVarietyId.HasValue && order.SalesOrderId.HasValue)
+        {
+            riceVarietyId = await _salesOrderRepository.FindByCondition(x => x.Id == order.SalesOrderId.Value && !x.IsDeleted)
+                .SelectMany(x => x.SalesOrderItems.Where(i => !i.IsDeleted))
+                .Where(x => x.ProductVariant.RiceVarietyId.HasValue)
+                .Select(x => x.ProductVariant.RiceVarietyId)
+                .FirstOrDefaultAsync();
+        }
+        if (!riceVarietyId.HasValue)
+            return ApiResponse.UnprocessableEntity(
+                "Chưa xác định được giống lúa của lệnh xay nên hệ thống không tự chọn lẫn giống. Vui lòng chọn một lô đúng giống lần đầu.");
+
+        var result = new MillingSourceSuggestionResultDto { RequiredWeightKg = order.ComputedPaddyKg };
+        if (_bagRepository == null)
+            return ApiResponse.UnprocessableEntity("Kho chưa có dữ liệu bao vật lý để tự chọn nguyên bao.");
+        var stacks = await _bagRepository
+            .FindByCondition(x => x.LocationId.HasValue && x.Location!.WarehouseId == order.WarehouseId &&
+                x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted, false)
+            .Include(x => x.Location)
+            .Include(x => x.Lot).ThenInclude(x => x.Status)
+            .Include(x => x.Allocations)
+            .OrderBy(x => x.LocationId).ThenByDescending(x => x.StackOrder).ThenByDescending(x => x.Id)
+            .ToListAsync();
+        var selectable = new List<PaddyLotBag>();
+        foreach (var stack in stacks.GroupBy(x => x.LocationId!.Value))
+        {
+            foreach (var bag in stack)
+            {
+                var heldByOther = bag.Allocations.Any(x => !x.IsDeleted && x.Status == PaddyLotBagAllocationStatuses.Active &&
+                    !(x.ReferenceType == PaddyLotBagAllocationReferenceTypes.MillingOrder && x.ReferenceId == order.Id));
+                if (heldByOther || bag.Lot.Status.Code == LotStatusCodeConstants.Quarantine ||
+                    bag.Lot.RiceVarietyId != riceVarietyId || !string.Equals(bag.Lot.LotType, "PADDY", StringComparison.OrdinalIgnoreCase))
+                    break;
+                selectable.Add(bag);
+            }
+        }
+        var selected = new List<PaddyLotBag>();
+        var selectedKg = 0m;
+        foreach (var bag in selectable.OrderBy(x => x.Lot.InboundDate).ThenBy(x => x.LocationId).ThenByDescending(x => x.StackOrder))
+        {
+            if (selectedKg + 0.0005m >= order.ComputedPaddyKg) break;
+            // Preserve a continuous prefix in every chosen column.
+            var columnPrefix = selectable.Where(x => x.LocationId == bag.LocationId && x.StackOrder >= bag.StackOrder)
+                .OrderByDescending(x => x.StackOrder).ThenByDescending(x => x.Id);
+            foreach (var prefixBag in columnPrefix)
+            {
+                if (selected.Any(x => x.Id == prefixBag.Id)) continue;
+                selected.Add(prefixBag);
+                selectedKg += prefixBag.WeightKg;
+            }
+        }
+        foreach (var group in selected.GroupBy(x => new { x.LotId, LocationId = x.LocationId!.Value }))
+        {
+            var first = group.First();
+            var groupWeight = group.Sum(x => x.WeightKg);
+            result.Inputs.Add(new MillingSourceSuggestionDto
+            {
+                PaddyLotId = group.Key.LotId,
+                LotCode = first.Lot.LotCode,
+                LocationId = group.Key.LocationId,
+                LocationCode = first.Location?.SlotCode,
+                SuggestedWeightKg = groupWeight,
+                ImmediatelyRetrievableKg = groupWeight,
+                BagIds = group.OrderByDescending(x => x.StackOrder).Select(x => x.Id).ToList()
+            });
+        }
+        result.Columns = selected.GroupBy(x => x.LocationId!.Value).Select(group => new MillingSourceSuggestionColumnDto
+        {
+            LocationId = group.Key,
+            LocationCode = group.First().Location?.SlotCode,
+            SuggestedWeightKg = group.Sum(x => x.WeightKg),
+            BagIds = group.OrderByDescending(x => x.StackOrder).ThenByDescending(x => x.Id).Select(x => x.Id).ToList()
+        }).ToList();
+        result.SuggestedWeightKg = result.Inputs.Sum(x => x.SuggestedWeightKg);
+        result.MissingWeightKg = Math.Max(0, order.ComputedPaddyKg - result.SuggestedWeightKg);
+        return ApiResponse.Success(result, result.IsComplete
+            ? "Đã tìm thấy nguồn lúa có thể lấy ngay."
+            : $"Nguồn có thể lấy ngay còn thiếu {result.MissingWeightKg:N3} kg.");
+    }
+
     public async Task<ApiResponse> StartAsync(int id, int userId)
     {
         var order = await _millingOrderRepository
@@ -523,6 +810,19 @@ public class MillingOrderService : IMillingOrderService
                             inventory.LastModifiedDate = now;
                             await _inventoryRepository.UpdateAsync(inventory);
                         }
+                    }
+                }
+                if (_bagAllocationRepository != null)
+                {
+                    var bagAllocations = await _bagAllocationRepository.FindByConditionAsync(x =>
+                        x.ReferenceType == PaddyLotBagAllocationReferenceTypes.MillingOrder && x.ReferenceId == order.Id &&
+                        x.Status == PaddyLotBagAllocationStatuses.Active && !x.IsDeleted, true);
+                    foreach (var allocation in bagAllocations)
+                    {
+                        allocation.Status = PaddyLotBagAllocationStatuses.Released;
+                        allocation.UpdatedBy = userId;
+                        allocation.LastModifiedDate = now;
+                        await _bagAllocationRepository.UpdateAsync(allocation);
                     }
                 }
             }
@@ -626,21 +926,30 @@ public class MillingOrderService : IMillingOrderService
         if (totalActualRice <= 0)
             return ApiResponse.UnprocessableEntity("Phải có ít nhất một dòng gạo thành phẩm với khối lượng lớn hơn 0.");
 
-        var computedPaddyKg = Math.Round(
-            totalActualRice / order.YieldRateUsed,
-            3,
-            MidpointRounding.AwayFromZero);
+        if (_bagAllocationRepository == null)
+            return ApiResponse.UnprocessableEntity("Lệnh xay chưa có dữ liệu giữ bao vật lý.");
+        var activeBagAllocations = await _bagAllocationRepository
+            .FindByCondition(x => x.ReferenceType == PaddyLotBagAllocationReferenceTypes.MillingOrder &&
+                x.ReferenceId == order.Id && x.Status == PaddyLotBagAllocationStatuses.Active && !x.IsDeleted, false)
+            .Include(x => x.Bag)
+            .ToListAsync();
+        if (activeBagAllocations.Count == 0)
+            return ApiResponse.UnprocessableEntity("Lệnh xay chưa chọn và giữ bao lúa vật lý.");
+        if (activeBagAllocations.Any(x => x.Bag.Status != PaddyLotBagStatuses.Stored ||
+            Math.Abs(x.Bag.WeightKg - x.BagWeightSnapshotKg) > 0.0005m))
+            return ApiResponse.Conflict("Một hoặc nhiều bao đã thay đổi sau khi giữ. Vui lòng điều chỉnh lại nguồn lúa.");
+        var actualPaddyInputKg = activeBagAllocations.Sum(x => x.BagWeightSnapshotKg);
         var totalProducedKg = dto.Outputs.Sum(x => x.OutputWeightKg);
         var lossKg = dto.LossKg ?? 0;
         if (lossKg < 0)
             return ApiResponse.UnprocessableEntity("Khối lượng hao hụt không được âm.");
 
-        var massBalanceTolerance = computedPaddyKg * 0.02m;
-        if ((totalProducedKg + lossKg) > (computedPaddyKg + massBalanceTolerance))
+        var massBalanceTolerance = actualPaddyInputKg * 0.02m;
+        if ((totalProducedKg + lossKg) > (actualPaddyInputKg + massBalanceTolerance))
         {
             return ApiResponse.UnprocessableEntity(
                 $"Mass balance không hợp lệ: Tổng đầu ra ({totalProducedKg} kg) + Hao hụt ({lossKg} kg) " +
-                $"vượt quá lượng lúa tính ngược ({computedPaddyKg} kg) + 2% dung sai.");
+                $"vượt quá lượng lúa nguyên bao thực tế ({actualPaddyInputKg} kg) + 2% dung sai.");
         }
 
         var expectedRiceKg = order.TotalRiceOutputKg;
@@ -688,7 +997,7 @@ public class MillingOrderService : IMillingOrderService
             }
 
             var allocations = inputStates.ToDictionary(x => x.Input, _ => 0m);
-            var remainingPaddyKg = computedPaddyKg;
+            var remainingPaddyKg = actualPaddyInputKg;
 
             // Dùng phần đã giữ trước.
             foreach (var state in inputStates)
@@ -721,7 +1030,7 @@ public class MillingOrderService : IMillingOrderService
             foreach (var state in inputStates)
             {
                 var consumedKg = allocations[state.Input];
-                await ConsumeMillingInputBagsAsync(state.Lot.Id, state.Input.LocationId ?? state.Lot.LocationId!.Value, consumedKg, completedById, now);
+                await ConsumeMillingInputBagsAsync(state.Lot.Id, state.Input.LocationId ?? state.Lot.LocationId!.Value, consumedKg, orderId, state.Input.Id, completedById, now);
                 state.Input.ConsumedWeightKg = consumedKg;
                 state.Input.UpdatedBy = completedById;
                 state.Input.LastModifiedDate = now;
@@ -760,6 +1069,15 @@ public class MillingOrderService : IMillingOrderService
                     CreatedBy = completedById
                 };
                 await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(invTx);
+            }
+
+            foreach (var bagAllocation in activeBagAllocations)
+            {
+                bagAllocation.ConsumedWeightKg = bagAllocation.AllocatedWeightKg;
+                bagAllocation.Status = PaddyLotBagAllocationStatuses.Consumed;
+                bagAllocation.UpdatedBy = completedById;
+                bagAllocation.LastModifiedDate = now;
+                await _bagAllocationRepository.UpdateAsync(bagAllocation);
             }
 
             await _paddyLotRepository.SaveChangesAsync();
@@ -831,7 +1149,7 @@ public class MillingOrderService : IMillingOrderService
                 await _paddyLotRepository.CreateAsync(newLot);
                 await _paddyLotRepository.SaveChangesAsync();
 
-                await PackageMillingOutputAsync(newLot, outputDto.OutputWeightKg, outputDto.LocationId.Value, completedById, now);
+                var actualBagCount = await PackageMillingOutputAsync(newLot, outputDto.OutputWeightKg, outputDto.LocationId.Value, completedById, now);
 
                 var output = new MillingOrderOutput
                 {
@@ -841,7 +1159,7 @@ public class MillingOrderService : IMillingOrderService
                     LocationId = outputDto.LocationId,
                     OutputType = outputType,
                     OutputWeightKg = outputDto.OutputWeightKg,
-                    BagCount = outputDto.BagCount,
+                    BagCount = actualBagCount,
                     IsByproduct = isByproduct,
                     UnitCost = unitCost,
                     CreatedBy = completedById,
@@ -855,7 +1173,8 @@ public class MillingOrderService : IMillingOrderService
 
             order.StatusId = completedStatus.Id;
             order.TotalRiceOutputKg = totalActualRice;
-            order.ComputedPaddyKg = computedPaddyKg;
+            order.ActualPaddyInputKg = actualPaddyInputKg;
+            order.ActualYieldRate = actualPaddyInputKg > 0 ? totalActualRice / actualPaddyInputKg : null;
             order.ByproductKg = dto.Outputs
                 .Where(x => !string.Equals(x.OutputType?.Trim(), "RICE", StringComparison.OrdinalIgnoreCase))
                 .Sum(x => x.OutputWeightKg);
@@ -905,7 +1224,9 @@ public class MillingOrderService : IMillingOrderService
                 {
                     OrderId = orderId,
                     RiceOutputKg = totalActualRice,
-                    ComputedPaddyKg = computedPaddyKg,
+                    PlannedPaddyKg = order.ComputedPaddyKg,
+                    ActualPaddyInputKg = actualPaddyInputKg,
+                    ActualYieldRate = order.ActualYieldRate,
                     YieldRateUsed = order.YieldRateUsed
                 },
                 "Hoàn thành lệnh xay, trừ lúa tính ngược và nhập kho thành phẩm.");
@@ -922,29 +1243,56 @@ public class MillingOrderService : IMillingOrderService
         }
     }
 
-    private async Task PackageMillingOutputAsync(PaddyLot lot, decimal quantityKg, int locationId, int userId, DateTime now)
+    private async Task<int> PackageMillingOutputAsync(PaddyLot lot, decimal quantityKg, int locationId, int userId, DateTime now)
     {
         // Legacy compatibility: databases/tests without the bag repositories keep the existing kg-only flow.
-        if (_bagRepository == null || _bagContentRepository == null || _systemConfigRepository == null) return;
-        var configured = await _systemConfigRepository.GetValueByKey($"StandardBagWeightKg:{lot.ProductVariantId}");
-        if (!decimal.TryParse(configured, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var standardKg) || standardKg <= 0)
+        if (_bagRepository == null || _bagContentRepository == null) return 0;
+        var affectedBagIds = new HashSet<int>();
+        var lotWithVariant = await _paddyLotRepository.FindByCondition(x => x.Id == lot.Id && !x.IsDeleted, false)
+            .Include(x => x.ProductVariant).FirstOrDefaultAsync();
+        var standardKg = lotWithVariant?.ProductVariant.Weight ?? 0;
+        if (standardKg <= 0)
             throw new InvalidOperationException($"Thiếu cấu hình StandardBagWeightKg:{lot.ProductVariantId} hoặc giá trị không hợp lệ.");
 
         var remaining = quantityKg;
-        var openBags = await _bagRepository.FindByCondition(x => x.BagKind == "Finished" && !x.IsFull && x.StandardWeightKg == standardKg && x.LocationId == locationId && x.Status == "Stored" && !x.IsDeleted)
-            .Include(x => x.Lot).Where(x => x.Lot.ProductVariantId == lot.ProductVariantId && x.Lot.WarehouseId == lot.WarehouseId)
+        var openBags = await _bagRepository.FindByCondition(x => x.BagKind == "Finished" && !x.IsFull && x.StandardWeightKg == standardKg && x.Status == "Stored" && !x.IsDeleted)
+            .Include(x => x.Lot)
+            .Include(x => x.Contents).ThenInclude(x => x.Lot).ThenInclude(x => x.Status)
+            .Where(x => x.Lot.ProductVariantId == lot.ProductVariantId && x.Lot.WarehouseId == lot.WarehouseId)
             .OrderByDescending(x => x.StackOrder).ToListAsync();
         if (openBags.Count > 1)
             throw new InvalidOperationException($"Có nhiều hơn một bao mở cho variant {lot.ProductVariantId} tại vị trí {locationId}.");
         if (openBags.Count == 1 && remaining > 0)
         {
             var open = openBags[0];
+            if (open.LocationId != locationId)
+                throw new InvalidOperationException($"SKU đang có bao lẻ tại vị trí #{open.LocationId}. Vui lòng chọn đúng vị trí này để bổ sung trước.");
+            var topOrder = await _bagRepository.FindByCondition(x => x.LocationId == locationId && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted)
+                .MaxAsync(x => (int?)x.StackOrder) ?? 0;
+            if (open.StackOrder != topOrder)
+                throw new InvalidOperationException($"Bao mở #{open.BagNo} đang bị bao khác chặn phía trên nên không thể bổ sung sản lượng xay.");
+            if (open.Contents.Any(x => !x.IsDeleted && x.WeightKg > 0 &&
+                    (x.Lot.Status?.Code == LotStatusCodeConstants.Quarantine || x.Lot.Status?.IsSellable == false)))
+                throw new InvalidOperationException($"Bao mở #{open.BagNo} có thành phần lô đang cách ly hoặc không được phép sử dụng.");
             var topUp = Math.Min(remaining, standardKg - open.WeightKg);
             if (topUp > 0)
             {
+                var beforeWeight = open.WeightKg;
                 await _bagContentRepository.CreateAsync(new PaddyLotBagContent { BagId = open.Id, LotId = lot.Id, WeightKg = topUp, CreatedBy = userId, CreatedDate = now });
-                open.WeightKg += topUp; open.IsFull = open.WeightKg >= standardKg; open.OpenBagKey = open.IsFull ? null : BuildOpenBagKey(lot.ProductVariantId, lot.WarehouseId, locationId); open.UpdatedBy = userId; open.LastModifiedDate = now;
+                affectedBagIds.Add(open.Id);
+                open.WeightKg += topUp; open.IsFull = open.WeightKg >= standardKg; open.OpenBagKey = open.IsFull ? null : BuildOpenBagKey(lot.ProductVariantId, lot.WarehouseId); open.UpdatedBy = userId; open.LastModifiedDate = now;
                 await _bagRepository.UpdateAsync(open); remaining -= topUp;
+                if (_bagMovementRepository != null && lot.SourceMillingOrderId.HasValue)
+                    await _bagMovementRepository.CreateAsync(new PaddyLotBagMovement
+                    {
+                        BagId = open.Id, MovementType = PaddyLotBagMovementTypes.MillingPack,
+                        FromLocationId = locationId, ToLocationId = locationId,
+                        WeightKg = topUp, BeforeWeightKg = beforeWeight, AfterWeightKg = open.WeightKg,
+                        ReferenceType = PaddyLotBagAllocationReferenceTypes.MillingOrder,
+                        ReferenceId = lot.SourceMillingOrderId.Value,
+                        Note = $"Bổ sung {topUp:0.###} kg từ lô {lot.LotCode} vào bao mở",
+                        CreatedBy = userId, CreatedDate = now
+                    });
             }
         }
 
@@ -958,21 +1306,34 @@ public class MillingOrderService : IMillingOrderService
                 LotId = lot.Id, BagNo = nextBagNo++, WeightKg = weight, LocationId = locationId,
                 StackOrder = nextStack++, StandardWeightKg = standardKg, IsFull = weight >= standardKg,
                 BagKind = "Finished", Status = "Stored", QrCode = $"PLB-{Guid.NewGuid():N}".ToUpperInvariant(),
-                OpenBagKey = weight < standardKg ? BuildOpenBagKey(lot.ProductVariantId, lot.WarehouseId, locationId) : null,
+                OpenBagKey = weight < standardKg ? BuildOpenBagKey(lot.ProductVariantId, lot.WarehouseId) : null,
                 CreatedBy = userId, CreatedDate = now
             };
             await _bagRepository.CreateAsync(bag);
             await _bagRepository.SaveChangesAsync();
+            affectedBagIds.Add(bag.Id);
             await _bagContentRepository.CreateAsync(new PaddyLotBagContent { BagId = bag.Id, LotId = lot.Id, WeightKg = weight, CreatedBy = userId, CreatedDate = now });
+            if (_bagMovementRepository != null && lot.SourceMillingOrderId.HasValue)
+                await _bagMovementRepository.CreateAsync(new PaddyLotBagMovement
+                {
+                    BagId = bag.Id, MovementType = PaddyLotBagMovementTypes.MillingPack,
+                    FromLocationId = null, ToLocationId = locationId,
+                    WeightKg = weight, BeforeWeightKg = 0, AfterWeightKg = weight,
+                    ReferenceType = PaddyLotBagAllocationReferenceTypes.MillingOrder,
+                    ReferenceId = lot.SourceMillingOrderId.Value,
+                    Note = $"Đóng bao thành phẩm từ lô {lot.LotCode}",
+                    CreatedBy = userId, CreatedDate = now
+                });
             remaining -= weight;
         }
         await _bagContentRepository.SaveChangesAsync();
+        return affectedBagIds.Count;
     }
 
-    private static string BuildOpenBagKey(int variantId, int warehouseId, int locationId)
-        => $"{variantId}:{warehouseId}:{locationId}";
+    private static string BuildOpenBagKey(int variantId, int warehouseId)
+        => $"{variantId}:{warehouseId}";
 
-    private async Task ConsumeMillingInputBagsAsync(int lotId, int locationId, decimal requestedKg, int userId, DateTime now)
+    private async Task ConsumeMillingInputBagsAsync(int lotId, int locationId, decimal requestedKg, int orderId, int inputId, int userId, DateTime now)
     {
         if (_bagRepository == null || _bagContentRepository == null) return;
         var targetLot = await _paddyLotRepository.GetByIdAsync(lotId);
@@ -990,6 +1351,8 @@ public class MillingOrderService : IMillingOrderService
         var remaining = requestedKg;
         foreach (var bag in bags)
         {
+            var beforeBagWeight = bag.WeightKg;
+            var fromLocationId = bag.LocationId;
             var targetContents = bag.Contents.Where(x => x.LotId == lotId && x.WeightKg > 0 && !x.IsDeleted).OrderBy(x => x.Id).ToList();
             if (targetContents.Count == 0)
                 throw new InvalidOperationException(BuildBagRetrievalError(targetLot.LotCode, locationId, requestedKg, retrieval));
@@ -1015,18 +1378,47 @@ public class MillingOrderService : IMillingOrderService
                 bag.IsFull = bag.WeightKg >= bag.StandardWeightKg.Value;
                 bag.OpenBagKey = bag.IsFull
                     ? null
-                    : BuildOpenBagKey(targetLot.ProductVariantId, targetLot.WarehouseId, locationId);
+                    : BuildOpenBagKey(targetLot.ProductVariantId, targetLot.WarehouseId);
             }
             else
             {
                 bag.IsFull = false;
                 bag.OpenBagKey = null;
             }
+            RefreshRepresentativeLot(bag);
             bag.UpdatedBy = userId; bag.LastModifiedDate = now;
             await _bagRepository.UpdateAsync(bag);
+            if (bag.Status == PaddyLotBagStatuses.Consumed && _bagMovementRepository != null)
+            {
+                await _bagMovementRepository.CreateAsync(new PaddyLotBagMovement
+                {
+                    BagId = bag.Id,
+                    MovementType = PaddyLotBagMovementTypes.MillingConsume,
+                    FromLocationId = fromLocationId,
+                    ToLocationId = null,
+                    WeightKg = beforeBagWeight,
+                    BeforeWeightKg = beforeBagWeight,
+                    AfterWeightKg = 0,
+                    ReferenceType = PaddyLotBagAllocationReferenceTypes.MillingOrder,
+                    ReferenceId = orderId,
+                    ReferenceItemId = inputId,
+                    CreatedBy = userId,
+                    CreatedDate = now
+                });
+            }
             if (remaining <= 0.0005m) break;
         }
         await _bagContentRepository.SaveChangesAsync();
+    }
+
+    private static void RefreshRepresentativeLot(PaddyLotBag bag)
+    {
+        if (bag.WeightKg <= 0) return;
+        var active = bag.Contents.Where(x => !x.IsDeleted && x.WeightKg > 0.0005m).ToList();
+        if (active.Count == 0)
+            throw new InvalidOperationException($"Bao #{bag.BagNo} còn khối lượng nhưng không còn thành phần lô.");
+        if (active.Any(x => x.LotId == bag.LotId)) return;
+        bag.LotId = active.OrderByDescending(x => x.WeightKg).ThenBy(x => x.Id).First().LotId;
     }
 
     private sealed record BagRetrievalState(
@@ -1212,11 +1604,15 @@ public class MillingOrderService : IMillingOrderService
         StatusCode = x.Status?.Code,
         WarehouseId = x.WarehouseId,
         WarehouseName = x.Warehouse?.Name,
+        RiceVarietyId = x.RiceVarietyId,
+        RiceVarietyName = x.RiceVariety?.Name,
         Reason = x.Reason,
         SalesOrderId = x.SalesOrderId,
         YieldRateUsed = x.YieldRateUsed,
         TotalRiceOutputKg = x.TotalRiceOutputKg,
         ComputedPaddyKg = x.ComputedPaddyKg,
+        ActualPaddyInputKg = x.ActualPaddyInputKg,
+        ActualYieldRate = x.ActualYieldRate,
         ByproductKg = x.ByproductKg,
         LossKg = x.LossKg,
         MachineRef = x.MachineRef,
@@ -1231,6 +1627,7 @@ public class MillingOrderService : IMillingOrderService
             Id = i.Id,
             PaddyLotId = i.PaddyLotId,
             LotCode = i.PaddyLot?.LotCode,
+            LocationCode = i.Location?.SlotCode,
             LocationId = i.LocationId,
             ConsumedWeightKg = i.ConsumedWeightKg,
             ReservedWeightKg = i.ReservedWeightKg,

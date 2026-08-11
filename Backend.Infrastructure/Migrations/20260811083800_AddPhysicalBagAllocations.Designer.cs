@@ -4,6 +4,7 @@ using Backend.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Backend.Infrastructure.Migrations
 {
     [DbContext(typeof(BackendContext))]
-    partial class BackendContextModelSnapshot : ModelSnapshot
+    [Migration("20260811083800_AddPhysicalBagAllocations")]
+    partial class AddPhysicalBagAllocations
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2013,12 +2016,6 @@ namespace Backend.Infrastructure.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<decimal?>("ActualPaddyInputKg")
-                        .HasColumnType("decimal(18,3)");
-
-                    b.Property<decimal?>("ActualYieldRate")
-                        .HasColumnType("decimal(8,6)");
-
                     b.Property<decimal?>("ByproductKg")
                         .HasColumnType("decimal(18,3)");
 
@@ -2062,9 +2059,6 @@ namespace Backend.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("varchar(500)");
 
-                    b.Property<int?>("RiceVarietyId")
-                        .HasColumnType("int");
-
                     b.Property<int?>("SalesOrderId")
                         .HasColumnType("int");
 
@@ -2092,9 +2086,6 @@ namespace Backend.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("OperatorId");
-
-                    b.HasIndex("RiceVarietyId")
-                        .HasDatabaseName("IX_MillingOrder_RiceVarietyId");
 
                     b.HasIndex("SalesOrderId");
 
@@ -6714,11 +6705,6 @@ namespace Backend.Infrastructure.Migrations
                         .HasForeignKey("OrganizationId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("Backend.Domain.Entities.RiceVariety", "RiceVariety")
-                        .WithMany()
-                        .HasForeignKey("RiceVarietyId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("Backend.Domain.Entities.SalesOrder", "SalesOrder")
                         .WithMany("MillingOrders")
                         .HasForeignKey("SalesOrderId")
@@ -6739,8 +6725,6 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("Operator");
 
                     b.Navigation("Organization");
-
-                    b.Navigation("RiceVariety");
 
                     b.Navigation("SalesOrder");
 

@@ -18,6 +18,8 @@ public class MillingOrderConfiguration : IEntityTypeConfiguration<MillingOrder>
         builder.Property(x => x.YieldRateUsed).HasColumnType("decimal(6,4)").IsRequired();
         builder.Property(x => x.TotalRiceOutputKg).HasColumnType("decimal(18,3)").IsRequired();
         builder.Property(x => x.ComputedPaddyKg).HasColumnType("decimal(18,3)").IsRequired();
+        builder.Property(x => x.ActualPaddyInputKg).HasColumnType("decimal(18,3)");
+        builder.Property(x => x.ActualYieldRate).HasColumnType("decimal(8,6)");
         builder.Property(x => x.ByproductKg).HasColumnType("decimal(18,3)");
         builder.Property(x => x.LossKg).HasColumnType("decimal(18,3)");
         builder.Property(x => x.MachineRef).HasMaxLength(100);
@@ -42,6 +44,11 @@ public class MillingOrderConfiguration : IEntityTypeConfiguration<MillingOrder>
             .HasForeignKey(x => x.WarehouseId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        builder.HasOne(x => x.RiceVariety)
+            .WithMany()
+            .HasForeignKey(x => x.RiceVarietyId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         builder.HasOne(x => x.SalesOrder)
             .WithMany(x => x.MillingOrders)
             .HasForeignKey(x => x.SalesOrderId)
@@ -53,6 +60,7 @@ public class MillingOrderConfiguration : IEntityTypeConfiguration<MillingOrder>
             .OnDelete(DeleteBehavior.SetNull);
 
         builder.HasIndex(x => x.StatusId).HasDatabaseName("IX_MillingOrder_StatusId");
+        builder.HasIndex(x => x.RiceVarietyId).HasDatabaseName("IX_MillingOrder_RiceVarietyId");
         builder.HasIndex(x => x.StartedAt).HasDatabaseName("IX_MillingOrder_StartedAt");
     }
 }

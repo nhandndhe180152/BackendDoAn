@@ -8,6 +8,7 @@ public interface IOutboundOrderService
 {
     Task<ApiResponse> GetPagedAsync(OutboundOrderPagedQuery query);
     Task<ApiResponse> GetByIdAsync(int id);
+    Task<ApiResponse> GetAllocationCandidatesAsync(int id);
 
     /// <summary>Gắn lot/vị trí cho từng item → PICKING</summary>
     Task<ApiResponse> AllocateAsync(int id, AllocateOutboundDto dto);

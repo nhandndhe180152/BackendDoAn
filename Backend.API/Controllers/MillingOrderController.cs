@@ -88,6 +88,14 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        [HttpGet("{id}/source-suggestions")]
+        [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.READ)]
+        public async Task<IActionResult> SuggestSourcesAsync(int id)
+        {
+            var result = await _millingOrderService.SuggestSourcesAsync(id);
+            return BaseResult(result);
+        }
+
         [HttpPost("{id}/start")]
         [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.UPDATE)]
         public async Task<IActionResult> StartAsync(int id)

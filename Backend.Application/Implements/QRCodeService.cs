@@ -1005,7 +1005,83 @@ public class QRCodeService : IQRCodeService
         var entityType = parts[2].ToUpper();
         var qrCode = parts[3];
 
-        if (entityType == "PADDY_LOT" || entityType == "BAG")
+        if (entityType == "BAG")
+        {
+            var bag = await _context.PaddyLotBags
+                .Include(x => x.Lot).ThenInclude(x => x.ProductVariant)
+                .Include(x => x.Lot).ThenInclude(x => x.RiceVariety)
+                .Include(x => x.Lot).ThenInclude(x => x.Warehouse)
+                .Include(x => x.Lot).ThenInclude(x => x.Status)
+                .Include(x => x.Contents).ThenInclude(x => x.Lot).ThenInclude(x => x.Status)
+                .Include(x => x.Location)
+                .FirstOrDefaultAsync(x => x.QrCode == qrCode && !x.IsDeleted, cancellationToken);
+            if (bag == null)
+                throw new KeyNotFoundException("Không tìm thấy bao vật lý tương ứng với mã QR.");
+            var activeContents = bag.Contents
+                .Where(x => !x.IsDeleted && x.WeightKg > 0)
+                .GroupBy(x => x.LotId)
+                .Select(x => new
+                {
+                    Lot = x.First().Lot,
+                    WeightKg = x.Sum(c => c.WeightKg)
+                })
+                .OrderByDescending(x => x.WeightKg)
+                .ThenBy(x => x.Lot.Id)
+                .ToList();
+            var contentTotal = activeContents.Sum(x => x.WeightKg);
+            var anyBlockedContent = activeContents.Any(x =>
+                x.Lot.Status?.Code == LotStatusCodeConstants.Quarantine ||
+                x.Lot.Status?.IsSellable == false);
+
+            var bagResponse = new QrResolveResponseDto
+            {
+                EntityType = "BAG",
+                EntityId = bag.Id,
+                QrCode = bag.QrCode ?? string.Empty,
+                DisplayCode = $"{bag.Lot.LotCode}-B{bag.BagNo}",
+                LotType = bag.Lot.LotType,
+                BagNo = bag.BagNo,
+                BagWeightKg = bag.WeightKg,
+                StandardBagWeightKg = bag.StandardWeightKg,
+                IsFullBag = bag.IsFull,
+                LocationId = bag.LocationId,
+                StackOrder = bag.StackOrder,
+                RemainingWeightKg = bag.WeightKg,
+                IsQuarantined = anyBlockedContent || bag.Lot.Status?.Code == LotStatusCodeConstants.Quarantine,
+                IsMixedLotBag = activeContents.Count > 1,
+                ContentLotCount = activeContents.Count,
+                BagContents = activeContents.Select(x => new QrBagContentDto
+                {
+                    LotId = x.Lot.Id,
+                    LotCode = x.Lot.LotCode,
+                    WeightKg = x.WeightKg,
+                    Percentage = contentTotal > 0 ? Math.Round(x.WeightKg * 100m / contentTotal, 2) : 0,
+                    LotStatusCode = x.Lot.Status?.Code,
+                    IsSellable = x.Lot.Status?.IsSellable == true && x.Lot.Status.Code != LotStatusCodeConstants.Quarantine,
+                    SourceMillingOrderId = x.Lot.SourceMillingOrderId
+                }).ToList(),
+                ProductVariant = new QrProductVariantDto { Id = bag.Lot.ProductVariant.Id, Sku = bag.Lot.ProductVariant.SKU, Name = bag.Lot.ProductVariant.Name },
+                RiceVariety = bag.Lot.RiceVariety == null ? null : new QrRiceVarietyDto { Id = bag.Lot.RiceVariety.Id, Code = bag.Lot.RiceVariety.Code, Name = bag.Lot.RiceVariety.Name },
+                Warehouse = new QrWarehouseDto { Id = bag.Lot.Warehouse.Id, Code = bag.Lot.Warehouse.Code, Name = bag.Lot.Warehouse.Name },
+                Status = new QrLotStatusDto { Id = bag.Lot.Status.Id, Name = bag.Lot.Status.Name, IsSellable = bag.Lot.Status.IsSellable },
+                NavigationTarget = new QrNavigationTargetDto { Type = "BAG_DETAIL", Id = bag.Id }
+            };
+            if (request.Context != null)
+            {
+                var operation = request.Context.Operation?.Trim().ToUpperInvariant();
+                var requiresSellableContent = operation is "OUTBOUND_PICKING" or "MILLING_INPUT" or "STOCK_TRANSFER";
+                bagResponse.ValidationResult = requiresSellableContent && anyBlockedContent
+                    ? new QrContextValidationResultDto
+                    {
+                        Success = false,
+                        ErrorCode = "BAG_CONTENT_BLOCKED",
+                        ErrorMessage = "Bao có thành phần lô đang cách ly hoặc không được phép sử dụng."
+                    }
+                    : new QrContextValidationResultDto { Success = true };
+            }
+            return bagResponse;
+        }
+        if (entityType == "PADDY_LOT")
         {
             var lot = await _context.PaddyLots
                 .Include(x => x.ProductVariant)
@@ -1454,37 +1530,40 @@ public class QRCodeService : IQRCodeService
         else if (labelTypeUpper == "BAG")
         {
             // QR-04: ThenInclude UnitOfMeasure để hiện đúng đơn vị
-            var lot = await _context.PaddyLots
-                .Include(x => x.ProductVariant)
+            var bag = await _context.PaddyLotBags
+                .Include(x => x.Lot).ThenInclude(x => x.ProductVariant)
                     .ThenInclude(pv => pv!.UnitOfMeasure)
-                .Include(x => x.Warehouse)
-                .Include(x => x.Status)
+                .Include(x => x.Lot).ThenInclude(x => x.Warehouse)
+                .Include(x => x.Lot).ThenInclude(x => x.Status)
+                .Include(x => x.Location)
                 .FirstOrDefaultAsync(x => x.Id == subjectId && !x.IsDeleted, cancellationToken);
 
             // QR-02
-            if (lot == null)
+            if (bag == null)
                 throw new KeyNotFoundException($"Không tìm thấy lô hàng với ID {subjectId}.");
 
             // QR-03
-            if (string.IsNullOrWhiteSpace(lot.QrCode))
+            if (string.IsNullOrWhiteSpace(bag.QrCode))
             {
-                lot.QrCode = "PL-" + Guid.NewGuid().ToString("N").ToUpper();
+                bag.QrCode = "PLB-" + Guid.NewGuid().ToString("N").ToUpper();
                 await _context.SaveChangesAsync(cancellationToken);
             }
 
             previewData = new LabelPreviewDataDto
             {
                 LabelType       = labelTypeUpper,
-                SubjectId       = lot.Id,
+                SubjectId       = bag.Id,
                 Template        = template.ToUpper(),
-                QrPayload       = $"STOCKLITE|{lot.WarehouseId}|BAG|{lot.QrCode}",
-                DisplayCode     = lot.LotCode,
-                ProductName     = lot.ProductVariant?.Name,
-                Sku             = lot.ProductVariant?.SKU,
-                PackageWeightKg = lot.ProductVariant?.Weight,
-                InboundDate     = lot.InboundDate,
-                WarehouseName   = lot.Warehouse?.Name,
-                IsQuarantined   = lot.Status?.Code == LotStatusCodeConstants.Quarantine
+                QrPayload       = $"STOCKLITE|{bag.Lot.WarehouseId}|BAG|{bag.QrCode}",
+                DisplayCode     = $"{bag.Lot.LotCode}-B{bag.BagNo}",
+                ProductName     = bag.Lot.ProductVariant?.Name,
+                Sku             = bag.Lot.ProductVariant?.SKU,
+                WeightKg        = bag.WeightKg,
+                PackageWeightKg = bag.StandardWeightKg,
+                InboundDate     = bag.Lot.InboundDate,
+                WarehouseName   = bag.Lot.Warehouse?.Name,
+                LocationName    = bag.Location == null ? null : FormatLocation(bag.Location),
+                IsQuarantined   = bag.Lot.Status?.Code == LotStatusCodeConstants.Quarantine
             };
         }
         else if (labelTypeUpper == "LOCATION")

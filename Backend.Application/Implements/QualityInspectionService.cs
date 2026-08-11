@@ -64,11 +64,15 @@ public class QualityInspectionService : IQualityInspectionService
         if (selectedBagIds.Count > 0)
         {
             var selectedBags = await _context.PaddyLotBags
+                .Include(x => x.Contents)
                 .Where(x => selectedBagIds.Contains(x.Id) && x.LotId == lot.Id && !x.IsDeleted
                     && x.Status == PaddyLotBagStatuses.Pending)
                 .ToListAsync();
             if (selectedBags.Count != selectedBagIds.Count)
                 return ApiResponse.BadRequest(message: "Có bao không thuộc lô hoặc không còn ở trạng thái chờ nhập để tách cách ly.");
+            if (selectedBags.Any(x => x.Contents
+                .Any(c => !c.IsDeleted && c.WeightKg > 0 && c.LotId != lot.Id)))
+                return ApiResponse.BadRequest(message: "Không thể tách cách ly bao hỗn hợp bằng kiểm định của một lô. Hãy xử lý cách ly toàn bộ bao hỗn hợp theo từng thành phần lô.");
             obj.AffectedWeightKg = selectedBags.Sum(x => x.WeightKg);
         }
 
@@ -552,11 +556,15 @@ public class QualityInspectionService : IQualityInspectionService
         if (!wasSplit && selectedBagIds.Count > 0)
         {
             var selectedBags = await _context.PaddyLotBags
+                .Include(x => x.Contents)
                 .Where(x => selectedBagIds.Contains(x.Id) && x.LotId == lot.Id && !x.IsDeleted
                     && x.Status == PaddyLotBagStatuses.Pending)
                 .ToListAsync();
             if (selectedBags.Count != selectedBagIds.Count)
                 return ApiResponse.BadRequest(message: "Có bao không thuộc lô hoặc không còn ở trạng thái chờ nhập để tách cách ly.");
+            if (selectedBags.Any(x => x.Contents
+                .Any(c => !c.IsDeleted && c.WeightKg > 0 && c.LotId != lot.Id)))
+                return ApiResponse.BadRequest(message: "Không thể tách cách ly bao hỗn hợp bằng kiểm định của một lô. Hãy xử lý cách ly toàn bộ bao hỗn hợp theo từng thành phần lô.");
             obj.AffectedWeightKg = selectedBags.Sum(x => x.WeightKg);
         }
 
@@ -1274,10 +1282,14 @@ public class QualityInspectionService : IQualityInspectionService
             throw new InvalidOperationException("Tách lô cách ly một phần bắt buộc phải có danh sách bao.");
 
         var bags = await _context.PaddyLotBags
+            .Include(x => x.Contents)
             .Where(x => selectedBagIds.Contains(x.Id) && x.LotId == parentLotId && !x.IsDeleted)
             .ToListAsync();
         if (bags.Count != selectedBagIds.Count)
             throw new InvalidOperationException("Danh sách bao đã thay đổi trong lúc tách lô. Vui lòng tải lại và thử lại.");
+        if (bags.Any(x => x.Contents
+            .Any(c => !c.IsDeleted && c.WeightKg > 0 && c.LotId != parentLotId)))
+            throw new InvalidOperationException("Không thể đổi lô đại diện của bao hỗn hợp khi tách cách ly một lô.");
 
         var contents = await _context.PaddyLotBagContents
             .Where(x => selectedBagIds.Contains(x.BagId) && x.LotId == parentLotId && !x.IsDeleted)

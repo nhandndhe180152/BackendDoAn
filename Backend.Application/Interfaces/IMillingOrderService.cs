@@ -7,6 +7,7 @@ namespace Backend.Application.Interfaces;
 public interface IMillingOrderService : IServiceBase<int, CreateMillingOrderDto, UpdateMillingOrderDto, DTParameter>
 {
     Task<ApiResponse> ReserveAsync(int id, ReserveMillingOrderDto dto, int userId);
+    Task<ApiResponse> SuggestSourcesAsync(int id);
     Task<ApiResponse> StartAsync(int id, int userId);
     Task<ApiResponse> CancelAsync(int id, int userId);
 

@@ -23,8 +23,31 @@ public class LocationService : ILocationService
         _warehouseRepository = warehouseRepository;
     }
 
+    private static string? NormalizeAndValidate(CreateLocationDto obj)
+    {
+        obj.ZoneName = obj.ZoneName?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(obj.ZoneName)) return "Tên khu vực không được để trống.";
+        if (string.IsNullOrWhiteSpace(obj.ShelfRow)) return "Cột xếp không được để trống.";
+        if (string.IsNullOrWhiteSpace(obj.SlotCode)) return "Mã vị trí không được để trống.";
+        if (!obj.MaxCapacity.HasValue || obj.MaxCapacity.Value <= 0) return "Sức chứa tối đa phải lớn hơn 0 kg.";
+        if (obj.CurrentOccupancy < 0) return "Khối lượng đang chứa không được âm.";
+        if (obj.CurrentOccupancy > obj.MaxCapacity.Value) return "Sức chứa tối đa không được nhỏ hơn khối lượng đang chứa.";
+
+        var column = obj.ShelfRow.Trim().ToUpperInvariant().Replace(" ", string.Empty);
+        obj.ShelfRow = int.TryParse(column, out var columnNumber)
+            ? $"C{columnNumber:00}"
+            : column;
+        obj.ShelfLevel = null;
+        obj.SlotCode = obj.SlotCode.Trim().ToUpperInvariant();
+        return null;
+    }
+
     public async Task<ApiResponse> CreateAsync(CreateLocationDto obj)
     {
+        var validationError = NormalizeAndValidate(obj);
+        if (validationError != null)
+            return ApiResponse.UnprocessableEntity(validationError, ApiCodeConstants.Common.UnprocessableEntity);
+
         var warehouseExists = await _warehouseRepository.AnyAsync(x => !x.IsDeleted && x.Id == obj.WarehouseId);
         if (!warehouseExists)
             return ApiResponse.BadRequest(
@@ -33,7 +56,7 @@ public class LocationService : ILocationService
 
         if (!string.IsNullOrEmpty(obj.SlotCode))
         {
-            var isExistSlot = await _locationRepository.AnyAsync(x => !x.IsDeleted && x.WarehouseId == obj.WarehouseId && x.SlotCode.ToLower() == obj.SlotCode.ToLower());
+            var isExistSlot = await _locationRepository.AnyAsync(x => !x.IsDeleted && x.WarehouseId == obj.WarehouseId && x.SlotCode != null && x.SlotCode.ToLower() == obj.SlotCode.ToLower());
             if (isExistSlot)
                 return ApiResponse.UnprocessableEntity(
                     ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.SlotCode),
@@ -141,6 +164,10 @@ public class LocationService : ILocationService
 
     public async Task<ApiResponse> UpdateAsync(UpdateLocationDto obj)
     {
+        var validationError = NormalizeAndValidate(obj);
+        if (validationError != null)
+            return ApiResponse.UnprocessableEntity(validationError, ApiCodeConstants.Common.UnprocessableEntity);
+
         var warehouseExists = await _warehouseRepository.AnyAsync(x => !x.IsDeleted && x.Id == obj.WarehouseId);
         if (!warehouseExists)
             return ApiResponse.BadRequest(
@@ -149,7 +176,7 @@ public class LocationService : ILocationService
 
         if (!string.IsNullOrEmpty(obj.SlotCode))
         {
-            var isExistSlot = await _locationRepository.AnyAsync(x => !x.IsDeleted && x.WarehouseId == obj.WarehouseId && x.SlotCode.ToLower() == obj.SlotCode.ToLower() && x.Id != obj.Id);
+            var isExistSlot = await _locationRepository.AnyAsync(x => !x.IsDeleted && x.WarehouseId == obj.WarehouseId && x.SlotCode != null && x.SlotCode.ToLower() == obj.SlotCode.ToLower() && x.Id != obj.Id);
             if (isExistSlot)
                 return ApiResponse.UnprocessableEntity(
                     ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.SlotCode),
