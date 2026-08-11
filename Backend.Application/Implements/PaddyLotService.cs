@@ -67,7 +67,8 @@ public class PaddyLotService : IPaddyLotService
                 false,
                 x => x.ProductVariant,
                 x => x.Status,
-                x => x.Warehouse)
+                x => x.Warehouse,
+                x => x.Bags)
             .OrderByDescending(x => x.CreatedDate)
             .ToListAsync();
 
@@ -86,7 +87,8 @@ public class PaddyLotService : IPaddyLotService
                 false,
                 x => x.ProductVariant,
                 x => x.Status,
-                x => x.Warehouse)
+                x => x.Warehouse,
+                x => x.Bags)
             .OrderByDescending(x => x.CreatedDate)
             .ToListAsync();
 
@@ -100,7 +102,8 @@ public class PaddyLotService : IPaddyLotService
                 false,
                 x => x.ProductVariant,
                 x => x.Status,
-                x => x.Warehouse)
+                x => x.Warehouse,
+                x => x.Bags)
             .FirstOrDefaultAsync();
 
         if (entity == null)

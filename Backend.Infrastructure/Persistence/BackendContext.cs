@@ -82,6 +82,9 @@ public class BackendContext : DbContext, IApplicationDbContext
     public virtual DbSet<PaddyPurchaseReceipt> PaddyPurchaseReceipts { get; set; }
     public virtual DbSet<LotStatus> LotStatuses { get; set; }
     public virtual DbSet<PaddyLot> PaddyLots { get; set; }
+    public virtual DbSet<PaddyLotBag> PaddyLotBags { get; set; }
+    public virtual DbSet<PaddyLotBagContent> PaddyLotBagContents { get; set; }
+    public virtual DbSet<PaddyLotBagMovement> PaddyLotBagMovements { get; set; }
     public virtual DbSet<QualityInspection> QualityInspections { get; set; }
     public virtual DbSet<MillingOrderStatus> MillingOrderStatuses { get; set; }
     public virtual DbSet<MillingYieldConfig> MillingYieldConfigs { get; set; }

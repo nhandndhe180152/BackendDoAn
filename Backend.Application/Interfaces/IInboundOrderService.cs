@@ -25,6 +25,7 @@ public interface IInboundOrderService
     Task<ApiResponse> AttachWeightAsync(int orderId, int receiptId, AttachWeightDto dto);
     Task<ApiResponse> ReviewExceptionAsync(int orderId, int receiptId, ReviewExceptionDto dto);
     Task<ApiResponse> GetPutawaySuggestionsAsync(int orderId, int receiptId);
+    Task<ApiResponse> GetBagPutawayPlanAsync(int orderId, int receiptId);
     Task<ApiResponse> SelectPutawayAsync(int orderId, int receiptId, SelectPutawayDto dto);
     Task<ApiResponse> ConfirmReceiptAsync(int orderId, int receiptId, ConfirmReceiptDto dto);
     /// <summary>Gap 3: Đảo ngược một dòng phiếu nhập đã xác nhận nhập kho (store-in sai).</summary>

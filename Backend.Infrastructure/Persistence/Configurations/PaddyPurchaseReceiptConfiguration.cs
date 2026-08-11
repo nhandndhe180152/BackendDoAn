@@ -20,6 +20,7 @@ public class PaddyPurchaseReceiptConfiguration : IEntityTypeConfiguration<PaddyP
         builder.Property(x => x.PaidAmount).HasColumnType("decimal(18,2)").IsRequired();
         builder.Property(x => x.DebtAmount).HasColumnType("decimal(18,2)").IsRequired();
         builder.Property(x => x.QualityJson).HasColumnType("json");
+        builder.Property(x => x.BagDetailsJson).HasColumnType("json");
         builder.Property(x => x.PriceAdjustReason).HasMaxLength(500);
 
         builder.HasIndex(x => new { x.OrganizationId, x.ReceiptCode })

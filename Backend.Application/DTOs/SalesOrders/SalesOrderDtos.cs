@@ -105,6 +105,15 @@ public class SalesOrderListDto
     public DateTime OrderDate { get; set; }
     public DateTime? ExpectedDeliveryDate { get; set; }
     public bool RequiresMilling { get; set; }
+    public int? RiceVarietyId { get; set; }
+    public string? RiceVarietyCode { get; set; }
+    public string? RiceVarietyName { get; set; }
+    public string? RiceVarietyDisplayName { get; set; }
+    public int RiceVarietyCount { get; set; }
+    public bool HasUnconfiguredRiceVariety { get; set; }
+    public decimal TotalRiceRequiredKg { get; set; }
+    public decimal AllocatedMillingRiceKg { get; set; }
+    public decimal RemainingMillingRiceKg { get; set; }
     public decimal TotalAmount { get; set; }
     public decimal? DepositAmount { get; set; }
     public string? Note { get; set; }

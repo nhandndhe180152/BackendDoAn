@@ -18,4 +18,5 @@ public class UpdateQualityInspectionDto
     public string? Note { get; set; }
     public int? UpdatedBy { get; set; }
     public decimal? AffectedWeightKg { get; set; }
+    public List<int>? AffectedBagIds { get; set; }
 }

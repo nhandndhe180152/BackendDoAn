@@ -156,8 +156,40 @@ public class SalesOrderService : ISalesOrderService
         var total = await _salesOrderRepository.CountAsync(query.Keyword);
         var list = await _salesOrderRepository.GetPagedListAsync(query.Keyword, skip, query.PageSize);
 
-        var dtos = list.Select(so => new SalesOrderListDto
+        var dtos = list.Select(so =>
         {
+            var riceItems = so.SalesOrderItems
+                .Where(i => !i.IsDeleted && !i.ProductVariant.IsByproduct)
+                .ToList();
+            var varieties = riceItems
+                .Where(i => i.ProductVariant.RiceVarietyId.HasValue)
+                .Select(i => i.ProductVariant.RiceVariety)
+                .Where(v => v != null)
+                .GroupBy(v => v!.Id)
+                .Select(g => g.First()!)
+                .ToList();
+            var singleVariety = varieties.Count == 1 ? varieties[0] : null;
+            var totalRiceRequiredKg = riceItems.Sum(i => i.QuantityOrdered);
+            var allocatedMillingRiceKg = so.MillingOrders
+                .Where(o => !o.IsDeleted && o.Status?.Code != "CANCELLED")
+                .Sum(o => o.TotalRiceOutputKg);
+            var productNames = riceItems
+                .Where(i => singleVariety != null && i.ProductVariant.RiceVarietyId == singleVariety.Id)
+                .Select(i => i.ProductVariant.Name?.Trim())
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct()
+                .ToList();
+            var varietyDisplayName = singleVariety == null
+                ? null
+                : !string.IsNullOrWhiteSpace(singleVariety.Name) &&
+                  !singleVariety.Name.StartsWith("Giống #", StringComparison.OrdinalIgnoreCase)
+                    ? singleVariety.Name
+                    : productNames.Count > 0
+                        ? string.Join(", ", productNames)
+                        : singleVariety.Code;
+
+            return new SalesOrderListDto
+            {
             Id                   = so.Id,
             SOCode               = so.SOCode,
             CustomerId           = so.CustomerId,
@@ -172,10 +204,20 @@ public class SalesOrderService : ISalesOrderService
             OrderDate            = so.OrderDate,
             ExpectedDeliveryDate = so.ExpectedDeliveryDate,
             RequiresMilling      = so.RequiresMilling,
+            RiceVarietyId        = singleVariety?.Id,
+            RiceVarietyCode      = singleVariety?.Code,
+            RiceVarietyName      = singleVariety?.Name,
+            RiceVarietyDisplayName = varietyDisplayName,
+            RiceVarietyCount     = varieties.Count,
+            HasUnconfiguredRiceVariety = riceItems.Any(i => !i.ProductVariant.RiceVarietyId.HasValue),
+            TotalRiceRequiredKg = totalRiceRequiredKg,
+            AllocatedMillingRiceKg = allocatedMillingRiceKg,
+            RemainingMillingRiceKg = Math.Max(0, totalRiceRequiredKg - allocatedMillingRiceKg),
             TotalAmount          = so.TotalAmount,
             DepositAmount        = so.DepositAmount,
             Note                 = so.Note,
             CreatedDate          = so.CreatedDate
+            };
         }).ToList();
 
         return ApiResponse.Success(new { Total = total, Items = dtos });

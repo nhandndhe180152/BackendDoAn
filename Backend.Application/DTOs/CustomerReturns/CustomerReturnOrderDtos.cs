@@ -61,6 +61,13 @@ public class InspectCustomerReturnOrderItemAllocationDto
     public int? RestockLocationId { get; set; }
     public int? QuarantineLocationId { get; set; }
     public string? Note { get; set; }
+    public List<CustomerReturnBagDto> Bags { get; set; } = new();
+}
+
+public class CustomerReturnBagDto
+{
+    public decimal WeightKg { get; set; }
+    public string Condition { get; set; } = "GOOD";
 }
 
 public class CustomerReturnOrderListDto
@@ -154,6 +161,7 @@ public class CustomerReturnOrderItemAllocationDetailDto
     public decimal UnitCreditPrice { get; set; }
     public decimal CreditAmount { get; set; }
     public string? Note { get; set; }
+    public List<CustomerReturnBagDto> Bags { get; set; } = new();
 }
 
 public class CustomerReturnImpactPreviewDto

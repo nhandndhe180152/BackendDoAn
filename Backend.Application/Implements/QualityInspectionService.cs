@@ -56,6 +56,22 @@ public class QualityInspectionService : IQualityInspectionService
         if (lot == null || lot.IsDeleted)
             return ApiResponse.NotFound(message: "Không tìm thấy lô lúa/gạo.");
 
+        var selectedBagIds = (obj.AffectedBagIds ?? new List<int>()).Distinct().ToList();
+        if (obj.PassedInspection && selectedBagIds.Count > 0)
+            return ApiResponse.BadRequest(message: "Không được chọn bao cách ly khi kết quả kiểm định là Đạt.");
+        if (!obj.PassedInspection && obj.AffectedWeightKg.HasValue && selectedBagIds.Count == 0)
+            return ApiResponse.BadRequest(message: "Không nhập kg ảnh hưởng thủ công. Hãy chọn chính xác các bao cần tách sang cách ly.");
+        if (selectedBagIds.Count > 0)
+        {
+            var selectedBags = await _context.PaddyLotBags
+                .Where(x => selectedBagIds.Contains(x.Id) && x.LotId == lot.Id && !x.IsDeleted
+                    && x.Status == PaddyLotBagStatuses.Pending)
+                .ToListAsync();
+            if (selectedBags.Count != selectedBagIds.Count)
+                return ApiResponse.BadRequest(message: "Có bao không thuộc lô hoặc không còn ở trạng thái chờ nhập để tách cách ly.");
+            obj.AffectedWeightKg = selectedBags.Sum(x => x.WeightKg);
+        }
+
         // Trọng lượng cơ sở của lô: lô đã nhập kho dùng RemainingWeightKg; lô CHƯA nhập kho
         // (đang chờ kiểm định, RemainingWeightKg = 0) dùng InitialWeightKg.
         decimal lotWeight = lot.RemainingWeightKg > 0 ? lot.RemainingWeightKg : lot.InitialWeightKg;
@@ -309,6 +325,8 @@ public class QualityInspectionService : IQualityInspectionService
             // 6. Xử lý Tồn kho (Inventory) và Giao dịch tồn kho (InventoryTransaction) nếu xảy ra Tách lô
             if (isSplit && childLot != null)
             {
+                await MoveSelectedBagsToQuarantineLotAsync(
+                    lot.Id, childLot.Id, selectedBagIds, entity.Id, obj.CreatedBy, now);
                 decimal remainingToDeduct = obj.AffectedWeightKg!.Value;
 
                 // B2. Sắp xếp trừ trên phần khả dụng (QuantityOnHand - QuantityReserved)
@@ -525,6 +543,22 @@ public class QualityInspectionService : IQualityInspectionService
         var lot = await _paddyLotRepository.GetByIdAsync(obj.PaddyLotId);
         if (lot == null || lot.IsDeleted)
             return ApiResponse.NotFound(message: "Không tìm thấy lô lúa/gạo.");
+
+        var selectedBagIds = (obj.AffectedBagIds ?? new List<int>()).Distinct().ToList();
+        if (!wasSplit && obj.PassedInspection && selectedBagIds.Count > 0)
+            return ApiResponse.BadRequest(message: "Không được chọn bao cách ly khi kết quả kiểm định là Đạt.");
+        if (!wasSplit && !obj.PassedInspection && obj.AffectedWeightKg.HasValue && selectedBagIds.Count == 0)
+            return ApiResponse.BadRequest(message: "Không nhập kg ảnh hưởng thủ công. Hãy chọn chính xác các bao cần tách sang cách ly.");
+        if (!wasSplit && selectedBagIds.Count > 0)
+        {
+            var selectedBags = await _context.PaddyLotBags
+                .Where(x => selectedBagIds.Contains(x.Id) && x.LotId == lot.Id && !x.IsDeleted
+                    && x.Status == PaddyLotBagStatuses.Pending)
+                .ToListAsync();
+            if (selectedBags.Count != selectedBagIds.Count)
+                return ApiResponse.BadRequest(message: "Có bao không thuộc lô hoặc không còn ở trạng thái chờ nhập để tách cách ly.");
+            obj.AffectedWeightKg = selectedBags.Sum(x => x.WeightKg);
+        }
 
         // Trọng lượng cơ sở: lô đã nhập kho dùng RemainingWeightKg; lô chưa nhập kho dùng InitialWeightKg.
         decimal lotWeight = lot.RemainingWeightKg > 0 ? lot.RemainingWeightKg : lot.InitialWeightKg;
@@ -793,6 +827,8 @@ public class QualityInspectionService : IQualityInspectionService
             // 6. Xử lý Tồn kho (Inventory) và Giao dịch tồn kho (InventoryTransaction) nếu xảy ra Tách lô
             if (isSplit && childLot != null)
             {
+                await MoveSelectedBagsToQuarantineLotAsync(
+                    lot.Id, childLot.Id, selectedBagIds, entity.Id, obj.UpdatedBy, now);
                 decimal remainingToDeduct = obj.AffectedWeightKg!.Value;
 
                 foreach (var parentInv in parentInventories.OrderByDescending(x => x.QuantityOnHand - x.QuantityReserved))
@@ -1224,6 +1260,60 @@ public class QualityInspectionService : IQualityInspectionService
         }
 
         return ApiResponse.Success(isDeleted);
+    }
+
+    private async Task MoveSelectedBagsToQuarantineLotAsync(
+        int parentLotId,
+        int childLotId,
+        IReadOnlyCollection<int> selectedBagIds,
+        int inspectionId,
+        int? userId,
+        DateTime now)
+    {
+        if (selectedBagIds.Count == 0)
+            throw new InvalidOperationException("Tách lô cách ly một phần bắt buộc phải có danh sách bao.");
+
+        var bags = await _context.PaddyLotBags
+            .Where(x => selectedBagIds.Contains(x.Id) && x.LotId == parentLotId && !x.IsDeleted)
+            .ToListAsync();
+        if (bags.Count != selectedBagIds.Count)
+            throw new InvalidOperationException("Danh sách bao đã thay đổi trong lúc tách lô. Vui lòng tải lại và thử lại.");
+
+        var contents = await _context.PaddyLotBagContents
+            .Where(x => selectedBagIds.Contains(x.BagId) && x.LotId == parentLotId && !x.IsDeleted)
+            .ToListAsync();
+
+        foreach (var bag in bags)
+        {
+            bag.LotId = childLotId;
+            bag.BagKind = PaddyLotBagKinds.Quarantine;
+            bag.UpdatedBy = userId;
+            bag.LastModifiedDate = now;
+            _context.PaddyLotBagMovements.Add(new PaddyLotBagMovement
+            {
+                BagId = bag.Id,
+                MovementType = PaddyLotBagMovementTypes.QualityQuarantineSplit,
+                FromLocationId = bag.LocationId,
+                ToLocationId = bag.LocationId,
+                WeightKg = bag.WeightKg,
+                BeforeWeightKg = bag.WeightKg,
+                AfterWeightKg = bag.WeightKg,
+                ReferenceType = InventoryReferenceTypeConstants.QualityInspectionSplit,
+                ReferenceId = inspectionId,
+                Note = $"Chuyển bao #{bag.BagNo} từ lô {parentLotId} sang lô cách ly {childLotId}",
+                CreatedBy = userId,
+                CreatedDate = now
+            });
+        }
+
+        foreach (var content in contents)
+        {
+            content.LotId = childLotId;
+            content.UpdatedBy = userId;
+            content.LastModifiedDate = now;
+        }
+
+        await _context.SaveChangesAsync();
     }
 
     private static QualityInspectionDetailDto ToDto(QualityInspection x) => new()

@@ -32,6 +32,7 @@ public class MillingOrderServiceTests
     private readonly Mock<IMillingYieldConfigRepository>        _yieldRepo    = new();
     private readonly Mock<IRepositoryBase<Alert, int>>           _alertRepo    = new();
     private readonly Mock<INotificationDispatcher>              _dispatcher   = new();
+    private readonly Mock<ISalesOrderRepository>                _salesOrderRepo = new();
 
     private MillingOrderService Sut() => new(
         _orderRepo.Object,
@@ -45,7 +46,8 @@ public class MillingOrderServiceTests
         _locationRepo.Object,
         _yieldRepo.Object,
         _alertRepo.Object,
-        _dispatcher.Object);
+        _dispatcher.Object,
+        _salesOrderRepo.Object);
 
     [Fact]
     public async Task CompleteMillingOrderAsync_OutputPlusLoss_ExceedsInput_Plus2Percent_Returns400()

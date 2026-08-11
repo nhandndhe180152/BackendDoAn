@@ -42,6 +42,9 @@ public class QualityInspectionServiceTests
     private readonly List<InboundOrderItem> _inboundOrderItems = new();
     private readonly List<InboundOrderStatus> _inboundOrderStatuses = new();
     private readonly List<Backend.Domain.Entities.InboundOrder> _inboundOrders = new();
+    private readonly List<PaddyLotBag> _paddyLotBags = new();
+    private readonly List<PaddyLotBagContent> _paddyLotBagContents = new();
+    private readonly List<PaddyLotBagMovement> _paddyLotBagMovements = new();
 
     public QualityInspectionServiceTests()
     {
@@ -49,6 +52,9 @@ public class QualityInspectionServiceTests
         _context.Setup(c => c.InboundOrderItems).Returns(() => _inboundOrderItems.AsQueryable().BuildMockDbSet().Object);
         _context.Setup(c => c.InboundOrderStatuses).Returns(() => _inboundOrderStatuses.AsQueryable().BuildMockDbSet().Object);
         _context.Setup(c => c.InboundOrders).Returns(() => _inboundOrders.AsQueryable().BuildMockDbSet().Object);
+        _context.Setup(c => c.PaddyLotBags).Returns(() => _paddyLotBags.AsQueryable().BuildMockDbSet().Object);
+        _context.Setup(c => c.PaddyLotBagContents).Returns(() => _paddyLotBagContents.AsQueryable().BuildMockDbSet().Object);
+        _context.Setup(c => c.PaddyLotBagMovements).Returns(() => _paddyLotBagMovements.AsQueryable().BuildMockDbSet().Object);
 
         _inboundOrderStatuses.Add(new InboundOrderStatus
         {
@@ -63,6 +69,19 @@ public class QualityInspectionServiceTests
 
     private QualityInspectionService Sut() =>
         new(_repo.Object, _lotRepo.Object, _inventoryRepo.Object, _inventoryTxRepo.Object, _lotStatusRepo.Object, _context.Object, _notificationDispatcher.Object);
+
+    private void AddPendingBag(int id = 500, int lotId = 5, decimal weightKg = 3000)
+    {
+        _paddyLotBags.Add(new PaddyLotBag
+        {
+            Id = id,
+            LotId = lotId,
+            BagNo = 1,
+            WeightKg = weightKg,
+            Status = PaddyLotBagStatuses.Pending,
+            IsDeleted = false
+        });
+    }
 
     // ── Helper: setup mock DB transaction ────────────────────────────────────
 
@@ -242,6 +261,7 @@ public class QualityInspectionServiceTests
     public async Task UpdateAsync_FailedInspectionWithPartialAffectedWeight_SplitsLotAndAdjustsInventory()
     {
         // Arrange
+        AddPendingBag();
         var existing = new Domain.Entities.QualityInspection
         {
             Id = 11,
@@ -321,6 +341,7 @@ public class QualityInspectionServiceTests
             PaddyLotId = 5,
             PassedInspection = false,
             AffectedWeightKg = 3000,
+            AffectedBagIds = new List<int> { 500 },
             InspectedAt = DateTime.UtcNow
         };
 
@@ -420,6 +441,7 @@ public class QualityInspectionServiceTests
     public async Task CreateAsync_FailedInspectionWithPartialAffectedWeight_SplitsLotAndAdjustsInventory()
     {
         // Arrange
+        AddPendingBag();
         var parentLot = new PaddyLotEntity 
         { 
             Id = 5, 
@@ -488,6 +510,7 @@ public class QualityInspectionServiceTests
             PaddyLotId = 5,
             PassedInspection = false,
             AffectedWeightKg = 3000,
+            AffectedBagIds = new List<int> { 500 },
             InspectedAt = DateTime.UtcNow
         };
 
@@ -541,6 +564,7 @@ public class QualityInspectionServiceTests
     public async Task CreateAsync_SplitLot_ThrowsBadRequest_WhenAvailableInventoryInsufficient()
     {
         // Arrange (B1: Available stock < AffectedWeightKg)
+        AddPendingBag();
         var parentLot = new PaddyLotEntity { Id = 5, RemainingWeightKg = 10000 };
         _lotRepo.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(parentLot);
         SetupTransaction(_repo);
@@ -555,6 +579,7 @@ public class QualityInspectionServiceTests
             PaddyLotId = 5,
             PassedInspection = false,
             AffectedWeightKg = 3000, // Requires 3000
+            AffectedBagIds = new List<int> { 500 },
             InspectedAt = DateTime.UtcNow
         };
 
@@ -570,6 +595,7 @@ public class QualityInspectionServiceTests
     public async Task CreateAsync_SplitLot_IgnoresReservedQuantitiesDuringDeduction()
     {
         // Arrange (B2: Deduct only from available quantity)
+        AddPendingBag();
         var parentLot = new PaddyLotEntity 
         { 
             Id = 5, LotCode = "LOT-5", RemainingWeightKg = 10000, InitialWeightKg = 10000 
@@ -596,6 +622,7 @@ public class QualityInspectionServiceTests
             PaddyLotId = 5,
             PassedInspection = false,
             AffectedWeightKg = 3000,
+            AffectedBagIds = new List<int> { 500 },
             InspectedAt = DateTime.UtcNow
         };
 
@@ -612,6 +639,7 @@ public class QualityInspectionServiceTests
     public async Task CreateAsync_SplitLot_AvoidsDuplicateLotCodeFromSoftDeleted()
     {
         // Arrange (B3: Soft-deleted LOT-5-Q1 exists, should name child lot LOT-5-Q2)
+        AddPendingBag();
         var parentLot = new PaddyLotEntity { Id = 5, LotCode = "LOT-5", RemainingWeightKg = 10000 };
         _lotRepo.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(parentLot);
         SetupTransaction(_repo);
@@ -636,6 +664,7 @@ public class QualityInspectionServiceTests
             PaddyLotId = 5,
             PassedInspection = false,
             AffectedWeightKg = 3000,
+            AffectedBagIds = new List<int> { 500 },
             InspectedAt = DateTime.UtcNow
         };
 

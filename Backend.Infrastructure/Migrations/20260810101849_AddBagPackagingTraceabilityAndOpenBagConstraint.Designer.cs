@@ -4,6 +4,7 @@ using Backend.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Backend.Infrastructure.Migrations
 {
     [DbContext(typeof(BackendContext))]
-    partial class BackendContextModelSnapshot : ModelSnapshot
+    [Migration("20260810101849_AddBagPackagingTraceabilityAndOpenBagConstraint")]
+    partial class AddBagPackagingTraceabilityAndOpenBagConstraint
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -642,9 +645,6 @@ namespace Backend.Infrastructure.Migrations
                         .HasColumnType("int");
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("BagDetailsJson")
-                        .HasColumnType("longtext");
 
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
@@ -3173,83 +3173,6 @@ namespace Backend.Infrastructure.Migrations
                     b.ToTable("PaddyLotBagContent", (string)null);
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.PaddyLotBagMovement", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<decimal>("AfterWeightKg")
-                        .HasPrecision(18, 3)
-                        .HasColumnType("decimal(18,3)");
-
-                    b.Property<int>("BagId")
-                        .HasColumnType("int");
-
-                    b.Property<decimal>("BeforeWeightKg")
-                        .HasPrecision(18, 3)
-                        .HasColumnType("decimal(18,3)");
-
-                    b.Property<int?>("CreatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int?>("FromLocationId")
-                        .HasColumnType("int");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<DateTime?>("LastModifiedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("MovementType")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("varchar(40)");
-
-                    b.Property<string>("Note")
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
-
-                    b.Property<int>("ReferenceId")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("ReferenceItemId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("ReferenceType")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("varchar(40)");
-
-                    b.Property<int?>("ToLocationId")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("UpdatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<decimal>("WeightKg")
-                        .HasPrecision(18, 3)
-                        .HasColumnType("decimal(18,3)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("FromLocationId");
-
-                    b.HasIndex("ToLocationId");
-
-                    b.HasIndex("BagId", "CreatedDate");
-
-                    b.HasIndex("ReferenceType", "ReferenceId");
-
-                    b.ToTable("PaddyLotBagMovement", (string)null);
-                });
-
             modelBuilder.Entity("Backend.Domain.Entities.PaddyPurchaseReceipt", b =>
                 {
                     b.Property<int>("Id")
@@ -3298,9 +3221,6 @@ namespace Backend.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("varchar(500)");
 
-                    b.Property<int?>("ProductVariantId")
-                        .HasColumnType("int");
-
                     b.Property<string>("QualityJson")
                         .HasColumnType("json");
 
@@ -3334,8 +3254,6 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasIndex("ReceiptDate")
                         .HasDatabaseName("IX_PaddyPurchaseReceipt_ReceiptDate");
-
-                    b.HasIndex("ProductVariantId");
 
                     b.HasIndex("RiceVarietyId");
 
@@ -5311,9 +5229,6 @@ namespace Backend.Infrastructure.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("BagIdsJson")
-                        .HasColumnType("longtext");
-
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
 
@@ -6974,31 +6889,6 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("Lot");
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.PaddyLotBagMovement", b =>
-                {
-                    b.HasOne("Backend.Domain.Entities.PaddyLotBag", "Bag")
-                        .WithMany("Movements")
-                        .HasForeignKey("BagId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Backend.Domain.Entities.Location", "FromLocation")
-                        .WithMany()
-                        .HasForeignKey("FromLocationId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Backend.Domain.Entities.Location", "ToLocation")
-                        .WithMany()
-                        .HasForeignKey("ToLocationId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("Bag");
-
-                    b.Navigation("FromLocation");
-
-                    b.Navigation("ToLocation");
-                });
-
             modelBuilder.Entity("Backend.Domain.Entities.PaddyPurchaseReceipt", b =>
                 {
                     b.HasOne("Backend.Domain.Entities.Farmer", "Farmer")
@@ -7011,11 +6901,6 @@ namespace Backend.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("OrganizationId")
                         .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
-                        .WithMany()
-                        .HasForeignKey("ProductVariantId")
-                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("Backend.Domain.Entities.RiceVariety", "RiceVariety")
                         .WithMany()
@@ -7036,8 +6921,6 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("Farmer");
 
                     b.Navigation("Organization");
-
-                    b.Navigation("ProductVariant");
 
                     b.Navigation("RiceVariety");
 
@@ -7795,8 +7678,6 @@ namespace Backend.Infrastructure.Migrations
             modelBuilder.Entity("Backend.Domain.Entities.PaddyLotBag", b =>
                 {
                     b.Navigation("Contents");
-
-                    b.Navigation("Movements");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.PaddyPurchaseReceipt", b =>

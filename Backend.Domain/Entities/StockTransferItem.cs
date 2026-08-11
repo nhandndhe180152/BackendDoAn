@@ -14,6 +14,7 @@ public class StockTransferItem : EntityAuditBase<int>
     public int? ToLocationId { get; set; }
     public decimal WeightKg { get; set; }
     public string? Note { get; set; }
+    public string? BagIdsJson { get; set; }
 
     // Navigation
     public virtual StockTransfer StockTransfer { get; set; } = null!;

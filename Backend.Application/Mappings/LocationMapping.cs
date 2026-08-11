@@ -63,6 +63,7 @@ public static class LocationMapping
             AllowedCategoryName = entity.AllowedCategory?.Name,
             Priority = entity.Priority,
             IsQuarantine = entity.IsQuarantine,
+            CurrentProductVariantId = entity.CurrentProductVariantId,
             CreatedDate = entity.CreatedDate
         };
     }
@@ -86,6 +87,7 @@ public static class LocationMapping
             AllowedCategoryName = entity.AllowedCategory?.Name,
             Priority = entity.Priority,
             IsQuarantine = entity.IsQuarantine,
+            CurrentProductVariantId = entity.CurrentProductVariantId,
             CreatedDate = entity.CreatedDate
         };
     }

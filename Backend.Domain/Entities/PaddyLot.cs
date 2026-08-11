@@ -50,4 +50,6 @@ public class PaddyLot : EntityAuditBase<int>
     public virtual Location? Location { get; set; }
     public virtual ICollection<QualityInspection> QualityInspections { get; set; } = new List<QualityInspection>();
     public virtual ICollection<MillingOrderInput> MillingOrderInputs { get; set; } = new List<MillingOrderInput>();
+    public virtual ICollection<PaddyLotBag> Bags { get; set; } = new List<PaddyLotBag>();
+    public virtual ICollection<PaddyLotBagContent> BagContents { get; set; } = new List<PaddyLotBagContent>();
 }

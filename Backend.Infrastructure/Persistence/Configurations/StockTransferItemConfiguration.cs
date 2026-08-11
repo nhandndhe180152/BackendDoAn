@@ -15,6 +15,7 @@ public class StockTransferItemConfiguration : IEntityTypeConfiguration<StockTran
 
         builder.Property(x => x.WeightKg).HasColumnType("decimal(18,3)").IsRequired();
         builder.Property(x => x.Note).HasMaxLength(500);
+        builder.Property(x => x.BagIdsJson).HasColumnType("longtext");
 
         builder.HasOne(x => x.StockTransfer)
             .WithMany(x => x.StockTransferItems)

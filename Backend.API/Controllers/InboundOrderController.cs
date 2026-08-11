@@ -25,6 +25,14 @@ public class InboundOrderController : BaseController
         _inboundOrderService = inboundOrderService;
     }
 
+    private bool IsInboundOperator()
+    {
+        var roles = this.GetLoggedInRoleIds();
+        return roles.Contains(CommonConstants.Role.ADMIN) ||
+               roles.Contains(CommonConstants.Role.OWNER) ||
+               roles.Contains(CommonConstants.Role.WAREHOUSE);
+    }
+
     [HttpGet]
     [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.READ)]
     public async Task<IActionResult> GetPagedAsync([FromQuery] SearchQuery query)
@@ -157,6 +165,15 @@ public class InboundOrderController : BaseController
     {
         var result = await _inboundOrderService.GetPutawaySuggestionsAsync(id, receiptId);
         return BaseResult(result);
+    }
+
+    [HttpGet("{id}/receipts/{receiptId}/bag-putaway-plan")]
+    [CustomAuthorize(Enums.Menu.INBOUND_ORDERS, Enums.Action.READ)]
+    public async Task<IActionResult> GetBagPutawayPlanAsync(int id, int receiptId)
+    {
+        if (!IsInboundOperator())
+            return BaseResult(ApiResponse.Forbidden(message: "Bạn không có quyền xử lý xếp bao vào kho.", code: ApiCodeConstants.Common.Forbidden));
+        return BaseResult(await _inboundOrderService.GetBagPutawayPlanAsync(id, receiptId));
     }
 
     [HttpPost("{id}/receipts/{receiptId}/select-putaway")]
