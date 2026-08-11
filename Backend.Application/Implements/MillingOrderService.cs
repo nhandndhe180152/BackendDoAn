@@ -1002,8 +1002,26 @@ public class MillingOrderService : IMillingOrderService
                 if (remaining <= 0.0005m) break;
             }
             bag.WeightKg = Math.Max(0, bag.WeightKg);
-            if (bag.WeightKg <= 0.0005m) { bag.WeightKg = 0; bag.Status = "Consumed"; bag.LocationId = null; bag.IsFull = false; }
-            else { bag.IsFull = false; }
+            if (bag.WeightKg <= 0.0005m)
+            {
+                bag.WeightKg = 0;
+                bag.Status = "Consumed";
+                bag.LocationId = null;
+                bag.IsFull = false;
+                bag.OpenBagKey = null;
+            }
+            else if (bag.StandardWeightKg.HasValue)
+            {
+                bag.IsFull = bag.WeightKg >= bag.StandardWeightKg.Value;
+                bag.OpenBagKey = bag.IsFull
+                    ? null
+                    : BuildOpenBagKey(targetLot.ProductVariantId, targetLot.WarehouseId, locationId);
+            }
+            else
+            {
+                bag.IsFull = false;
+                bag.OpenBagKey = null;
+            }
             bag.UpdatedBy = userId; bag.LastModifiedDate = now;
             await _bagRepository.UpdateAsync(bag);
             if (remaining <= 0.0005m) break;

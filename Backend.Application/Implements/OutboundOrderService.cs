@@ -833,8 +833,8 @@ public class OutboundOrderService : IOutboundOrderService
             .Include(x => x.Lot).Include(x => x.Contents)
             .Where(x => x.Lot.ProductVariantId == productVariantId && x.Lot.WarehouseId == warehouseId)
             .OrderBy(x => x.IsFull) // dọn bao mở trước
-            .ThenByDescending(x => x.StackOrder)
             .ThenBy(x => x.LocationId)
+            .ThenByDescending(x => x.StackOrder)
             .ToListAsync();
         if (bags.Count == 0) return new();
         foreach (var group in bags.GroupBy(x => x.LocationId))
@@ -1283,14 +1283,14 @@ public class OutboundOrderService : IOutboundOrderService
         }
         var bagNo = (await _bagRepository.FindByCondition(x => x.LotId == lotId && !x.IsDeleted).MaxAsync(x => (int?)x.BagNo) ?? 0) + 1;
         var stack = (await _bagRepository.FindByCondition(x => x.LocationId == locationId && x.Status == "Stored" && !x.IsDeleted).MaxAsync(x => (int?)x.StackOrder) ?? 0) + 1;
-        do
+        while (remaining > 0.0005m)
         {
             var weight = standard.HasValue ? Math.Min(remaining, standard.Value) : remaining;
             var bag = new PaddyLotBag { LotId = lotId, BagNo = bagNo++, WeightKg = weight, LocationId = locationId, Status = "Stored", StackOrder = stack++, StandardWeightKg = standard, IsFull = !standard.HasValue || weight >= standard, BagKind = standard.HasValue ? "Finished" : "Purchase", OpenBagKey = standard.HasValue && weight < standard ? $"{lot.ProductVariantId}:{lot.WarehouseId}:{locationId}" : null, QrCode = $"PLB-{Guid.NewGuid():N}".ToUpperInvariant(), CreatedBy = userId, CreatedDate = now };
             await _bagRepository.CreateAsync(bag); await _bagRepository.SaveChangesAsync();
             await _bagContentRepository.CreateAsync(new PaddyLotBagContent { BagId = bag.Id, LotId = lotId, WeightKg = weight, CreatedBy = userId, CreatedDate = now });
             remaining -= weight;
-        } while (remaining > 0.0005m);
+        }
         await _bagContentRepository.SaveChangesAsync();
     }
 

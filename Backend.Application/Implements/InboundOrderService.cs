@@ -1761,7 +1761,7 @@ public class InboundOrderService : IInboundOrderService
                 var bagKg = await _paddyLotBagRepository.FindByCondition(x => x.LotId == item.PaddyLotId && x.LocationId == column.LocationId && x.Status == "Stored" && !x.IsDeleted).SumAsync(x => x.WeightKg);
                 var contentKg = await _paddyLotBagContentRepository.FindByCondition(x => x.LotId == item.PaddyLotId && x.Bag.LocationId == column.LocationId && x.Bag.Status == "Stored" && !x.IsDeleted && !x.Bag.IsDeleted).SumAsync(x => x.WeightKg);
                 var inventoryKg = await _inventoryRepository.FindByCondition(x => x.PaddyLotId == item.PaddyLotId && x.LocationId == column.LocationId && x.WarehouseId == order.WarehouseId && !x.IsDeleted).SumAsync(x => x.QuantityOnHand);
-                if (bagKg != contentKg || contentKg != inventoryKg)
+                if (Math.Abs(bagKg - contentKg) > 0.001m || Math.Abs(contentKg - inventoryKg) > 0.001m)
                     throw new InvalidOperationException($"Bất biến khối lượng bị vi phạm tại vị trí {column.LocationId}: bao={bagKg}, thành phần={contentKg}, tồn={inventoryKg}.");
             }
             await transaction.CommitAsync();
