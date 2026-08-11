@@ -39,6 +39,14 @@ public class OutboundOrderController : BaseController
         return BaseResult(result);
     }
 
+    [HttpGet("{id}/allocation-candidates")]
+    [CustomAuthorize(Enums.Menu.OUTBOUND_ORDERS, Enums.Action.READ)]
+    public async Task<IActionResult> GetAllocationCandidatesAsync(int id)
+    {
+        var result = await _outboundOrderService.GetAllocationCandidatesAsync(id);
+        return BaseResult(result);
+    }
+
     // ── Commands ─────────────────────────────────────────────────────────
 
     /// <summary>

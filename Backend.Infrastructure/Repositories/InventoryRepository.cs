@@ -117,10 +117,26 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
                         && (x.PaddyLot.Status.Code == LotStatusCodeConstants.Processing
                             || x.PaddyLot.Status.Code == LotStatusCodeConstants.Milling))
                         ? x.QuantityOnHand : 0m,
-                // QuantityOnHand lưu kg trực tiếp → TotalWeightKg = QoH, Bags = QoH / trọng lượng mỗi bao
+                // QuantityOnHand lưu kg trực tiếp. Số bao phải lấy từ bao vật lý, tuyệt đối
+                // không suy ngược bằng kg / ProductVariant.Weight vì Weight không phải lúc nào
+                // cũng là quy cách bao và phép chia đó làm sai dữ liệu lịch sử.
                 TotalWeightKg = x.QuantityOnHand,
-                Bags = x.ProductVariant.Weight > 0
-                    ? (int)Math.Floor((double)x.QuantityOnHand / (double)x.ProductVariant.Weight)
+                // Bao hỗn hợp có thể mang LotId đại diện khác với lô của dòng tồn.
+                // Xác định dữ liệu vật lý theo thành phần bao, nhưng chỉ đếm bao trên
+                // dòng lô đại diện để tổng số bao tại vị trí không bị nhân đôi.
+                HasPhysicalBagData = x.PaddyLotId.HasValue && _context.PaddyLotBagContents.Any(c =>
+                    !c.IsDeleted && c.WeightKg > 0 && c.LotId == x.PaddyLotId.Value &&
+                    !c.Bag.IsDeleted && c.Bag.LocationId == x.LocationId &&
+                    c.Bag.Status == "Stored" && c.Bag.WeightKg > 0),
+                Bags = x.PaddyLotId.HasValue
+                    ? _context.PaddyLotBags.Count(b =>
+                        !b.IsDeleted && b.LotId == x.PaddyLotId.Value && b.LocationId == x.LocationId &&
+                        b.Status == "Stored" && b.WeightKg > 0)
+                    : 0,
+                OpenBags = x.PaddyLotId.HasValue
+                    ? _context.PaddyLotBags.Count(b =>
+                        !b.IsDeleted && b.LotId == x.PaddyLotId.Value && b.LocationId == x.LocationId &&
+                        b.Status == "Stored" && b.WeightKg > 0 && !b.IsFull)
                     : 0,
                 MinStockLevel = x.ProductVariant.MinStockLevel,
                 IsLowStock = x.ProductVariant.MinStockLevel != null &&

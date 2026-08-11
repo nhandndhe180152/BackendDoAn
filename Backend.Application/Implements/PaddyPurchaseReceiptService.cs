@@ -399,7 +399,10 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
     public async Task<ApiResponse> GetProductVariantLookupAsync()
     {
         var items = await _productVariantRepository
-            .FindByCondition(x => !x.IsDeleted && x.IsActive && !x.IsByproduct)
+            .FindByCondition(x => !x.IsDeleted
+                && x.IsActive
+                && !x.IsByproduct
+                && x.Product.ProductCategoryId == CommonConstants.ProductCategory.Paddy)
             .Select(x => new PaddyProductVariantLookupDto
             {
                 Id = x.Id,
@@ -426,11 +429,15 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         if (receipt.ProductVariantId.HasValue)
         {
             var chosen = await _productVariantRepository
-                .FindByCondition(x => x.Id == receipt.ProductVariantId.Value && !x.IsDeleted)
+                .FindByCondition(x => x.Id == receipt.ProductVariantId.Value
+                    && !x.IsDeleted
+                    && x.IsActive
+                    && !x.IsByproduct
+                    && x.Product.ProductCategoryId == CommonConstants.ProductCategory.Paddy)
                 .FirstOrDefaultAsync();
 
             if (chosen == null)
-                throw new InvalidOperationException("Sản phẩm đã chọn trên phiếu không tồn tại hoặc đã bị xoá. Vui lòng chọn lại sản phẩm.");
+                throw new InvalidOperationException("Sản phẩm đã chọn không phải là biến thể lúa đang hoạt động. Vui lòng chọn một sản phẩm thuộc danh mục Lúa thô.");
 
             // Nếu phiếu có giống lúa, biến thể phải khớp giống lúa đó.
             if (receipt.RiceVarietyId.HasValue
@@ -490,35 +497,25 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
     {
         if (receipt.RiceVarietyId.HasValue)
         {
-            // Tìm variant khớp RiceVarietyId, không phải byproduct, và tên sản phẩm/category chứa từ "Lúa"
+            // Tìm variant lúa thô khớp chính xác giống lúa của phiếu.
             var matchedVariant = await _productVariantRepository
-                .FindByCondition(x => x.RiceVarietyId == receipt.RiceVarietyId.Value 
-                    && !x.IsByproduct 
-                    && x.IsActive 
-                    && (x.Product.ProductCategory.Name.Contains("Lúa") || x.Name.Contains("Lúa") || x.Product.Name.Contains("Lúa")))
-                .FirstOrDefaultAsync();
-
-            if (matchedVariant != null) return matchedVariant.Id;
-
-            // Fallback 1: bỏ qua điều kiện tên chứa "Lúa"
-            matchedVariant = await _productVariantRepository
-                .FindByCondition(x => x.RiceVarietyId == receipt.RiceVarietyId.Value && !x.IsByproduct && x.IsActive)
+                .FindByCondition(x => x.RiceVarietyId == receipt.RiceVarietyId.Value
+                    && !x.IsDeleted
+                    && !x.IsByproduct
+                    && x.IsActive
+                    && x.Product.ProductCategoryId == CommonConstants.ProductCategory.Paddy)
                 .FirstOrDefaultAsync();
 
             if (matchedVariant != null) return matchedVariant.Id;
         }
 
-        // Fallback 2: Tìm variant đầu tiên không phải byproduct và thuộc category "Lúa"
+        // Dữ liệu cũ chưa gắn giống: chỉ fallback sang variant chung thuộc danh mục Lúa thô.
         var fallback = await _productVariantRepository
-            .FindByCondition(x => !x.IsByproduct && x.IsActive 
-                && (x.Product.ProductCategory.Name.Contains("Lúa") || x.Name.Contains("Lúa") || x.Product.Name.Contains("Lúa")))
-            .FirstOrDefaultAsync();
-
-        if (fallback != null) return fallback.Id;
-
-        // Fallback 3: Tìm variant active không phải byproduct bất kỳ
-        fallback = await _productVariantRepository
-            .FindByCondition(x => !x.IsByproduct && x.IsActive)
+            .FindByCondition(x => !x.IsDeleted
+                && !x.IsByproduct
+                && x.IsActive
+                && x.RiceVarietyId == null
+                && x.Product.ProductCategoryId == CommonConstants.ProductCategory.Paddy)
             .FirstOrDefaultAsync();
 
         if (fallback != null) return fallback.Id;

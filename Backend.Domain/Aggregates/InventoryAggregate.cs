@@ -61,8 +61,17 @@ public class InventoryAggregate
     /// <summary>Khối lượng tồn thực tế quy đổi (kg) = QuantityOnHand * UnitWeightKg.</summary>
     public decimal TotalWeightKg { get; set; }
 
-    /// <summary>Số bao/đơn vị (làm tròn từ QuantityOnHand).</summary>
+    /// <summary>Số bao vật lý đang lưu tại đúng lô/vị trí.</summary>
     public int Bags { get; set; }
+
+    /// <summary>
+    /// true khi số bao được đối chiếu từ các bao vật lý PaddyLotBag; false với dữ liệu cũ
+    /// chưa được chuyển đổi sang quản lý theo bao.
+    /// </summary>
+    public bool HasPhysicalBagData { get; set; }
+
+    /// <summary>Số bao vật lý chưa đủ trọng lượng chuẩn.</summary>
+    public int OpenBags { get; set; }
 
     public decimal? MinStockLevel { get; set; }
 

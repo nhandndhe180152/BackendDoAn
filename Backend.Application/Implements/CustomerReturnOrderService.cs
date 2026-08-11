@@ -1466,11 +1466,20 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
         if (!quarantined)
         {
-            var openKey = $"{allocation.ProductVariantId}:{order.WarehouseId}:{locationId}";
+            var openKey = $"{allocation.ProductVariantId}:{order.WarehouseId}";
             var open = await _context.PaddyLotBags.Include(x => x.Contents)
                 .FirstOrDefaultAsync(x => x.OpenBagKey == openKey && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted, cancellationToken);
             if (open != null && remaining > 0)
             {
+                if (open.LocationId != locationId)
+                    throw new InvalidOperationException(
+                        $"SKU đang có bao mở tại vị trí #{open.LocationId}. Hàng trả chỉ được bổ sung tại đúng cột hàng lẻ này.");
+                var topOrder = await _context.PaddyLotBags
+                    .Where(x => x.LocationId == locationId && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted)
+                    .MaxAsync(x => (int?)x.StackOrder, cancellationToken) ?? 0;
+                if (open.StackOrder != topOrder)
+                    throw new InvalidOperationException(
+                        $"Bao mở #{open.BagNo} đang bị bao khác chặn phía trên nên không thể bổ sung hàng trả.");
                 var before = open.WeightKg;
                 var topUp = Math.Min(remaining, standardWeight - open.WeightKg);
                 if (topUp > 0)
@@ -1479,7 +1488,6 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     open.WeightKg += topUp;
                     open.IsFull = open.WeightKg >= standardWeight - 0.001m;
                     open.OpenBagKey = open.IsFull ? null : openKey;
-                    open.StackOrder = nextStack++;
                     open.UpdatedBy = userId; open.LastModifiedDate = now;
                     await _context.PaddyLotBagMovements.AddAsync(new PaddyLotBagMovement
                     {
@@ -1504,7 +1512,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 Status = PaddyLotBagStatuses.Stored, QrCode = $"PLB-{Guid.NewGuid():N}".ToUpperInvariant(),
                 StackOrder = nextStack++, StandardWeightKg = standardWeight, IsFull = isFull,
                 BagKind = quarantined ? PaddyLotBagKinds.Quarantine : PaddyLotBagKinds.Finished,
-                OpenBagKey = !quarantined && !isFull ? $"{allocation.ProductVariantId}:{order.WarehouseId}:{locationId}" : null,
+                OpenBagKey = !quarantined && !isFull ? $"{allocation.ProductVariantId}:{order.WarehouseId}" : null,
                 CreatedBy = userId, CreatedDate = now,
                 Contents = new List<PaddyLotBagContent>
                 {

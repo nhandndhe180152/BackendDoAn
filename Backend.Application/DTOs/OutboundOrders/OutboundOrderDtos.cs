@@ -73,6 +73,20 @@ public class OutboundOrderItemAllocationDto
     public decimal UnitCostPrice { get; set; }
 }
 
+public class OutboundAllocationCandidateDto
+{
+    public int InventoryId { get; set; }
+    public int ProductVariantId { get; set; }
+    public int? PaddyLotId { get; set; }
+    public string? LotCode { get; set; }
+    public int? LocationId { get; set; }
+    public string? LocationCode { get; set; }
+    public decimal QuantityOnHand { get; set; }
+    public decimal ReservedByOtherOrders { get; set; }
+    public decimal ReservedForThisSalesOrder { get; set; }
+    public decimal SelectableQuantity { get; set; }
+}
+
 // ═══════════════════════════════ COMMANDS ═══════════════════════════════
 
 /// <summary>

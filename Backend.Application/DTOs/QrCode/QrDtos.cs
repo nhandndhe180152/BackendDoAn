@@ -47,6 +47,15 @@ public class QrResolveResponseDto
     public QrLotStatusDto? Status { get; set; }
     public decimal? RemainingWeightKg { get; set; }
     public bool? IsQuarantined { get; set; }
+    public int? BagNo { get; set; }
+    public decimal? BagWeightKg { get; set; }
+    public decimal? StandardBagWeightKg { get; set; }
+    public bool? IsFullBag { get; set; }
+    public int? LocationId { get; set; }
+    public int? StackOrder { get; set; }
+    public bool? IsMixedLotBag { get; set; }
+    public int? ContentLotCount { get; set; }
+    public List<QrBagContentDto> BagContents { get; set; } = new();
 
     // Location properties (null for PaddyLot)
     public string? ZoneName { get; set; }
@@ -67,6 +76,17 @@ public class QrResolveResponseDto
 
     // Context validation results
     public QrContextValidationResultDto? ValidationResult { get; set; }
+}
+
+public class QrBagContentDto
+{
+    public int LotId { get; set; }
+    public string LotCode { get; set; } = null!;
+    public decimal WeightKg { get; set; }
+    public decimal Percentage { get; set; }
+    public string? LotStatusCode { get; set; }
+    public bool IsSellable { get; set; }
+    public int? SourceMillingOrderId { get; set; }
 }
 
 public class QrProductVariantDto

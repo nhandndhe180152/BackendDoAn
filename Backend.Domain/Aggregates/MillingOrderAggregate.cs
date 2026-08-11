@@ -12,11 +12,15 @@ public class MillingOrderAggregate
     public string? StatusName { get; set; }
     public int WarehouseId { get; set; }
     public string? WarehouseName { get; set; }
+    public int? RiceVarietyId { get; set; }
+    public string? RiceVarietyName { get; set; }
     public string? Reason { get; set; }
     public int? SalesOrderId { get; set; }
     public decimal YieldRateUsed { get; set; }
     public decimal TotalRiceOutputKg { get; set; }
     public decimal ComputedPaddyKg { get; set; }
+    public decimal? ActualPaddyInputKg { get; set; }
+    public decimal? ActualYieldRate { get; set; }
     public decimal? ByproductKg { get; set; }
     public decimal? LossKg { get; set; }
     public string? MachineRef { get; set; }

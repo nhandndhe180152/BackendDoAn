@@ -33,6 +33,7 @@ public class MillingOrderServiceTests
     private readonly Mock<IRepositoryBase<Alert, int>>           _alertRepo    = new();
     private readonly Mock<INotificationDispatcher>              _dispatcher   = new();
     private readonly Mock<ISalesOrderRepository>                _salesOrderRepo = new();
+    private readonly Mock<IRepositoryBase<PaddyLotBagAllocation, int>> _bagAllocationRepo = new();
 
     private MillingOrderService Sut() => new(
         _orderRepo.Object,
@@ -47,11 +48,39 @@ public class MillingOrderServiceTests
         _yieldRepo.Object,
         _alertRepo.Object,
         _dispatcher.Object,
-        _salesOrderRepo.Object);
+        _salesOrderRepo.Object,
+        bagAllocationRepository: _bagAllocationRepo.Object);
+
+    private void SetupPhysicalAllocation(decimal weightKg)
+    {
+        var allocation = new PaddyLotBagAllocation
+        {
+            Id = 1,
+            BagId = 1,
+            ReferenceType = PaddyLotBagAllocationReferenceTypes.MillingOrder,
+            ReferenceId = 1,
+            AllocatedWeightKg = weightKg,
+            BagWeightSnapshotKg = weightKg,
+            Status = PaddyLotBagAllocationStatuses.Active,
+            Bag = new PaddyLotBag
+            {
+                Id = 1,
+                Status = PaddyLotBagStatuses.Stored,
+                WeightKg = weightKg
+            }
+        };
+        _bagAllocationRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<PaddyLotBagAllocation, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns(new List<PaddyLotBagAllocation> { allocation }.AsQueryable().BuildMock());
+        _bagAllocationRepo.Setup(r => r.UpdateAsync(It.IsAny<PaddyLotBagAllocation>()))
+            .Returns(Task.CompletedTask);
+    }
 
     [Fact]
     public async Task CompleteMillingOrderAsync_OutputPlusLoss_ExceedsInput_Plus2Percent_Returns400()
     {
+        SetupPhysicalAllocation(100m);
         // Arrange: input 100 kg. Output 70 + loss 15 + byproducts 20 = 105 > 100 * 1.02 = 102
         var order = new Backend.Domain.Entities.MillingOrder
         {
@@ -104,6 +133,7 @@ public class MillingOrderServiceTests
     [Fact]
     public async Task CompleteMillingOrderAsync_OutputPlusLoss_WithinTolerance_PassesMassBalance()
     {
+        SetupPhysicalAllocation(100m);
         // Arrange: input 100 kg. Output 70 + loss 4 + byproducts 25 = 99 kg (within 2% tolerance of 100kg)
         var order = new Backend.Domain.Entities.MillingOrder
         {

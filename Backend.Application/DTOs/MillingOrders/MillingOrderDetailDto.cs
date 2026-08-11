@@ -13,11 +13,15 @@ public class MillingOrderDetailDto
     public string? StatusCode { get; set; }
     public int WarehouseId { get; set; }
     public string? WarehouseName { get; set; }
+    public int? RiceVarietyId { get; set; }
+    public string? RiceVarietyName { get; set; }
     public string? Reason { get; set; }
     public int? SalesOrderId { get; set; }
     public decimal YieldRateUsed { get; set; }
     public decimal TotalRiceOutputKg { get; set; }
     public decimal ComputedPaddyKg { get; set; }
+    public decimal? ActualPaddyInputKg { get; set; }
+    public decimal? ActualYieldRate { get; set; }
     public decimal? ByproductKg { get; set; }
     public decimal? LossKg { get; set; }
     public string? MachineRef { get; set; }
@@ -43,9 +47,20 @@ public class MillingOrderInputDetailDto
     public int PaddyLotId { get; set; }
     public string? LotCode { get; set; }
     public int? LocationId { get; set; }
+    public string? LocationCode { get; set; }
     public decimal ConsumedWeightKg { get; set; }
     public decimal? ReservedWeightKg { get; set; }
     public string? Note { get; set; }
+    public List<MillingSelectedBagDto> Bags { get; set; } = new();
+}
+
+public class MillingSelectedBagDto
+{
+    public int BagId { get; set; }
+    public int BagNo { get; set; }
+    public decimal WeightKg { get; set; }
+    public int StackOrder { get; set; }
+    public string Status { get; set; } = string.Empty;
 }
 
 public class MillingOrderOutputDetailDto
