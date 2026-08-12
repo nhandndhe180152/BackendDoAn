@@ -1105,16 +1105,7 @@ public class OutboundOrderService : IOutboundOrderService
             }
         }
 
-        var groupedAllocations = allocations
-            .GroupBy(x => x.InventoryId)
-            .Select(g => new AllocateItemLotDto
-            {
-                InventoryId = g.Key,
-                QuantityAllocated = g.Sum(x => x.QuantityAllocated)
-            })
-            .ToList();
-
-        return groupedAllocations;
+        return allocations;
     }
 
     private async Task ConsumePhysicalBagsAsync(int lotId, int locationId, decimal requestedKg,
