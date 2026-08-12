@@ -265,6 +265,28 @@ public class OutboundOrderService : IOutboundOrderService
             .GroupBy(x => x.InventoryId)
             .ToDictionary(g => g.Key, g => Math.Max(0m, g.Sum(x => x.Quantity)));
 
+        // ── Query bag data per location for Stack Card UX ──────────────
+        var locationIds = inventories
+            .Where(x => x.LocationId.HasValue)
+            .Select(x => x.LocationId!.Value)
+            .Distinct()
+            .ToList();
+
+        // Bag lookup: locationId → list of bags sorted by StackOrder desc (top first)
+        var bagsByLocation = new Dictionary<int, List<PaddyLotBag>>();
+        if (_bagRepository != null && locationIds.Count > 0)
+        {
+            var bags = await _bagRepository
+                .FindByCondition(x => x.LocationId.HasValue && locationIds.Contains(x.LocationId!.Value)
+                    && x.Status == "Stored" && !x.IsDeleted, false)
+                .Include(x => x.Lot)
+                .OrderBy(x => x.LocationId)
+                .ThenByDescending(x => x.StackOrder)
+                .ToListAsync();
+            foreach (var group in bags.GroupBy(x => x.LocationId!.Value))
+                bagsByLocation[group.Key] = group.ToList();
+        }
+
         var result = inventories
             .Where(inv => inv.PaddyLot == null ||
                 (inv.PaddyLot.Status != null && inv.PaddyLot.Status.IsSellable &&
@@ -274,6 +296,38 @@ public class OutboundOrderService : IOutboundOrderService
             {
                 var own = ownReserved.GetValueOrDefault(inv.Id);
                 var reservedByOthers = Math.Max(0m, inv.QuantityReserved - own);
+
+                // ── Compute bag-level info ──
+                decimal? standardWeightKg = null;
+                int fullBagCount = 0;
+                bool hasOpenBag = false;
+                decimal openBagWeightKg = 0;
+                int? openBagId = null;
+                bool isOpenBagBlocked = false;
+
+                if (inv.LocationId.HasValue && bagsByLocation.TryGetValue(inv.LocationId.Value, out var locationBags))
+                {
+                    // Filter bags relevant to this inventory's lot
+                    var lotBags = locationBags.Where(b => b.LotId == inv.PaddyLotId).ToList();
+                    if (lotBags.Count > 0)
+                    {
+                        standardWeightKg = lotBags.FirstOrDefault(b => b.StandardWeightKg.HasValue)?.StandardWeightKg;
+                        fullBagCount = lotBags.Count(b => b.IsFull);
+
+                        var openBag = lotBags.FirstOrDefault(b => !b.IsFull && b.WeightKg > 0);
+                        if (openBag != null)
+                        {
+                            hasOpenBag = true;
+                            openBagWeightKg = openBag.WeightKg;
+                            openBagId = openBag.Id;
+
+                            // Check if open bag is blocked: it must be at the top of the column
+                            var topStackOrder = locationBags.Max(b => b.StackOrder);
+                            isOpenBagBlocked = openBag.StackOrder != topStackOrder;
+                        }
+                    }
+                }
+
                 return new OutboundAllocationCandidateDto
                 {
                     InventoryId = inv.Id,
@@ -285,7 +339,13 @@ public class OutboundOrderService : IOutboundOrderService
                     QuantityOnHand = inv.QuantityOnHand,
                     ReservedForThisSalesOrder = own,
                     ReservedByOtherOrders = reservedByOthers,
-                    SelectableQuantity = Math.Max(0m, inv.QuantityOnHand - reservedByOthers)
+                    SelectableQuantity = Math.Max(0m, inv.QuantityOnHand - reservedByOthers),
+                    StandardWeightKg = standardWeightKg,
+                    FullBagCount = fullBagCount,
+                    HasOpenBag = hasOpenBag,
+                    OpenBagWeightKg = openBagWeightKg,
+                    OpenBagId = openBagId,
+                    IsOpenBagBlocked = isOpenBagBlocked
                 };
             })
             .Where(x => x.SelectableQuantity > 0)
@@ -294,6 +354,7 @@ public class OutboundOrderService : IOutboundOrderService
 
         return ApiResponse.Success(result);
     }
+
 
     // ── Commands ─────────────────────────────────────────────────────────
 
@@ -958,22 +1019,28 @@ public class OutboundOrderService : IOutboundOrderService
             .ToListAsync();
         if (inventories.Count != requestedInventoryIds.Count)
             throw new InvalidOperationException("Có lô/vị trí được chọn không còn tồn tại.");
-        if (inventories.Any(x => x.ProductVariantId != productVariantId || x.WarehouseId != warehouseId || !x.LocationId.HasValue || !x.PaddyLotId.HasValue))
-            throw new InvalidOperationException("Lô/vị trí được chọn không khớp sản phẩm hoặc kho xuất.");
-
-        var inventoryByLotLocation = inventories.ToDictionary(
-            x => (LotId: x.PaddyLotId!.Value, LocationId: x.LocationId!.Value), x => x);
         var selectedLocationIds = inventories.Select(x => x.LocationId!.Value).Distinct().ToList();
+
+        var allLocationInventories = await _inventoryRepository.FindByCondition(x =>
+                x.WarehouseId == warehouseId &&
+                x.ProductVariantId == productVariantId &&
+                selectedLocationIds.Contains(x.LocationId!.Value) &&
+                !x.IsDeleted,
+                false, x => x.PaddyLot)
+            .ToListAsync();
+
+        var inventoryByLotLocation = allLocationInventories.ToDictionary(
+            x => (LotId: x.PaddyLotId!.Value, LocationId: x.LocationId!.Value), x => x);
+
         var bags = await _bagRepository.FindByCondition(x => x.LocationId.HasValue && x.Status == "Stored" && x.WeightKg > 0 && !x.IsDeleted, false)
             .Include(x => x.Lot)
             .Include(x => x.Contents).ThenInclude(x => x.Lot).ThenInclude(x => x.Status)
-            // Load the complete physical columns. Bags of another SKU/lot are still
-            // real blockers and must not be skipped by the picking simulation.
             .Where(x => x.LocationId.HasValue && selectedLocationIds.Contains(x.LocationId.Value))
             .OrderBy(x => x.LocationId)
             .ThenByDescending(x => x.StackOrder) // luôn mô phỏng lấy từ đỉnh cột xuống
             .ToListAsync();
         if (bags.Count == 0) return new();
+
         foreach (var group in bags.GroupBy(x => x.LocationId))
         {
             var topOrder = group.Max(x => x.StackOrder);
@@ -986,47 +1053,57 @@ public class OutboundOrderService : IOutboundOrderService
                 throw new InvalidOperationException(
                     $"Vị trí {group.Key} có bao hỗn hợp chứa thành phần lô đang cách ly hoặc không được phép bán.");
         }
+
+        var locationTotalDemand = inventories
+            .GroupBy(x => x.LocationId!.Value)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Sum(inv => requestedByInventory.GetValueOrDefault(inv.Id))
+            );
+
         var allocations = new List<AllocateItemLotDto>();
-        var remaining = requestedByInventory.ToDictionary(x => x.Key, x => x.Value);
+
         foreach (var locationGroup in bags.GroupBy(x => x.LocationId!.Value))
         {
-            var locationDemandIds = inventories.Where(x => x.LocationId == locationGroup.Key).Select(x => x.Id).ToHashSet();
+            var remainingLocationDemand = locationTotalDemand.GetValueOrDefault(locationGroup.Key);
+            if (remainingLocationDemand <= 0.0005m) continue;
+
             foreach (var bag in locationGroup.OrderByDescending(x => x.StackOrder))
             {
-                if (locationDemandIds.All(id => remaining.GetValueOrDefault(id) <= 0.0005m)) break;
+                if (remainingLocationDemand <= 0.0005m) break;
 
                 var activeContents = bag.Contents.Where(x => x.WeightKg > 0 && !x.IsDeleted).OrderByDescending(x => x.Id).ToList();
                 foreach (var content in activeContents)
                 {
-                    if (locationDemandIds.All(id => remaining.GetValueOrDefault(id) <= 0.0005m)) break;
-                    if (!inventoryByLotLocation.TryGetValue((content.LotId, locationGroup.Key), out var inventory) ||
-                        remaining.GetValueOrDefault(inventory.Id) <= 0.0005m)
+                    if (remainingLocationDemand <= 0.0005m) break;
+
+                    if (!inventoryByLotLocation.TryGetValue((content.LotId, locationGroup.Key), out var inventory))
                     {
                         throw new InvalidOperationException(
-                            $"Không thể lấy lô đã chọn tại vị trí #{locationGroup.Key}: bao #{bag.BagNo} của lô khác đang chặn phía trên. " +
-                            "Vui lòng chọn lô đang ở đỉnh cột hoặc thực hiện đảo bao trước.");
+                            $"Bao #{bag.BagNo} tại vị trí #{locationGroup.Key} thuộc sản phẩm/lô không hợp lệ.");
                     }
 
-                    var take = Math.Min(remaining[inventory.Id], content.WeightKg);
-                    if (take > 0)
+                    var take = Math.Min(remainingLocationDemand, content.WeightKg);
+                    if (take > 0.0005m)
                     {
-                        allocations.Add(new AllocateItemLotDto { InventoryId = inventory.Id, QuantityAllocated = take });
-                        remaining[inventory.Id] -= take;
-                    }
-                    if (remaining[inventory.Id] <= 0.0005m && take + 0.0005m < content.WeightKg &&
-                        locationDemandIds.Any(id => remaining.GetValueOrDefault(id) > 0.0005m))
-                    {
-                        throw new InvalidOperationException(
-                            $"Bao #{bag.BagNo} vẫn còn hàng và đang chặn lô tiếp theo tại vị trí #{locationGroup.Key}.");
+                        allocations.Add(new AllocateItemLotDto
+                        {
+                            InventoryId = inventory.Id,
+                            QuantityAllocated = take,
+                            TakeOpenBag = !bag.IsFull,
+                            FullBagCount = bag.IsFull ? 1 : 0
+                        });
+                        remainingLocationDemand -= take;
                     }
                 }
             }
-        }
 
-        var missing = remaining.Where(x => x.Value > 0.0005m).ToList();
-        if (missing.Count > 0)
-            throw new InvalidOperationException(
-                $"Không thể lấy đủ {missing.Sum(x => x.Value):0.###} kg từ các lô đã chọn theo thứ tự bao vật lý hiện tại.");
+            if (remainingLocationDemand > 0.0005m)
+            {
+                throw new InvalidOperationException(
+                    $"Không thể lấy đủ {remainingLocationDemand:0.###} kg từ các bao vật lý tại vị trí #{locationGroup.Key}.");
+            }
+        }
 
         return allocations;
     }

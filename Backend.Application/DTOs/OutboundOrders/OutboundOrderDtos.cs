@@ -108,6 +108,20 @@ public class OutboundAllocationCandidateDto
     public decimal ReservedByOtherOrders { get; set; }
     public decimal ReservedForThisSalesOrder { get; set; }
     public decimal SelectableQuantity { get; set; }
+
+    // ── Bag-level info cho giao diện Stack Card ──
+    /// <summary>Trọng lượng chuẩn 1 bao (vd: 50 kg). Null nếu SKU không có quy cách đóng bao.</summary>
+    public decimal? StandardWeightKg { get; set; }
+    /// <summary>Số bao nguyên (IsFull=true) khả dụng tại vị trí này.</summary>
+    public int FullBagCount { get; set; }
+    /// <summary>Có bao lẻ (IsFull=false) ở đỉnh cột hay không.</summary>
+    public bool HasOpenBag { get; set; }
+    /// <summary>Khối lượng thực tế của bao lẻ (kg).</summary>
+    public decimal OpenBagWeightKg { get; set; }
+    /// <summary>Id của bao lẻ (PaddyLotBag.Id) – để Frontend có thể tham chiếu nếu cần.</summary>
+    public int? OpenBagId { get; set; }
+    /// <summary>Bao lẻ có đang bị bao khác chặn ở phía trên (không thể lấy) hay không.</summary>
+    public bool IsOpenBagBlocked { get; set; }
 }
 
 // ═══════════════════════════════ COMMANDS ═══════════════════════════════
@@ -140,6 +154,12 @@ public class AllocateItemLotDto
 
     [Range(0.001, double.MaxValue)]
     public decimal QuantityAllocated { get; set; }
+
+    // ── Bag-based allocation (tuỳ chọn – nếu FE gửi thì BE ưu tiên dùng) ──
+    /// <summary>Có chọn lấy bao lẻ ở đỉnh cột hay không.</summary>
+    public bool? TakeOpenBag { get; set; }
+    /// <summary>Số bao chuẩn muốn lấy (FE sẽ tính QuantityAllocated = FullBagCount * StandardWeightKg + OpenBagWeightKg).</summary>
+    public int? FullBagCount { get; set; }
 }
 
 /// <summary>
