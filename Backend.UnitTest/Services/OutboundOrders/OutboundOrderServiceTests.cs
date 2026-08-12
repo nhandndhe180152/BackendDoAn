@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Http;
 using Moq;
 using MockQueryable.Moq;
 using Xunit;
+using PaddyLotEntity = Backend.Domain.Entities.PaddyLot;
 
 namespace Backend.UnitTest.Services.OutboundOrders;
 
@@ -29,11 +30,45 @@ public class OutboundOrderServiceTests
     private readonly Mock<IPaddyLotRepository> _paddyLotRepo = new();
     private readonly Mock<INotificationDispatcher> _dispatcher = new();
     private readonly Mock<Backend.Application.BackgroundJobs.DebtDueOverdue.IDebtAgingCalculationService> _aging = new();
+    private readonly Mock<IRepositoryBase<PaddyLotBag, int>> _bagRepo = new();
+    private readonly Mock<IRepositoryBase<PaddyLotBagContent, int>> _bagContentRepo = new();
+    private readonly Mock<IRepositoryBase<PaddyLotBagMovement, int>> _bagMovementRepo = new();
+
+    public OutboundOrderServiceTests()
+    {
+        // Outbound dispatch sends a notification after the DB transaction commits.
+        // Mock the async side effect explicitly so service tests never depend on
+        // Moq's default Task return value.
+        _dispatcher
+            .Setup(x => x.DispatchAsync(
+                It.IsAny<string>(),
+                It.IsAny<NotificationTarget>(),
+                It.IsAny<object[]?>(),
+                It.IsAny<string?>(),
+                It.IsAny<int?>(),
+                It.IsAny<string?>(),
+                It.IsAny<int?>()))
+            .Returns(Task.CompletedTask);
+    }
 
     private OutboundOrderService Sut() => new(
-        _obRepo.Object, _obStatusRepo.Object, _allocRepo.Object, _invRepo.Object,
-        _invTxRepo.Object, _soRepo.Object, _soStatusRepo.Object, _partyDebtRepo.Object,
-        _debtTxRepo.Object, _http.Object, _paddyLotRepo.Object, _dispatcher.Object, null, _aging.Object);
+        outboundOrderRepository: _obRepo.Object,
+        outboundStatusRepository: _obStatusRepo.Object,
+        allocationRepository: _allocRepo.Object,
+        inventoryRepository: _invRepo.Object,
+        inventoryTransactionRepository: _invTxRepo.Object,
+        salesOrderRepository: _soRepo.Object,
+        salesOrderStatusRepository: _soStatusRepo.Object,
+        partyDebtRepository: _partyDebtRepo.Object,
+        debtTransactionRepository: _debtTxRepo.Object,
+        httpContextAccessor: _http.Object,
+        paddyLotRepository: _paddyLotRepo.Object,
+        notificationDispatcher: _dispatcher.Object,
+        scheduledJobService: null,
+        debtAgingService: _aging.Object,
+        bagRepository: _bagRepo.Object,
+        bagContentRepository: _bagContentRepo.Object,
+        bagMovementRepository: _bagMovementRepo.Object);
 
     [Fact]
     public async Task GetByIdAsync_NotFound_Returns404()
@@ -43,6 +78,46 @@ public class OutboundOrderServiceTests
         var result = await Sut().GetByIdAsync(1);
 
         result.Status.Should().Be(404);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_GroupsSameWeightAllocations_ForCompactBagUi()
+    {
+        var lot = new PaddyLotEntity { Id = 5, LotCode = "LOT-RICE-001" };
+        var location = new Location { Id = 7, SlotCode = "A-01" };
+        var order = new OutboundOrder
+        {
+            Id = 1,
+            OutboundOrderItems = new List<OutboundOrderItem>
+            {
+                new()
+                {
+                    Id = 20,
+                    Allocations = new List<OutboundOrderItemAllocation>
+                    {
+                        new() { Id = 101, InventoryId = 9, PaddyLotId = 5, PaddyLot = lot, LocationId = 7, Location = location, QuantityAllocated = 50, QuantityPicked = 50 },
+                        new() { Id = 102, InventoryId = 9, PaddyLotId = 5, PaddyLot = lot, LocationId = 7, Location = location, QuantityAllocated = 50, QuantityPicked = 25 },
+                        new() { Id = 103, InventoryId = 9, PaddyLotId = 5, PaddyLot = lot, LocationId = 7, Location = location, QuantityAllocated = 25, QuantityPicked = 0 }
+                    }
+                }
+            }
+        };
+        _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
+
+        var result = await Sut().GetByIdAsync(1);
+
+        var dto = result.Resources.Should()
+            .BeOfType<Backend.Application.DTOs.OutboundOrders.OutboundOrderDetailDto>()
+            .Subject;
+        var groups = dto.Items.Single().AllocationGroups;
+        groups.Should().HaveCount(2);
+        groups[0].BagCount.Should().Be(2);
+        groups[0].WeightPerBagKg.Should().Be(50);
+        groups[0].TotalAllocatedKg.Should().Be(100);
+        groups[0].TotalPickedKg.Should().Be(75);
+        groups[0].AllocationIds.Should().Equal(101, 102);
+        groups[1].BagCount.Should().Be(1);
+        groups[1].WeightPerBagKg.Should().Be(25);
     }
 
     [Fact]
@@ -117,7 +192,8 @@ public class OutboundOrderServiceTests
         };
 
         _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
-        _obRepo.Setup(r => r.BeginTransactionAsync()).ReturnsAsync(new Mock<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction>().Object);
+        var dbTransaction = CreateDbTransactionMock();
+        _obRepo.Setup(r => r.BeginTransactionAsync()).ReturnsAsync(dbTransaction.Object);
         
         _obStatusRepo.Setup(r => r.FirstOrDefaultAsync(
             It.IsAny<System.Linq.Expressions.Expression<System.Func<OutboundOrderStatus, bool>>>(),
@@ -172,7 +248,7 @@ public class OutboundOrderServiceTests
             RefType = "OUTBOUND_ORDER",
             RefId = 1
         };
-        var dbTransaction = new Mock<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction>();
+        var dbTransaction = CreateDbTransactionMock();
 
         _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
         _obRepo.Setup(r => r.BeginTransactionAsync()).ReturnsAsync(dbTransaction.Object);
@@ -224,6 +300,18 @@ public class OutboundOrderServiceTests
             x.TransactionType == LookupCodes.DebtTransactionType.Payment &&
             x.Amount == 40 && x.RefType == "OUTBOUND_ORDER" && x.RefId == 1)), Times.Once);
         dbTransaction.Verify(x => x.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    private static Mock<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction> CreateDbTransactionMock()
+    {
+        var transaction = new Mock<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction>();
+        transaction
+            .Setup(x => x.CommitAsync(It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        transaction
+            .Setup(x => x.RollbackAsync(It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        return transaction;
     }
 
     private static OutboundOrder CreatePackedOrderWithReceivable()
