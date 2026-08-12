@@ -322,7 +322,7 @@ public class OutboundOrderService : IOutboundOrderService
                     if (lotBags.Count > 0)
                     {
                         standardWeightKg = lotBags.FirstOrDefault(x => x.Bag.StandardWeightKg.HasValue)?.Bag.StandardWeightKg;
-                        fullBagCount = lotBags.Count(x => x.Bag.IsFull && Math.Abs(x.LotWeightKg - x.ActiveWeightKg) <= 0.0005m);
+                        fullBagCount = 0;
 
                         var openBag = lotBags.FirstOrDefault(x => !x.Bag.IsFull);
                         if (openBag != null)
@@ -335,9 +335,27 @@ public class OutboundOrderService : IOutboundOrderService
                             isOpenBagBlocked = openBag.Bag.StackOrder != topStackOrder;
                         }
 
+                        foreach (var stackBag in locationBags.OrderByDescending(x => x.StackOrder))
+                        {
+                            var lotWeightKg = stackBag.Contents
+                                .Where(c => c.LotId == inv.PaddyLotId && !c.IsDeleted)
+                                .Sum(c => c.WeightKg);
+                            if (lotWeightKg <= 0.0005m)
+                                break;
+
+                            var activeWeightKg = stackBag.Contents
+                                .Where(c => !c.IsDeleted)
+                                .Sum(c => c.WeightKg);
+                            if (Math.Abs(lotWeightKg - activeWeightKg) > 0.0005m)
+                                break;
+
+                            if (stackBag.IsFull)
+                                fullBagCount++;
+                        }
+
                         if (standardWeightKg.HasValue && standardWeightKg.Value > 0)
                         {
-                            var selectableForFullBags = Math.Max(0m, selectableQuantity - (hasOpenBag ? openBagWeightKg : 0m));
+                            var selectableForFullBags = Math.Max(0m, selectableQuantity - (hasOpenBag && !isOpenBagBlocked ? openBagWeightKg : 0m));
                             var maxFullBagsBySelectable = (int)Math.Floor(selectableForFullBags / standardWeightKg.Value);
                             fullBagCount = Math.Min(fullBagCount, maxFullBagsBySelectable);
                         }
