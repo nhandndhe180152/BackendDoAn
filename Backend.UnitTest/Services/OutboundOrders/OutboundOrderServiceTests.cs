@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Http;
 using Moq;
 using MockQueryable.Moq;
 using Xunit;
+using PaddyLotEntity = Backend.Domain.Entities.PaddyLot;
 
 namespace Backend.UnitTest.Services.OutboundOrders;
 
@@ -82,7 +83,7 @@ public class OutboundOrderServiceTests
     [Fact]
     public async Task GetByIdAsync_GroupsSameWeightAllocations_ForCompactBagUi()
     {
-        var lot = new PaddyLot { Id = 5, LotCode = "LOT-RICE-001" };
+        var lot = new PaddyLotEntity { Id = 5, LotCode = "LOT-RICE-001" };
         var location = new Location { Id = 7, SlotCode = "A-01" };
         var order = new OutboundOrder
         {
