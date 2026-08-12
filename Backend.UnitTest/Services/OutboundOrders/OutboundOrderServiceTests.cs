@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using Backend.Application.Constants;
+using Backend.Application.DTOs.OutboundOrders;
 using Backend.Application.Implements;
 using Backend.Application.Interfaces;
 using Backend.Domain.Abstractions.Repositories;
@@ -10,6 +11,8 @@ using Microsoft.AspNetCore.Http;
 using Moq;
 using MockQueryable.Moq;
 using Xunit;
+using System.Linq.Expressions;
+using System.Reflection;
 using PaddyLotEntity = Backend.Domain.Entities.PaddyLot;
 
 namespace Backend.UnitTest.Services.OutboundOrders;
@@ -210,6 +213,81 @@ public class OutboundOrderServiceTests
     }
 
     [Fact]
+    public async Task BuildRequestedBagAllocationsAsync_AllocatesSelectedLotFromTopBag()
+    {
+        var lot = CreateLot(5);
+        var inventory = CreateInventory(id: 9, lotId: lot.Id, locationId: 7);
+        var bag = CreateBag(id: 1, bagNo: 11, lot, locationId: 7, stackOrder: 3, weightKg: 50);
+        SetupBagAllocationSources(new[] { inventory }, new[] { bag });
+
+        var result = await InvokeBuildRequestedBagAllocationsAsync(
+            productVariantId: 100,
+            warehouseId: 2,
+            new[] { new AllocateItemLotDto { InventoryId = inventory.Id, QuantityAllocated = 20 } });
+
+        result.Should().ContainSingle();
+        result[0].InventoryId.Should().Be(inventory.Id);
+        result[0].QuantityAllocated.Should().Be(20);
+    }
+
+    [Fact]
+    public async Task BuildRequestedBagAllocationsAsync_InvalidInventoryShape_ThrowsFriendlyError()
+    {
+        var inventory = CreateInventory(id: 9, lotId: 5, locationId: null);
+        SetupBagAllocationSources(new[] { inventory }, Array.Empty<PaddyLotBag>());
+
+        var act = () => InvokeBuildRequestedBagAllocationsAsync(
+            productVariantId: 100,
+            warehouseId: 2,
+            new[] { new AllocateItemLotDto { InventoryId = inventory.Id, QuantityAllocated = 20 } });
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*không khớp sản phẩm hoặc kho xuất*");
+    }
+
+    [Fact]
+    public async Task BuildRequestedBagAllocationsAsync_OtherLotAtTop_ThrowsBlockerError()
+    {
+        var selectedLot = CreateLot(5);
+        var blockingLot = CreateLot(6);
+        var inventory = CreateInventory(id: 9, lotId: selectedLot.Id, locationId: 7);
+        var lowerSelectedBag = CreateBag(id: 1, bagNo: 11, selectedLot, locationId: 7, stackOrder: 1, weightKg: 50);
+        var topBlockingBag = CreateBag(id: 2, bagNo: 12, blockingLot, locationId: 7, stackOrder: 2, weightKg: 50);
+        SetupBagAllocationSources(new[] { inventory }, new[] { lowerSelectedBag, topBlockingBag });
+
+        var act = () => InvokeBuildRequestedBagAllocationsAsync(
+            productVariantId: 100,
+            warehouseId: 2,
+            new[] { new AllocateItemLotDto { InventoryId = inventory.Id, QuantityAllocated = 20 } });
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*bao #12 của lô khác đang chặn phía trên*");
+    }
+
+    [Fact]
+    public async Task BuildRequestedBagAllocationsAsync_SelectedLocationWithoutBag_ThrowsMissingDemand()
+    {
+        var firstLot = CreateLot(5);
+        var secondLot = CreateLot(6);
+        var firstInventory = CreateInventory(id: 9, lotId: firstLot.Id, locationId: 7);
+        var secondInventory = CreateInventory(id: 10, lotId: secondLot.Id, locationId: 8);
+        var firstBag = CreateBag(id: 1, bagNo: 11, firstLot, locationId: 7, stackOrder: 1, weightKg: 50);
+        SetupBagAllocationSources(new[] { firstInventory, secondInventory }, new[] { firstBag });
+
+        var act = () => InvokeBuildRequestedBagAllocationsAsync(
+            productVariantId: 100,
+            warehouseId: 2,
+            new[]
+            {
+                new AllocateItemLotDto { InventoryId = firstInventory.Id, QuantityAllocated = 20 },
+                new AllocateItemLotDto { InventoryId = secondInventory.Id, QuantityAllocated = 20 }
+            });
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*Không thể lấy đủ 20 kg*");
+    }
+
+    [Fact]
     public async Task CompleteDeliveryAsync_NegativePayment_ReturnsUnprocessableEntity()
     {
         _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(new OutboundOrder
@@ -337,5 +415,85 @@ public class OutboundOrderServiceTests
                 }
             }
         };
+    }
+
+    private void SetupBagAllocationSources(IEnumerable<Backend.Domain.Entities.Inventory> inventories, IEnumerable<PaddyLotBag> bags)
+    {
+        _invRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<Backend.Domain.Entities.Inventory, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<Backend.Domain.Entities.Inventory, object>>[]>()))
+            .Returns(inventories.AsQueryable().BuildMock());
+
+        _bagRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<PaddyLotBag, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns(bags.AsQueryable().BuildMock());
+    }
+
+    private async Task<List<AllocateItemLotDto>> InvokeBuildRequestedBagAllocationsAsync(
+        int productVariantId,
+        int warehouseId,
+        IReadOnlyCollection<AllocateItemLotDto> requestedLots)
+    {
+        var method = typeof(OutboundOrderService).GetMethod(
+            "BuildRequestedBagAllocationsAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        method.Should().NotBeNull();
+
+        var task = (Task<List<AllocateItemLotDto>>)method!.Invoke(
+            Sut(),
+            new object[] { productVariantId, warehouseId, requestedLots })!;
+
+        return await task;
+    }
+
+    private static Backend.Domain.Entities.Inventory CreateInventory(int id, int? lotId, int? locationId)
+        => new()
+        {
+            Id = id,
+            ProductVariantId = 100,
+            WarehouseId = 2,
+            PaddyLotId = lotId,
+            LocationId = locationId,
+            QuantityOnHand = 100
+        };
+
+    private static PaddyLotEntity CreateLot(int id)
+        => new()
+        {
+            Id = id,
+            LotCode = $"LOT-{id}",
+            LotType = "RICE",
+            ProductVariantId = 100,
+            WarehouseId = 2,
+            Status = new LotStatus { Id = 1, Code = "AVAILABLE", Name = "Available", Color = "#00AA00", IsSellable = true }
+        };
+
+    private static PaddyLotBag CreateBag(int id, int bagNo, PaddyLotEntity lot, int locationId, int stackOrder, decimal weightKg)
+    {
+        var bag = new PaddyLotBag
+        {
+            Id = id,
+            BagNo = bagNo,
+            LotId = lot.Id,
+            Lot = lot,
+            LocationId = locationId,
+            StackOrder = stackOrder,
+            WeightKg = weightKg,
+            StandardWeightKg = 50,
+            IsFull = weightKg >= 50,
+            Status = PaddyLotBagStatuses.Stored
+        };
+        bag.Contents.Add(new PaddyLotBagContent
+        {
+            Id = id,
+            BagId = id,
+            Bag = bag,
+            LotId = lot.Id,
+            Lot = lot,
+            WeightKg = weightKg
+        });
+        return bag;
     }
 }

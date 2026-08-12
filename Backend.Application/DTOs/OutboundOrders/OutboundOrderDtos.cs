@@ -155,11 +155,6 @@ public class AllocateItemLotDto
     [Range(0.001, double.MaxValue)]
     public decimal QuantityAllocated { get; set; }
 
-    // ── Bag-based allocation (tuỳ chọn – nếu FE gửi thì BE ưu tiên dùng) ──
-    /// <summary>Có chọn lấy bao lẻ ở đỉnh cột hay không.</summary>
-    public bool? TakeOpenBag { get; set; }
-    /// <summary>Số bao chuẩn muốn lấy (FE sẽ tính QuantityAllocated = FullBagCount * StandardWeightKg + OpenBagWeightKg).</summary>
-    public int? FullBagCount { get; set; }
 }
 
 /// <summary>
