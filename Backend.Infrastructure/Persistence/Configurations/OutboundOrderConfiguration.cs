@@ -22,6 +22,7 @@ public class OutboundOrderConfiguration : IEntityTypeConfiguration<OutboundOrder
 
         builder.Property(x => x.Note).HasMaxLength(1000);
         builder.Property(x => x.CancelReason).HasMaxLength(500);
+        builder.Property(x => x.PackingScaleDevice).HasMaxLength(255);
         builder.Property(x => x.ReceiverName).HasMaxLength(255);
         builder.Property(x => x.DeliveryNote).HasMaxLength(1000);
         builder.Property(x => x.ProofImageUrl).HasMaxLength(1000);

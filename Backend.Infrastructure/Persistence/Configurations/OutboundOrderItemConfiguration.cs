@@ -30,6 +30,9 @@ public class OutboundOrderItemConfiguration : IEntityTypeConfiguration<OutboundO
         builder.Property(x => x.ActualWeightKg)
             .HasColumnType("decimal(18,4)");
 
+        builder.Property(x => x.ActualWeightSource)
+            .HasMaxLength(20);
+
         builder.HasOne(x => x.OutboundOrder)
             .WithMany(x => x.OutboundOrderItems)
             .HasForeignKey(x => x.OutboundOrderId)

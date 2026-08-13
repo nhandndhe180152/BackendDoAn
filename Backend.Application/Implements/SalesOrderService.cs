@@ -136,7 +136,7 @@ public class SalesOrderService : ISalesOrderService
                 LineAmount         = i.LineAmount,
                 Note               = i.Note
             }).ToList(),
-            OutboundOrders = so.OutboundOrders.Select(o => new SalesOrderOutboundSummaryDto
+            OutboundOrders = so.OutboundOrders.Where(o => !o.IsDeleted).Select(o => new SalesOrderOutboundSummaryDto
             {
                 Id                   = o.Id,
                 OutboundStatusId     = o.OutboundOrderStatusId,
@@ -709,6 +709,23 @@ public class SalesOrderService : ISalesOrderService
                 $"Không thể tạo phiếu xuất từ đơn ở trạng thái '{so.Status?.Name}'.",
                 409, ApiCodeConstants.SalesOrder.InvalidState);
 
+        // Mỗi đơn bán chỉ được có 1 phiếu xuất còn hiệu lực tại một thời điểm.
+        // Phiếu đã HỦY hoặc GIAO THẤT BẠI được coi là đã kết thúc (tồn kho đã hoàn trả)
+        // nên vẫn cho phép tạo phiếu xuất mới để giao lại.
+        var existingOutbounds = await _outboundOrderRepository
+            .FindByCondition(x => x.SalesOrderId == id && !x.IsDeleted &&
+                                  x.OutboundOrderStatus != null &&
+                                  x.OutboundOrderStatus.Code != OutboundOrderStatusNames.Cancelled &&
+                                  x.OutboundOrderStatus.Code != OutboundOrderStatusNames.DeliveryFailed,
+                                  false, x => x.OutboundOrderItems)
+            .ToListAsync();
+
+        if (existingOutbounds.Count > 0)
+            return ApiResponse.Error(
+                $"Đơn bán {so.SOCode} đã có phiếu xuất kho #{existingOutbounds[0].Id} chưa bị hủy. " +
+                "Hãy tiếp tục xử lý hoặc hủy phiếu xuất đó trước khi tạo phiếu xuất mới.",
+                409, ApiCodeConstants.SalesOrder.InvalidState);
+
         var draftStatus = await _outboundOrderStatusRepository.FirstOrDefaultAsync(
             x => x.Code == OutboundOrderStatusNames.Draft && !x.IsDeleted);
         var draftStatusId = draftStatus?.Id
@@ -733,16 +750,8 @@ public class SalesOrderService : ISalesOrderService
                 CreatedBy             = userId
             };
 
-            // Chỉ tính những phiếu còn hiệu lực. Phiếu giao thất bại đã hoàn tồn và
-            // hoàn công nợ nên toàn bộ số lượng của nó có thể được lập phiếu giao lại.
-            var existingOutbounds = await _outboundOrderRepository
-                .FindByCondition(x => x.SalesOrderId == id && !x.IsDeleted && 
-                                      x.OutboundOrderStatus != null && 
-                                      x.OutboundOrderStatus.Code != OutboundOrderStatusNames.Cancelled &&
-                                      x.OutboundOrderStatus.Code != OutboundOrderStatusNames.DeliveryFailed,
-                                      false, x => x.OutboundOrderItems)
-                .ToListAsync();
-
+            // existingOutbounds đã được nạp & kiểm tra ở trên (luôn rỗng khi tới đây),
+            // giữ lại phép cộng dồn để chốt chặn số lượng theo từng dòng.
             foreach (var itemDto in dto.Items)
             {
                 var soItem = so.SalesOrderItems.FirstOrDefault(x => x.ProductVariantId == itemDto.ProductVariantId && !x.IsDeleted);
