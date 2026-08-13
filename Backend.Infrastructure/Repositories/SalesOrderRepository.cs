@@ -40,7 +40,7 @@ public class SalesOrderRepository : RepositoryBase<SalesOrder, int>, ISalesOrder
     }
 
     public async Task<List<SalesOrder>> GetPagedListAsync(
-        string? keyword, int skip, int take, int? statusId = null, string? channel = null)
+    string? keyword, int skip, int take, int? statusId = null, string? channel = null)
     {
         var query = _context.SalesOrders
             .Include(x => x.Customer)
@@ -66,6 +66,7 @@ public class SalesOrderRepository : RepositoryBase<SalesOrder, int>, ISalesOrder
     public async Task<int> CountAsync(string? keyword, int? statusId = null, string? channel = null)
     {
         var query = _context.SalesOrders.Where(x => !x.IsDeleted);
+
         query = ApplyFilters(query, keyword, statusId, channel);
         return await query.CountAsync();
     }
@@ -77,6 +78,8 @@ public class SalesOrderRepository : RepositoryBase<SalesOrder, int>, ISalesOrder
     private static IQueryable<SalesOrder> ApplyFilters(
         IQueryable<SalesOrder> query, string? keyword, int? statusId, string? channel)
     {
+
+
         if (!string.IsNullOrWhiteSpace(keyword))
         {
             var kw = keyword.ToLower();
@@ -98,5 +101,6 @@ public class SalesOrderRepository : RepositoryBase<SalesOrder, int>, ISalesOrder
         }
 
         return query;
+
     }
 }

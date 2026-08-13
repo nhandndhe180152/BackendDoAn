@@ -193,10 +193,9 @@ public class ConfirmDispatchDto
 public class OutboundOrderPagedQuery
 {
     public string? Keyword { get; set; }
-
+    
     /// <summary>Lọc theo trạng thái phiếu xuất (null/0 = tất cả).</summary>
     public int? OutboundStatusId { get; set; }
-
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 20;
 }

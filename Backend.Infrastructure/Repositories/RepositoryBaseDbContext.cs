@@ -183,14 +183,9 @@ public class RepositoryBaseDbContext<TEntity, TKey, TContext> : IRepositoryBaseD
 
     public Task UpdateAsync(TEntity entity)
     {
-        // Attach entity và đánh dấu toàn bộ là Modified để EF Core ghi vào DB.
-        // Xử lý được cả 2 trường hợp: entity đã tracked (Unchanged) và chưa tracked (Detached).
-        var entry = _context.Entry(entity);
-        if (entry.State == EntityState.Detached)
-        {
-            _context.Set<TEntity>().Attach(entity);
-        }
-        entry.State = EntityState.Modified;
+        if (_context.Entry(entity).State == EntityState.Unchanged) return Task.CompletedTask;
+        TEntity exist = _context.Set<TEntity>().Find(entity.Id);
+        _context.Entry(exist).CurrentValues.SetValues(entity);
         return Task.CompletedTask;
     }
 

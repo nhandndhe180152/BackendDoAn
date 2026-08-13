@@ -50,7 +50,7 @@ public class OutboundOrderRepository : RepositoryBase<OutboundOrder, int>, IOutb
             .FirstOrDefaultAsync(x => !x.IsDeleted && x.Id == id);
     }
 
-    public async Task<List<OutboundOrder>> GetPagedListAsync(
+        public async Task<List<OutboundOrder>> GetPagedListAsync(
         string? keyword, int skip, int take, int? outboundStatusId = null)
     {
         var query = _context.OutboundOrders
@@ -62,6 +62,7 @@ public class OutboundOrderRepository : RepositoryBase<OutboundOrder, int>, IOutb
 
         query = ApplyFilters(query, keyword, outboundStatusId);
 
+
         return await query
             .OrderByDescending(x => x.CreatedDate)
             .Skip(skip)
@@ -72,6 +73,7 @@ public class OutboundOrderRepository : RepositoryBase<OutboundOrder, int>, IOutb
     public async Task<int> CountAsync(string? keyword, int? outboundStatusId = null)
     {
         var query = _context.OutboundOrders.Where(x => !x.IsDeleted);
+
         query = ApplyFilters(query, keyword, outboundStatusId);
         return await query.CountAsync();
     }
@@ -83,6 +85,8 @@ public class OutboundOrderRepository : RepositoryBase<OutboundOrder, int>, IOutb
     private static IQueryable<OutboundOrder> ApplyFilters(
         IQueryable<OutboundOrder> query, string? keyword, int? outboundStatusId)
     {
+
+
         if (!string.IsNullOrWhiteSpace(keyword))
         {
             var kw = keyword.ToLower();
@@ -98,5 +102,6 @@ public class OutboundOrderRepository : RepositoryBase<OutboundOrder, int>, IOutb
         }
 
         return query;
+
     }
 }
