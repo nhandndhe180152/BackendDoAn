@@ -87,6 +87,15 @@ public class UpdateSalesOrderItemDto
     public string? Note { get; set; }
 }
 
+// ═══════════════════════════════ CANCEL ═══════════════════════════════
+
+/// <summary>Body tùy chọn của POST /sales-orders/{id}/cancel — lý do hủy đơn.</summary>
+public class CancelSalesOrderDto
+{
+    [MaxLength(500, ErrorMessage = "Lý do hủy tối đa 500 ký tự.")]
+    public string? Reason { get; set; }
+}
+
 // ═══════════════════════════════ READ ═══════════════════════════════
 
 public class SalesOrderListDto
@@ -117,6 +126,7 @@ public class SalesOrderListDto
     public decimal TotalAmount { get; set; }
     public decimal? DepositAmount { get; set; }
     public string? Note { get; set; }
+    public string? CancelReason { get; set; }
     public DateTime? CreatedDate { get; set; }
 }
 
@@ -142,6 +152,7 @@ public class SalesOrderDetailDto
     public decimal RemainingAmount { get; set; }
     public string? ShippingAddress { get; set; }
     public string? Note { get; set; }
+    public string? CancelReason { get; set; }
     public DateTime? CreatedDate { get; set; }
     public List<SalesOrderItemDto> Items { get; set; } = new();
     public List<SalesOrderOutboundSummaryDto> OutboundOrders { get; set; } = new();

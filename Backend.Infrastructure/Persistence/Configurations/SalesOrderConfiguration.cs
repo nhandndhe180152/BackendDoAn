@@ -19,6 +19,7 @@ public class SalesOrderConfiguration : IEntityTypeConfiguration<SalesOrder>
         builder.Property(x => x.TotalAmount).HasColumnType("decimal(18,2)").IsRequired();
         builder.Property(x => x.DepositAmount).HasColumnType("decimal(18,2)");
         builder.Property(x => x.Note).HasMaxLength(1000);
+        builder.Property(x => x.CancelReason).HasMaxLength(500);
         builder.Property(x => x.RequiresMilling).HasDefaultValue(false);
 
         builder.HasIndex(x => new { x.OrganizationId, x.SOCode })

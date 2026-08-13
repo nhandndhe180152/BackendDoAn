@@ -86,12 +86,15 @@ public class SalesOrderController : BaseController
         return BaseResult(result);
     }
 
-    /// <summary>Hủy đơn bán. QuantityReserved do OutboundOrder quản lý — không giải phóng tại đây.</summary>
+    /// <summary>
+    /// Hủy đơn bán kèm lý do (tùy chọn). QuantityReserved do OutboundOrder quản lý —
+    /// không giải phóng tại đây.
+    /// </summary>
     [HttpPost("{id}/cancel")]
     [CustomAuthorize(Enums.Menu.SALE_ORDERS, Enums.Action.UPDATE)]
-    public async Task<IActionResult> CancelAsync(int id)
+    public async Task<IActionResult> CancelAsync(int id, [FromBody] CancelSalesOrderDto? dto = null)
     {
-        var result = await _salesOrderService.CancelAsync(id);
+        var result = await _salesOrderService.CancelAsync(id, dto?.Reason);
         return BaseResult(result);
     }
 

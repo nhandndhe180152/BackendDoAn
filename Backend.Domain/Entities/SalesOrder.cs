@@ -31,6 +31,9 @@ public class SalesOrder : EntityAuditBase<int>
     public decimal? DepositAmount { get; set; }
     public string? Note { get; set; }
 
+    /// <summary>Lý do hủy đơn — chỉ có giá trị khi đơn ở trạng thái CANCELLED.</summary>
+    public string? CancelReason { get; set; }
+
     // Navigation
     public virtual Organization? Organization { get; set; }
     public virtual Customer Customer { get; set; } = null!;

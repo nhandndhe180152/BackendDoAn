@@ -122,6 +122,7 @@ public class SalesOrderService : ISalesOrderService
             RemainingAmount      = remaining > 0 ? remaining : 0,
             ShippingAddress      = so.ShippingAddress,
             Note                 = so.Note,
+            CancelReason         = so.CancelReason,
             CreatedDate          = so.CreatedDate,
             Items = so.SalesOrderItems.Select(i => new SalesOrderItemDto
             {
@@ -216,6 +217,7 @@ public class SalesOrderService : ISalesOrderService
             TotalAmount          = so.TotalAmount,
             DepositAmount        = so.DepositAmount,
             Note                 = so.Note,
+            CancelReason         = so.CancelReason,
             CreatedDate          = so.CreatedDate
             };
         }).ToList();
@@ -553,7 +555,7 @@ public class SalesOrderService : ISalesOrderService
         }
     }
 
-    public async Task<ApiResponse> CancelAsync(int id)
+    public async Task<ApiResponse> CancelAsync(int id, string? reason = null)
     {
         var so = await _salesOrderRepository.GetByIdDetailAsync(id);
         if (so == null || so.IsDeleted)
@@ -645,6 +647,13 @@ public class SalesOrderService : ISalesOrderService
             }
 
             so.StatusId         = await GetStatusIdAsync(SalesOrderStatusNames.Cancelled);
+            var trimmedReason   = reason?.Trim();
+            if (!string.IsNullOrWhiteSpace(trimmedReason))
+            {
+                so.CancelReason = trimmedReason.Length > 500
+                    ? trimmedReason.Substring(0, 500)
+                    : trimmedReason;
+            }
             so.LastModifiedDate = now;
             so.UpdatedBy        = userId;
             await _salesOrderRepository.UpdateAsync(so);
