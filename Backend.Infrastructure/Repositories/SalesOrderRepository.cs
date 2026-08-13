@@ -39,8 +39,7 @@ public class SalesOrderRepository : RepositoryBase<SalesOrder, int>, ISalesOrder
             .FirstOrDefaultAsync(x => !x.IsDeleted && x.Id == id);
     }
 
-    public async Task<List<SalesOrder>> GetPagedListAsync(
-        string? keyword, int skip, int take, int? statusId = null, string? channel = null)
+    public async Task<List<SalesOrder>> GetPagedListAsync(string? keyword, int skip, int take)
     {
         var query = _context.SalesOrders
             .Include(x => x.Customer)
@@ -53,30 +52,6 @@ public class SalesOrderRepository : RepositoryBase<SalesOrder, int>, ISalesOrder
                 .ThenInclude(x => x.Status)
             .Where(x => !x.IsDeleted);
 
-        query = ApplyFilters(query, keyword, statusId, channel);
-
-        return await query
-            .AsSplitQuery()
-            .OrderByDescending(x => x.CreatedDate)
-            .Skip(skip)
-            .Take(take)
-            .ToListAsync();
-    }
-
-    public async Task<int> CountAsync(string? keyword, int? statusId = null, string? channel = null)
-    {
-        var query = _context.SalesOrders.Where(x => !x.IsDeleted);
-        query = ApplyFilters(query, keyword, statusId, channel);
-        return await query.CountAsync();
-    }
-
-    /// <summary>
-    /// Dùng chung cho Count và GetPagedList để tổng số bản ghi luôn khớp với
-    /// dữ liệu trả về — nếu hai bên lọc khác nhau thì phân trang sẽ sai.
-    /// </summary>
-    private static IQueryable<SalesOrder> ApplyFilters(
-        IQueryable<SalesOrder> query, string? keyword, int? statusId, string? channel)
-    {
         if (!string.IsNullOrWhiteSpace(keyword))
         {
             var kw = keyword.ToLower();
@@ -86,17 +61,27 @@ public class SalesOrderRepository : RepositoryBase<SalesOrder, int>, ISalesOrder
                 (x.Note != null && x.Note.ToLower().Contains(kw)));
         }
 
-        if (statusId.HasValue && statusId.Value > 0)
+        return await query
+            .AsSplitQuery()
+            .OrderByDescending(x => x.CreatedDate)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync();
+    }
+
+    public async Task<int> CountAsync(string? keyword)
+    {
+        var query = _context.SalesOrders.Where(x => !x.IsDeleted);
+
+        if (!string.IsNullOrWhiteSpace(keyword))
         {
-            query = query.Where(x => x.StatusId == statusId.Value);
+            var kw = keyword.ToLower();
+            query = query.Where(x =>
+                x.SOCode.ToLower().Contains(kw) ||
+                x.Customer.Name.ToLower().Contains(kw) ||
+                (x.Note != null && x.Note.ToLower().Contains(kw)));
         }
 
-        if (!string.IsNullOrWhiteSpace(channel))
-        {
-            var normalized = channel.Trim().ToUpper();
-            query = query.Where(x => x.Channel.ToUpper() == normalized);
-        }
-
-        return query;
+        return await query.CountAsync();
     }
 }

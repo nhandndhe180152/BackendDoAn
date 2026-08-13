@@ -205,16 +205,9 @@ public class OutboundOrderService : IOutboundOrderService
 
     public async Task<ApiResponse> GetPagedAsync(OutboundOrderPagedQuery query)
     {
-        // Chuẩn hóa tham số trang để client gửi page=0 hay pageSize âm không làm
-        // vỡ Skip/Take.
-        var page     = query.Page < 1 ? 1 : query.Page;
-        var pageSize = query.PageSize is < 1 or > 200 ? 20 : query.PageSize;
-        var skip     = (page - 1) * pageSize;
-
-        var total = await _outboundOrderRepository.CountAsync(
-            query.Keyword, query.OutboundStatusId);
-        var list  = await _outboundOrderRepository.GetPagedListAsync(
-            query.Keyword, skip, pageSize, query.OutboundStatusId);
+        var skip  = (query.Page - 1) * query.PageSize;
+        var total = await _outboundOrderRepository.CountAsync(query.Keyword);
+        var list  = await _outboundOrderRepository.GetPagedListAsync(query.Keyword, skip, query.PageSize);
 
         var dtos = list.Select(o => new OutboundOrderListDto
         {
