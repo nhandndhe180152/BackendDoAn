@@ -163,8 +163,16 @@ public class DebtAgingCalculationService : IDebtAgingCalculationService
             totalCharges += adjustment;
         }
 
-        var settlementTarget = Math.Max(0m, totalCharges - Math.Max(0m, partyDebt.CurrentBalance));
-        if (settlementTarget == 0m || documents.Count == 0)
+        // Chỉ phân bổ những khoản giảm nợ có chứng cứ trong lịch sử giao dịch.
+        // CurrentBalance là số dư tổng hợp và có thể bị lệch/stale; dùng chênh lệch
+        // totalCharges - CurrentBalance làm "tiền đã trả" sẽ khiến một chứng từ bị
+        // đánh dấu thanh toán đủ dù không hề có PAYMENT (đặc biệt ngay sau xuất kho).
+        var openingCredit = Math.Max(0m, -partyDebt.OpeningBalance);
+        var totalSettlementAmount = openingCredit + activeTx
+            .Select(t => _effectResolver.GetBalanceEffect(t.TransactionType, t.Amount))
+            .Where(effect => effect < 0m)
+            .Sum(effect => Math.Abs(effect));
+        if (totalSettlementAmount == 0m || documents.Count == 0)
             return documents;
 
         var settlements = activeTx
@@ -176,13 +184,13 @@ public class DebtAgingCalculationService : IDebtAgingCalculationService
             })
             .ToList();
 
-        decimal allocated = 0m;
-
         // Thanh toán có RefType + RefId được ưu tiên vào đúng chứng từ.
+        // Khoản có đích TUYỆT ĐỐI không được tràn sang chứng từ khác. Ví dụ
+        // RETURN_CREDIT của phiếu giao thất bại #40 không được làm phiếu giao lại
+        // #41 hiển thị là đã thanh toán.
         foreach (var settlement in settlements)
         {
-            if (allocated >= settlementTarget ||
-                string.IsNullOrWhiteSpace(settlement.Transaction.RefType) ||
+            if (string.IsNullOrWhiteSpace(settlement.Transaction.RefType) ||
                 !settlement.Transaction.RefId.HasValue)
                 continue;
 
@@ -193,20 +201,22 @@ public class DebtAgingCalculationService : IDebtAgingCalculationService
                 .ThenBy(d => d.ChargeTransactionId)
                 .ToList();
 
-            var remaining = Math.Min(settlement.Amount, settlementTarget - allocated);
+            var remaining = settlement.Amount;
             foreach (var document in matching)
             {
                 var applied = Math.Min(document.OutstandingAmount, remaining);
                 document.OutstandingAmount -= applied;
                 document.PaidAmount += applied;
-                allocated += applied;
                 remaining -= applied;
                 if (remaining <= 0m) break;
             }
         }
 
-        // Phần còn lại phân bổ FIFO theo hạn thanh toán, rồi ngày phát sinh.
-        var fifoRemaining = settlementTarget - allocated;
+        // Chỉ tiền không chỉ định chứng từ và credit đầu kỳ mới được phân bổ FIFO.
+        // Không dùng phần dư của một giao dịch đã gắn RefType/RefId.
+        var fifoRemaining = openingCredit + settlements
+            .Where(x => string.IsNullOrWhiteSpace(x.Transaction.RefType) || !x.Transaction.RefId.HasValue)
+            .Sum(x => x.Amount);
         foreach (var document in documents
                      .OrderBy(x => x.DueDate == null)
                      .ThenBy(x => x.DueDate)
