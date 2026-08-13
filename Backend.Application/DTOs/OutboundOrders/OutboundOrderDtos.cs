@@ -44,6 +44,11 @@ public class OutboundOrderDetailDto
     public DateTime? CompletedDate { get; set; }
     public string? Note { get; set; }
     public string? CancelReason { get; set; }
+
+    /// <summary>Tên cân điện tử đã dùng khi đóng gói; null = nhập tay.</summary>
+    public string? PackingScaleDevice { get; set; }
+
+    public DateTime? PackedDate { get; set; }
     public DateTime? CreatedDate { get; set; }
     public List<OutboundOrderItemDto> Items { get; set; } = new();
 }
@@ -59,6 +64,13 @@ public class OutboundOrderItemDto
     public decimal UnitCostPrice { get; set; }
     public int? SalesOrderItemId { get; set; }
     public string? Note { get; set; }
+
+    /// <summary>Khối lượng đóng gói thực tế đã ghi ở bước confirm-packing.</summary>
+    public decimal? ActualWeightKg { get; set; }
+
+    /// <summary>Nguồn của <see cref="ActualWeightKg"/>: "SCALE" | "MANUAL" | null.</summary>
+    public string? ActualWeightSource { get; set; }
+
     public List<OutboundOrderItemAllocationDto> Allocations { get; set; } = new();
     /// <summary>
     /// Nhóm các allocation cùng lô, vị trí và khối lượng đơn vị để UI không

@@ -20,6 +20,16 @@ public class OutboundOrder : EntityAuditBase<int>
     /// <summary>Lý do hủy phiếu xuất — chỉ có giá trị khi phiếu ở trạng thái CANCELLED.</summary>
     public string? CancelReason { get; set; }
 
+    /// <summary>
+    /// Tên cân điện tử đã dùng ở bước đóng gói (ví dụ "StockLite-01").
+    /// NULL nghĩa là toàn bộ khối lượng được nhập tay — dùng để truy xuất nguồn
+    /// gốc số cân khi đối chiếu khiếu nại khối lượng với khách.
+    /// </summary>
+    public string? PackingScaleDevice { get; set; }
+
+    /// <summary>Thời điểm chốt đóng gói (PICKING → PACKED).</summary>
+    public DateTime? PackedDate { get; set; }
+
     public decimal TotalDispatchedValue { get; set; }
     public decimal TotalDispatchedSaleValue { get; set; }
     public DateTime? CompletedDate { get; set; }

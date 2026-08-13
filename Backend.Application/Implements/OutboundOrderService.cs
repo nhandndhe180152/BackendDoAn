@@ -149,6 +149,8 @@ public class OutboundOrderService : IOutboundOrderService
             CompletedDate        = o.CompletedDate,
             Note                 = o.Note,
             CancelReason         = o.CancelReason,
+            PackingScaleDevice   = o.PackingScaleDevice,
+            PackedDate           = o.PackedDate,
             CreatedDate          = o.CreatedDate,
             Items = o.OutboundOrderItems.Where(i => !i.IsDeleted).Select(i => new OutboundOrderItemDto
             {
@@ -161,6 +163,8 @@ public class OutboundOrderService : IOutboundOrderService
                 UnitCostPrice    = i.UnitCostPrice,
                 SalesOrderItemId = i.SalesOrderItemId,
                 Note             = i.Note,
+                ActualWeightKg   = i.ActualWeightKg,
+                ActualWeightSource = i.ActualWeightSource,
                 Allocations = i.Allocations.Where(a => !a.IsDeleted).OrderBy(a => a.Id).Select(a => new OutboundOrderItemAllocationDto
                 {
                     Id                = a.Id,
@@ -600,15 +604,68 @@ public class OutboundOrderService : IOutboundOrderService
                     ApiCodeConstants.OutboundOrder.PickedQuantityMismatch);
         }
 
-        var now = DateTimeHelper.VietnamNow();
+        var now    = DateTimeHelper.VietnamNow();
+        var userId = GetCurrentUserId();
+
+        // ── Ghi khối lượng đóng gói thực tế ────────────────────────────────
+        // Trước đây dto.ActualWeightKg / dto.ScaleDevice bị bỏ qua hoàn toàn nên
+        // số cân của thủ kho không lưu lại ở đâu. Giờ lưu theo từng dòng, kèm
+        // nguồn số liệu (cân điện tử hay nhập tay) để truy xuất được.
+        var itemsById = order.OutboundOrderItems
+            .Where(i => !i.IsDeleted)
+            .ToDictionary(i => i.Id);
+
+        if (dto.Items is { Count: > 0 })
+        {
+            foreach (var line in dto.Items)
+            {
+                if (!itemsById.TryGetValue(line.OutboundOrderItemId, out var item))
+                    return ApiResponse.BadRequest(
+                        $"Dòng phiếu xuất {line.OutboundOrderItemId} không thuộc phiếu này.",
+                        ApiCodeConstants.OutboundOrder.InvalidRequest);
+
+                if (line.ActualWeightKg is < 0)
+                    return ApiResponse.BadRequest(
+                        "Khối lượng thực tế không được âm.",
+                        ApiCodeConstants.OutboundOrder.InvalidRequest);
+
+                item.ActualWeightKg     = line.ActualWeightKg;
+                item.ActualWeightSource = line.ActualWeightKg == null
+                    ? null
+                    : NormalizeWeightSource(line.Source);
+                item.LastModifiedDate   = now;
+                item.UpdatedBy          = userId;
+            }
+        }
+        else if (dto.ActualWeightKg is { } total && itemsById.Count == 1)
+        {
+            // Client cũ chỉ gửi một số tổng: phiếu một dòng thì gán thẳng được.
+            var item = itemsById.Values.First();
+            item.ActualWeightKg     = total;
+            item.ActualWeightSource = NormalizeWeightSource(
+                string.IsNullOrWhiteSpace(dto.ScaleDevice) ? "MANUAL" : "SCALE");
+            item.LastModifiedDate   = now;
+            item.UpdatedBy          = userId;
+        }
+
+        order.PackingScaleDevice = string.IsNullOrWhiteSpace(dto.ScaleDevice)
+            ? null
+            : dto.ScaleDevice.Trim();
+        order.PackedDate            = now;
         order.OutboundOrderStatusId = await GetOutboundStatusIdAsync(OutboundOrderStatusNames.Packed);
         order.LastModifiedDate      = now;
-        order.UpdatedBy             = GetCurrentUserId();
+        order.UpdatedBy             = userId;
         await _outboundOrderRepository.UpdateAsync(order);
         await _outboundOrderRepository.SaveChangesAsync();
 
         return ApiResponse.Success(message: "Đóng gói hoàn tất. Trạng thái: PACKED.");
     }
+
+    /// <summary>Chỉ chấp nhận SCALE; mọi giá trị khác coi như nhập tay.</summary>
+    private static string NormalizeWeightSource(string? source) =>
+        string.Equals(source?.Trim(), "SCALE", StringComparison.OrdinalIgnoreCase)
+            ? "SCALE"
+            : "MANUAL";
 
     /// <summary>
     /// Xác nhận xuất kho — bước quan trọng nhất.
