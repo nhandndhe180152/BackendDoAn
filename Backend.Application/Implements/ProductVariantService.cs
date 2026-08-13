@@ -469,6 +469,18 @@ public class ProductVariantService : IProductVariantService
         if (existData == null)
             return ApiResponse.NotFound();
 
+        // Normalize & validate SKU uniqueness
+        var sku = obj.SKU?.Trim().ToUpperInvariant();
+        if (string.IsNullOrEmpty(sku))
+            return ApiResponse.BadRequest(message: "SKU không được để trống.");
+
+        var isExistingSKU = await _productVariantRepository.AnyAsync(
+            x => x.SKU == sku && x.Id != obj.Id && !x.IsDeleted);
+        if (isExistingSKU)
+            return ApiResponse.Conflict(
+                $"SKU '{sku}' đã tồn tại trong hệ thống.",
+                ApiCodeConstants.Common.DuplicatedData);
+
         // Validate UoM
         var uom = await _uomRepository.GetByIdAsync(obj.UnitOfMeasureId);
         if (uom == null || uom.IsDeleted)
