@@ -516,6 +516,14 @@ public class MillingOrderService : IMillingOrderService
         if (requestedIds.Distinct().Count() != requestedIds.Count)
             return ApiResponse.UnprocessableEntity("Một bao không được chọn lặp lại.");
 
+        var requestedLocationIds = columns.Select(x => x.LocationId).Distinct().ToList();
+        var lockedLocation = await _locationRepository.FindByCondition(x =>
+                requestedLocationIds.Contains(x.Id) && x.OutboundLockOrderId.HasValue && !x.IsDeleted, false)
+            .FirstOrDefaultAsync();
+        if (lockedLocation != null)
+            return ApiResponse.Conflict(
+                $"Cột '{lockedLocation.SlotCode ?? $"#{lockedLocation.Id}"}' đang được khóa để lấy hàng cho phiếu xuất #{lockedLocation.OutboundLockOrderId}. Vui lòng chọn cột khác.");
+
         var selectedBags = new List<PaddyLotBag>();
         foreach (var column in columns)
         {
@@ -685,6 +693,7 @@ public class MillingOrderService : IMillingOrderService
             return ApiResponse.UnprocessableEntity("Kho chưa có dữ liệu bao vật lý để tự chọn nguyên bao.");
         var stacks = await _bagRepository
             .FindByCondition(x => x.LocationId.HasValue && x.Location!.WarehouseId == order.WarehouseId &&
+                !x.Location.IsOutboundStaging && !x.Location.OutboundLockOrderId.HasValue &&
                 x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted, false)
             .Include(x => x.Location)
             .Include(x => x.Lot).ThenInclude(x => x.Status)

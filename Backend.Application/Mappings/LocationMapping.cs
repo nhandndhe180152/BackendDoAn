@@ -63,6 +63,10 @@ public static class LocationMapping
             AllowedCategoryName = entity.AllowedCategory?.Name,
             Priority = entity.Priority,
             IsQuarantine = entity.IsQuarantine,
+            IsOutboundStaging = entity.IsOutboundStaging,
+            OutboundLockOrderId = entity.OutboundLockOrderId,
+            OutboundLockOrderCode = entity.OutboundLockOrder?.SalesOrder?.SOCode,
+            OutboundLockedAt = entity.OutboundLockedAt,
             CurrentProductVariantId = entity.CurrentProductVariantId,
             CreatedDate = entity.CreatedDate
         };
@@ -87,6 +91,10 @@ public static class LocationMapping
             AllowedCategoryName = entity.AllowedCategory?.Name,
             Priority = entity.Priority,
             IsQuarantine = entity.IsQuarantine,
+            IsOutboundStaging = entity.IsOutboundStaging,
+            OutboundLockOrderId = entity.OutboundLockOrderId,
+            OutboundLockOrderCode = entity.OutboundLockOrder?.SalesOrder?.SOCode,
+            OutboundLockedAt = entity.OutboundLockedAt,
             CurrentProductVariantId = entity.CurrentProductVariantId,
             CreatedDate = entity.CreatedDate
         };

@@ -115,7 +115,9 @@ public class LocationRepository : RepositoryBase<Location, int>, ILocationReposi
         if (_context.Database.ProviderName == "Microsoft.EntityFrameworkCore.InMemory")
         {
             var location = await _context.Locations.FirstOrDefaultAsync(x => x.Id == locationId);
-            if (location == null || !location.IsActive || location.IsDeleted || location.IsQuarantine != isQuarantine)
+            if (location == null || !location.IsActive || location.IsDeleted ||
+                location.IsQuarantine != isQuarantine || location.IsOutboundStaging ||
+                location.OutboundLockOrderId.HasValue)
             {
                 return 0;
             }
@@ -150,6 +152,8 @@ public class LocationRepository : RepositoryBase<Location, int>, ILocationReposi
                 AND `IsActive` = 1
                 AND `IsDeleted` = 0
                 AND `IsQuarantine` = {5}
+                AND `IsOutboundStaging` = 0
+                AND `OutboundLockOrderId` IS NULL
                 AND (
                     `CurrentProductVariantId` IS NULL
                     OR `CurrentProductVariantId` = {1}

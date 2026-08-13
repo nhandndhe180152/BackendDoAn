@@ -26,6 +26,8 @@ public class LocationConfiguration : IEntityTypeConfiguration<Location>
 
         builder.Property(x => x.MaxCapacity).HasColumnType("decimal(18,3)");
         builder.Property(x => x.CurrentOccupancy).HasColumnType("decimal(18,3)").HasDefaultValue(0.000m);
+        builder.Property(x => x.IsOutboundStaging).HasDefaultValue(false);
+        builder.Property(x => x.RowVersion).IsRowVersion().IsRequired(false);
 
         // Chỉ cấu hình FK AllowedCategory (SET NULL) — Warehouse FK được xử lý qua convention
         builder.HasOne(x => x.AllowedCategory)
@@ -38,6 +40,11 @@ public class LocationConfiguration : IEntityTypeConfiguration<Location>
             .HasForeignKey(x => x.CurrentProductVariantId)
             .OnDelete(DeleteBehavior.SetNull);
 
+        builder.HasOne(x => x.OutboundLockOrder)
+            .WithMany()
+            .HasForeignKey(x => x.OutboundLockOrderId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         builder.HasIndex(x => x.AllowedCategoryId)
             .HasDatabaseName("IX_Location_AllowedCategoryId");
 
@@ -46,5 +53,11 @@ public class LocationConfiguration : IEntityTypeConfiguration<Location>
 
         builder.HasIndex(x => new { x.WarehouseId, x.IsActive, x.IsDeleted, x.IsQuarantine, x.CurrentProductVariantId })
             .HasDatabaseName("IX_Location_PutawayCandidate");
+
+        builder.HasIndex(x => x.OutboundLockOrderId)
+            .HasDatabaseName("IX_Location_OutboundLockOrderId");
+
+        builder.HasIndex(x => new { x.WarehouseId, x.IsOutboundStaging, x.IsActive, x.IsDeleted })
+            .HasDatabaseName("IX_Location_OutboundStaging");
     }
 }

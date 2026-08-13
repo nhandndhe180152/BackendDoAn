@@ -90,7 +90,8 @@ public class LocationService : ILocationService
     public async Task<ApiResponse> GetAllAsync()
     {
         var data = await _locationRepository
-            .FindByCondition(x => !x.IsDeleted, false, x => x.Warehouse, x => x.AllowedCategory)
+            .FindByCondition(x => !x.IsDeleted, false, x => x.Warehouse, x => x.AllowedCategory,
+                x => x.OutboundLockOrder, x => x.OutboundLockOrder!.SalesOrder)
             .Select(x => x.ToDto())
             .ToListAsync();
 
@@ -99,7 +100,8 @@ public class LocationService : ILocationService
 
     public async Task<ApiResponse> GetByIdAsync(int id)
     {
-        var data = await _locationRepository.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, false, x => x.Warehouse, x => x.AllowedCategory);
+        var data = await _locationRepository.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, false,
+            x => x.Warehouse, x => x.AllowedCategory, x => x.OutboundLockOrder, x => x.OutboundLockOrder!.SalesOrder);
         if (data == null)
             return ApiResponse.NotFound();
 

@@ -1751,10 +1751,21 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<bool>("IsQuarantine")
                         .HasColumnType("tinyint(1)");
 
+                    b.Property<bool>("IsOutboundStaging")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("IsSingleTypeColumn")
                         .HasColumnType("tinyint(1)");
 
                     b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("OutboundLockOrderId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("OutboundLockedAt")
                         .HasColumnType("datetime(6)");
 
                     b.Property<decimal?>("MaxCapacity")
@@ -1796,6 +1807,12 @@ namespace Backend.Infrastructure.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
 
+                    b.Property<DateTime?>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("timestamp(6)")
+                        .HasColumnName("RowVersion");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AllowedCategoryId")
@@ -1805,6 +1822,12 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasIndex("IsQuarantine")
                         .HasDatabaseName("IX_Location_IsQuarantine");
+
+                    b.HasIndex("OutboundLockOrderId")
+                        .HasDatabaseName("IX_Location_OutboundLockOrderId");
+
+                    b.HasIndex("WarehouseId", "IsOutboundStaging", "IsActive", "IsDeleted")
+                        .HasDatabaseName("IX_Location_OutboundStaging");
 
                     b.HasIndex("QrCode")
                         .IsUnique()
@@ -6697,6 +6720,11 @@ namespace Backend.Infrastructure.Migrations
                         .HasForeignKey("CurrentProductVariantId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("Backend.Domain.Entities.OutboundOrder", "OutboundLockOrder")
+                        .WithMany()
+                        .HasForeignKey("OutboundLockOrderId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
                         .WithMany("Locations")
                         .HasForeignKey("WarehouseId")
@@ -6706,6 +6734,8 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("AllowedCategory");
 
                     b.Navigation("CurrentProductVariant");
+
+                    b.Navigation("OutboundLockOrder");
 
                     b.Navigation("Warehouse");
                 });

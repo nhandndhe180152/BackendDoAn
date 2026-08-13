@@ -14,7 +14,6 @@ using Microsoft.AspNetCore.Http;
 using Moq;
 using MockQueryable.Moq;
 using Xunit;
-using System.Linq.Expressions;
 using System.Reflection;
 using PaddyLotEntity = Backend.Domain.Entities.PaddyLot;
 
@@ -42,6 +41,11 @@ public class OutboundOrderServiceTests
 
     public OutboundOrderServiceTests()
     {
+        _bagMovementRepo
+            .Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<PaddyLotBagMovement, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns(new List<PaddyLotBagMovement>().AsQueryable().BuildMock());
         // Outbound dispatch sends a notification after the DB transaction commits.
         // Mock the async side effect explicitly so service tests never depend on
         // Moq's default Task return value.
@@ -213,6 +217,35 @@ public class OutboundOrderServiceTests
         });
 
         result.Status.Should().Be(422);
+    }
+
+    [Fact]
+    public async Task ConfirmPackingAsync_PartiallyPickedOrder_ReturnsUnprocessableEntity()
+    {
+        var order = CreatePackedOrderWithReceivable();
+        order.OutboundOrderStatus = new OutboundOrderStatus { Code = OutboundOrderStatusNames.Picking };
+        order.OutboundOrderItems.Single().QuantityOrdered = 10;
+        order.OutboundOrderItems.Single().Allocations.Single().QuantityPicked = 5;
+        _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
+
+        var result = await Sut().ConfirmPackingAsync(1, new ConfirmPackingDto { QrCode = "OUT-001" });
+
+        result.Status.Should().Be(422);
+        _obRepo.Verify(r => r.BeginTransactionAsync(), Times.Never);
+    }
+
+    [Fact]
+    public async Task ConfirmDispatchAsync_PartiallyPickedOrder_ReturnsUnprocessableEntity()
+    {
+        var order = CreatePackedOrderWithReceivable();
+        order.OutboundOrderItems.Single().QuantityOrdered = 10;
+        order.OutboundOrderItems.Single().Allocations.Single().QuantityPicked = 5;
+        _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
+
+        var result = await Sut().ConfirmDispatchAsync(1, new ConfirmDispatchDto());
+
+        result.Status.Should().Be(422);
+        _obRepo.Verify(r => r.BeginTransactionAsync(), Times.Never);
     }
 
     [Fact]
