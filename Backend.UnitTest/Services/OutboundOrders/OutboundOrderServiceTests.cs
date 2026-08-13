@@ -38,6 +38,7 @@ public class OutboundOrderServiceTests
     private readonly Mock<IRepositoryBase<PaddyLotBag, int>> _bagRepo = new();
     private readonly Mock<IRepositoryBase<PaddyLotBagContent, int>> _bagContentRepo = new();
     private readonly Mock<IRepositoryBase<PaddyLotBagMovement, int>> _bagMovementRepo = new();
+    private readonly Mock<ILocationRepository> _locationRepo = new();
 
     public OutboundOrderServiceTests()
     {
@@ -61,7 +62,7 @@ public class OutboundOrderServiceTests
             .Returns(Task.CompletedTask);
     }
 
-    private OutboundOrderService Sut() => new(
+    private OutboundOrderService Sut(bool withLocationRepository = false) => new(
         outboundOrderRepository: _obRepo.Object,
         outboundStatusRepository: _obStatusRepo.Object,
         allocationRepository: _allocRepo.Object,
@@ -78,7 +79,88 @@ public class OutboundOrderServiceTests
         debtAgingService: _aging.Object,
         bagRepository: _bagRepo.Object,
         bagContentRepository: _bagContentRepo.Object,
-        bagMovementRepository: _bagMovementRepo.Object);
+        bagMovementRepository: _bagMovementRepo.Object,
+        locationRepository: withLocationRepository ? _locationRepo.Object : null);
+
+    [Fact]
+    public async Task GetAllocationCandidatesAsync_ExcludesStagingAndLockedLocations()
+    {
+        var order = new OutboundOrder
+        {
+            Id = 1,
+            WarehouseId = 2,
+            SalesOrderId = 3,
+            OutboundOrderStatus = new OutboundOrderStatus { Code = OutboundOrderStatusNames.Draft },
+            OutboundOrderItems = new List<OutboundOrderItem>
+            {
+                new() { Id = 10, ProductVariantId = 100 }
+            }
+        };
+        var lot = CreateLot(5);
+        var inventories = new List<Backend.Domain.Entities.Inventory>
+        {
+            CreateCandidateInventory(1, lot, new Location { Id = 11, IsActive = true, SlotCode = "A-01" }),
+            CreateCandidateInventory(2, lot, new Location { Id = 12, IsActive = true, SlotCode = "STAGING", IsOutboundStaging = true }),
+            CreateCandidateInventory(3, lot, new Location { Id = 13, IsActive = true, SlotCode = "A-03", OutboundLockOrderId = 99 })
+        };
+
+        _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
+        _invRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<Backend.Domain.Entities.Inventory, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<Backend.Domain.Entities.Inventory, object>>[]>()!))
+            .Returns((Expression<Func<Backend.Domain.Entities.Inventory, bool>> predicate, bool _,
+                    Expression<Func<Backend.Domain.Entities.Inventory, object>>[] __) =>
+                inventories.AsQueryable().Where(predicate.Compile()).AsQueryable().BuildMock());
+        _invTxRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<InventoryTransaction, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns(new List<InventoryTransaction>().AsQueryable().BuildMock());
+        _bagRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<PaddyLotBag, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns(new List<PaddyLotBag>().AsQueryable().BuildMock());
+
+        var result = await Sut().GetAllocationCandidatesAsync(1);
+
+        result.Status.Should().Be(200);
+        var candidates = result.Resources.Should()
+            .BeAssignableTo<IEnumerable<OutboundAllocationCandidateDto>>()
+            .Subject.ToList();
+        candidates.Should().ContainSingle();
+        candidates[0].InventoryId.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ForceUnlockAsync_RejectsReasonLongerThan500Characters()
+    {
+        var result = await Sut(withLocationRepository: true)
+            .ForceUnlockAsync(1, new string('a', 501));
+
+        result.Status.Should().Be(422);
+        _obRepo.Verify(r => r.GetByIdDetailAsync(It.IsAny<int>()), Times.Never);
+        _locationRepo.Verify(r => r.ReleaseOutboundLocksAsync(
+            It.IsAny<int>(), It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<IReadOnlyCollection<int>?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ForceUnlockAsync_KeepsOrderNoteWithinDatabaseLimit()
+    {
+        var order = new OutboundOrder { Id = 1, Note = new string('x', 990) };
+        _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
+        _locationRepo.Setup(r => r.ReleaseOutboundLocksAsync(
+                1, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<IReadOnlyCollection<int>?>()))
+            .ReturnsAsync(1);
+
+        var result = await Sut(withLocationRepository: true)
+            .ForceUnlockAsync(1, "Kiểm tra an toàn");
+
+        result.Status.Should().Be(200);
+        order.Note.Should().NotBeNull();
+        order.Note!.Length.Should().BeLessThanOrEqualTo(1000);
+        order.Note.Should().EndWith("Mở khóa cột thủ công: Kiểm tra an toàn");
+        _obRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+    }
 
     [Fact]
     public async Task GetByIdAsync_NotFound_Returns404()
@@ -544,6 +626,21 @@ public class OutboundOrderServiceTests
             PaddyLotId = lotId,
             LocationId = locationId,
             QuantityOnHand = 100
+        };
+
+    private static Backend.Domain.Entities.Inventory CreateCandidateInventory(
+        int id, PaddyLotEntity lot, Location location)
+        => new()
+        {
+            Id = id,
+            ProductVariantId = 100,
+            WarehouseId = 2,
+            PaddyLotId = lot.Id,
+            PaddyLot = lot,
+            LocationId = location.Id,
+            Location = location,
+            QuantityOnHand = 100,
+            QuantityReserved = 0
         };
 
     private static PaddyLotEntity CreateLot(int id)

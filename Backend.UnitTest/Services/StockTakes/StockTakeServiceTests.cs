@@ -530,4 +530,40 @@ public class StockTakeServiceTests
         result.Status.Should().Be(400);
         item.ActualQuantity.Should().BeNull();
     }
+
+    [Fact]
+    public async Task ApproveAsync_StagingVariance_ReturnsConflictWithoutAdjustingInventory()
+    {
+        var item = MakeItem(system: 100m, actual: 95m);
+        item.Location = new Location
+        {
+            Id = item.LocationId!.Value,
+            IsActive = true,
+            IsOutboundStaging = true,
+            SlotCode = "OUT-STAGING-1"
+        };
+        var stockTake = MakeStockTake(1, item);
+        stockTake.StockTakeStatusId = Backend.Application.Common.Lookup.StockTakeStatusId(
+            LookupCodes.StockTakeStatus.Submitted);
+        stockTake.CreatedBy = 88;
+        SetupStockTakeFind(stockTake);
+
+        var context = new DefaultHttpContext();
+        context.User = new System.Security.Claims.ClaimsPrincipal(
+            new System.Security.Claims.ClaimsIdentity(new[]
+            {
+                new System.Security.Claims.Claim(Backend.Share.Constants.ClaimNames.ROLE_IDS,
+                    CommonConstants.Role.ADMIN.ToString())
+            }, "TestAuth"));
+        _http.Setup(h => h.HttpContext).Returns(context);
+
+        var result = await Sut().ApproveAsync(1, null, userId: 99);
+
+        result.Status.Should().Be(409);
+        result.Message.Should().Contain("Chờ xuất");
+        _stockTakeRepo.Verify(r => r.BeginTransactionAsync(), Times.Never);
+        _invTxService.Verify(r => r.AdjustStockAsync(
+            It.IsAny<Backend.Application.DTOs.InventoryTransactions.StockMovementRequestDto>(),
+            It.IsAny<decimal>(), It.IsAny<bool>()), Times.Never);
+    }
 }

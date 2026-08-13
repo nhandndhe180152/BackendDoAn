@@ -135,6 +135,14 @@ public class OutboundOrderService : IOutboundOrderService
     private static IEnumerable<OutboundOrderItemAllocation> ActiveAllocations(OutboundOrderItem item)
         => item.Allocations.Where(a => !a.IsDeleted).OrderBy(a => a.Id);
 
+    private static string AppendBoundedNote(string? currentNote, string entry, int maxLength = 1000)
+    {
+        var combined = string.IsNullOrWhiteSpace(currentNote)
+            ? entry
+            : $"{currentNote.TrimEnd()}\n{entry}";
+        return combined.Length <= maxLength ? combined : combined[^maxLength..].TrimStart();
+    }
+
     private async Task<Location> GetOutboundStagingLocationAsync(int warehouseId)
     {
         if (_locationRepository == null)
@@ -158,6 +166,9 @@ public class OutboundOrderService : IOutboundOrderService
     {
         if (string.IsNullOrWhiteSpace(reason))
             return ApiResponse.UnprocessableEntity("Phải nhập lý do mở khóa cột.");
+        reason = reason.Trim();
+        if (reason.Length > 500)
+            return ApiResponse.UnprocessableEntity("Lý do mở khóa cột không được vượt quá 500 ký tự.");
         var order = await _outboundOrderRepository.GetByIdDetailAsync(id);
         if (order == null || order.IsDeleted)
             return ApiResponse.NotFound(message: "Không tìm thấy phiếu xuất.");
@@ -167,9 +178,7 @@ public class OutboundOrderService : IOutboundOrderService
         var userId = GetCurrentUserId();
         var now = DateTimeHelper.VietnamNow();
         var released = await _locationRepository.ReleaseOutboundLocksAsync(id, now, userId);
-        order.Note = string.IsNullOrWhiteSpace(order.Note)
-            ? $"Mở khóa cột thủ công: {reason.Trim()}"
-            : $"{order.Note}\nMở khóa cột thủ công: {reason.Trim()}";
+        order.Note = AppendBoundedNote(order.Note, $"Mở khóa cột thủ công: {reason}");
         order.LastModifiedDate = now;
         order.UpdatedBy = userId;
         await _outboundOrderRepository.UpdateAsync(order);
@@ -313,7 +322,10 @@ public class OutboundOrderService : IOutboundOrderService
         var variantIds = order.OutboundOrderItems.Where(x => !x.IsDeleted).Select(x => x.ProductVariantId).Distinct().ToList();
         var inventories = await _inventoryRepository.FindByCondition(x =>
                 !x.IsDeleted && x.WarehouseId == order.WarehouseId && variantIds.Contains(x.ProductVariantId) &&
-                x.LocationId.HasValue && x.QuantityOnHand > 0,
+                x.LocationId.HasValue && x.QuantityOnHand > 0 &&
+                x.Location != null && !x.Location.IsDeleted && x.Location.IsActive &&
+                !x.Location.IsQuarantine && !x.Location.IsOutboundStaging &&
+                !x.Location.OutboundLockOrderId.HasValue,
                 false, x => x.Location, x => x.PaddyLot, x => x.PaddyLot.Status)
             .ToListAsync();
 
@@ -352,7 +364,6 @@ public class OutboundOrderService : IOutboundOrderService
             .Where(inv => inv.PaddyLot == null ||
                 (inv.PaddyLot.Status != null && inv.PaddyLot.Status.IsSellable &&
                  inv.PaddyLot.Status.Code != LotStatusCodeConstants.Quarantine))
-            .Where(inv => inv.Location == null || !inv.Location.IsQuarantine)
             .Select(inv =>
             {
                 var own = ownReserved.GetValueOrDefault(inv.Id);
