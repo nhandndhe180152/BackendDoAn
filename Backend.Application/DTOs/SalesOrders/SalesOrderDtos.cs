@@ -190,6 +190,13 @@ public class SalesOrderOutboundSummaryDto
 public class SalesOrderPagedQuery
 {
     public string? Keyword { get; set; }
+
+    /// <summary>Lọc theo trạng thái đơn (null/0 = tất cả).</summary>
+    public int? StatusId { get; set; }
+
+    /// <summary>Lọc theo kênh bán: DIRECT | WHOLESALE (null/rỗng = tất cả).</summary>
+    public string? Channel { get; set; }
+
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 20;
 }

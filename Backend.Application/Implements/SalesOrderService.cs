@@ -153,9 +153,16 @@ public class SalesOrderService : ISalesOrderService
 
     public async Task<ApiResponse> GetPagedAsync(SalesOrderPagedQuery query)
     {
-        var skip = (query.Page - 1) * query.PageSize;
-        var total = await _salesOrderRepository.CountAsync(query.Keyword);
-        var list = await _salesOrderRepository.GetPagedListAsync(query.Keyword, skip, query.PageSize);
+        // Chuẩn hóa tham số trang để client gửi page=0 hay pageSize âm không làm
+        // vỡ Skip/Take.
+        var page = query.Page < 1 ? 1 : query.Page;
+        var pageSize = query.PageSize is < 1 or > 200 ? 20 : query.PageSize;
+        var skip = (page - 1) * pageSize;
+
+        var total = await _salesOrderRepository.CountAsync(
+            query.Keyword, query.StatusId, query.Channel);
+        var list = await _salesOrderRepository.GetPagedListAsync(
+            query.Keyword, skip, pageSize, query.StatusId, query.Channel);
 
         var dtos = list.Select(so =>
         {
