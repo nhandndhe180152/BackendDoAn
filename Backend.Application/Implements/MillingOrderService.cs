@@ -525,6 +525,7 @@ public class MillingOrderService : IMillingOrderService
                 $"Cột '{lockedLocation.SlotCode ?? $"#{lockedLocation.Id}"}' đang được khóa để lấy hàng cho phiếu xuất #{lockedLocation.OutboundLockOrderId}. Vui lòng chọn cột khác.");
 
         var selectedBags = new List<PaddyLotBag>();
+        var selectedByColumn = new Dictionary<int, List<PaddyLotBag>>();
         foreach (var column in columns)
         {
             var stack = await _bagRepository
@@ -553,7 +554,23 @@ public class MillingOrderService : IMillingOrderService
                     return ApiResponse.UnprocessableEntity($"Bao #{bag.BagNo} không còn khối lượng khả dụng.");
                 selectedBags.Add(bag);
             }
+            selectedByColumn[column.LocationId] = stack.Take(requestedSequence.Count).ToList();
         }
+
+        var selectedWeightKg = selectedBags.Sum(x => x.WeightKg);
+        if (selectedWeightKg + 0.0005m < order.ComputedPaddyKg)
+            return ApiResponse.UnprocessableEntity(
+                $"Tổng khối lượng các bao đã chọn ({selectedWeightKg:N3} kg) chưa đủ lượng lúa cần xay ({order.ComputedPaddyKg:N3} kg). Còn thiếu {order.ComputedPaddyKg - selectedWeightKg:N3} kg.");
+
+        // Danh sách phải tối thiểu theo nguyên bao. Bao cuối (sâu nhất) của bất kỳ cột nào
+        // mà có thể bỏ đi nhưng tổng vẫn đủ chính là một bao được giữ dư.
+        var removableBottomBag = selectedByColumn.Values
+            .Where(x => x.Count > 0)
+            .Select(x => x[^1])
+            .FirstOrDefault(x => selectedWeightKg - x.WeightKg + 0.0005m >= order.ComputedPaddyKg);
+        if (removableBottomBag != null)
+            return ApiResponse.UnprocessableEntity(
+                $"Bao #{removableBottomBag.BagNo} là bao dư: bỏ bao này vẫn đủ {order.ComputedPaddyKg:N3} kg cần xay. Vui lòng tự chọn lại nguồn phù hợp.");
 
         var now = DateTimeHelper.VietnamNow();
         await using var tx = await _millingOrderRepository.BeginTransactionAsync();
@@ -644,6 +661,22 @@ public class MillingOrderService : IMillingOrderService
             return ApiResponse.Success(new { order.Id, ActualSelectedPaddyKg = total, PlannedPaddyKg = order.ComputedPaddyKg, DifferenceKg = total - order.ComputedPaddyKg },
                 isReallocation ? "Đã phân bổ lại đúng các bao lúa vật lý." : "Đã giữ đúng các bao lúa vật lý.");
         }
+        catch (DbUpdateConcurrencyException)
+        {
+            await tx.RollbackAsync();
+            return ApiResponse.Conflict(
+                "Tồn kho hoặc vị trí bao vừa được thay đổi bởi thao tác khác. Vui lòng tải lại và chọn nguồn lúa mới.",
+                "MILLING_SOURCE_CHANGED");
+        }
+        catch (DbUpdateException ex) when (IsActiveBagAllocationConflict(ex))
+        {
+            await tx.RollbackAsync();
+            // Hai request có thể cùng vượt qua bước kiểm tra trước khi một request commit.
+            // Unique ActiveBagId là chốt cuối; chuyển lỗi DB thành xung đột nghiệp vụ rõ ràng.
+            return ApiResponse.Conflict(
+                "Một hoặc nhiều bao vừa được chứng từ khác giữ. Vui lòng tải lại và chọn nguồn lúa mới.",
+                "PADDY_BAG_ALREADY_HELD");
+        }
         catch (InvalidOperationException ex)
         {
             await tx.RollbackAsync();
@@ -654,6 +687,19 @@ public class MillingOrderService : IMillingOrderService
             await tx.RollbackAsync();
             throw;
         }
+    }
+
+    private static bool IsActiveBagAllocationConflict(DbUpdateException exception)
+    {
+        for (Exception? current = exception; current != null; current = current.InnerException)
+        {
+            var message = current.Message;
+            if (message.Contains("Duplicate entry", StringComparison.OrdinalIgnoreCase) &&
+                (message.Contains("IX_PaddyLotBagAllocation_ActiveBagId", StringComparison.OrdinalIgnoreCase) ||
+                 message.Contains("PaddyLotBagAllocation.IX_PaddyLotBagAllocation_ActiveBagId", StringComparison.OrdinalIgnoreCase)))
+                return true;
+        }
+        return false;
     }
 
     public async Task<ApiResponse> SuggestSourcesAsync(int id)
@@ -713,20 +759,33 @@ public class MillingOrderService : IMillingOrderService
                 selectable.Add(bag);
             }
         }
+        // Chọn từng bao một từ đỉnh cột. Sau mỗi bao phải kiểm tra ngay lượng cần giữ
+        // để không kéo thêm cả prefix của cột khi bao đầu tiên đã đủ.
+        var availableColumns = selectable
+            .GroupBy(x => x.LocationId!.Value)
+            .ToDictionary(
+                x => x.Key,
+                x => x.OrderByDescending(b => b.StackOrder).ThenByDescending(b => b.Id).ToList());
+        var columnOffsets = availableColumns.Keys.ToDictionary(x => x, _ => 0);
         var selected = new List<PaddyLotBag>();
         var selectedKg = 0m;
-        foreach (var bag in selectable.OrderBy(x => x.Lot.InboundDate).ThenBy(x => x.LocationId).ThenByDescending(x => x.StackOrder))
+        while (selectedKg + 0.0005m < order.ComputedPaddyKg)
         {
-            if (selectedKg + 0.0005m >= order.ComputedPaddyKg) break;
-            // Preserve a continuous prefix in every chosen column.
-            var columnPrefix = selectable.Where(x => x.LocationId == bag.LocationId && x.StackOrder >= bag.StackOrder)
-                .OrderByDescending(x => x.StackOrder).ThenByDescending(x => x.Id);
-            foreach (var prefixBag in columnPrefix)
-            {
-                if (selected.Any(x => x.Id == prefixBag.Id)) continue;
-                selected.Add(prefixBag);
-                selectedKg += prefixBag.WeightKg;
-            }
+            // Chỉ so sánh các bao hiện đang nằm trên cùng của từng cột. FIFO theo ngày nhập
+            // của lô, sau đó ổn định theo vị trí/thứ tự bao.
+            var nextBag = availableColumns
+                .Where(x => columnOffsets[x.Key] < x.Value.Count)
+                .Select(x => x.Value[columnOffsets[x.Key]])
+                .OrderBy(x => x.Lot.InboundDate)
+                .ThenBy(x => x.LocationId)
+                .ThenByDescending(x => x.StackOrder)
+                .ThenByDescending(x => x.Id)
+                .FirstOrDefault();
+            if (nextBag == null) break;
+
+            selected.Add(nextBag);
+            selectedKg += nextBag.WeightKg;
+            columnOffsets[nextBag.LocationId!.Value]++;
         }
         foreach (var group in selected.GroupBy(x => new { x.LotId, LocationId = x.LocationId!.Value }))
         {

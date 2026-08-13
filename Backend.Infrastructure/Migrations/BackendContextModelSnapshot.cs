@@ -3202,6 +3202,11 @@ namespace Backend.Infrastructure.Migrations
                         .HasPrecision(18, 3)
                         .HasColumnType("decimal(18,3)");
 
+                    b.Property<int?>("ActiveBagId")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("int")
+                        .HasComputedColumnSql("CASE WHEN `Status` = 'ACTIVE' AND `IsDeleted` = 0 THEN `BagId` ELSE NULL END", true);
+
                     b.Property<int>("BagId")
                         .HasColumnType("int");
 
@@ -3249,9 +3254,10 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("BagId")
-                        .IsUnique()
-                        .HasFilter("[Status] = 'ACTIVE'");
+                    b.HasIndex("ActiveBagId")
+                        .IsUnique();
+
+                    b.HasIndex("BagId");
 
                     b.HasIndex("ReferenceType", "ReferenceId");
 

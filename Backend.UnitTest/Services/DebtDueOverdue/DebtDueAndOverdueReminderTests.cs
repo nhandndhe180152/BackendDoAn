@@ -190,6 +190,75 @@ public class DebtDueAndOverdueReminderTests
     }
 
     [Fact]
+    public void CalculateDebtDocuments_NoPayment_DoesNotInferFullPaymentFromCurrentBalance()
+    {
+        var calcService = new DebtAgingCalculationService(
+            null!,
+            new DebtTransactionEffectResolver());
+        var debt = new PartyDebt
+        {
+            Id = 1,
+            PartyType = "CUSTOMER",
+            PartyId = 1,
+            Direction = "RECEIVABLE",
+            // Mô phỏng số dư tổng hợp đang lệch/chưa đồng bộ tại thời điểm đọc.
+            CurrentBalance = 0m,
+            IsActive = true
+        };
+        var transactions = new List<DebtTransaction>
+        {
+            new()
+            {
+                Id = 1,
+                PartyDebtId = 1,
+                TransactionType = LookupCodes.DebtTransactionType.Charge,
+                Amount = 10_000_000m,
+                RefType = "OUTBOUND_ORDER",
+                RefId = 10,
+                TransactionDate = new DateTime(2026, 8, 14)
+            }
+        };
+
+        var document = calcService.CalculateDebtDocuments(debt, transactions).Single();
+
+        document.TotalAmount.Should().Be(10_000_000m);
+        document.PaidAmount.Should().Be(0m);
+        document.OutstandingAmount.Should().Be(10_000_000m);
+    }
+
+    [Fact]
+    public void CalculateDebtDocuments_TargetedReversal_DoesNotSpillIntoRetryDocument()
+    {
+        var calcService = new DebtAgingCalculationService(
+            null!,
+            new DebtTransactionEffectResolver());
+        var debt = new PartyDebt
+        {
+            Id = 2,
+            PartyType = "CUSTOMER",
+            PartyId = 1,
+            Direction = "RECEIVABLE",
+            CurrentBalance = 200_000m,
+            IsActive = true
+        };
+        var transactions = new List<DebtTransaction>
+        {
+            new() { Id = 1, PartyDebtId = 2, TransactionType = "CHARGE", Amount = 200_000m, RefType = "OUTBOUND_ORDER", RefId = 40, TransactionDate = new DateTime(2026, 8, 14, 0, 1, 0) },
+            new() { Id = 2, PartyDebtId = 2, TransactionType = "RETURN_CREDIT", Amount = 200_000m, RefType = "OUTBOUND_ORDER", RefId = 40, TransactionDate = new DateTime(2026, 8, 14, 0, 2, 0) },
+            new() { Id = 3, PartyDebtId = 2, TransactionType = "CHARGE", Amount = 200_000m, RefType = "OUTBOUND_ORDER", RefId = 41, TransactionDate = new DateTime(2026, 8, 14, 0, 3, 0) }
+        };
+
+        var documents = calcService.CalculateDebtDocuments(debt, transactions);
+        var failedDelivery = documents.Single(x => x.RefId == 40);
+        var retryDelivery = documents.Single(x => x.RefId == 41);
+
+        failedDelivery.PaidAmount.Should().Be(200_000m);
+        failedDelivery.OutstandingAmount.Should().Be(0m);
+        retryDelivery.PaidAmount.Should().Be(0m);
+        retryDelivery.OutstandingAmount.Should().Be(200_000m);
+    }
+
+    [Fact]
     public void EvaluateRules_DueSoonAndOverdue_CorrectSeverityAndMetadata()
     {
         // Arrange
