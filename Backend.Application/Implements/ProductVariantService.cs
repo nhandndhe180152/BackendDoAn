@@ -212,7 +212,9 @@ public class ProductVariantService : IProductVariantService
         if (string.IsNullOrEmpty(sku))
             return ApiResponse.BadRequest(message: "SKU không được để trống.");
 
-        var isExistingSKU = await _productVariantRepository.AnyAsync(x => x.SKU == sku && !x.IsDeleted);
+        // The database unique index is not filtered by IsDeleted, therefore a SKU
+        // belonging to a soft-deleted row is still reserved.
+        var isExistingSKU = await _productVariantRepository.IsSkuInUseAsync(sku);
         if (isExistingSKU)
             return ApiResponse.Conflict(
                 $"SKU '{sku}' đã tồn tại trong hệ thống.",
@@ -466,16 +468,26 @@ public class ProductVariantService : IProductVariantService
     public async Task<ApiResponse> UpdateAsync(UpdateProductVariantDto obj)
     {
         var existData = await _productVariantRepository.GetByIdAsync(obj.Id);
-        if (existData == null)
+        if (existData == null || existData.IsDeleted)
             return ApiResponse.NotFound();
+
+        // ProductId is editable, so validate the destination product just like create.
+        var product = await _productRepository
+            .FindByCondition(x => x.Id == obj.ProductId && !x.IsDeleted)
+            .FirstOrDefaultAsync();
+        if (product == null)
+            return ApiResponse.NotFound(message: "Sản phẩm không tồn tại hoặc đã bị xóa.");
+        if (!product.IsActive)
+            return ApiResponse.UnprocessableEntity(
+                "Sản phẩm đang bị vô hiệu hóa, không thể chuyển biến thể sang sản phẩm này.",
+                ApiCodeConstants.Common.InvalidData);
 
         // Normalize & validate SKU uniqueness
         var sku = obj.SKU?.Trim().ToUpperInvariant();
         if (string.IsNullOrEmpty(sku))
             return ApiResponse.BadRequest(message: "SKU không được để trống.");
 
-        var isExistingSKU = await _productVariantRepository.AnyAsync(
-            x => x.SKU == sku && x.Id != obj.Id && !x.IsDeleted);
+        var isExistingSKU = await _productVariantRepository.IsSkuInUseAsync(sku, obj.Id);
         if (isExistingSKU)
             return ApiResponse.Conflict(
                 $"SKU '{sku}' đã tồn tại trong hệ thống.",
@@ -514,7 +526,13 @@ public class ProductVariantService : IProductVariantService
                 return ApiResponse.UnprocessableEntity(attrError, ApiCodeConstants.Common.InvalidData);
         }
 
+        var skuChanged = !string.Equals(existData.SKU, sku, StringComparison.Ordinal);
         obj.ToEntity(existData);
+
+        // A saved QR image contains the SKU in its payload. Do not expose a stale QR
+        // after changing SKU; it can be generated again via the existing QR endpoint.
+        if (skuChanged)
+            existData.QRCode = null;
         await _productVariantRepository.UpdateAsync(existData);
         await _productVariantRepository.SaveChangesAsync();
 

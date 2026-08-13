@@ -13,4 +13,9 @@ public interface IProductVariantRepository : IRepositoryBase<ProductVariant, int
     Task<DTResult<ProductVariantAggregate>> GetPagedAsync(ProductVariantDTParameters parameters);
 
     Task<ProductVariant?> GetActiveByIdAsync(int id);
+
+    /// <summary>
+    /// Checks the database-wide unique SKU, including soft-deleted variants.
+    /// </summary>
+    Task<bool> IsSkuInUseAsync(string sku, int? excludingId = null);
 }

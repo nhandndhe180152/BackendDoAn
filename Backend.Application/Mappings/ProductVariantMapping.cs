@@ -35,6 +35,7 @@ public static class ProductVariantMapping
     {
         existData.Name = obj.Name;
         existData.Description = obj.Description;
+        existData.ProductId = obj.ProductId;
         existData.UnitOfMeasureId = obj.UnitOfMeasureId;
         existData.SKU = obj.SKU?.Trim().ToUpperInvariant() ?? string.Empty;
         existData.CostPrice = obj.CostPrice;
