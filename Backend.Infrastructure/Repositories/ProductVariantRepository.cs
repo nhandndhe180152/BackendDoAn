@@ -99,4 +99,12 @@ public class ProductVariantRepository : RepositoryBase<ProductVariant, int>, IPr
         return await _context.ProductVariants
             .FirstOrDefaultAsync(x => !x.IsDeleted && x.IsActive && x.Id == id);
     }
+
+    public Task<bool> IsSkuInUseAsync(string sku, int? excludingId = null)
+    {
+        // Do not apply the base repository's soft-delete filter: UX_ProductVariant_SKU
+        // is a database-wide unique index and also covers soft-deleted rows.
+        return _context.ProductVariants.AnyAsync(x =>
+            x.SKU == sku && (!excludingId.HasValue || x.Id != excludingId.Value));
+    }
 }
