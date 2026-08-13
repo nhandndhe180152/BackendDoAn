@@ -198,6 +198,8 @@ public class OutboundOrderService : IOutboundOrderService
             CompletedDate        = o.CompletedDate,
             Note                 = o.Note,
             CancelReason         = o.CancelReason,
+            PackingScaleDevice   = o.PackingScaleDevice,
+            PackedDate           = o.PackedDate,
             CreatedDate          = o.CreatedDate,
             Items = o.OutboundOrderItems.Where(i => !i.IsDeleted).Select(i => new OutboundOrderItemDto
             {
@@ -210,6 +212,8 @@ public class OutboundOrderService : IOutboundOrderService
                 UnitCostPrice    = i.UnitCostPrice,
                 SalesOrderItemId = i.SalesOrderItemId,
                 Note             = i.Note,
+                ActualWeightKg   = i.ActualWeightKg,
+                ActualWeightSource = i.ActualWeightSource,
                 Allocations = i.Allocations.Where(a => !a.IsDeleted).OrderBy(a => a.Id).Select(a => new OutboundOrderItemAllocationDto
                 {
                     Id                = a.Id,
@@ -786,24 +790,115 @@ public class OutboundOrderService : IOutboundOrderService
                     ApiCodeConstants.OutboundOrder.PickedQuantityMismatch);
         }
 
-        var now = DateTimeHelper.VietnamNow();
-        var userId = GetCurrentUserId();
+var now = DateTimeHelper.VietnamNow();
+var userId = GetCurrentUserId();
 
-        await using var tx = await _outboundOrderRepository.BeginTransactionAsync();
-        try
+// Ghi nhận khối lượng đóng gói thực tế theo từng dòng.
+var itemsById = order.OutboundOrderItems
+    .Where(i => !i.IsDeleted)
+    .ToDictionary(i => i.Id);
+
+if (dto.Items is { Count: > 0 })
+{
+    foreach (var line in dto.Items)
+    {
+        if (!itemsById.TryGetValue(line.OutboundOrderItemId, out var item))
         {
-            // Đóng gói chỉ chuyển hàng sang staging; tổng tồn kho chỉ giảm khi dispatch.
-            var staging = await GetOutboundStagingLocationAsync(order.WarehouseId);
-            var partiallySplitLocationIds = await StagePhysicalBagsAsync(order, staging, userId, now);
-            await TransferPackedInventoryToStagingAsync(order, staging, userId, now);
-            await ReleaseOutboundColumnLocksAsync(order, now, userId, partiallySplitLocationIds);
+            return ApiResponse.BadRequest(
+                $"Dòng phiếu xuất {line.OutboundOrderItemId} không thuộc phiếu này.",
+                ApiCodeConstants.OutboundOrder.InvalidRequest);
+        }
 
-            order.OutboundOrderStatusId = await GetOutboundStatusIdAsync(OutboundOrderStatusNames.Packed);
-            order.LastModifiedDate      = now;
-            order.UpdatedBy             = userId;
-            await _outboundOrderRepository.UpdateAsync(order);
-            await _outboundOrderRepository.SaveChangesAsync();
-            await tx.CommitAsync();
+        if (line.ActualWeightKg is < 0)
+        {
+            return ApiResponse.BadRequest(
+                "Khối lượng thực tế không được âm.",
+                ApiCodeConstants.OutboundOrder.InvalidRequest);
+        }
+    }
+}
+else if (dto.ActualWeightKg is < 0)
+{
+    return ApiResponse.BadRequest(
+        "Khối lượng thực tế không được âm.",
+        ApiCodeConstants.OutboundOrder.InvalidRequest);
+}
+
+await using var tx =
+    await _outboundOrderRepository.BeginTransactionAsync();
+
+try
+{
+    if (dto.Items is { Count: > 0 })
+    {
+        foreach (var line in dto.Items)
+        {
+            var item = itemsById[line.OutboundOrderItemId];
+
+            item.ActualWeightKg = line.ActualWeightKg;
+            item.ActualWeightSource = line.ActualWeightKg == null
+                ? null
+                : NormalizeWeightSource(line.Source);
+            item.LastModifiedDate = now;
+            item.UpdatedBy = userId;
+        }
+    }
+    else if (dto.ActualWeightKg is { } total && itemsById.Count == 1)
+    {
+        // Tương thích client cũ chỉ gửi một khối lượng tổng.
+        var item = itemsById.Values.First();
+
+        item.ActualWeightKg = total;
+        item.ActualWeightSource = NormalizeWeightSource(
+            string.IsNullOrWhiteSpace(dto.ScaleDevice)
+                ? "MANUAL"
+                : "SCALE");
+        item.LastModifiedDate = now;
+        item.UpdatedBy = userId;
+    }
+
+    // Đóng gói chỉ chuyển hàng sang staging.
+    // Tổng tồn vật lý toàn kho chỉ giảm khi dispatch.
+    var staging =
+        await GetOutboundStagingLocationAsync(order.WarehouseId);
+
+    var partiallySplitLocationIds =
+        await StagePhysicalBagsAsync(
+            order,
+            staging,
+            userId,
+            now);
+
+    await TransferPackedInventoryToStagingAsync(
+        order,
+        staging,
+        userId,
+        now);
+
+    // Cột còn bao nguồn bị tách tiếp tục bị khóa.
+    // Các cột đã chuyển hết hàng sang staging được mở khóa.
+    await ReleaseOutboundColumnLocksAsync(
+        order,
+        now,
+        userId,
+        partiallySplitLocationIds);
+
+    order.PackingScaleDevice =
+        string.IsNullOrWhiteSpace(dto.ScaleDevice)
+            ? null
+            : dto.ScaleDevice.Trim();
+
+    order.PackedDate = now;
+    order.OutboundOrderStatusId =
+        await GetOutboundStatusIdAsync(
+            OutboundOrderStatusNames.Packed);
+    order.LastModifiedDate = now;
+    order.UpdatedBy = userId;
+
+    await _outboundOrderRepository.UpdateAsync(order);
+    await _outboundOrderRepository.SaveChangesAsync();
+    await tx.CommitAsync();
+}
 
             return ApiResponse.Success(message: "Đóng gói hoàn tất. Trạng thái: PACKED.");
         }
@@ -818,6 +913,12 @@ public class OutboundOrderService : IOutboundOrderService
             throw;
         }
     }
+
+    /// <summary>Chỉ chấp nhận SCALE; mọi giá trị khác coi như nhập tay.</summary>
+    private static string NormalizeWeightSource(string? source) =>
+        string.Equals(source?.Trim(), "SCALE", StringComparison.OrdinalIgnoreCase)
+            ? "SCALE"
+            : "MANUAL";
 
     /// <summary>
     /// Xác nhận xuất kho — bước quan trọng nhất.
