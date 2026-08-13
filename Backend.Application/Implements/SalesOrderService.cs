@@ -591,10 +591,19 @@ public class SalesOrderService : ISalesOrderService
                 .FindByCondition(x => x.SalesOrderId == id && !x.IsDeleted, false, x => x.OutboundOrderStatus)
                 .ToListAsync();
 
-            if (outbounds.Any(x => x.OutboundOrderStatus?.Code != OutboundOrderStatusNames.Cancelled && x.OutboundOrderStatus?.Code != OutboundOrderStatusNames.Draft))
+            // DELIVERY_FAILED là trạng thái kết thúc: hàng và công nợ đã được hoàn trả,
+            // vì vậy phiếu này chỉ còn giá trị lịch sử và không được chặn hủy đơn bán.
+            var terminalOutboundStates = new[]
+            {
+                OutboundOrderStatusNames.Cancelled,
+                OutboundOrderStatusNames.DeliveryFailed
+            };
+            if (outbounds.Any(x =>
+                    x.OutboundOrderStatus?.Code != OutboundOrderStatusNames.Draft &&
+                    !terminalOutboundStates.Contains(x.OutboundOrderStatus?.Code)))
                 return ApiResponse.Error("Không thể hủy đơn bán vì đã có Phiếu xuất đang xử lý. Vui lòng hủy phiếu xuất trước.", 409, ApiCodeConstants.SalesOrder.InvalidState);
 
-            // Xóa OutboundOrder DRAFT
+            // Chỉ xóa phiếu nháp. Phiếu giao thất bại được giữ lại để truy vết.
             foreach (var draft in outbounds.Where(x => x.OutboundOrderStatus?.Code == OutboundOrderStatusNames.Draft))
             {
                 draft.IsDeleted = true;
@@ -724,11 +733,13 @@ public class SalesOrderService : ISalesOrderService
                 CreatedBy             = userId
             };
 
-            // Calculate already dispatched or currently drafting quantities
+            // Chỉ tính những phiếu còn hiệu lực. Phiếu giao thất bại đã hoàn tồn và
+            // hoàn công nợ nên toàn bộ số lượng của nó có thể được lập phiếu giao lại.
             var existingOutbounds = await _outboundOrderRepository
                 .FindByCondition(x => x.SalesOrderId == id && !x.IsDeleted && 
                                       x.OutboundOrderStatus != null && 
-                                      x.OutboundOrderStatus.Code != OutboundOrderStatusNames.Cancelled,
+                                      x.OutboundOrderStatus.Code != OutboundOrderStatusNames.Cancelled &&
+                                      x.OutboundOrderStatus.Code != OutboundOrderStatusNames.DeliveryFailed,
                                       false, x => x.OutboundOrderItems)
                 .ToListAsync();
 
