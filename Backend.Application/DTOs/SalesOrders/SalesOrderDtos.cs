@@ -87,6 +87,18 @@ public class UpdateSalesOrderItemDto
     public string? Note { get; set; }
 }
 
+// ═══════════════════════════════ CANCEL ═══════════════════════════════
+
+/// <summary>
+/// Body của POST /sales-orders/{id}/cancel — lý do hủy đơn.
+/// Ràng buộc bắt buộc &amp; độ dài nằm ở <c>CancelSalesOrderDtoValidator</c>
+/// (project tắt DataAnnotations, chỉ dùng FluentValidation).
+/// </summary>
+public class CancelSalesOrderDto
+{
+    public string Reason { get; set; } = null!;
+}
+
 // ═══════════════════════════════ READ ═══════════════════════════════
 
 public class SalesOrderListDto
@@ -117,6 +129,7 @@ public class SalesOrderListDto
     public decimal TotalAmount { get; set; }
     public decimal? DepositAmount { get; set; }
     public string? Note { get; set; }
+    public string? CancelReason { get; set; }
     public DateTime? CreatedDate { get; set; }
 }
 
@@ -142,6 +155,7 @@ public class SalesOrderDetailDto
     public decimal RemainingAmount { get; set; }
     public string? ShippingAddress { get; set; }
     public string? Note { get; set; }
+    public string? CancelReason { get; set; }
     public DateTime? CreatedDate { get; set; }
     public List<SalesOrderItemDto> Items { get; set; } = new();
     public List<SalesOrderOutboundSummaryDto> OutboundOrders { get; set; } = new();
@@ -176,6 +190,13 @@ public class SalesOrderOutboundSummaryDto
 public class SalesOrderPagedQuery
 {
     public string? Keyword { get; set; }
+
+    /// <summary>Lọc theo trạng thái đơn (null/0 = tất cả).</summary>
+    public int? StatusId { get; set; }
+
+    /// <summary>Lọc theo kênh bán: DIRECT | WHOLESALE (null/rỗng = tất cả).</summary>
+    public string? Channel { get; set; }
+
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 20;
 }

@@ -148,6 +148,7 @@ public class OutboundOrderService : IOutboundOrderService
             TotalDispatchedSaleValue = o.TotalDispatchedSaleValue,
             CompletedDate        = o.CompletedDate,
             Note                 = o.Note,
+            CancelReason         = o.CancelReason,
             CreatedDate          = o.CreatedDate,
             Items = o.OutboundOrderItems.Where(i => !i.IsDeleted).Select(i => new OutboundOrderItemDto
             {
@@ -204,9 +205,16 @@ public class OutboundOrderService : IOutboundOrderService
 
     public async Task<ApiResponse> GetPagedAsync(OutboundOrderPagedQuery query)
     {
-        var skip  = (query.Page - 1) * query.PageSize;
-        var total = await _outboundOrderRepository.CountAsync(query.Keyword);
-        var list  = await _outboundOrderRepository.GetPagedListAsync(query.Keyword, skip, query.PageSize);
+        // Chuẩn hóa tham số trang để client gửi page=0 hay pageSize âm không làm
+        // vỡ Skip/Take.
+        var page     = query.Page < 1 ? 1 : query.Page;
+        var pageSize = query.PageSize is < 1 or > 200 ? 20 : query.PageSize;
+        var skip     = (page - 1) * pageSize;
+
+        var total = await _outboundOrderRepository.CountAsync(
+            query.Keyword, query.OutboundStatusId);
+        var list  = await _outboundOrderRepository.GetPagedListAsync(
+            query.Keyword, skip, pageSize, query.OutboundStatusId);
 
         var dtos = list.Select(o => new OutboundOrderListDto
         {
@@ -224,6 +232,7 @@ public class OutboundOrderService : IOutboundOrderService
             TotalDispatchedSaleValue = o.TotalDispatchedSaleValue,
             CompletedDate        = o.CompletedDate,
             Note                 = o.Note,
+            CancelReason         = o.CancelReason,
             CreatedDate          = o.CreatedDate
         }).ToList();
 
@@ -1692,11 +1701,13 @@ public class OutboundOrderService : IOutboundOrderService
     /// <summary>
     /// Hủy OutboundOrder. Nếu đang PICKING/PACKED → giải phóng QuantityReserved chưa dispatch.
     /// </summary>
-    public async Task<ApiResponse> CancelAsync(int id)
+    public async Task<ApiResponse> CancelAsync(int id, string? reason = null)
     {
         var order = await _outboundOrderRepository.GetByIdDetailAsync(id);
         if (order == null || order.IsDeleted)
             return ApiResponse.NotFound("Không tìm thấy phiếu xuất.", ApiCodeConstants.OutboundOrder.NotFound);
+
+        var trimmedReason = reason?.Trim();
 
         var cancellableStates = new[]
         {
@@ -1748,6 +1759,12 @@ public class OutboundOrderService : IOutboundOrderService
         }
 
         order.OutboundOrderStatusId = await GetOutboundStatusIdAsync(OutboundOrderStatusNames.Cancelled);
+        if (!string.IsNullOrWhiteSpace(trimmedReason))
+        {
+            order.CancelReason = trimmedReason.Length > 500
+                ? trimmedReason.Substring(0, 500)
+                : trimmedReason;
+        }
         order.LastModifiedDate      = now;
         order.UpdatedBy             = userId;
         await _outboundOrderRepository.UpdateAsync(order);

@@ -152,6 +152,67 @@ public class SalesOrderServiceTests
     }
 
     [Fact]
+    public async Task CancelAsync_NonCancellableState_ReturnsConflict()
+    {
+        var so = new global::Backend.Domain.Entities.SalesOrder
+        {
+            Id = 1,
+            SOCode = "SO-1",
+            Status = new SalesOrderStatus { Name = "Đang giao", Code = SalesOrderStatusNames.Delivering }
+        };
+        _soRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(so);
+
+        // Có lý do hợp lệ nhưng trạng thái không cho hủy → vẫn phải 409.
+        var result = await Sut().CancelAsync(1, "Khách hủy đặt hàng");
+
+        result.Status.Should().Be(409);
+        so.CancelReason.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task CancelAsync_NewOrder_SavesCancelReason()
+    {
+        var so = new global::Backend.Domain.Entities.SalesOrder
+        {
+            Id = 1,
+            SOCode = "SO-1",
+            Status = new SalesOrderStatus { Id = 1, Name = "Mới tạo", Code = SalesOrderStatusNames.New },
+            SalesOrderItems = new List<SalesOrderItem>()
+        };
+        _soRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(so);
+        _soRepo.Setup(r => r.BeginTransactionAsync())
+            .ReturnsAsync(new Mock<IDbContextTransaction>().Object);
+        // Đơn chưa có phiếu xuất nào.
+        _obRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<OutboundOrder, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<OutboundOrder, object>>[]>()))
+            .Returns(new List<OutboundOrder>().AsQueryable().BuildMock());
+        _soStatusRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<SalesOrderStatus, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<SalesOrderStatus, object>>[]>()))
+            .ReturnsAsync(new SalesOrderStatus { Id = 8, Name = "Đã hủy", Code = SalesOrderStatusNames.Cancelled });
+        _dispatcher
+            .Setup(x => x.DispatchAsync(
+                It.IsAny<string>(),
+                It.IsAny<NotificationTarget>(),
+                It.IsAny<object[]?>(),
+                It.IsAny<string?>(),
+                It.IsAny<int?>(),
+                It.IsAny<string?>(),
+                It.IsAny<int?>()))
+            .Returns(Task.CompletedTask);
+
+        var result = await Sut().CancelAsync(1, "  Khách hủy đặt hàng  ");
+
+        result.Status.Should().Be(200);
+        so.StatusId.Should().Be(8);
+        // Lý do được trim trước khi lưu.
+        so.CancelReason.Should().Be("Khách hủy đặt hàng");
+    }
+
+    [Fact]
     public async Task CreateOutboundAsync_LocalizedNames_UsesStatusCodes()
     {
         var order = new global::Backend.Domain.Entities.SalesOrder
