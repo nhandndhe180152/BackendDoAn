@@ -63,6 +63,7 @@ namespace Backend.API.Controllers
         public async Task<IActionResult> CreateAsync([FromBody] CreateQualityInspectionDto dto)
         {
             dto.CreatedBy = this.GetLoggedInUserId();
+            dto.InspectorId = dto.CreatedBy;
             var result = await _service.CreateAsync(dto);
             return BaseResult(result);
         }
@@ -73,6 +74,7 @@ namespace Backend.API.Controllers
         public async Task<IActionResult> RecheckAsync([FromBody] CreateQualityInspectionDto dto)
         {
             dto.CreatedBy = this.GetLoggedInUserId();
+            dto.InspectorId = dto.CreatedBy;
             var result = await _service.RecheckAsync(dto);
             return BaseResult(result);
         }
@@ -82,6 +84,7 @@ namespace Backend.API.Controllers
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateQualityInspectionDto dto)
         {
             dto.UpdatedBy = this.GetLoggedInUserId();
+            dto.InspectorId = dto.UpdatedBy;
             var result = await _service.UpdateAsync(dto);
             return BaseResult(result);
         }
