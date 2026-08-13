@@ -89,11 +89,14 @@ public class UpdateSalesOrderItemDto
 
 // ═══════════════════════════════ CANCEL ═══════════════════════════════
 
-/// <summary>Body tùy chọn của POST /sales-orders/{id}/cancel — lý do hủy đơn.</summary>
+/// <summary>
+/// Body của POST /sales-orders/{id}/cancel — lý do hủy đơn.
+/// Ràng buộc bắt buộc &amp; độ dài nằm ở <c>CancelSalesOrderDtoValidator</c>
+/// (project tắt DataAnnotations, chỉ dùng FluentValidation).
+/// </summary>
 public class CancelSalesOrderDto
 {
-    [MaxLength(500, ErrorMessage = "Lý do hủy tối đa 500 ký tự.")]
-    public string? Reason { get; set; }
+    public string Reason { get; set; } = null!;
 }
 
 // ═══════════════════════════════ READ ═══════════════════════════════

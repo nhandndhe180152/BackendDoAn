@@ -118,13 +118,14 @@ public class OutboundOrderController : BaseController
     }
 
     /// <summary>
-    /// Hủy phiếu xuất. Giải phóng QuantityReserved nếu đang PICKING/PACKED.
+    /// Hủy phiếu xuất kèm lý do (bắt buộc, validate bởi CancelOutboundOrderDtoValidator).
+    /// Giải phóng QuantityReserved nếu đang PICKING/PACKED.
     /// </summary>
     [HttpPost("{id}/cancel")]
     [CustomAuthorize(Enums.Menu.OUTBOUND_ORDERS, Enums.Action.UPDATE)]
-    public async Task<IActionResult> CancelAsync(int id)
+    public async Task<IActionResult> CancelAsync(int id, [FromBody] CancelOutboundOrderDto dto)
     {
-        var result = await _outboundOrderService.CancelAsync(id);
+        var result = await _outboundOrderService.CancelAsync(id, dto.Reason);
         return BaseResult(result);
     }
 }

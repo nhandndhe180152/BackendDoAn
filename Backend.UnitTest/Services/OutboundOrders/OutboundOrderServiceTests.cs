@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Backend.Application.Constants;
 using Backend.Application.Implements;
@@ -130,9 +133,60 @@ public class OutboundOrderServiceTests
         };
         _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
 
-        var result = await Sut().CancelAsync(1);
+        // Có lý do hợp lệ nhưng trạng thái không cho hủy → vẫn phải 409.
+        var result = await Sut().CancelAsync(1, "Khách đổi lịch giao");
 
         result.Status.Should().Be(409);
+        order.CancelReason.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task CancelAsync_DraftOrder_SavesCancelReason()
+    {
+        var order = new OutboundOrder
+        {
+            Id = 1,
+            OutboundOrderStatus = new OutboundOrderStatus { Id = 1, Name = "Nháp", Code = OutboundOrderStatusNames.Draft },
+            OutboundOrderItems = new List<OutboundOrderItem>()
+        };
+        _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
+        _obStatusRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<OutboundOrderStatus, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<OutboundOrderStatus, object>>[]>()))
+            .ReturnsAsync(new OutboundOrderStatus { Id = 6, Name = "Đã hủy", Code = OutboundOrderStatusNames.Cancelled });
+
+        var result = await Sut().CancelAsync(1, "  Khách đổi lịch giao  ");
+
+        result.Status.Should().Be(200);
+        order.OutboundOrderStatusId.Should().Be(6);
+        // Lý do được trim trước khi lưu.
+        order.CancelReason.Should().Be("Khách đổi lịch giao");
+        _obRepo.Verify(r => r.UpdateAsync(order), Times.Once);
+        _obRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task CancelAsync_ReasonLongerThan500Chars_IsTruncated()
+    {
+        var order = new OutboundOrder
+        {
+            Id = 1,
+            OutboundOrderStatus = new OutboundOrderStatus { Id = 1, Name = "Nháp", Code = OutboundOrderStatusNames.Draft },
+            OutboundOrderItems = new List<OutboundOrderItem>()
+        };
+        _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
+        _obStatusRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<OutboundOrderStatus, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<OutboundOrderStatus, object>>[]>()))
+            .ReturnsAsync(new OutboundOrderStatus { Id = 6, Name = "Đã hủy", Code = OutboundOrderStatusNames.Cancelled });
+
+        var result = await Sut().CancelAsync(1, new string('a', 600));
+
+        result.Status.Should().Be(200);
+        // Cột CancelReason chỉ chứa được 500 ký tự nên service tự cắt bớt.
+        order.CancelReason.Should().HaveLength(500);
     }
 
     [Fact]

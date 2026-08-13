@@ -35,5 +35,5 @@ public interface IOutboundOrderService
     Task<ApiResponse> FailDeliveryAsync(int id, FailDeliveryDto dto);
 
     /// <summary>Hủy OutboundOrder — giải phóng tồn nếu đang PICKING/PACKED</summary>
-    Task<ApiResponse> CancelAsync(int id);
+    Task<ApiResponse> CancelAsync(int id, string? reason = null);
 }

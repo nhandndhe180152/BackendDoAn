@@ -22,6 +22,7 @@ public class OutboundOrderListDto
     public decimal TotalDispatchedSaleValue { get; set; }
     public DateTime? CompletedDate { get; set; }
     public string? Note { get; set; }
+    public string? CancelReason { get; set; }
     public DateTime? CreatedDate { get; set; }
 }
 
@@ -42,6 +43,7 @@ public class OutboundOrderDetailDto
     public decimal TotalDispatchedSaleValue { get; set; }
     public DateTime? CompletedDate { get; set; }
     public string? Note { get; set; }
+    public string? CancelReason { get; set; }
     public DateTime? CreatedDate { get; set; }
     public List<OutboundOrderItemDto> Items { get; set; } = new();
 }
@@ -194,6 +196,16 @@ public class CompleteDeliveryDto
 
     [MaxLength(1000)]
     public string? ProofImageUrl { get; set; }
+}
+
+/// <summary>
+/// Body của POST /outbound-orders/{id}/cancel — lý do hủy phiếu xuất.
+/// Ràng buộc bắt buộc &amp; độ dài nằm ở <c>CancelOutboundOrderDtoValidator</c>
+/// (project tắt DataAnnotations, chỉ dùng FluentValidation).
+/// </summary>
+public class CancelOutboundOrderDto
+{
+    public string Reason { get; set; } = null!;
 }
 
 public class FailDeliveryDto

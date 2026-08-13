@@ -16,6 +16,10 @@ public class OutboundOrder : EntityAuditBase<int>
     public int? OrganizationId { get; set; }
 
     public string? Note { get; set; }
+
+    /// <summary>Lý do hủy phiếu xuất — chỉ có giá trị khi phiếu ở trạng thái CANCELLED.</summary>
+    public string? CancelReason { get; set; }
+
     public decimal TotalDispatchedValue { get; set; }
     public decimal TotalDispatchedSaleValue { get; set; }
     public DateTime? CompletedDate { get; set; }
