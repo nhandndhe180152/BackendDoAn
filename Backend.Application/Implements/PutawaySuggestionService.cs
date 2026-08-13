@@ -245,6 +245,8 @@ public class PutawaySuggestionService : IPutawaySuggestionService
                 !x.IsDeleted &&
                 x.IsActive &&
                 x.WarehouseId == request.WarehouseId &&
+                !x.IsOutboundStaging &&
+                !x.OutboundLockOrderId.HasValue &&
                 x.IsQuarantine == requireQuarantine &&
                 x.MaxCapacity != null &&
                 x.MaxCapacity > 0 &&
@@ -349,6 +351,8 @@ public class PutawaySuggestionService : IPutawaySuggestionService
                 !x.IsDeleted &&
                 x.IsActive &&
                 x.WarehouseId == request.WarehouseId &&
+                !x.IsOutboundStaging &&
+                !x.OutboundLockOrderId.HasValue &&
                 x.IsQuarantine == requireQuarantine &&
                 x.MaxCapacity != null &&
                 x.MaxCapacity > x.CurrentOccupancy &&
@@ -564,6 +568,8 @@ public class PutawaySuggestionService : IPutawaySuggestionService
 
             if (location == null)
                 return ApiResponse.NotFound("Vị trí kệ không tồn tại hoặc đã bị khóa.", ApiCodeConstants.Common.NotFound);
+            if (location.IsOutboundStaging || location.OutboundLockOrderId.HasValue)
+                return ApiResponse.Conflict("Vị trí là khu chờ xuất hoặc đang được phiếu xuất khóa. Vui lòng chọn vị trí khác.", "LOCATION_UNAVAILABLE_FOR_PUTAWAY");
 
             // 3. Kiểm tra tài liệu nguồn (Source Document) + M1: cho phép split
             PaddyPurchaseReceipt paddyReceipt = null;

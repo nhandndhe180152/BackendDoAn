@@ -1768,6 +1768,11 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<DateTime?>("OutboundLockedAt")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<int?>("OutboundStagingWarehouseId")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("int")
+                        .HasComputedColumnSql("CASE WHEN `IsOutboundStaging` = 1 AND `IsDeleted` = 0 THEN `WarehouseId` ELSE NULL END", true);
+
                     b.Property<decimal?>("MaxCapacity")
                         .HasColumnType("decimal(18,3)");
 
@@ -1807,12 +1812,6 @@ namespace Backend.Infrastructure.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
 
-                    b.Property<DateTime?>("RowVersion")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("timestamp(6)")
-                        .HasColumnName("RowVersion");
-
                     b.HasKey("Id");
 
                     b.HasIndex("AllowedCategoryId")
@@ -1825,6 +1824,10 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasIndex("OutboundLockOrderId")
                         .HasDatabaseName("IX_Location_OutboundLockOrderId");
+
+                    b.HasIndex("OutboundStagingWarehouseId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Location_OneOutboundStagingPerWarehouse");
 
                     b.HasIndex("WarehouseId", "IsOutboundStaging", "IsActive", "IsDeleted")
                         .HasDatabaseName("IX_Location_OutboundStaging");
@@ -3138,6 +3141,9 @@ namespace Backend.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
 
+                    b.Property<int?>("SourceBagId")
+                        .HasColumnType("int");
+
                     b.Property<int>("StackOrder")
                         .HasColumnType("int");
 
@@ -3164,6 +3170,8 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasIndex("QrCode")
                         .IsUnique();
+
+                    b.HasIndex("SourceBagId");
 
                     b.HasIndex("LotId", "BagNo")
                         .IsUnique();
@@ -7075,9 +7083,16 @@ namespace Backend.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("Backend.Domain.Entities.PaddyLotBag", "SourceBag")
+                        .WithMany("SplitBags")
+                        .HasForeignKey("SourceBagId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.Navigation("Location");
 
                     b.Navigation("Lot");
+
+                    b.Navigation("SourceBag");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.PaddyLotBagAllocation", b =>
@@ -7935,6 +7950,8 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("Contents");
 
                     b.Navigation("Movements");
+
+                    b.Navigation("SplitBags");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.PaddyPurchaseReceipt", b =>

@@ -31,8 +31,6 @@ public class Location : EntityAuditBase<int>
     public DateTime? OutboundLockedAt { get; set; }
 
     /// <summary>Phát hiện hai phiếu cùng cố khóa một cột.</summary>
-    public byte[]? RowVersion { get; set; }
-
     public int? CurrentProductVariantId { get; set; }
     public bool IsSingleTypeColumn { get; set; } = true;
     public string QrCode { get; set; } = string.Empty;

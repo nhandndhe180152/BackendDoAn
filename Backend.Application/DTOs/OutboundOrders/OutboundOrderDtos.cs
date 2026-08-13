@@ -226,6 +226,11 @@ public class CancelOutboundOrderDto
     public string Reason { get; set; } = null!;
 }
 
+public class ForceUnlockOutboundDto
+{
+    public string Reason { get; set; } = null!;
+}
+
 public class FailDeliveryDto
 {
     [Required(ErrorMessage = "Lý do thất bại không được để trống")]

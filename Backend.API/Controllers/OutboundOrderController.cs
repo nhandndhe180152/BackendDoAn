@@ -1,6 +1,8 @@
 using Asp.Versioning;
 using Backend.Application.DTOs.OutboundOrders;
 using Backend.Application.Interfaces;
+using Backend.Application.Constants;
+using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Backend.API.Utilities;
@@ -126,6 +128,17 @@ public class OutboundOrderController : BaseController
     public async Task<IActionResult> CancelAsync(int id, [FromBody] CancelOutboundOrderDto dto)
     {
         var result = await _outboundOrderService.CancelAsync(id, dto.Reason);
+        return BaseResult(result);
+    }
+
+    [HttpPost("{id}/force-unlock")]
+    [CustomAuthorize(Enums.Menu.OUTBOUND_ORDERS, Enums.Action.UPDATE)]
+    public async Task<IActionResult> ForceUnlockAsync(int id, [FromBody] ForceUnlockOutboundDto dto)
+    {
+        var roles = this.GetLoggedInRoleIds();
+        if (!roles.Contains(CommonConstants.Role.ADMIN) && !roles.Contains(CommonConstants.Role.OWNER))
+            return BaseResult(ApiResponse.Forbidden(message: "Chỉ ADMIN/OWNER được mở khóa cột thủ công."));
+        var result = await _outboundOrderService.ForceUnlockAsync(id, dto.Reason);
         return BaseResult(result);
     }
 }

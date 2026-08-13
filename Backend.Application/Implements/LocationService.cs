@@ -151,6 +151,14 @@ public class LocationService : ILocationService
 
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {
+        var location = await _locationRepository.GetByIdAsync(id);
+        if (location == null)
+            return ApiResponse.NotFound();
+        if (location.IsOutboundStaging)
+            return ApiResponse.Conflict("Khu chờ xuất là vị trí hệ thống và không thể xóa.");
+        if (location.OutboundLockOrderId.HasValue)
+            return ApiResponse.Conflict($"Vị trí đang được phiếu xuất #{location.OutboundLockOrderId} khóa và không thể xóa.");
+
         var isDeleted = await _locationRepository.SoftDeleteAsync(id);
         if (!isDeleted)
             return ApiResponse.BadRequest();
@@ -189,6 +197,10 @@ public class LocationService : ILocationService
         var existData = await _locationRepository.GetByIdAsync(obj.Id);
         if (existData == null)
             return ApiResponse.NotFound();
+        if (existData.IsOutboundStaging)
+            return ApiResponse.Conflict("Khu chờ xuất là vị trí hệ thống và không thể sửa bằng màn quản lý vị trí.");
+        if (existData.OutboundLockOrderId.HasValue)
+            return ApiResponse.Conflict($"Vị trí đang được phiếu xuất #{existData.OutboundLockOrderId} khóa và không thể sửa.");
 
         obj.ToEntity(existData);
 
