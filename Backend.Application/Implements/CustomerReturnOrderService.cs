@@ -1445,16 +1445,23 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
     {
         if (quantity <= 0) return;
         // Một số unit-test cũ dùng mock IApplicationDbContext tối giản, chưa cấu hình các DbSet quản lý bao.
-        if (_context.PaddyLotBags == null || _context.PaddyLotBagMovements == null || _context.SystemConfigs == null) return;
-        var configValue = await _context.SystemConfigs.AsNoTracking()
-            .Where(x => x.ConfigKey == $"StandardBagWeightKg:{allocation.ProductVariantId}" && !x.IsDeleted)
-            .Select(x => x.ConfigValue).FirstOrDefaultAsync(cancellationToken);
-        if (!decimal.TryParse(configValue, out var standardWeight) || standardWeight <= 0)
+        if (_context.PaddyLotBags == null || _context.PaddyLotBagMovements == null || _context.ProductVariants == null) return;
+
+        // ProductVariant.Weight là nguồn dữ liệu duy nhất cho khối lượng bao chuẩn.
+        // Không dùng SystemConfig "StandardBagWeightKg:{variantId}" vì khóa chứa ID khó quản trị
+        // và có thể lệch với giá trị mà luồng xay xát đang sử dụng.
+        var variant = await _context.ProductVariants.AsNoTracking()
+            .Where(x => x.Id == allocation.ProductVariantId && !x.IsDeleted)
+            .Select(x => new { x.SKU, x.Weight })
+            .FirstOrDefaultAsync(cancellationToken);
+        var standardWeight = variant?.Weight ?? 0;
+        if (standardWeight <= 0)
         {
             var bagTracked = await _context.PaddyLotBags.AsNoTracking()
                 .AnyAsync(x => x.LotId == allocation.PaddyLotId && !x.IsDeleted, cancellationToken);
             if (!bagTracked) return; // Giữ tương thích tồn cũ chưa quản lý vật lý theo bao.
-            throw new InvalidOperationException($"Thiếu cấu hình StandardBagWeightKg:{allocation.ProductVariantId} để đóng bao hàng trả.");
+            throw new InvalidOperationException(
+                $"Biến thể '{variant?.SKU ?? allocation.ProductVariantId.ToString()}' chưa cấu hình khối lượng bao chuẩn để đóng bao hàng trả.");
         }
 
         var remaining = quantity;

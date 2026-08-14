@@ -19,7 +19,7 @@ public class ProductVariantDetailDto
     public string? QRCode { get; set; }
     public decimal CostPrice { get; set; }
     public decimal SalePrice { get; set; }
-    /// Weight maps to StandardUnitWeightKg in the spec (entity uses 'Weight')
+    /// Khối lượng bao chuẩn theo kg (0 = không áp dụng/chưa cấu hình). Giữ tên Weight để tương thích API hiện tại.
     public decimal Weight { get; set; }
     public int? ImageId { get; set; }
     public string? ImageUrl { get; set; }

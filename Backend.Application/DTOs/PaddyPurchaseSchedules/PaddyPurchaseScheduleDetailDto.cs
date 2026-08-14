@@ -24,4 +24,14 @@ public class PaddyPurchaseScheduleDetailDto
     public string? Note { get; set; }
     public DateTime CreatedDate { get; set; }
     public DateTime? LastModifiedDate { get; set; }
+
+    // ── Tình trạng lập phiếu mua từ lịch (dùng để chặn tạo phiếu trùng) ─────
+    /// <summary>Số phiếu mua lúa chưa xóa thuộc lịch này.</summary>
+    public int ReceiptCount { get; set; }
+    /// <summary>Tổng khối lượng thực tế (kg) của các phiếu mua lúa chưa xóa thuộc lịch này.</summary>
+    public decimal ReceiptedWeightKg { get; set; }
+    /// <summary>Khối lượng còn lại có thể lập phiếu (null khi lịch không khai báo khối lượng dự kiến).</summary>
+    public decimal? RemainingQtyKg { get; set; }
+    /// <summary>Lịch còn được lập thêm phiếu mua lúa hay không.</summary>
+    public bool CanCreateReceipt { get; set; }
 }

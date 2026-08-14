@@ -98,6 +98,11 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             return ApiResponse.UnprocessableEntity("Số tiền đã trả phải nằm trong khoảng từ 0 đến tổng tiền.");
         var bagError = ValidateBags(obj.Bags, obj.ActualWeightKg);
         if (bagError != null) return ApiResponse.UnprocessableEntity(bagError);
+
+        // Chặn lập phiếu trùng: lịch đã đủ khối lượng dự kiến (hoặc đã có phiếu khi lịch không khai báo dự kiến).
+        var scheduleError = await ValidateScheduleCapacityAsync(obj.ScheduleId, excludeReceiptId: null);
+        if (scheduleError != null) return ApiResponse.UnprocessableEntity(scheduleError);
+
         var datePart = DateTimeHelper.VietnamNow().ToString("yyyyMMdd");
         var baseCode = $"PPR-{datePart}";
         var count = await _receiptRepository.FindByCondition(x => x.ReceiptCode.StartsWith(baseCode)).CountAsync();
@@ -123,8 +128,11 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
     public async Task<ApiResponse> GetAllAsync()
     {
+        // Include đủ Lô + Lịch để isConfirmed / scheduleCode trả về đúng (mobile phân loại phiếu nháp dựa vào đây).
         var entities = await _receiptRepository
-            .FindByCondition(x => !x.IsDeleted, false, x => x.Farmer, x => x.Warehouse, x => x.RiceVariety, x => x.ProductVariant)
+            .FindByCondition(x => !x.IsDeleted, false,
+                x => x.Farmer, x => x.Warehouse, x => x.RiceVariety, x => x.ProductVariant,
+                x => x.PaddyLot, x => x.Schedule)
             .OrderByDescending(x => x.ReceiptDate)
             .ToListAsync();
 
@@ -173,6 +181,10 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         var isConfirmed = await _paddyLotRepository.AnyAsync(x => x.SourceReceiptId == obj.Id && !x.IsDeleted);
         if (isConfirmed)
             return ApiResponse.UnprocessableEntity("Phiếu đã được chốt, không thể chỉnh sửa.");
+
+        // Đổi lịch / đổi khối lượng cũng phải nằm trong hạn mức của lịch (bỏ qua chính phiếu đang sửa).
+        var scheduleError = await ValidateScheduleCapacityAsync(obj.ScheduleId, excludeReceiptId: obj.Id);
+        if (scheduleError != null) return ApiResponse.UnprocessableEntity(scheduleError);
 
         obj.ToEntity(existData);
         await _receiptRepository.UpdateAsync(existData);
@@ -418,6 +430,55 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
     }
 
     // ── Private helpers ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Chặn lập phiếu mua trùng trên cùng một lịch thu mua.
+    /// Lịch đã đủ khối lượng dự kiến (tổng khối lượng các phiếu chưa xóa >= EstimatedQtyKg)
+    /// thì không cho lập thêm phiếu. Lịch không khai báo khối lượng dự kiến chỉ được 1 phiếu.
+    /// Ngoài ra chặn theo trạng thái lịch (đã hủy / đã nhập kho / nhập kho một phần).
+    /// </summary>
+    /// <returns>Thông báo lỗi, hoặc null khi hợp lệ.</returns>
+    private async Task<string?> ValidateScheduleCapacityAsync(int? scheduleId, int? excludeReceiptId)
+    {
+        if (scheduleId is not > 0) return null;
+
+        var schedule = await _scheduleRepository
+            .FindByCondition(x => x.Id == scheduleId.Value && !x.IsDeleted, false, x => x.Status)
+            .FirstOrDefaultAsync();
+
+        if (schedule == null) return "Lịch thu mua không tồn tại hoặc đã bị xóa.";
+
+        var statusCode = schedule.Status?.Code;
+        if (PaddyScheduleReceiptRule.IsBlockedByStatus(statusCode))
+        {
+            return statusCode?.ToUpperInvariant() == "CANCELLED"
+                ? $"Lịch thu mua {schedule.ScheduleCode} đã hủy, không thể lập phiếu mua."
+                : $"Lịch thu mua {schedule.ScheduleCode} đã nhập kho, không thể lập thêm phiếu mua.";
+        }
+
+        // Id luôn > 0 nên dùng 0 làm "không loại trừ phiếu nào" — giữ truy vấn đơn giản, dịch được sang SQL.
+        var excludeId = excludeReceiptId ?? 0;
+        var existing = await _receiptRepository
+            .FindByCondition(x => x.ScheduleId == scheduleId.Value
+                && !x.IsDeleted
+                && x.Id != excludeId)
+            .Select(x => new { x.ActualWeightKg })
+            .ToListAsync();
+
+        var receiptedWeightKg = existing.Sum(x => x.ActualWeightKg);
+        var receiptCount = existing.Count;
+
+        if (PaddyScheduleReceiptRule.IsFullyReceipted(schedule.EstimatedQtyKg, receiptedWeightKg, receiptCount))
+        {
+            return schedule.EstimatedQtyKg is > 0
+                ? $"Lịch thu mua {schedule.ScheduleCode} đã có {receiptCount} phiếu mua với tổng {receiptedWeightKg:0.###} kg, "
+                  + $"đủ khối lượng dự kiến ({schedule.EstimatedQtyKg:0.###} kg). Không thể lập thêm phiếu."
+                : $"Lịch thu mua {schedule.ScheduleCode} đã có phiếu mua. Không thể lập thêm phiếu cho lịch này.";
+        }
+
+        // Cân thực tế được phép vượt khối lượng dự kiến của lịch — chỉ chặn khi lịch ĐÃ đủ từ trước.
+        return null;
+    }
 
     /// <summary>
     /// Xác định biến thể sản phẩm cho lô sinh ra từ phiếu mua.

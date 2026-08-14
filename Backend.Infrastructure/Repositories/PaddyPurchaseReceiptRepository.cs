@@ -97,6 +97,16 @@ public class PaddyPurchaseReceiptRepository : RepositoryBase<PaddyPurchaseReceip
                         if (int.TryParse(search, out var wId))
                             query = query.Where(x => x.WarehouseId == wId);
                         break;
+                    case "riceVarietyId":
+                    case "RiceVarietyId":
+                        if (int.TryParse(search, out var rvId))
+                            query = query.Where(x => x.RiceVarietyId == rvId);
+                        break;
+                    case "scheduleId":
+                    case "ScheduleId":
+                        if (int.TryParse(search, out var schId))
+                            query = query.Where(x => x.ScheduleId == schId);
+                        break;
                     case "receiptDate":
                     case "ReceiptDate":
                         if (search.Contains(" - "))

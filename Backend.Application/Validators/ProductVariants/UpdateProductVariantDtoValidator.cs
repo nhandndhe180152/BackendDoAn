@@ -68,8 +68,8 @@ public class UpdateProductVariantDtoValidator : AbstractValidator<UpdateProductV
 
         RuleFor(x => x.Weight)
             .GreaterThanOrEqualTo(0)
-            .WithName("Khối lượng")
-            .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.GreaterThanValueOrEqualMessage));
+            .WithName("Khối lượng bao chuẩn (kg)")
+            .WithMessage("Khối lượng bao chuẩn (kg) không được nhỏ hơn 0.");
 
         RuleFor(x => x.MinStockLevel)
             .GreaterThanOrEqualTo(0)

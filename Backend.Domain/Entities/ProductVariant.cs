@@ -12,6 +12,10 @@ public class ProductVariant : EntityCommonBase<int>
     public string? QRCode { get; set; }
     public decimal CostPrice { get; set; }
     public decimal SalePrice { get; set; }
+    /// <summary>
+    /// Khối lượng bao chuẩn theo kg cho nghiệp vụ tự động đóng/chia bao.
+    /// Giá trị 0 nghĩa là không áp dụng hoặc chưa cấu hình; không ảnh hưởng cân nặng thực tế từng bao nhập mua.
+    /// </summary>
     public decimal Weight { get; set; }
     public string? AttributeValues { get; set; }
     public int? ImageId { get; set; }

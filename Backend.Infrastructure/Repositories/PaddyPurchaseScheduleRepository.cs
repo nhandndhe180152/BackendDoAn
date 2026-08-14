@@ -9,6 +9,7 @@ using Backend.Domain.Interfaces.Repositories;
 using Backend.Infrastructure.Persistence;
 using Backend.Share.Entities;
 using Backend.Share.Extensions;
+using Backend.Share.Helpers;
 using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Infrastructure.Repositories;
@@ -47,6 +48,7 @@ public class PaddyPurchaseScheduleRepository : RepositoryBase<PaddyPurchaseSched
                 FarmerName = x.Farmer.Name,
                 StatusId = x.StatusId,
                 StatusName = x.Status.Name,
+                StatusCode = x.Status.Code,
                 RiceVarietyId = x.RiceVarietyId,
                 RiceVarietyName = x.RiceVariety == null ? null : x.RiceVariety.Name,
                 ScheduleDate = x.ScheduleDate,
@@ -54,8 +56,15 @@ public class PaddyPurchaseScheduleRepository : RepositoryBase<PaddyPurchaseSched
                 EstimatedQtyKg = x.EstimatedQtyKg,
                 ExpectedPrice = x.ExpectedPrice,
                 AssignedUserId = x.AssignedUserId,
+                WarehouseId = x.WarehouseId,
+                WarehouseName = x.Warehouse == null ? null : x.Warehouse.Name,
                 Note = x.Note,
-                CreatedDate = x.CreatedDate
+                CreatedDate = x.CreatedDate,
+                // Thống kê phiếu mua chưa xóa thuộc lịch — dùng để chặn tạo phiếu trùng.
+                ReceiptCount = x.PaddyPurchaseReceipts.Count(r => !r.IsDeleted),
+                ReceiptedWeightKg = x.PaddyPurchaseReceipts
+                    .Where(r => !r.IsDeleted)
+                    .Sum(r => (decimal?)r.ActualWeightKg) ?? 0m
             });
 
         var totalRecord = await query.CountAsync();
@@ -87,6 +96,11 @@ public class PaddyPurchaseScheduleRepository : RepositoryBase<PaddyPurchaseSched
                         if (int.TryParse(search, out var sId))
                             query = query.Where(x => x.StatusId == sId);
                         break;
+                    case "riceVarietyId":
+                    case "RiceVarietyId":
+                        if (int.TryParse(search, out var rvId))
+                            query = query.Where(x => x.RiceVarietyId == rvId);
+                        break;
                     case "scheduleDate":
                     case "ScheduleDate":
                         if (search.Contains(" - "))
@@ -111,6 +125,14 @@ public class PaddyPurchaseScheduleRepository : RepositoryBase<PaddyPurchaseSched
             .Skip(parameters.Start)
             .Take(parameters.Length)
             .ToListAsync();
+
+        // Tính cờ chặn tạo phiếu sau khi materialize (dùng chung 1 quy tắc với tầng service).
+        foreach (var row in data)
+        {
+            row.RemainingQtyKg = PaddyScheduleReceiptRule.RemainingQtyKg(row.EstimatedQtyKg, row.ReceiptedWeightKg);
+            row.CanCreateReceipt = PaddyScheduleReceiptRule.CanCreateReceipt(
+                row.StatusCode, row.EstimatedQtyKg, row.ReceiptedWeightKg, row.ReceiptCount);
+        }
 
         return new DTResult<PaddyPurchaseScheduleAggregate>
         {
