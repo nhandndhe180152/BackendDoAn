@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Backend.Domain.Abstractions;
 
 namespace Backend.Domain.Entities;
@@ -20,6 +21,33 @@ public class StockTakeItem : EntityAuditBase<int>
     public string? Note { get; set; }
     public bool QRScanned { get; set; }
 
+    // ─── Kiểm kê theo BAO ────────────────────────────────────────────────────
+    // Gạo/lúa nằm trong kho dưới dạng BAO, không phải khối kg liên tục. Đếm theo
+    // kg thì "thiếu 50 kg" không cho biết là mất một bao hay hao đều nhiều bao,
+    // và khi duyệt chỉ sửa Inventory sẽ làm vỡ bất biến
+    // SUM(bag content kg) == Inventory kg (xem PaddyLotBagInvariantService).
+
+    /// <summary>Số bao đang lưu tại (lô, vị trí) này lúc chụp phiếu.</summary>
+    public int SystemBagCount { get; set; }
+
+    /// <summary>
+    /// Số bao đếm được thực tế. Null = chưa kiểm đếm. Khi kiểm theo QR thì đây
+    /// là số dòng <see cref="Bags"/> có <c>Counted = true</c>.
+    /// </summary>
+    public int? CountedBagCount { get; set; }
+
+    /// <summary>
+    /// Tình trạng chất lượng của cả dòng: OK / WET / PEST / TORN_BAG / OTHER.
+    /// Khác OK là không đạt → khi duyệt sẽ cảnh báo và đề xuất cách ly lô.
+    /// </summary>
+    public string QualityStatus { get; set; } = "OK";
+
+    /// <summary>Mô tả thêm về tình trạng chất lượng (bắt buộc khi không đạt).</summary>
+    public string? QualityNote { get; set; }
+
+    /// <summary>Ảnh chụp hiện trạng (URL Cloudinary), phân tách bằng dấu phẩy.</summary>
+    public string? QualityImageUrls { get; set; }
+
     /// <summary>
     /// Xác nhận đã kiểm đếm lại (bắt buộc cho dòng có mức chênh lệch LARGE).
     /// Lưu DB để giữ bằng chứng audit.
@@ -38,6 +66,18 @@ public class StockTakeItem : EntityAuditBase<int>
 
     // Computed — không lưu DB
     public decimal Difference => (ActualQuantity ?? 0) - SystemQuantity;
+
+    /// <summary>Chênh lệch SỐ BAO (âm = thiếu bao). Null khi chưa kiểm đếm.</summary>
+    public int? BagDifference =>
+        CountedBagCount.HasValue ? CountedBagCount.Value - SystemBagCount : null;
+
+    /// <summary>Có lệch số bao hay không — mất bao luôn là chuyện nghiêm trọng.</summary>
+    public bool HasBagVariance => (BagDifference ?? 0) != 0;
+
+    /// <summary>Chất lượng không đạt (khác OK).</summary>
+    public bool IsQualityFailed =>
+        !string.IsNullOrWhiteSpace(QualityStatus) &&
+        !string.Equals(QualityStatus, "OK", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Phần trăm chênh lệch so với tồn hệ thống.
@@ -67,4 +107,7 @@ public class StockTakeItem : EntityAuditBase<int>
     public virtual Location? Location { get; set; }
     public virtual PaddyLot? PaddyLot { get; set; }
     public virtual User? RecountConfirmedByUser { get; set; }
+
+    /// <summary>Danh sách bao được chụp vào phiếu và kết quả kiểm đếm từng bao.</summary>
+    public virtual ICollection<StockTakeItemBag> Bags { get; set; } = new List<StockTakeItemBag>();
 }

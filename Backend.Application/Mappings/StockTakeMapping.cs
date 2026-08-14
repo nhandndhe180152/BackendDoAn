@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Backend.Application.Common;
 using Backend.Application.Constants;
@@ -97,8 +98,43 @@ public static class StockTakeMapping
                 QRScanned            = item.QRScanned,
                 RecountConfirmed     = item.RecountConfirmed,
                 RecountConfirmedBy   = item.RecountConfirmedBy,
-                RecountConfirmedAt   = item.RecountConfirmedAt
+                RecountConfirmedAt   = item.RecountConfirmedAt,
+                SystemBagCount       = item.SystemBagCount,
+                CountedBagCount      = item.CountedBagCount,
+                BagDifference        = item.BagDifference,
+                WeighedBagCount      = item.Bags?.Count(b => !b.IsDeleted && b.CountedWeightKg.HasValue) ?? 0,
+                QualityStatus        = item.QualityStatus,
+                QualityNote          = item.QualityNote,
+                QualityImageUrls     = item.QualityImageUrls,
+                IsQualityFailed      = item.IsQualityFailed,
+                Bags                 = item.Bags == null
+                    ? new List<StockTakeItemBagDto>()
+                    : item.Bags
+                        .Where(b => !b.IsDeleted)
+                        .OrderBy(b => b.BagNo)
+                        .Select(b => b.ToDto())
+                        .ToList()
             }).ToList()
         };
     }
+
+    public static StockTakeItemBagDto ToDto(this StockTakeItemBag bag) => new()
+    {
+        Id               = bag.Id,
+        StockTakeItemId  = bag.StockTakeItemId,
+        PaddyLotBagId    = bag.PaddyLotBagId,
+        BagNo            = bag.BagNo,
+        QrCode           = bag.QrCode,
+        SystemWeightKg   = bag.SystemWeightKg,
+        CountedWeightKg  = bag.CountedWeightKg,
+        Counted          = bag.Counted,
+        ScannedByQr      = bag.ScannedByQr,
+        IsUnexpected     = bag.IsUnexpected,
+        IsMissing        = bag.IsMissing,
+        WeightDifference = bag.WeightDifference,
+        QualityStatus    = bag.QualityStatus,
+        Note             = bag.Note,
+        CountedAt        = bag.CountedAt,
+        CountedByUserId  = bag.CountedByUserId
+    };
 }

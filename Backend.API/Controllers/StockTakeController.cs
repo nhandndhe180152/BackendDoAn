@@ -90,6 +90,18 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        /// <summary>
+        /// Tra một mã QR bao trong lúc kiểm kê. Luôn trả 200: bao không thuộc
+        /// phiếu vẫn cần hiện đang nằm ở lô/cột nào để thủ kho xử lý.
+        /// </summary>
+        [HttpPost("{id:int}/scan-bag")]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.UPDATE)]
+        public async Task<IActionResult> ScanBagAsync(int id, [FromBody] ScanStockTakeBagDto dto)
+        {
+            var result = await _stockTakeService.ScanBagAsync(id, dto);
+            return BaseResult(result);
+        }
+
         [HttpPut("{id:int}/submit")]
         [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.UPDATE)]
         public async Task<IActionResult> SubmitAsync(int id, [FromBody] SubmitStockTakeDto dto)

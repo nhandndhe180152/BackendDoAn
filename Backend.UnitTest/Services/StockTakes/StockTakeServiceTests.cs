@@ -333,6 +333,94 @@ public class StockTakeServiceTests
         item.RecountConfirmed.Should().BeFalse();
     }
 
+    // ─── Kiểm kê theo BAO ─────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(10, 10, 0)]    // đủ bao
+    [InlineData(10, 9, -1)]    // thiếu một bao
+    [InlineData(10, 12, 2)]    // thừa hai bao (xếp nhầm cột)
+    public void StockTakeItem_BagDifference_CalculatesCorrectly(
+        int systemBags, int countedBags, int expected)
+    {
+        var item = new StockTakeItem
+        {
+            SystemBagCount = systemBags,
+            CountedBagCount = countedBags
+        };
+
+        item.BagDifference.Should().Be(expected);
+        item.HasBagVariance.Should().Be(expected != 0);
+    }
+
+    [Fact]
+    public void StockTakeItem_BagDifference_NullWhenNotCounted()
+    {
+        var item = new StockTakeItem { SystemBagCount = 10, CountedBagCount = null };
+
+        item.BagDifference.Should().BeNull();
+        // Chưa kiểm đếm KHÔNG được coi là lệch bao, nếu không mọi dòng vừa chụp
+        // đều bị đánh dấu bất thường.
+        item.HasBagVariance.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("OK", false)]
+    [InlineData("WET", true)]
+    [InlineData("PEST", true)]
+    [InlineData("TORN_BAG", true)]
+    public void StockTakeItem_IsQualityFailed_OnlyOkPasses(string status, bool expected)
+    {
+        var item = new StockTakeItem { QualityStatus = status };
+        item.IsQualityFailed.Should().Be(expected);
+    }
+
+    [Fact]
+    public void StockTakeItemBag_NotCounted_IsMissingAndHasNoWeightDelta()
+    {
+        var bag = new StockTakeItemBag { SystemWeightKg = 50m, Counted = false };
+
+        bag.IsMissing.Should().BeTrue();
+        // Bao không tìm thấy thì không có "chênh lệch cân" — nó bị rút khỏi kho
+        // nguyên bao, chứ không phải nhẹ đi 50 kg.
+        bag.WeightDifference.Should().Be(0m);
+    }
+
+    [Fact]
+    public void StockTakeItemBag_CountedWithoutWeighing_KeepsBookWeight()
+    {
+        var bag = new StockTakeItemBag
+        {
+            SystemWeightKg = 50m,
+            Counted = true,
+            CountedWeightKg = null
+        };
+
+        bag.IsMissing.Should().BeFalse();
+        // Không cân thì giữ nguyên kg sổ sách — không quy về 0.
+        bag.WeightDifference.Should().Be(0m);
+    }
+
+    [Fact]
+    public void StockTakeItemBag_Weighed_ReportsDelta()
+    {
+        var bag = new StockTakeItemBag
+        {
+            SystemWeightKg = 50m,
+            Counted = true,
+            CountedWeightKg = 48.4m
+        };
+
+        bag.WeightDifference.Should().Be(-1.6m);
+        bag.IsMissing.Should().BeFalse();
+    }
+
+    [Fact]
+    public void StockTakeItemBag_Unexpected_IsNotMissing()
+    {
+        var bag = new StockTakeItemBag { IsUnexpected = true, Counted = true };
+        bag.IsMissing.Should().BeFalse();
+    }
+
     // ─── CreateAsync / UpdateAsync Validation Tests ───────────────────────────
 
     [Fact]

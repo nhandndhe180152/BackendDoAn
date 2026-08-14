@@ -46,6 +46,7 @@ public interface IApplicationDbContext
     DbSet<StockAlertConfig> StockAlertConfigs { get; }
     DbSet<StockTake> StockTakes { get; }
     DbSet<StockTakeItem> StockTakeItems { get; }
+    DbSet<StockTakeItemBag> StockTakeItemBags { get; }
     DbSet<StockTakeStatus> StockTakeStatuses { get; }
     DbSet<Supplier> Suppliers { get; }
     DbSet<UnitOfMeasure> UnitOfMeasures { get; }

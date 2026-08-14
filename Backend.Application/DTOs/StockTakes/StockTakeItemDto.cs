@@ -43,7 +43,63 @@ public class StockTakeItemDto
     public int? RecountConfirmedBy { get; set; }
     public DateTime? RecountConfirmedAt { get; set; }
 
+    // ─── Kiểm kê theo BAO ────────────────────────────────────────────────────
+
+    /// <summary>Số bao đang lưu tại (lô, vị trí) lúc chụp phiếu.</summary>
+    public int SystemBagCount { get; set; }
+
+    /// <summary>Số bao đếm được. Null = chưa kiểm đếm.</summary>
+    public int? CountedBagCount { get; set; }
+
+    /// <summary>Lệch số bao (âm = thiếu bao). Null khi chưa kiểm đếm.</summary>
+    public int? BagDifference { get; set; }
+
+    /// <summary>Số bao đã cân lại (phần còn lại giữ nguyên kg sổ sách).</summary>
+    public int WeighedBagCount { get; set; }
+
+    /// <summary>Tình trạng chất lượng: OK / WET / PEST / TORN_BAG / OTHER.</summary>
+    public string QualityStatus { get; set; } = "OK";
+
+    public string? QualityNote { get; set; }
+    public string? QualityImageUrls { get; set; }
+
+    /// <summary>Chất lượng không đạt (khác OK) — sẽ đề xuất cách ly lô khi duyệt.</summary>
+    public bool IsQualityFailed { get; set; }
+
+    /// <summary>Chi tiết từng bao trong phạm vi dòng này.</summary>
+    public List<StockTakeItemBagDto> Bags { get; set; } = new();
+
     public List<StockTakeMovementEvidenceDto> PostSnapshotMovements { get; set; } = new();
+}
+
+/// <summary>Một bao trong dòng kiểm kê: số liệu sổ sách + kết quả kiểm đếm.</summary>
+public class StockTakeItemBagDto
+{
+    public int Id { get; set; }
+    public int StockTakeItemId { get; set; }
+    public int PaddyLotBagId { get; set; }
+    public int BagNo { get; set; }
+    public string? QrCode { get; set; }
+
+    public decimal SystemWeightKg { get; set; }
+
+    /// <summary>Null = không cân bao này (được phép bỏ qua).</summary>
+    public decimal? CountedWeightKg { get; set; }
+
+    public bool Counted { get; set; }
+    public bool ScannedByQr { get; set; }
+    public bool IsUnexpected { get; set; }
+
+    /// <summary>Có trong sổ nhưng không tìm thấy khi kiểm kê.</summary>
+    public bool IsMissing { get; set; }
+
+    /// <summary>Lệch kg của riêng bao này (0 khi không cân).</summary>
+    public decimal WeightDifference { get; set; }
+
+    public string QualityStatus { get; set; } = "OK";
+    public string? Note { get; set; }
+    public DateTime? CountedAt { get; set; }
+    public int? CountedByUserId { get; set; }
 }
 
 public class StockTakeMovementEvidenceDto

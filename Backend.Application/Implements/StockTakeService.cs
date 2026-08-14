@@ -142,6 +142,18 @@ public class StockTakeService : IStockTakeService
     }
 
     /// <summary>
+    /// Lệch SỐ BAO luôn là mức LARGE, dù chênh lệch kg có nhỏ tới đâu.
+    /// </summary>
+    /// <remarks>
+    /// Mất nguyên một bao là sự cố an ninh kho, không phải hao hụt tự nhiên.
+    /// Một bao 50 kg trong cột 5 tấn chỉ lệch 1% — theo ngưỡng kg/% sẽ rơi vào
+    /// SMALL và trôi qua khâu duyệt mà không ai phải giải trình. Nâng lên LARGE
+    /// để bắt buộc nhập lý do và xác nhận kiểm đếm lại.
+    /// </remarks>
+    private static string ApplyBagVarianceSeverity(string severity, int? bagDifference)
+        => (bagDifference ?? 0) != 0 ? MaxSeverity(severity, "LARGE") : severity;
+
+    /// <summary>
     /// Enrich VarianceSeverity trên tất cả dòng của DTO sau khi đọc ngưỡng từ DB.
     /// </summary>
     private async Task EnrichVarianceSeverityAsync(StockTakeDto dto)
@@ -151,7 +163,8 @@ public class StockTakeService : IStockTakeService
         {
             var isZeroWithActual = item.SystemQuantity == 0 && (item.ActualQuantity ?? 0) > 0;
             var absKg = item.AbsoluteVarianceKg ?? 0m;
-            item.VarianceSeverity = ClassifySeverity(item.VariancePercent, absKg, smallPct, mediumPct, smallKg, mediumKg, isZeroWithActual);
+            var severity = ClassifySeverity(item.VariancePercent, absKg, smallPct, mediumPct, smallKg, mediumKg, isZeroWithActual);
+            item.VarianceSeverity = ApplyBagVarianceSeverity(severity, item.BagDifference);
         }
     }
 
@@ -340,12 +353,54 @@ public class StockTakeService : IStockTakeService
                         x.PaddyLotId == item.PaddyLotId)   // exact match (null == null)
                     .SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m;
             }
+
+            // Chụp luôn DANH SÁCH BAO đang nằm tại (lô, vị trí) này. Kho gạo lưu
+            // theo bao nên phải biết CỤ THỂ bao nào cần tìm, không chỉ biết
+            // "tổng bao nhiêu kg" — thiếu 50 kg là mất nguyên một bao hay hao
+            // đều nhiều bao là hai chuyện khác hẳn nhau.
+            await SnapshotBagsAsync(item);
         }
 
         await _stockTakeRepository.CreateAsync(model);
         await _stockTakeRepository.SaveChangesAsync();
 
         return ApiResponse.Created(model.Id);
+    }
+
+    /// <summary>
+    /// Nạp các bao đang lưu (Stored) tại (lô, vị trí) của dòng kiểm kê vào
+    /// <see cref="StockTakeItem.Bags"/> và ghi <c>SystemBagCount</c>.
+    /// </summary>
+    /// <remarks>
+    /// Dòng không gắn lô (hàng không theo lô) thì không có bao vật lý — giữ
+    /// SystemBagCount = 0 và phiếu chạy như kiểm kê theo kg cũ.
+    /// </remarks>
+    private async Task SnapshotBagsAsync(StockTakeItem item)
+    {
+        if (!item.PaddyLotId.HasValue || !item.LocationId.HasValue) return;
+
+        var now = DateTimeHelper.VietnamNow();
+        var bags = await _context.PaddyLotBags.AsNoTracking()
+            .Where(b => !b.IsDeleted
+                        && b.LotId == item.PaddyLotId.Value
+                        && b.LocationId == item.LocationId.Value
+                        && b.Status == PaddyLotBagStatuses.Stored
+                        && b.WeightKg > 0)
+            .OrderBy(b => b.StackOrder).ThenBy(b => b.BagNo)
+            .Select(b => new { b.Id, b.BagNo, b.QrCode, b.WeightKg })
+            .ToListAsync();
+
+        item.SystemBagCount = bags.Count;
+        item.Bags = bags.Select(b => new StockTakeItemBag
+        {
+            PaddyLotBagId  = b.Id,
+            BagNo          = b.BagNo,
+            QrCode         = b.QrCode,
+            SystemWeightKg = b.WeightKg,
+            Counted        = false,
+            QualityStatus  = StockTakeQualityStatuses.Ok,
+            CreatedDate    = now
+        }).ToList();
     }
 
     public Task<ApiResponse> CreateListAsync(IEnumerable<CreateStockTakeDto> objs)
@@ -390,6 +445,8 @@ public class StockTakeService : IStockTakeService
                 .ThenInclude(x => x.Location)
             .Include(x => x.StockTakeItems)
                 .ThenInclude(x => x.PaddyLot)
+            .Include(x => x.StockTakeItems)
+                .ThenInclude(x => x.Bags)
             .FirstOrDefaultAsync();
 
         if (data == null)
@@ -496,6 +553,7 @@ public class StockTakeService : IStockTakeService
         var stockTake = await _stockTakeRepository
             .FindByCondition(x => !x.IsDeleted && x.Id == id)
             .Include(x => x.StockTakeItems)
+                .ThenInclude(x => x.Bags)
             .FirstOrDefaultAsync();
 
         if (stockTake == null) return ApiResponse.NotFound();
@@ -517,9 +575,36 @@ public class StockTakeService : IStockTakeService
             if (line.ActualQuantity.HasValue && line.ActualQuantity.Value < 0)
                 return ApiResponse.BadRequest(message: "Số lượng kiểm đếm phải lớn hơn hoặc bằng 0.");
 
-            item.ActualQuantity = line.ActualQuantity;
+            // Chất lượng: không đạt thì bắt buộc mô tả, nếu không phiếu duyệt xong
+            // chẳng ai biết hàng bị làm sao.
+            if (line.QualityStatus != null)
+            {
+                var quality = line.QualityStatus.Trim().ToUpperInvariant();
+                if (!StockTakeQualityStatuses.All.Contains(quality))
+                    return ApiResponse.BadRequest(message: $"Tình trạng chất lượng '{line.QualityStatus}' không hợp lệ.");
+                if (StockTakeQualityStatuses.IsFailed(quality) && string.IsNullOrWhiteSpace(line.QualityNote))
+                    return ApiResponse.BadRequest(
+                        message: "Dòng có chất lượng không đạt phải ghi rõ tình trạng vào ô mô tả.");
+                item.QualityStatus = quality;
+                item.QualityNote = line.QualityNote?.Trim();
+                item.QualityImageUrls = line.QualityImageUrls?.Trim();
+            }
+
+            // Kiểm theo BAO: server tự tính lại số bao và tổng kg từ danh sách bao,
+            // không tin số tổng client gửi lên — nếu tin, tổng kg và danh sách bao
+            // có thể lệch nhau và bất biến bao–tồn sẽ vỡ khi duyệt.
+            if (line.Bags != null)
+            {
+                var bagError = await ApplyBagCountsAsync(item, line.Bags, userId, now);
+                if (bagError != null) return ApiResponse.BadRequest(message: bagError);
+            }
+            else
+            {
+                item.ActualQuantity = line.ActualQuantity;
+            }
+
             item.Note = line.Note?.Trim();
-            item.QRScanned = line.QRScanned;
+            item.QRScanned = line.QRScanned || (item.Bags?.Any(b => !b.IsDeleted && b.ScannedByQr) ?? false);
             item.LastModifiedDate = now;
             item.UpdatedBy = userId;
 
@@ -543,6 +628,182 @@ public class StockTakeService : IStockTakeService
         await _stockTakeRepository.UpdateAsync(stockTake);
         await _stockTakeRepository.SaveChangesAsync();
         return ApiResponse.Success(message: "Đã lưu kết quả kiểm đếm.");
+    }
+
+    /// <summary>
+    /// Ghi kết quả kiểm đếm từng bao vào dòng, rồi TÍNH LẠI số bao và tổng kg.
+    /// Trả về thông báo lỗi, hoặc null nếu hợp lệ.
+    /// </summary>
+    /// <remarks>
+    /// Quy tắc khối lượng — điểm dễ sai nhất của kiểm kê theo bao:
+    /// * bao KHÔNG tìm thấy  → không tính kg (coi như đã mất khỏi kho);
+    /// * bao tìm thấy, ĐÃ cân → tính theo kg cân được;
+    /// * bao tìm thấy, KHÔNG cân → giữ nguyên kg sổ sách.
+    /// Nhờ vậy thủ kho chỉ cần cân những bao nghi ngờ, phần còn lại không bị
+    /// quy về 0 và cũng không bị "chia đều" chênh lệch một cách bịa đặt.
+    /// </remarks>
+    private async Task<string?> ApplyBagCountsAsync(
+        StockTakeItem item,
+        List<SaveStockTakeBagDto> lines,
+        int userId,
+        DateTime now)
+    {
+        item.Bags ??= new List<StockTakeItemBag>();
+        var existing = item.Bags.Where(b => !b.IsDeleted).ToList();
+
+        foreach (var line in lines)
+        {
+            if (line.CountedWeightKg.HasValue && line.CountedWeightKg.Value < 0)
+                return "Khối lượng cân của bao phải lớn hơn hoặc bằng 0.";
+
+            var quality = string.IsNullOrWhiteSpace(line.QualityStatus)
+                ? StockTakeQualityStatuses.Ok
+                : line.QualityStatus.Trim().ToUpperInvariant();
+            if (!StockTakeQualityStatuses.All.Contains(quality))
+                return $"Tình trạng chất lượng '{line.QualityStatus}' của bao không hợp lệ.";
+
+            var bag = line.Id > 0
+                ? existing.FirstOrDefault(b => b.Id == line.Id)
+                : existing.FirstOrDefault(b =>
+                      (line.PaddyLotBagId.HasValue && b.PaddyLotBagId == line.PaddyLotBagId.Value) ||
+                      (!string.IsNullOrWhiteSpace(line.QrCode) && b.QrCode == line.QrCode));
+
+            if (bag == null)
+            {
+                // Bao PHÁT SINH: quét được bao không nằm trong snapshot (xếp nhầm
+                // cột, nhập sót…). Vẫn phải ghi nhận, nếu không thủ kho sẽ tự ý
+                // sửa số cho khớp và mất dấu vấn đề thật.
+                var physical = await ResolvePhysicalBagAsync(line.PaddyLotBagId, line.QrCode);
+                if (physical == null)
+                    return $"Không tìm thấy bao ứng với mã '{line.QrCode ?? line.PaddyLotBagId?.ToString()}'.";
+                if (item.Bags.Any(b => !b.IsDeleted && b.PaddyLotBagId == physical.Id))
+                    return $"Bao #{physical.BagNo} đã được ghi nhận trong dòng kiểm kê này.";
+
+                bag = new StockTakeItemBag
+                {
+                    StockTakeItemId = item.Id,
+                    PaddyLotBagId   = physical.Id,
+                    BagNo           = physical.BagNo,
+                    QrCode          = physical.QrCode,
+                    SystemWeightKg  = 0m,      // sổ sách không có bao này tại đây
+                    IsUnexpected    = true,
+                    CreatedDate     = now,
+                    CreatedBy       = userId
+                };
+                item.Bags.Add(bag);
+                existing.Add(bag);
+            }
+
+            bag.Counted = line.Counted;
+            bag.ScannedByQr = line.ScannedByQr;
+            bag.CountedWeightKg = line.Counted ? line.CountedWeightKg : null;
+            bag.QualityStatus = quality;
+            bag.Note = line.Note?.Trim();
+            bag.CountedAt = line.Counted ? now : null;
+            bag.CountedByUserId = line.Counted ? userId : null;
+            bag.LastModifiedDate = now;
+            bag.UpdatedBy = userId;
+        }
+
+        var counted = item.Bags.Where(b => !b.IsDeleted && b.Counted).ToList();
+        item.CountedBagCount = counted.Count;
+        item.ActualQuantity = counted.Sum(b => b.CountedWeightKg ?? b.SystemWeightKg);
+
+        // Bao nào hỏng thì cả dòng coi như không đạt — trừ khi người dùng đã tự
+        // chọn một tình trạng nặng hơn cho cả dòng.
+        var failedBag = counted.FirstOrDefault(b => StockTakeQualityStatuses.IsFailed(b.QualityStatus));
+        if (failedBag != null && !StockTakeQualityStatuses.IsFailed(item.QualityStatus))
+        {
+            item.QualityStatus = failedBag.QualityStatus;
+            if (string.IsNullOrWhiteSpace(item.QualityNote))
+                item.QualityNote = $"Phát hiện từ bao #{failedBag.BagNo}: {failedBag.Note ?? failedBag.QualityStatus}";
+        }
+
+        return null;
+    }
+
+    /// <summary>Tra bao vật lý theo Id hoặc mã QR trên tem.</summary>
+    private async Task<PaddyLotBag?> ResolvePhysicalBagAsync(int? bagId, string? qrCode)
+    {
+        if (bagId.HasValue)
+        {
+            return await _context.PaddyLotBags.AsNoTracking()
+                .FirstOrDefaultAsync(b => b.Id == bagId.Value && !b.IsDeleted);
+        }
+        if (string.IsNullOrWhiteSpace(qrCode)) return null;
+        var code = qrCode.Trim();
+        return await _context.PaddyLotBags.AsNoTracking()
+            .FirstOrDefaultAsync(b => b.QrCode == code && !b.IsDeleted);
+    }
+
+    /// <summary>
+    /// Tra một mã QR bao trong lúc kiểm kê: bao có thuộc phiếu không, đã đếm
+    /// chưa, và nếu nằm ngoài phạm vi thì đang ở đâu.
+    /// </summary>
+    /// <remarks>
+    /// Trả 200 kèm <c>Matched=false</c> thay vì lỗi 404: thủ kho quét nhầm bao là
+    /// chuyện thường, màn hình cần hiện "bao này thuộc lô/cột nào" để xử lý chứ
+    /// không nên coi là lỗi hệ thống.
+    /// </remarks>
+    public async Task<ApiResponse> ScanBagAsync(int stockTakeId, ScanStockTakeBagDto dto)
+    {
+        var code = dto.QrCode?.Trim();
+        if (string.IsNullOrWhiteSpace(code))
+            return ApiResponse.BadRequest(message: "Mã QR không được để trống.");
+
+        var stockTake = await _stockTakeRepository
+            .FindByCondition(x => !x.IsDeleted && x.Id == stockTakeId)
+            .FirstOrDefaultAsync();
+        if (stockTake == null) return ApiResponse.NotFound();
+
+        var physical = await _context.PaddyLotBags.AsNoTracking()
+            .Include(b => b.Lot).ThenInclude(l => l.ProductVariant)
+            .Include(b => b.Location)
+            .FirstOrDefaultAsync(b => b.QrCode == code && !b.IsDeleted);
+
+        if (physical == null)
+        {
+            return ApiResponse.Success(new ScanStockTakeBagResultDto
+            {
+                Matched = false,
+                Reason = "NOT_FOUND",
+                Message = $"Không tìm thấy bao nào mang mã '{code}'."
+            });
+        }
+
+        var snapshot = await _context.StockTakeItemBags.AsNoTracking()
+            .Include(b => b.StockTakeItem)
+            .FirstOrDefaultAsync(b => !b.IsDeleted
+                                      && b.PaddyLotBagId == physical.Id
+                                      && b.StockTakeItem.StockTakeId == stockTakeId
+                                      && !b.StockTakeItem.IsDeleted);
+
+        if (snapshot == null)
+        {
+            return ApiResponse.Success(new ScanStockTakeBagResultDto
+            {
+                Matched = false,
+                Reason = "OUT_OF_SCOPE",
+                Message = $"Bao #{physical.BagNo} không nằm trong phạm vi phiếu {stockTake.STCode}. " +
+                          "Kiểm tra xem bao có bị xếp nhầm cột không.",
+                LotCode = physical.Lot?.LotCode,
+                LocationCode = physical.Location?.SlotCode,
+                ProductVariantName = physical.Lot?.ProductVariant?.Name
+            });
+        }
+
+        return ApiResponse.Success(new ScanStockTakeBagResultDto
+        {
+            Matched = true,
+            Reason = snapshot.Counted ? "ALREADY_COUNTED" : null,
+            Message = snapshot.Counted
+                ? $"Bao #{snapshot.BagNo} đã được đếm trước đó."
+                : $"Bao #{snapshot.BagNo} — {snapshot.SystemWeightKg:0.#} kg theo sổ sách.",
+            StockTakeItemId = snapshot.StockTakeItemId,
+            Bag = snapshot.ToDto(),
+            LotCode = physical.Lot?.LotCode,
+            LocationCode = physical.Location?.SlotCode
+        });
     }
 
     public async Task<ApiResponse> SubmitAsync(int id, SubmitStockTakeDto dto, int userId)
@@ -569,15 +830,37 @@ public class StockTakeService : IStockTakeService
                 $"Phiếu còn {unfinished.Count} dòng chưa nhập số lượng kiểm đếm.",
                 ApiCodeConstants.Common.UnprocessableEntity);
 
+        // Dòng có bao trong snapshot mà chưa đếm bao nào thì coi như chưa kiểm:
+        // gửi duyệt lúc này sẽ ghi nhận "mất sạch bao" khi duyệt.
+        var uncountedBagItems = stockTake.StockTakeItems
+            .Where(x => !x.IsDeleted && x.SystemBagCount > 0 && !x.CountedBagCount.HasValue)
+            .ToList();
+        if (uncountedBagItems.Any())
+            return ApiResponse.UnprocessableEntity(
+                $"Phiếu còn {uncountedBagItems.Count} dòng quản lý theo bao nhưng chưa kiểm đếm bao nào. " +
+                "Hãy quét/tích từng bao trước khi gửi duyệt.",
+                ApiCodeConstants.Common.UnprocessableEntity);
+
+        // Chất lượng không đạt phải mô tả rõ, nếu không người duyệt không có căn cứ.
+        var qualityMissingNote = stockTake.StockTakeItems
+            .Where(x => !x.IsDeleted && x.IsQualityFailed && string.IsNullOrWhiteSpace(x.QualityNote))
+            .ToList();
+        if (qualityMissingNote.Any())
+            return ApiResponse.UnprocessableEntity(
+                $"Có {qualityMissingNote.Count} dòng ghi nhận chất lượng không đạt nhưng chưa mô tả tình trạng.",
+                ApiCodeConstants.Common.UnprocessableEntity);
+
         var (smallPct, mediumPct, smallKg, mediumKg) = await ResolveVarianceThresholdsAsync();
         var largeItems = new List<StockTakeItem>();
         foreach (var item in stockTake.StockTakeItems.Where(x => !x.IsDeleted && x.ActualQuantity.HasValue))
         {
-            if (item.Difference == 0) continue;
+            if (item.Difference == 0 && !item.HasBagVariance) continue;
 
             var isZeroWithActual = item.SystemQuantity == 0 && item.ActualQuantity!.Value > 0;
-            var severity = ClassifySeverity(item.VariancePercent, item.AbsoluteVarianceKg,
-                smallPct, mediumPct, smallKg, mediumKg, isZeroWithActual);
+            var severity = ApplyBagVarianceSeverity(
+                ClassifySeverity(item.VariancePercent, item.AbsoluteVarianceKg,
+                    smallPct, mediumPct, smallKg, mediumKg, isZeroWithActual),
+                item.BagDifference);
             var name = item.ProductVariant?.Name ?? $"ProductVariantId={item.ProductVariantId}";
 
             // BR-28: SMALL không bắt buộc lý do; MEDIUM/LARGE phải có lý do.
@@ -863,6 +1146,8 @@ public class StockTakeService : IStockTakeService
             .FindByCondition(x => !x.IsDeleted && x.Id == id)
             .Include(x => x.StockTakeItems)
                 .ThenInclude(i => i.ProductVariant)
+            .Include(x => x.StockTakeItems)
+                .ThenInclude(i => i.Bags)
             .FirstOrDefaultAsync();
 
         if (existData == null)
@@ -924,7 +1209,9 @@ public class StockTakeService : IStockTakeService
                 continue;
 
             var isZeroWithActual = item.SystemQuantity == 0 && (item.ActualQuantity ?? 0) > 0;
-            var severity = ClassifySeverity(item.VariancePercent, item.AbsoluteVarianceKg, smallPct, mediumPct, smallKg, mediumKg, isZeroWithActual);
+            var severity = ApplyBagVarianceSeverity(
+                ClassifySeverity(item.VariancePercent, item.AbsoluteVarianceKg, smallPct, mediumPct, smallKg, mediumKg, isZeroWithActual),
+                item.BagDifference);
             var variantName = item.ProductVariant?.Name ?? $"ProductVariantId={item.ProductVariantId}";
 
             // STK-05 — Concurrency check đầy đủ: xử lý cả trường hợp inventory bị xóa (null → 0)
@@ -998,11 +1285,18 @@ public class StockTakeService : IStockTakeService
 
             foreach (var item in existData.StockTakeItems)
             {
-                if (!item.ActualQuantity.HasValue || item.Difference == 0 || !item.ProductVariantId.HasValue)
+                // Lệch bao mà tổng kg không đổi (ví dụ mất 1 bao 50 kg nhưng bao
+                // khác nặng thêm đúng 50 kg) vẫn phải đồng bộ lại bao, nếu không
+                // danh sách bao và tồn kg tiếp tục lệch nhau.
+                if (!item.ActualQuantity.HasValue || !item.ProductVariantId.HasValue)
+                    continue;
+                if (item.Difference == 0 && !item.HasBagVariance)
                     continue;
 
                 var isZeroWithActual = item.SystemQuantity == 0 && (item.ActualQuantity ?? 0) > 0;
-                var severity = ClassifySeverity(item.VariancePercent, item.AbsoluteVarianceKg, smallPct, mediumPct, smallKg, mediumKg, isZeroWithActual);
+                var severity = ApplyBagVarianceSeverity(
+                    ClassifySeverity(item.VariancePercent, item.AbsoluteVarianceKg, smallPct, mediumPct, smallKg, mediumKg, isZeroWithActual),
+                    item.BagDifference);
 
                 if (severity == "LARGE") largeItems.Add((item, severity));
 
@@ -1023,6 +1317,19 @@ public class StockTakeService : IStockTakeService
                     ReferenceItemId  = item.Id,
                     Note             = noteText
                 };
+
+                // ĐỒNG BỘ BAO VẬT LÝ TRƯỚC, rồi mới chỉnh tồn kg.
+                //
+                // Đây chính là chỗ trước đây gây lỗi: duyệt xong chỉ sửa
+                // Inventory.QuantityOnHand mà không đụng PaddyLotBag, nên bất
+                // biến SUM(bag kg) == Inventory kg bị vỡ và lần xuất kho/xay xát
+                // kế tiếp ném "Lô #x tại vị trí #y lệch tồn"
+                // (xem PaddyLotBagInvariantService.ValidateLotLocationAsync).
+                await SyncPhysicalBagsAsync(existData, item, userId);
+
+                // Chỉ gọi điều chỉnh tồn khi kg thực sự đổi — AdjustStock với
+                // lượng 0 là một giao dịch rỗng, chỉ làm bẩn sổ giao dịch.
+                if (item.Difference == 0) continue;
 
                 var result = await _inventoryTransactionService.AdjustStockAsync(request, item.ActualQuantity.Value, true);
                 if (!result.IsSucceeded)
@@ -1046,6 +1353,12 @@ public class StockTakeService : IStockTakeService
                     continue;
 
                 var lotInfo = item.PaddyLotId.HasValue ? $" (Lô #{item.PaddyLotId})" : "";
+                // Nêu rõ lệch BAO trước, lệch kg sau: mất bao là chuyện phải đi
+                // tìm người, hao kg là chuyện phải xem lại quy trình.
+                var bagInfo = item.HasBagVariance
+                    ? $"Bao: sổ sách {item.SystemBagCount}, đếm được {item.CountedBagCount} " +
+                      $"(lệch {item.BagDifference:+#;-#;0} bao). "
+                    : string.Empty;
                 var alert = new Alert
                 {
                     AlertType          = "STOCK_TAKE_LARGE_VARIANCE",
@@ -1054,6 +1367,7 @@ public class StockTakeService : IStockTakeService
                     ProductVariantId   = item.ProductVariantId,
                     LocationId         = item.LocationId,
                     Message            = $"[{existData.STCode}] Chênh lệch LARGE: {item.ProductVariant?.Name ?? $"PV#{item.ProductVariantId}"}{lotInfo} — " +
+                                         bagInfo +
                                          $"Hệ thống: {item.SystemQuantity:F2} kg, Thực tế: {item.ActualQuantity:F2} kg, " +
                                          $"Chênh: {item.AbsoluteVarianceKg:F2} kg ({item.VariancePercent:F2}%). " +
                                          $"Lý do: {item.Note ?? "(chưa ghi)"}",
@@ -1067,7 +1381,52 @@ public class StockTakeService : IStockTakeService
                 await _context.Alerts.AddAsync(alert);
             }
 
-            if (largeItems.Any())
+            // Chất lượng không đạt: cảnh báo + đánh dấu lô cần kiểm định lại.
+            // Không tự chuyển sang trạng thái Cách ly ở đây vì việc đó kéo theo
+            // dời hàng sang ô cách ly — phải do màn Kiểm định quyết định.
+            var failedQualityItems = existData.StockTakeItems
+                .Where(x => !x.IsDeleted && x.IsQualityFailed)
+                .ToList();
+            foreach (var item in failedQualityItems)
+            {
+                var dedupKey = $"STOCKTAKE_QUALITY_{existData.Id}_{item.Id}";
+                if (await _context.Alerts.AnyAsync(x =>
+                        !x.IsDeleted && x.DeduplicationKey == dedupKey && x.Status != "RESOLVED"))
+                    continue;
+
+                await _context.Alerts.AddAsync(new Alert
+                {
+                    AlertType         = "STOCK_TAKE_QUALITY_ISSUE",
+                    Severity          = "CRITICAL",
+                    WarehouseId       = existData.WarehouseId,
+                    ProductVariantId  = item.ProductVariantId,
+                    LocationId        = item.LocationId,
+                    Message           = $"[{existData.STCode}] Chất lượng không đạt ({item.QualityStatus}): " +
+                                        $"{item.ProductVariant?.Name ?? $"PV#{item.ProductVariantId}"}" +
+                                        (item.PaddyLotId.HasValue ? $" — Lô #{item.PaddyLotId}" : "") +
+                                        $". Ghi nhận: {item.QualityNote}. Đề nghị kiểm định lại trước khi xuất bán.",
+                    RelatedEntityType = "StockTakeItem",
+                    RelatedEntityId   = item.Id,
+                    Status            = "OPEN",
+                    DeduplicationKey  = dedupKey,
+                    CreatedDate       = DateTimeHelper.VietnamNow(),
+                    CreatedBy         = userId
+                });
+
+                if (item.PaddyLotId.HasValue)
+                {
+                    var lot = await _context.PaddyLots
+                        .FirstOrDefaultAsync(x => x.Id == item.PaddyLotId.Value && !x.IsDeleted);
+                    if (lot != null)
+                    {
+                        lot.QualityStatus = item.QualityStatus;
+                        lot.LastModifiedDate = DateTimeHelper.VietnamNow();
+                        lot.UpdatedBy = userId;
+                    }
+                }
+            }
+
+            if (largeItems.Any() || failedQualityItems.Any())
                 await _context.SaveChangesAsync(default);
 
             await transaction.CommitAsync();
@@ -1095,6 +1454,176 @@ public class StockTakeService : IStockTakeService
             await transaction.RollbackAsync();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Áp kết quả kiểm kê xuống BAO VẬT LÝ để tồn theo bao và tồn theo kg khớp nhau.
+    /// </summary>
+    /// <remarks>
+    /// Ba việc, theo đúng thứ tự:
+    /// 1. Bao KHÔNG tìm thấy → rút khỏi kho (Status=Consumed, bỏ vị trí, kg về 0)
+    ///    kèm <c>PaddyLotBagMovement</c> lý do StockTakeMissing để còn truy vết.
+    /// 2. Bao tìm thấy nhưng CÂN LỆCH → sửa <c>WeightKg</c> và các
+    ///    <c>PaddyLotBagContent</c> theo tỉ lệ (bao trộn nhiều lô vẫn đúng).
+    /// 3. Bao PHÁT SINH → kéo về đúng vị trí đang kiểm và bật lại trạng thái Stored.
+    ///
+    /// Dòng không quản lý theo bao (SystemBagCount = 0 và không đếm bao) thì bỏ
+    /// qua toàn bộ — phiếu cũ vẫn chạy y như trước.
+    /// </remarks>
+    private async Task SyncPhysicalBagsAsync(StockTake stockTake, StockTakeItem item, int userId)
+    {
+        var snapshots = item.Bags?.Where(b => !b.IsDeleted).ToList() ?? new List<StockTakeItemBag>();
+        if (snapshots.Count == 0) return;
+
+        var now = DateTimeHelper.VietnamNow();
+        var bagIds = snapshots.Select(s => s.PaddyLotBagId).ToList();
+        var physicalBags = await _context.PaddyLotBags
+            .Include(b => b.Contents)
+            .Where(b => bagIds.Contains(b.Id) && !b.IsDeleted)
+            .ToListAsync();
+
+        foreach (var snapshot in snapshots)
+        {
+            var bag = physicalBags.FirstOrDefault(b => b.Id == snapshot.PaddyLotBagId);
+            if (bag == null) continue; // bao đã bị xoá ở luồng khác — không dựng lại
+
+            var beforeWeight = bag.WeightKg;
+            var fromLocationId = bag.LocationId;
+
+            if (snapshot.IsMissing)
+            {
+                if (bag.Status != PaddyLotBagStatuses.Stored) continue; // đã ra khỏi kho rồi
+                ZeroOutBagContents(bag);
+                bag.WeightKg = 0;
+                bag.Status = PaddyLotBagStatuses.Consumed;
+                bag.LocationId = null;
+                bag.IsFull = false;
+                bag.OpenBagKey = null;
+                await AddBagMovementAsync(bag, PaddyLotBagMovementTypes.StockTakeMissing,
+                    fromLocationId, null, beforeWeight, 0m, stockTake, item, userId, now,
+                    $"Kiểm kê {stockTake.STCode}: không tìm thấy bao #{snapshot.BagNo}.");
+                continue;
+            }
+
+            if (snapshot.IsUnexpected)
+            {
+                // Bao xếp nhầm chỗ: kéo về đúng vị trí đang kiểm để tồn theo cột
+                // phản ánh hiện trạng thật.
+                bag.LocationId = item.LocationId;
+                bag.Status = PaddyLotBagStatuses.Stored;
+                if (snapshot.CountedWeightKg.HasValue && snapshot.CountedWeightKg.Value != bag.WeightKg)
+                    ScaleBagContents(bag, snapshot.CountedWeightKg.Value);
+                await AddBagMovementAsync(bag, PaddyLotBagMovementTypes.StockTakeFound,
+                    fromLocationId, item.LocationId, beforeWeight, bag.WeightKg, stockTake, item, userId, now,
+                    $"Kiểm kê {stockTake.STCode}: phát hiện bao #{snapshot.BagNo} ngoài danh sách.");
+                continue;
+            }
+
+            // Bao không cân thì giữ nguyên kg sổ sách — không được suy diễn.
+            if (!snapshot.CountedWeightKg.HasValue) continue;
+            var counted = snapshot.CountedWeightKg.Value;
+            if (Math.Abs(counted - bag.WeightKg) <= 0.0005m) continue;
+
+            ScaleBagContents(bag, counted);
+            await AddBagMovementAsync(bag, PaddyLotBagMovementTypes.StockTakeAdjust,
+                fromLocationId, bag.LocationId, beforeWeight, bag.WeightKg, stockTake, item, userId, now,
+                $"Kiểm kê {stockTake.STCode}: cân lại bao #{snapshot.BagNo} " +
+                $"{beforeWeight:0.###} → {counted:0.###} kg.");
+        }
+
+        foreach (var bag in physicalBags)
+        {
+            bag.UpdatedBy = userId;
+            bag.LastModifiedDate = now;
+        }
+
+        // Ghi ngay trong transaction: AdjustStockAsync ngay sau đây đọc lại tồn
+        // và các job kiểm bất biến chạy trên dữ liệu đã lưu, không phải trên
+        // change-tracker.
+        await _context.SaveChangesAsync(default);
+    }
+
+    /// <summary>Đưa toàn bộ thành phần của bao về 0 (bao mất hẳn).</summary>
+    private static void ZeroOutBagContents(PaddyLotBag bag)
+    {
+        foreach (var content in bag.Contents.Where(c => !c.IsDeleted))
+        {
+            content.WeightKg = 0;
+        }
+    }
+
+    /// <summary>
+    /// Đặt lại khối lượng bao và chia phần chênh cho các thành phần THEO TỈ LỆ.
+    /// </summary>
+    /// <remarks>
+    /// Bao có thể trộn nhiều lô (<see cref="PaddyLotBagContent"/>). Nếu chỉ sửa
+    /// <c>bag.WeightKg</c> mà không sửa content thì
+    /// <c>PaddyLotBagInvariantService.ValidateBagAsync</c> sẽ ném "bao không cân
+    /// bằng". Chia theo tỉ lệ là cách duy nhất không cần đoán bao gồm bao nhiêu
+    /// hàng của từng lô.
+    /// </remarks>
+    private static void ScaleBagContents(PaddyLotBag bag, decimal newWeightKg)
+    {
+        var contents = bag.Contents.Where(c => !c.IsDeleted).ToList();
+        var currentTotal = contents.Sum(c => c.WeightKg);
+
+        if (contents.Count == 0 || currentTotal <= 0.0005m)
+        {
+            bag.WeightKg = newWeightKg;
+            if (contents.Count == 1) contents[0].WeightKg = newWeightKg;
+            return;
+        }
+
+        decimal assigned = 0;
+        for (var i = 0; i < contents.Count; i++)
+        {
+            if (i == contents.Count - 1)
+            {
+                // Dồn phần dư vào thành phần cuối: cộng các số đã làm tròn có thể
+                // lệch vài phần nghìn so với tổng, mà bất biến chỉ cho sai 0,001.
+                contents[i].WeightKg = Math.Max(0, newWeightKg - assigned);
+                break;
+            }
+            var share = Math.Round(newWeightKg * (contents[i].WeightKg / currentTotal), 3,
+                MidpointRounding.AwayFromZero);
+            contents[i].WeightKg = share;
+            assigned += share;
+        }
+
+        bag.WeightKg = newWeightKg;
+        if (bag.StandardWeightKg.HasValue)
+            bag.IsFull = bag.WeightKg >= bag.StandardWeightKg.Value;
+    }
+
+    private async Task AddBagMovementAsync(
+        PaddyLotBag bag,
+        string movementType,
+        int? fromLocationId,
+        int? toLocationId,
+        decimal beforeKg,
+        decimal afterKg,
+        StockTake stockTake,
+        StockTakeItem item,
+        int userId,
+        DateTime now,
+        string note)
+    {
+        await _context.PaddyLotBagMovements.AddAsync(new PaddyLotBagMovement
+        {
+            BagId           = bag.Id,
+            MovementType    = movementType,
+            FromLocationId  = fromLocationId,
+            ToLocationId    = toLocationId,
+            WeightKg        = Math.Abs(afterKg - beforeKg),
+            BeforeWeightKg  = beforeKg,
+            AfterWeightKg   = afterKg,
+            ReferenceType   = "STOCKTAKE",
+            ReferenceId     = stockTake.Id,
+            ReferenceItemId = item.Id,
+            Note            = note,
+            CreatedBy       = userId,
+            CreatedDate     = now
+        });
     }
 
     // ─── Reject ───────────────────────────────────────────────────────────────

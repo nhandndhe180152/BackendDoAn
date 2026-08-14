@@ -1,3 +1,5 @@
+using System;
+
 namespace Backend.Application.Constants;
 
 public static class PaddyLotBagStatuses
@@ -28,4 +30,32 @@ public static class PaddyLotBagMovementTypes
     public const string DeliveryRestock = "DeliveryRestock";
     public const string CustomerReturn = "CustomerReturn";
     public const string QualityQuarantineSplit = "QualityQuarantineSplit";
+
+    /// <summary>Bao không tìm thấy khi kiểm kê → rút khỏi kho.</summary>
+    public const string StockTakeMissing = "StockTakeMissing";
+
+    /// <summary>Bao đếm được nhưng cân lệch so với sổ sách → chỉnh khối lượng.</summary>
+    public const string StockTakeAdjust = "StockTakeAdjust";
+
+    /// <summary>Bao đếm được ngoài danh sách snapshot → nhập bổ sung.</summary>
+    public const string StockTakeFound = "StockTakeFound";
+}
+
+/// <summary>
+/// Tình trạng chất lượng ghi nhận khi kiểm kê từng bao/dòng.
+/// Mọi giá trị khác "OK" đều coi là KHÔNG ĐẠT và sẽ đề xuất cách ly lô.
+/// </summary>
+public static class StockTakeQualityStatuses
+{
+    public const string Ok = "OK";
+    public const string Wet = "WET";          // ẩm/mốc
+    public const string Pest = "PEST";        // mọt, côn trùng
+    public const string TornBag = "TORN_BAG"; // rách bao, đổ vãi
+    public const string Other = "OTHER";
+
+    public static readonly string[] All = { Ok, Wet, Pest, TornBag, Other };
+
+    public static bool IsFailed(string? status) =>
+        !string.IsNullOrWhiteSpace(status) &&
+        !string.Equals(status, Ok, StringComparison.OrdinalIgnoreCase);
 }
