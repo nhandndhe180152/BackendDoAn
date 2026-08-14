@@ -7103,7 +7103,7 @@ namespace Backend.Infrastructure.Migrations
                     b.HasOne("Backend.Domain.Entities.PaddyLotBag", "SourceBag")
                         .WithMany("SplitBags")
                         .HasForeignKey("SourceBagId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Location");
 

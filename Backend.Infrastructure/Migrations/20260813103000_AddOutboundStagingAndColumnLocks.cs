@@ -9,14 +9,23 @@ namespace Backend.Infrastructure.Migrations;
 /// <summary>
 /// Thêm khu chờ xuất (staging) + khóa cột cho phiếu xuất, và truy vết bao nguồn.
 ///
-/// VÌ SAO MIGRATION NÀY VIẾT BẰNG SQL CÓ ĐIỀU KIỆN (idempotent):
-/// MySQL KHÔNG rollback DDL — mỗi ALTER TABLE tự commit. Nếu migration lỗi ở câu giữa chừng,
-/// các cột đã tạo vẫn nằm lại trong DB nhưng dòng ghi nhận trong `__EFMigrationsHistory`
-/// KHÔNG được ghi. Lần khởi động sau EF chạy lại migration từ đầu và chết với
-/// "Duplicate column name 'IsOutboundStaging'" -> container restart loop, không tự thoát ra được.
+/// HAI VẤN ĐỀ ĐÃ SỬA SO VỚI BẢN ĐẦU (đều làm chết API lúc khởi động trên server):
 ///
-/// Bản này kiểm tra INFORMATION_SCHEMA trước mỗi thao tác nên chạy lại bao nhiêu lần cũng an toàn:
-/// cái gì đã có thì bỏ qua, cái gì thiếu thì tạo bù -> schema luôn đầy đủ, không cần sửa tay DB.
+/// 1) "Duplicate column name 'IsOutboundStaging'"
+///    MySQL KHÔNG rollback DDL — mỗi ALTER TABLE tự commit. Migration lỗi giữa chừng thì các cột
+///    đã tạo vẫn nằm lại nhưng dòng ghi nhận trong `__EFMigrationsHistory` KHÔNG được ghi.
+///    Lần khởi động sau EF chạy lại từ đầu -> trùng cột -> container restart loop.
+///    => Mọi thao tác đều kiểm tra INFORMATION_SCHEMA trước, chạy lại bao nhiêu lần cũng an toàn.
+///
+/// 2) "Cannot add foreign key constraint" (MySQL 1215)
+///    FK_PaddyLotBag_PaddyLotBag_SourceBagId là khóa ngoại TỰ THAM CHIẾU với ON DELETE SET NULL,
+///    trong khi chính bảng PaddyLotBag lại là con của FK_PaddyLotBag_PaddyLot_LotId ON DELETE CASCADE.
+///    InnoDB từ chối cấu hình này: xóa 1 PaddyLot sẽ vừa CASCADE xóa các bao, vừa phải SET NULL
+///    các bao khác trong cùng bảng -> nhập nhằng, bị chặn ngay từ lúc tạo constraint.
+///    Đối chiếu DB local đang chạy tốt: khóa ngoại tự tham chiếu duy nhất ở đó là
+///    FK_ProductCategory_ProductCategory_ParentCategoryId và nó dùng ON DELETE RESTRICT.
+///    => Đổi sang RESTRICT. Bao lúa dùng xóa mềm (IsDeleted) nên thực tế không có xóa cứng,
+///       RESTRICT không đổi hành vi nghiệp vụ. PaddyLotBagConfiguration đã sửa cho khớp.
 /// </summary>
 [DbContext(typeof(BackendContext))]
 [Migration("20260813103000_AddOutboundStagingAndColumnLocks")]
@@ -58,7 +67,7 @@ BEGIN
         ALTER TABLE `PaddyLotBag` ADD COLUMN `SourceBagId` int NULL;
     END IF;
 
-    -- ---------- Index thường ----------
+    -- ---------- Index ----------
     IF (SELECT COUNT(*) FROM information_schema.STATISTICS
          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Location'
            AND INDEX_NAME = 'IX_Location_OutboundLockOrderId') = 0 THEN
@@ -79,6 +88,7 @@ BEGIN
     END IF;
 
     -- ---------- Khóa ngoại ----------
+    -- Bản này khớp đúng định nghĩa đang chạy tốt ở DB local.
     IF (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
          WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_TYPE = 'FOREIGN KEY'
            AND CONSTRAINT_NAME = 'FK_Location_OutboundOrder_OutboundLockOrderId') = 0 THEN
@@ -87,12 +97,13 @@ BEGIN
             FOREIGN KEY (`OutboundLockOrderId`) REFERENCES `OutboundOrder` (`Id`) ON DELETE SET NULL;
     END IF;
 
+    -- RESTRICT chứ KHÔNG phải SET NULL — xem giải thích ở phần tóm tắt đầu file.
     IF (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
          WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_TYPE = 'FOREIGN KEY'
            AND CONSTRAINT_NAME = 'FK_PaddyLotBag_PaddyLotBag_SourceBagId') = 0 THEN
         ALTER TABLE `PaddyLotBag`
             ADD CONSTRAINT `FK_PaddyLotBag_PaddyLotBag_SourceBagId`
-            FOREIGN KEY (`SourceBagId`) REFERENCES `PaddyLotBag` (`Id`) ON DELETE SET NULL;
+            FOREIGN KEY (`SourceBagId`) REFERENCES `PaddyLotBag` (`Id`) ON DELETE RESTRICT;
     END IF;
 
     -- ---------- Seed vị trí 'Khu chờ xuất' cho từng kho ----------
@@ -114,6 +125,8 @@ BEGIN
       );
 
     -- ---------- Cột sinh + unique index (mỗi kho tối đa 1 khu chờ xuất) ----------
+    -- BẮT BUỘC phải có: LocationConfiguration khai báo shadow property OutboundStagingWarehouseId
+    -- nên EF đưa cột này vào MỌI câu SELECT từ bảng Location. Thiếu cột = hỏng toàn bộ màn kho.
     IF (SELECT COUNT(*) FROM information_schema.COLUMNS
          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Location'
            AND COLUMN_NAME = 'OutboundStagingWarehouseId') = 0 THEN
@@ -138,7 +151,6 @@ END;");
 
     protected override void Down(MigrationBuilder migrationBuilder)
     {
-        // Down cũng viết có điều kiện để không chết khi schema đang ở trạng thái nửa vời.
         migrationBuilder.Sql($"DROP PROCEDURE IF EXISTS `{ProcName}_down`;");
 
         migrationBuilder.Sql($@"
