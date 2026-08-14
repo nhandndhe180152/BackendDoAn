@@ -24,5 +24,6 @@ public class PaddyLotBagConfiguration : IEntityTypeConfiguration<PaddyLotBag>
         builder.HasIndex(x => x.QrCode).IsUnique();
         builder.HasOne(x => x.Lot).WithMany(x => x.Bags).HasForeignKey(x => x.LotId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(x => x.Location).WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasOne(x => x.SourceBag).WithMany(x => x.SplitBags).HasForeignKey(x => x.SourceBagId).OnDelete(DeleteBehavior.SetNull);
     }
 }

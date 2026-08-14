@@ -16,10 +16,13 @@ public class PaddyLotBag : EntityAuditBase<int>
     public string BagKind { get; set; } = "Purchase";
     /// <summary>Khóa duy nhất variant:warehouse, chỉ có giá trị khi là bao Finished đang mở.</summary>
     public string? OpenBagKey { get; set; }
+    public int? SourceBagId { get; set; }
 
     public virtual PaddyLot Lot { get; set; } = null!;
     public virtual Location? Location { get; set; }
     public virtual ICollection<PaddyLotBagContent> Contents { get; set; } = new List<PaddyLotBagContent>();
     public virtual ICollection<PaddyLotBagMovement> Movements { get; set; } = new List<PaddyLotBagMovement>();
     public virtual ICollection<PaddyLotBagAllocation> Allocations { get; set; } = new List<PaddyLotBagAllocation>();
+    public virtual PaddyLotBag? SourceBag { get; set; }
+    public virtual ICollection<PaddyLotBag> SplitBags { get; set; } = new List<PaddyLotBag>();
 }

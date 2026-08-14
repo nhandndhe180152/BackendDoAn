@@ -36,4 +36,5 @@ public interface IOutboundOrderService
 
     /// <summary>Hủy OutboundOrder — giải phóng tồn nếu đang PICKING/PACKED</summary>
     Task<ApiResponse> CancelAsync(int id, string? reason = null);
+    Task<ApiResponse> ForceUnlockAsync(int id, string reason);
 }

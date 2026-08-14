@@ -86,6 +86,7 @@ public static class StockTakeMapping
                 ZoneName             = item.Location?.ZoneName,
                 LotCode              = item.PaddyLot?.LotCode,
                 IsQuarantine         = item.Location?.IsQuarantine ?? false,
+                IsOutboundStaging    = item.Location?.IsOutboundStaging ?? false,
                 SystemQuantity       = item.SystemQuantity,
                 ActualQuantity       = item.ActualQuantity,
                 Difference           = item.Difference,

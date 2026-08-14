@@ -437,6 +437,70 @@ public class StockTakeServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_WarehouseScope_ExcludesOutboundStagingInventory()
+    {
+        var normalLocation = new Location
+        {
+            Id = 7,
+            WarehouseId = 1,
+            IsActive = true,
+            IsOutboundStaging = false
+        };
+        var stagingLocation = new Location
+        {
+            Id = 8,
+            WarehouseId = 1,
+            IsActive = true,
+            IsOutboundStaging = true
+        };
+        var inventories = new List<Backend.Domain.Entities.Inventory>
+        {
+            new()
+            {
+                Id = 500,
+                WarehouseId = 1,
+                LocationId = normalLocation.Id,
+                Location = normalLocation,
+                ProductVariantId = 10,
+                QuantityOnHand = 120m
+            },
+            new()
+            {
+                Id = 501,
+                WarehouseId = 1,
+                LocationId = stagingLocation.Id,
+                Location = stagingLocation,
+                ProductVariantId = 11,
+                QuantityOnHand = 80m
+            }
+        };
+        _dbContext.Setup(c => c.Inventories)
+            .Returns(inventories.AsQueryable().BuildMockDbSet().Object);
+        _invRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<Backend.Domain.Entities.Inventory, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns((Expression<Func<Backend.Domain.Entities.Inventory, bool>> predicate, bool _) =>
+                inventories.AsQueryable().Where(predicate.Compile()).AsQueryable().BuildMock());
+
+        StockTake? created = null;
+        _stockTakeRepo.Setup(r => r.CreateAsync(It.IsAny<StockTake>()))
+            .Callback<StockTake>(value => created = value)
+            .Returns(Task.CompletedTask);
+
+        var result = await Sut().CreateAsync(new CreateStockTakeDto
+        {
+            WarehouseId = 1,
+            ScopeType = "WAREHOUSE"
+        });
+
+        result.Status.Should().Be(201);
+        created.Should().NotBeNull();
+        created!.StockTakeItems.Should().ContainSingle();
+        created.StockTakeItems.Single().LocationId.Should().Be(normalLocation.Id);
+        created.StockTakeItems.Should().NotContain(item => item.LocationId == stagingLocation.Id);
+    }
+
+    [Fact]
     public async Task UpdateAsync_RecountConfirmedAuditFieldsUpdated_WhenChangedToTrue()
     {
         // Arrange
@@ -529,5 +593,41 @@ public class StockTakeServiceTests
 
         result.Status.Should().Be(400);
         item.ActualQuantity.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ApproveAsync_StagingVariance_ReturnsConflictWithoutAdjustingInventory()
+    {
+        var item = MakeItem(system: 100m, actual: 95m);
+        item.Location = new Location
+        {
+            Id = item.LocationId!.Value,
+            IsActive = true,
+            IsOutboundStaging = true,
+            SlotCode = "OUT-STAGING-1"
+        };
+        var stockTake = MakeStockTake(1, item);
+        stockTake.StockTakeStatusId = Backend.Application.Common.Lookup.StockTakeStatusId(
+            LookupCodes.StockTakeStatus.Submitted);
+        stockTake.CreatedBy = 88;
+        SetupStockTakeFind(stockTake);
+
+        var context = new DefaultHttpContext();
+        context.User = new System.Security.Claims.ClaimsPrincipal(
+            new System.Security.Claims.ClaimsIdentity(new[]
+            {
+                new System.Security.Claims.Claim(Backend.Share.Constants.ClaimNames.ROLE_IDS,
+                    CommonConstants.Role.ADMIN.ToString())
+            }, "TestAuth"));
+        _http.Setup(h => h.HttpContext).Returns(context);
+
+        var result = await Sut().ApproveAsync(1, null, userId: 99);
+
+        result.Status.Should().Be(409);
+        result.Message.Should().Contain("Chờ xuất");
+        _stockTakeRepo.Verify(r => r.BeginTransactionAsync(), Times.Never);
+        _invTxService.Verify(r => r.AdjustStockAsync(
+            It.IsAny<Backend.Application.DTOs.InventoryTransactions.StockMovementRequestDto>(),
+            It.IsAny<decimal>(), It.IsAny<bool>()), Times.Never);
     }
 }

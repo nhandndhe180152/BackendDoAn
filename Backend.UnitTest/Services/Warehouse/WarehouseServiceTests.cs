@@ -12,6 +12,7 @@ using Backend.Domain.Aggregates;
 using Backend.Share.Entities;
 using Backend.UnitTest.Fixtures;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore.Storage;
 using Moq;
 using Xunit;
 
@@ -20,11 +21,25 @@ namespace Backend.UnitTest.Services.Warehouse;
 public class WarehouseServiceTests
 {
     private readonly Mock<IWarehouseRepository> _warehouseRepository = new();
+    private readonly Mock<ILocationRepository> _locationRepository = new();
+    private readonly Mock<IDbContextTransaction> _transaction = new();
     private readonly WarehouseService _sut;
 
     public WarehouseServiceTests()
     {
-        _sut = new WarehouseService(_warehouseRepository.Object);
+        _warehouseRepository
+            .Setup(repo => repo.BeginTransactionAsync())
+            .ReturnsAsync(_transaction.Object);
+
+        _locationRepository
+            .Setup(repo => repo.CreateAsync(It.IsAny<Backend.Domain.Entities.Location>()))
+            .Returns(Task.CompletedTask);
+
+        _locationRepository
+            .Setup(repo => repo.SaveChangesAsync())
+            .ReturnsAsync(1);
+
+        _sut = new WarehouseService(_warehouseRepository.Object, _locationRepository.Object);
     }
 
     [Fact]
@@ -76,6 +91,10 @@ public class WarehouseServiceTests
         response.Status.Should().Be(201);
         _warehouseRepository.Verify(repo => repo.CreateAsync(It.IsAny<Backend.Domain.Entities.Warehouse>()), Times.Once);
         _warehouseRepository.Verify(repo => repo.SaveChangesAsync(), Times.Once);
+        _locationRepository.Verify(repo => repo.CreateAsync(It.Is<Backend.Domain.Entities.Location>(
+            location => location.IsOutboundStaging &&
+                        location.SlotCode != null &&
+                        location.SlotCode.StartsWith("OUT-STAGING-"))), Times.Once);
     }
 
     [Fact]
@@ -106,6 +125,8 @@ public class WarehouseServiceTests
         response.Status.Should().Be(201);
         _warehouseRepository.Verify(repo => repo.CreateListAsync(It.IsAny<IEnumerable<Backend.Domain.Entities.Warehouse>>()), Times.Once);
         _warehouseRepository.Verify(repo => repo.SaveChangesAsync(), Times.Once);
+        _locationRepository.Verify(repo => repo.CreateAsync(It.Is<Backend.Domain.Entities.Location>(
+            location => location.IsOutboundStaging)), Times.Exactly(2));
     }
 
     [Fact]

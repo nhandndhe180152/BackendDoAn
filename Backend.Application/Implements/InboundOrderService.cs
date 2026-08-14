@@ -1108,6 +1108,8 @@ public class InboundOrderService : IInboundOrderService
             x.WarehouseId == order.WarehouseId &&
             x.IsActive &&
             !x.IsDeleted &&
+            !x.IsOutboundStaging &&
+            !x.OutboundLockOrderId.HasValue &&
             x.IsQuarantine == requiresQuarantine &&
             x.MaxCapacity.HasValue && x.MaxCapacity.Value > 0 &&
             x.CurrentOccupancy < x.MaxCapacity.Value &&
@@ -1222,6 +1224,7 @@ public class InboundOrderService : IInboundOrderService
         var locationsWithOpenBags = await GetLocationsWithOpenBagsAsync(order.WarehouseId);
         var locations = (await _locationRepository.FindByConditionAsync(x =>
             x.WarehouseId == order.WarehouseId && x.IsActive && !x.IsDeleted &&
+            !x.IsOutboundStaging && !x.OutboundLockOrderId.HasValue &&
             x.IsQuarantine == requiresQuarantine && x.MaxCapacity.HasValue && x.MaxCapacity > x.CurrentOccupancy &&
             !locationsWithOpenBags.Contains(x.Id) &&
             (x.AllowedCategoryId == null || x.AllowedCategoryId == categoryId) &&
@@ -1307,6 +1310,8 @@ public class InboundOrderService : IInboundOrderService
         var loc = await _locationRepository.FirstOrDefaultAsync(x => x.Id == dto.LocationId && !x.IsDeleted && x.IsActive);
         if (loc == null)
             return ApiResponse.NotFound("Vị trí lưu trữ không tồn tại hoặc đã bị khóa.", ApiCodeConstants.Common.NotFound);
+        if (loc.IsOutboundStaging || loc.OutboundLockOrderId.HasValue)
+            return ApiResponse.Conflict("Vị trí là khu chờ xuất hoặc đang được phiếu xuất khóa. Vui lòng chọn vị trí khác.", "LOCATION_UNAVAILABLE_FOR_PUTAWAY");
 
         if (loc.WarehouseId != order.WarehouseId)
             return ApiResponse.UnprocessableEntity("Vị trí lưu trữ không thuộc kho hàng của phiếu nhập này.", ApiCodeConstants.Common.UnprocessableEntity);
@@ -1429,6 +1434,8 @@ public class InboundOrderService : IInboundOrderService
             var loc = await _locationRepository.FirstOrDefaultAsync(x => x.Id == state.ConfirmedLocationId.Value && !x.IsDeleted && x.IsActive, true);
             if (loc == null)
                 return ApiResponse.UnprocessableEntity("Vị trí lưu trữ không còn khả dụng.", ApiCodeConstants.Common.UnprocessableEntity);
+            if (loc.IsOutboundStaging || loc.OutboundLockOrderId.HasValue)
+                return ApiResponse.Conflict("Vị trí là khu chờ xuất hoặc đang được phiếu xuất khóa. Vui lòng chọn lại vị trí.", "LOCATION_UNAVAILABLE_FOR_PUTAWAY");
 
             var paddyLotId = item.PaddyLotId;
             var lot = paddyLotId.HasValue
@@ -1686,6 +1693,8 @@ public class InboundOrderService : IInboundOrderService
                 var loc = await _locationRepository.FirstOrDefaultAsync(x => x.Id == column.LocationId && x.IsActive && !x.IsDeleted, true);
                 if (loc == null || loc.WarehouseId != order.WarehouseId)
                     return ApiResponse.UnprocessableEntity($"Vị trí {column.LocationId} không khả dụng hoặc không thuộc kho.");
+                if (loc.IsOutboundStaging || loc.OutboundLockOrderId.HasValue)
+                    return ApiResponse.Conflict("Một vị trí là khu chờ xuất hoặc đang được phiếu xuất khóa. Vui lòng chọn lại.", "LOCATION_UNAVAILABLE_FOR_PUTAWAY");
                 locations.Add(loc);
             }
             var requiresQuarantine = lot != null && (lot.QualityStatus == QualityStatusConstants.Failed || lot.Status?.Code == LotStatusCodeConstants.Quarantine);

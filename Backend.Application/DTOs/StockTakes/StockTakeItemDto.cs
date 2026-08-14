@@ -20,6 +20,7 @@ public class StockTakeItemDto
     public string? ZoneName { get; set; }
     public string? LotCode { get; set; }
     public bool IsQuarantine { get; set; }
+    public bool IsOutboundStaging { get; set; }
 
     public decimal SystemQuantity { get; set; }
     public decimal? ActualQuantity { get; set; }

@@ -14,6 +14,8 @@ public class InventoryAggregate
 
     public string? LocationCode { get; set; }
 
+    public bool IsOutboundStaging { get; set; }
+
     public int ProductVariantId { get; set; }
 
     public string SKU { get; set; } = null!;

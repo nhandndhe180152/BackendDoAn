@@ -19,6 +19,11 @@ public class LocationDetailDto
     public string? AllowedCategoryName { get; set; }
     public int Priority { get; set; }
     public bool IsQuarantine { get; set; }
+    public bool IsOutboundStaging { get; set; }
+    public bool IsLockedForOutbound => OutboundLockOrderId.HasValue;
+    public int? OutboundLockOrderId { get; set; }
+    public string? OutboundLockOrderCode { get; set; }
+    public DateTime? OutboundLockedAt { get; set; }
     public int? CurrentProductVariantId { get; set; }
     public DateTime CreatedDate { get; set; }
 }
