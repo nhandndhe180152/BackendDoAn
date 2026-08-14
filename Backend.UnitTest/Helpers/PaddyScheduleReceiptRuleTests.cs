@@ -47,7 +47,7 @@ public class PaddyScheduleReceiptRuleTests
 
     [Theory]
     [InlineData(null)]
-    [InlineData(0)]
+    [InlineData(0d)]
     public void IsFullyReceipted_WithoutEstimate_AllowsOnlyOneReceipt(double? estimate)
     {
         var estimated = estimate.HasValue ? (decimal?)(decimal)estimate.Value : null;
