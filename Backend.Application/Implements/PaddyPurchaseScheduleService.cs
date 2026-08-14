@@ -19,15 +19,18 @@ namespace Backend.Application.Implements;
 public class PaddyPurchaseScheduleService : IPaddyPurchaseScheduleService
 {
     private readonly IPaddyPurchaseScheduleRepository _scheduleRepository;
+    private readonly IPaddyPurchaseReceiptRepository _receiptRepository;
     private readonly ISystemLookup _systemLookup;
     private readonly INotificationDispatcher _notificationDispatcher;
 
     public PaddyPurchaseScheduleService(
         IPaddyPurchaseScheduleRepository scheduleRepository,
+        IPaddyPurchaseReceiptRepository receiptRepository,
         ISystemLookup systemLookup,
         INotificationDispatcher notificationDispatcher)
     {
         _scheduleRepository = scheduleRepository;
+        _receiptRepository = receiptRepository;
         _systemLookup = systemLookup;
         _notificationDispatcher = notificationDispatcher;
     }
@@ -59,23 +62,65 @@ public class PaddyPurchaseScheduleService : IPaddyPurchaseScheduleService
 
     public async Task<ApiResponse> GetAllAsync()
     {
+        // Include đủ Giống lúa + Kho để danh sách/dropdown hiển thị được tên, không chỉ Id.
         var entities = await _scheduleRepository
-            .FindByCondition(x => !x.IsDeleted, false, x => x.Farmer, x => x.Status)
+            .FindByCondition(x => !x.IsDeleted, false,
+                x => x.Farmer, x => x.Status, x => x.RiceVariety, x => x.Warehouse)
             .OrderByDescending(x => x.ScheduleDate)
             .ToListAsync();
 
-        return ApiResponse.Success(entities.Select(x => x.ToDto()).ToList());
+        // Thống kê phiếu mua theo lịch (1 truy vấn gộp, tránh N+1) để tính cờ CanCreateReceipt.
+        var scheduleIds = entities.Select(x => x.Id).ToList();
+        var stats = await LoadReceiptStatsAsync(scheduleIds);
+
+        var result = entities
+            .Select(x =>
+            {
+                var stat = stats.GetValueOrDefault(x.Id);
+                return x.ToDto(stat.Count, stat.WeightKg);
+            })
+            .ToList();
+
+        return ApiResponse.Success(result);
     }
 
     public async Task<ApiResponse> GetByIdAsync(int id)
     {
         var entity = await _scheduleRepository
             .FindByCondition(x => x.Id == id && !x.IsDeleted,
-                false, x => x.Farmer, x => x.Status, x => x.RiceVariety)
+                false, x => x.Farmer, x => x.Status, x => x.RiceVariety, x => x.Warehouse)
             .FirstOrDefaultAsync();
 
         if (entity == null) return ApiResponse.NotFound();
-        return ApiResponse.Success(entity.ToDto());
+
+        var stats = await LoadReceiptStatsAsync(new List<int> { id });
+        var stat = stats.GetValueOrDefault(id);
+
+        return ApiResponse.Success(entity.ToDto(stat.Count, stat.WeightKg));
+    }
+
+    /// <summary>
+    /// Gộp số phiếu mua và tổng khối lượng thực tế (kg) theo từng lịch.
+    /// Chỉ tính phiếu chưa xóa — phiếu đã xóa coi như không tồn tại.
+    /// </summary>
+    private async Task<Dictionary<int, (int Count, decimal WeightKg)>> LoadReceiptStatsAsync(ICollection<int> scheduleIds)
+    {
+        if (scheduleIds.Count == 0) return new Dictionary<int, (int Count, decimal WeightKg)>();
+
+        var rows = await _receiptRepository
+            .FindByCondition(x => x.ScheduleId != null
+                && scheduleIds.Contains(x.ScheduleId.Value)
+                && !x.IsDeleted)
+            .GroupBy(x => x.ScheduleId!.Value)
+            .Select(g => new
+            {
+                ScheduleId = g.Key,
+                Count = g.Count(),
+                WeightKg = g.Sum(x => x.ActualWeightKg)
+            })
+            .ToListAsync();
+
+        return rows.ToDictionary(x => x.ScheduleId, x => (x.Count, x.WeightKg));
     }
 
     public async Task<ApiResponse> GetPagedAsync(DTParameter parameters)
