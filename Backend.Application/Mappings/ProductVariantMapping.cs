@@ -26,6 +26,7 @@ public static class ProductVariantMapping
             IsActive = obj.IsActive,
             MinStockLevel = obj.MinStockLevel,
             RiceVarietyId = obj.RiceVarietyId, // Map thêm giống lúa
+            IsByproduct = obj.IsByproduct,
             CreatedBy = obj.CreatedBy,
             CreatedDate = DateTime.Now
         };
@@ -46,6 +47,7 @@ public static class ProductVariantMapping
         existData.IsActive = obj.IsActive;
         existData.MinStockLevel = obj.MinStockLevel;
         existData.RiceVarietyId = obj.RiceVarietyId; // Map thêm giống lúa khi update
+        existData.IsByproduct = obj.IsByproduct;
         existData.UpdatedBy = obj.UpdatedBy;
         existData.LastModifiedDate = DateTime.Now;
         return existData;
