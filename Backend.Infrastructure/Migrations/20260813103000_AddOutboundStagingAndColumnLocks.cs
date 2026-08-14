@@ -39,9 +39,23 @@ public partial class AddOutboundStagingAndColumnLocks : Migration
         // còn PREPARE/EXECUTE với biến @ thì bị MySqlConnector hiểu nhầm là tham số truy vấn.
         migrationBuilder.Sql($"DROP PROCEDURE IF EXISTS `{ProcName}`;");
 
+        // Bảng ghi lại các bước bị bỏ qua + thông điệp lỗi gốc của MySQL.
+        // MigrationExtensions đọc bảng này rồi in ra Serilog, nhờ đó xem được nguyên nhân
+        // qua tab Logs mà không cần kết nối trực tiếp vào database trên server.
+        migrationBuilder.Sql(@"
+CREATE TABLE IF NOT EXISTS `__MigrationSkipLog` (
+    `Id` int NOT NULL AUTO_INCREMENT,
+    `Step` varchar(200) NOT NULL,
+    `ErrorMessage` text NULL,
+    `CreatedAt` datetime(6) NOT NULL,
+    PRIMARY KEY (`Id`)
+) DEFAULT CHARSET=utf8mb4;");
+
         migrationBuilder.Sql($@"
 CREATE PROCEDURE `{ProcName}`()
 BEGIN
+    DECLARE v_msg TEXT DEFAULT '';
+
     -- ---------- Cột ----------
     IF (SELECT COUNT(*) FROM information_schema.COLUMNS
          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Location'
@@ -87,23 +101,43 @@ BEGIN
         CREATE INDEX `IX_PaddyLotBag_SourceBagId` ON `PaddyLotBag` (`SourceBagId`);
     END IF;
 
-    -- ---------- Khóa ngoại ----------
-    -- Bản này khớp đúng định nghĩa đang chạy tốt ở DB local.
+    -- ---------- Khóa ngoại (KHÔNG được phép làm chết app) ----------
+    -- Khóa ngoại chỉ là ràng buộc toàn vẹn ở tầng DB; quan hệ đã do EF quản lý ở tầng code
+    -- nên thiếu nó không làm sai truy vấn hay thiếu cột. Ngược lại nếu để nó ném lỗi thì
+    -- API chết ngay lúc khởi động và không vào được DB để sửa.
+    -- Mỗi FK chạy trong block có CONTINUE HANDLER: lỗi thì ghi lý do vào __MigrationSkipLog
+    -- và đi tiếp. Đọc lý do đó ở tab Logs (MigrationExtensions in ra sau khi migrate xong).
     IF (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
          WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_TYPE = 'FOREIGN KEY'
            AND CONSTRAINT_NAME = 'FK_Location_OutboundOrder_OutboundLockOrderId') = 0 THEN
-        ALTER TABLE `Location`
-            ADD CONSTRAINT `FK_Location_OutboundOrder_OutboundLockOrderId`
-            FOREIGN KEY (`OutboundLockOrderId`) REFERENCES `OutboundOrder` (`Id`) ON DELETE SET NULL;
+        BEGIN
+            DECLARE CONTINUE HANDLER FOR SQLEXCEPTION
+            BEGIN
+                GET DIAGNOSTICS CONDITION 1 v_msg = MESSAGE_TEXT;
+                INSERT INTO `__MigrationSkipLog` (`Step`, `ErrorMessage`, `CreatedAt`)
+                VALUES ('FK_Location_OutboundOrder_OutboundLockOrderId', v_msg, NOW(6));
+            END;
+            ALTER TABLE `Location`
+                ADD CONSTRAINT `FK_Location_OutboundOrder_OutboundLockOrderId`
+                FOREIGN KEY (`OutboundLockOrderId`) REFERENCES `OutboundOrder` (`Id`) ON DELETE SET NULL;
+        END;
     END IF;
 
     -- RESTRICT chứ KHÔNG phải SET NULL — xem giải thích ở phần tóm tắt đầu file.
     IF (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
          WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_TYPE = 'FOREIGN KEY'
            AND CONSTRAINT_NAME = 'FK_PaddyLotBag_PaddyLotBag_SourceBagId') = 0 THEN
-        ALTER TABLE `PaddyLotBag`
-            ADD CONSTRAINT `FK_PaddyLotBag_PaddyLotBag_SourceBagId`
-            FOREIGN KEY (`SourceBagId`) REFERENCES `PaddyLotBag` (`Id`) ON DELETE RESTRICT;
+        BEGIN
+            DECLARE CONTINUE HANDLER FOR SQLEXCEPTION
+            BEGIN
+                GET DIAGNOSTICS CONDITION 1 v_msg = MESSAGE_TEXT;
+                INSERT INTO `__MigrationSkipLog` (`Step`, `ErrorMessage`, `CreatedAt`)
+                VALUES ('FK_PaddyLotBag_PaddyLotBag_SourceBagId', v_msg, NOW(6));
+            END;
+            ALTER TABLE `PaddyLotBag`
+                ADD CONSTRAINT `FK_PaddyLotBag_PaddyLotBag_SourceBagId`
+                FOREIGN KEY (`SourceBagId`) REFERENCES `PaddyLotBag` (`Id`) ON DELETE RESTRICT;
+        END;
     END IF;
 
     -- ---------- Seed vị trí 'Khu chờ xuất' cho từng kho ----------
@@ -137,11 +171,21 @@ BEGIN
             ) STORED;
     END IF;
 
+    -- Unique index cũng không được làm chết app: nếu dữ liệu hiện có đang vi phạm
+    -- (một kho có >1 khu chờ xuất) thì ghi log và bỏ qua.
     IF (SELECT COUNT(*) FROM information_schema.STATISTICS
          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Location'
            AND INDEX_NAME = 'UX_Location_OneOutboundStagingPerWarehouse') = 0 THEN
-        CREATE UNIQUE INDEX `UX_Location_OneOutboundStagingPerWarehouse`
-            ON `Location` (`OutboundStagingWarehouseId`);
+        BEGIN
+            DECLARE CONTINUE HANDLER FOR SQLEXCEPTION
+            BEGIN
+                GET DIAGNOSTICS CONDITION 1 v_msg = MESSAGE_TEXT;
+                INSERT INTO `__MigrationSkipLog` (`Step`, `ErrorMessage`, `CreatedAt`)
+                VALUES ('UX_Location_OneOutboundStagingPerWarehouse', v_msg, NOW(6));
+            END;
+            CREATE UNIQUE INDEX `UX_Location_OneOutboundStagingPerWarehouse`
+                ON `Location` (`OutboundStagingWarehouseId`);
+        END;
     END IF;
 END;");
 
