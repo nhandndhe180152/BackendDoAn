@@ -40,6 +40,7 @@ public static class CommonConstants
     /// </summary>
     public static readonly string[] RealtimeEntityNames = new[]
     {
+            // ── Người dùng & phân quyền ──────────────────────────────────
             "User",
             "Role",
             "Permission",
@@ -47,24 +48,96 @@ public static class CommonConstants
             "Menu",
             "UserStatus",
             "Action",
+            "UserDevice",
+
+            // ── Danh mục dùng chung ──────────────────────────────────────
             "Product",
             "ProductCategory",
             "ProductVariant",
             "ProductAttribute",
             "Supplier",
+            "Customer",
+            "Farmer",
+            "RiceVariety",
+            "Organization",
             "UnitOfMeasure",
             "Warehouse",
             "Location",
+
+            // ── Nhập kho ─────────────────────────────────────────────────
             "InboundOrder",
+            "InboundOrderItem",
+            "PurchaseOrder",
+            "PurchaseOrderItem",
+
+            // ── Thu mua lúa ──────────────────────────────────────────────
+            "PaddyPurchaseSchedule",
+            "PaddyPurchaseReceipt",
+
+            // ── Lô lúa & chất lượng ──────────────────────────────────────
+            "PaddyLot",
+            "PaddyLotBag",
+            "PaddyLotBagContent",
+            "PaddyLotBagMovement",
+            "QualityInspection",
+
+            // ── Tồn kho ──────────────────────────────────────────────────
             "Inventory",
             "InventoryTransaction",
             "StockTake",
             "StockTakeItem",
+            "StockTransfer",
+            "StockTransferItem",
+
+            // ── Bán hàng & xuất kho ──────────────────────────────────────
+            "SalesOrder",
+            "SalesOrderItem",
+            "OutboundOrder",
+            "OutboundOrderItem",
+            "OutboundOrderItemAllocation",
+            "DeliveryNote",
+
+            // ── Xay xát ──────────────────────────────────────────────────
+            "MillingOrder",
+            "MillingOrderInput",
+            "MillingOrderOutput",
+
+            // ── Trả hàng ─────────────────────────────────────────────────
+            "CustomerReturnOrder",
+            "CustomerReturnOrderItem",
+            "ReturnToSupplierOrder",
+            "ReturnToSupplierOrderItem",
+
+            // ── Công nợ ──────────────────────────────────────────────────
+            "PartyDebt",
+            "DebtTransaction",
+
+            // ── Cấu hình & cảnh báo ──────────────────────────────────────
             "Alert",
+            "StockAlertConfig",
+            "MillingYieldConfig",
             "SystemConfig",
+
+            // ── Thông báo ────────────────────────────────────────────────
             "Notification",
+            "UserNotification",
             "NotificationCategory",
             "NotificationType",
+
+            // ── Bảng trạng thái (màn quản trị trạng thái) ────────────────
+            "InboundOrderStatus",
+            "OutboundOrderStatus",
+            "SalesOrderStatus",
+            "PurchaseOrderStatus",
+            "StockTakeStatus",
+            "StockTransferStatus",
+            "MillingOrderStatus",
+            "CustomerReturnOrderStatus",
+            "ReturnToSupplierOrderStatus",
+            "PaddyPurchaseScheduleStatus",
+            "LotStatus",
+
+            // ── Nhật ký ──────────────────────────────────────────────────
             "AuditLog",
             "ActivityLog"
     };
