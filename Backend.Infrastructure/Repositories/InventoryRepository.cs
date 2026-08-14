@@ -262,6 +262,92 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
             query = query.Where(x => x.PaddyLot != null && x.PaddyLot.LotType == parameters.LotType);
         }
 
+        if (parameters.ProductVariantId.HasValue)
+        {
+            query = query.Where(x => x.ProductVariantId == parameters.ProductVariantId.Value);
+        }
+
+        if (parameters.LotStatusId.HasValue)
+        {
+            query = query.Where(x => x.PaddyLot != null && x.PaddyLot.StatusId == parameters.LotStatusId.Value);
+        }
+
+        if (parameters.WithLotOnly == true)
+        {
+            query = query.Where(x => x.PaddyLotId != null);
+        }
+
+        // Các điều kiện dưới đây phải khớp TỪNG CHỮ với GetPagedAsync, nếu không
+        // 5 thẻ và bảng sẽ nói hai chuyện khác nhau trên cùng một bộ lọc.
+        // Bảng lọc trên projection (QuarantinedKg > 0 …), ở đây viết lại theo
+        // điều kiện gốc sinh ra chính projection đó.
+        var quarantineState = parameters.IsQuarantined
+            ?? (parameters.InventoryState != null
+                && parameters.InventoryState.Equals("QUARANTINED", StringComparison.OrdinalIgnoreCase)
+                ? true
+                : (bool?)null);
+
+        if (quarantineState == true)
+        {
+            query = query.Where(x =>
+                ((x.PaddyLot != null && x.PaddyLot.Status.Code == LotStatusCodeConstants.Quarantine)
+                    || (x.Location != null && x.Location.IsQuarantine))
+                && x.QuantityOnHand > 0);
+        }
+        else if (quarantineState == false)
+        {
+            // Tương đương "QuarantinedKg == 0" của bảng: không cách ly HOẶC
+            // dòng cách ly nhưng đã hết hàng.
+            query = query.Where(x =>
+                !((x.PaddyLot != null && x.PaddyLot.Status.Code == LotStatusCodeConstants.Quarantine)
+                    || (x.Location != null && x.Location.IsQuarantine))
+                || x.QuantityOnHand <= 0);
+        }
+
+        if (parameters.InventoryState != null)
+        {
+            if (parameters.InventoryState.Equals("SELLABLE", StringComparison.OrdinalIgnoreCase))
+            {
+                query = query.Where(x =>
+                    !((x.PaddyLot != null && x.PaddyLot.Status.Code == LotStatusCodeConstants.Quarantine)
+                        || (x.Location != null && x.Location.IsQuarantine))
+                    && (x.PaddyLotId == null || x.PaddyLot.Status.IsSellable)
+                    && x.QuantityOnHand > 0);
+            }
+            else if (parameters.InventoryState.Equals("OTHER_BLOCKED", StringComparison.OrdinalIgnoreCase))
+            {
+                query = query.Where(x =>
+                    !((x.PaddyLot != null && x.PaddyLot.Status.Code == LotStatusCodeConstants.Quarantine)
+                        || (x.Location != null && x.Location.IsQuarantine))
+                    && x.PaddyLot != null && !x.PaddyLot.Status.IsSellable
+                    && x.QuantityOnHand > 0);
+            }
+        }
+
+        if (parameters.LowStockOnly == true)
+        {
+            query = query.Where(x =>
+                x.ProductVariant.MinStockLevel != null
+                && x.QuantityOnHand <= x.ProductVariant.MinStockLevel);
+        }
+
+        var summaryKeyword = parameters.Search?.Trim();
+        if (!string.IsNullOrEmpty(summaryKeyword))
+        {
+            query = query.Where(x =>
+                EF.Functions.Collate(x.ProductVariant.SKU, SQLParams.Latin_General).Contains(summaryKeyword) ||
+                EF.Functions.Collate(x.ProductVariant.Name, SQLParams.Latin_General).Contains(summaryKeyword) ||
+                EF.Functions.Collate(x.ProductVariant.Product.Name, SQLParams.Latin_General).Contains(summaryKeyword) ||
+                EF.Functions.Collate(x.Warehouse.Name, SQLParams.Latin_General).Contains(summaryKeyword) ||
+                (x.PaddyLot != null && x.PaddyLot.LotCode != null && EF.Functions.Collate(x.PaddyLot.LotCode, SQLParams.Latin_General).Contains(summaryKeyword)) ||
+                (x.Location != null && EF.Functions.Collate(
+                    (string.IsNullOrEmpty(x.Location.ZoneName) ? "" : x.Location.ZoneName)
+                        + (string.IsNullOrEmpty(x.Location.ShelfRow) ? "" : "-" + x.Location.ShelfRow)
+                        + (string.IsNullOrEmpty(x.Location.ShelfLevel) ? "" : "-" + x.Location.ShelfLevel)
+                        + (string.IsNullOrEmpty(x.Location.SlotCode) ? "" : "-" + x.Location.SlotCode),
+                    SQLParams.Latin_General).Contains(summaryKeyword)));
+        }
+
         // Nhóm CÁCH LY (CL): lô "Cách ly" hoặc vị trí cách ly.
         var quarantineQuery = query.Where(x =>
             (x.PaddyLot != null && x.PaddyLot.Status.Code == LotStatusCodeConstants.Quarantine)
