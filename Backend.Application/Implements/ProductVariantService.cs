@@ -235,7 +235,7 @@ public class ProductVariantService : IProductVariantService
         if (obj.CostPrice < 0)
             return ApiResponse.UnprocessableEntity("CostPrice phải lớn hơn hoặc bằng 0.", ApiCodeConstants.Common.InvalidData);
         if (obj.Weight < 0)
-            return ApiResponse.UnprocessableEntity("Khối lượng (Weight) phải lớn hơn hoặc bằng 0.", ApiCodeConstants.Common.InvalidData);
+            return ApiResponse.UnprocessableEntity("Khối lượng bao chuẩn (kg) không được nhỏ hơn 0.", ApiCodeConstants.Common.InvalidData);
         
         if (obj.MinStockLevel.HasValue && obj.MinStockLevel.Value < 0)
             return ApiResponse.UnprocessableEntity("MinStockLevel phải lớn hơn hoặc bằng 0.", ApiCodeConstants.Common.InvalidData);
@@ -514,7 +514,7 @@ public class ProductVariantService : IProductVariantService
         if (obj.CostPrice < 0)
             return ApiResponse.UnprocessableEntity("CostPrice phải lớn hơn hoặc bằng 0.", ApiCodeConstants.Common.InvalidData);
         if (obj.Weight < 0)
-            return ApiResponse.UnprocessableEntity("Khối lượng (Weight) phải lớn hơn hoặc bằng 0.", ApiCodeConstants.Common.InvalidData);
+            return ApiResponse.UnprocessableEntity("Khối lượng bao chuẩn (kg) không được nhỏ hơn 0.", ApiCodeConstants.Common.InvalidData);
         if (obj.MinStockLevel.HasValue && obj.MinStockLevel.Value < 0)
             return ApiResponse.UnprocessableEntity("MinStockLevel phải lớn hơn hoặc bằng 0.", ApiCodeConstants.Common.InvalidData);
 
