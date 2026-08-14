@@ -4,6 +4,7 @@ using System.Text.Json;
 using Backend.Application.DTOs.PaddyPurchaseReceipts;
 using Backend.Application.DTOs.PaddyPurchaseSchedules;
 using Backend.Domain.Entities;
+using Backend.Share.Helpers;
 
 namespace Backend.Application.Mappings;
 
@@ -50,10 +51,24 @@ public static class PaddyPurchaseMapping
         return existData;
     }
 
-    public static PaddyPurchaseScheduleDetailDto ToDto(this PaddyPurchaseSchedule entity)
+    /// <summary>
+    /// Map lịch thu mua sang DTO chi tiết.
+    /// <paramref name="receiptCount"/>/<paramref name="receiptedWeightKg"/> là thống kê phiếu mua
+    /// chưa xóa thuộc lịch — dùng để tính cờ CanCreateReceipt cho web &amp; mobile.
+    /// </summary>
+    public static PaddyPurchaseScheduleDetailDto ToDto(
+        this PaddyPurchaseSchedule entity,
+        int receiptCount = 0,
+        decimal receiptedWeightKg = 0m)
     {
+        var statusCode = entity.Status?.Code;
         return new PaddyPurchaseScheduleDetailDto
         {
+            ReceiptCount = receiptCount,
+            ReceiptedWeightKg = receiptedWeightKg,
+            RemainingQtyKg = PaddyScheduleReceiptRule.RemainingQtyKg(entity.EstimatedQtyKg, receiptedWeightKg),
+            CanCreateReceipt = PaddyScheduleReceiptRule.CanCreateReceipt(
+                statusCode, entity.EstimatedQtyKg, receiptedWeightKg, receiptCount),
             Id = entity.Id,
             OrganizationId = entity.OrganizationId,
             ScheduleCode = entity.ScheduleCode,
@@ -61,7 +76,7 @@ public static class PaddyPurchaseMapping
             FarmerName = entity.Farmer?.Name,
             StatusId = entity.StatusId,
             StatusName = entity.Status?.Name,
-            StatusCode = entity.Status?.Code,
+            StatusCode = statusCode,
             RiceVarietyId = entity.RiceVarietyId,
             RiceVarietyName = entity.RiceVariety?.Name,
             ScheduleDate = entity.ScheduleDate,

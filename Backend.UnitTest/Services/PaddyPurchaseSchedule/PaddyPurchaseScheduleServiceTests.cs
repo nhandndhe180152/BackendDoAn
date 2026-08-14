@@ -21,11 +21,12 @@ namespace Backend.UnitTest.Services.PaddyPurchaseSchedule;
 public class PaddyPurchaseScheduleServiceTests
 {
     private readonly Mock<IPaddyPurchaseScheduleRepository> _repo = new();
+    private readonly Mock<IPaddyPurchaseReceiptRepository> _receiptRepo = new();
     private readonly Mock<ISystemLookup> _lookup = new();
     private readonly Mock<INotificationDispatcher> _dispatcher = new();
 
     private PaddyPurchaseScheduleService Sut() =>
-        new(_repo.Object, _lookup.Object, _dispatcher.Object);
+        new(_repo.Object, _receiptRepo.Object, _lookup.Object, _dispatcher.Object);
 
     // ── UpdateStatusAsync ────────────────────────────────────────────────────
 

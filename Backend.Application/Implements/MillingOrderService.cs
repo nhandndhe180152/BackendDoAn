@@ -1320,7 +1320,8 @@ public class MillingOrderService : IMillingOrderService
             .Include(x => x.ProductVariant).FirstOrDefaultAsync();
         var standardKg = lotWithVariant?.ProductVariant.Weight ?? 0;
         if (standardKg <= 0)
-            throw new InvalidOperationException($"Thiếu cấu hình StandardBagWeightKg:{lot.ProductVariantId} hoặc giá trị không hợp lệ.");
+            throw new InvalidOperationException(
+                $"Biến thể '{lotWithVariant?.ProductVariant.SKU ?? lot.ProductVariantId.ToString()}' chưa cấu hình khối lượng bao chuẩn hoặc giá trị không hợp lệ.");
 
         var remaining = quantityKg;
         var openBags = await _bagRepository.FindByCondition(x => x.BagKind == "Finished" && !x.IsFull && x.StandardWeightKg == standardKg && x.Status == "Stored" && !x.IsDeleted)
