@@ -1,4 +1,5 @@
 using System;
+using Backend.Application.Constants;
 using Backend.Domain.Entities;
 using Backend.Infrastructure.Constants;
 using Microsoft.EntityFrameworkCore;
@@ -20,7 +21,7 @@ public class OutboundOrderConfiguration : IEntityTypeConfiguration<OutboundOrder
         builder.Property(x => x.TotalDispatchedSaleValue)
             .HasColumnType("decimal(18,2)");
 
-        builder.Property(x => x.Note).HasMaxLength(1000);
+        builder.Property(x => x.Note).HasMaxLength(OutboundOrderConstants.NoteMaxLength);
         builder.Property(x => x.CancelReason).HasMaxLength(500);
         builder.Property(x => x.PackingScaleDevice).HasMaxLength(255);
         builder.Property(x => x.ReceiverName).HasMaxLength(255);

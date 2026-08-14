@@ -246,7 +246,8 @@ public class StockTakeService : IStockTakeService
 
             var inventoryQuery = _context.Inventories
                 .AsNoTracking()
-                .Where(x => !x.IsDeleted && x.WarehouseId == obj.WarehouseId && x.LocationId != null);
+                .Where(x => !x.IsDeleted && x.WarehouseId == obj.WarehouseId && x.LocationId != null &&
+                            x.Location != null && !x.Location.IsDeleted && !x.Location.IsOutboundStaging);
 
             switch (scopeType)
             {
@@ -916,7 +917,8 @@ public class StockTakeService : IStockTakeService
             return ApiResponse.Conflict(
                 $"Có {stagingVarianceItems.Count} dòng chênh lệch tại khu Chờ xuất. " +
                 "Không thể điều chỉnh tồn trực tiếp vì hàng đang gắn với phiếu xuất và bao đã đóng gói. " +
-                "Vui lòng đối chiếu phiếu xuất/bao nguồn trước khi xử lý chênh lệch.");
+                "Vui lòng đối chiếu phiếu xuất/bao nguồn trước khi xử lý chênh lệch.",
+                ApiCodeConstants.Common.DuplicatedData);
         }
 
         // Mở transaction trước bước kiểm tra snapshot. RowVersion của Inventory tiếp tục

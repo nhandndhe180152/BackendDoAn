@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
+using Backend.Application.Constants;
 using Backend.Domain.Abstractions;
 using Backend.Domain.Aggregates;
 using Backend.Domain.Entities;
@@ -172,12 +173,15 @@ public class LocationRepository : RepositoryBase<Location, int>, ILocationReposi
     {
         var ids = locationIds.Distinct().ToList();
         if (ids.Count == 0) return 0;
+        var expiresBefore = lockedAt - OutboundOrderConstants.ColumnLockTimeout;
 
         if (_context.Database.ProviderName == "Microsoft.EntityFrameworkCore.InMemory")
         {
             var locations = await _context.Locations.Where(x => ids.Contains(x.Id)).ToListAsync();
             if (locations.Count != ids.Count || locations.Any(x => x.IsDeleted || !x.IsActive ||
-                    x.IsOutboundStaging || (x.OutboundLockOrderId.HasValue && x.OutboundLockOrderId != outboundOrderId)))
+                    x.IsOutboundStaging ||
+                    (x.OutboundLockOrderId.HasValue && x.OutboundLockOrderId != outboundOrderId &&
+                     (!x.OutboundLockedAt.HasValue || x.OutboundLockedAt > expiresBefore))))
                 return 0;
             foreach (var location in locations)
             {
@@ -191,7 +195,8 @@ public class LocationRepository : RepositoryBase<Location, int>, ILocationReposi
 
         return await _context.Locations
             .Where(x => ids.Contains(x.Id) && !x.IsDeleted && x.IsActive && !x.IsOutboundStaging &&
-                        (!x.OutboundLockOrderId.HasValue || x.OutboundLockOrderId == outboundOrderId))
+                        (!x.OutboundLockOrderId.HasValue || x.OutboundLockOrderId == outboundOrderId ||
+                         (x.OutboundLockedAt.HasValue && x.OutboundLockedAt <= expiresBefore)))
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(x => x.OutboundLockOrderId, outboundOrderId)
                 .SetProperty(x => x.OutboundLockedAt, lockedAt)

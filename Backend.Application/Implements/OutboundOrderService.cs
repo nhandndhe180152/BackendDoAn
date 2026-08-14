@@ -135,12 +135,26 @@ public class OutboundOrderService : IOutboundOrderService
     private static IEnumerable<OutboundOrderItemAllocation> ActiveAllocations(OutboundOrderItem item)
         => item.Allocations.Where(a => !a.IsDeleted).OrderBy(a => a.Id);
 
-    private static string AppendBoundedNote(string? currentNote, string entry, int maxLength = 1000)
+    private static string AppendBoundedNote(
+        string? currentNote,
+        string entry,
+        int maxLength = OutboundOrderConstants.NoteMaxLength)
     {
-        var combined = string.IsNullOrWhiteSpace(currentNote)
+        var original = currentNote?.TrimEnd() ?? string.Empty;
+        if (original.Length >= maxLength)
+            return original[..maxLength];
+
+        var separator = original.Length > 0 ? "\n" : string.Empty;
+        var availableForEntry = maxLength - original.Length - separator.Length;
+        if (availableForEntry <= 0)
+            return original;
+
+        // Note là dữ liệu do người dùng nhập. Khi không đủ chỗ, chỉ cắt phần nhật ký
+        // kỹ thuật được thêm vào, tuyệt đối không xóa phần đầu của ghi chú gốc.
+        var boundedEntry = entry.Length <= availableForEntry
             ? entry
-            : $"{currentNote.TrimEnd()}\n{entry}";
-        return combined.Length <= maxLength ? combined : combined[^maxLength..].TrimStart();
+            : entry[..availableForEntry];
+        return $"{original}{separator}{boundedEntry}";
     }
 
     private async Task<Location> GetOutboundStagingLocationAsync(int warehouseId)
@@ -167,8 +181,9 @@ public class OutboundOrderService : IOutboundOrderService
         if (string.IsNullOrWhiteSpace(reason))
             return ApiResponse.UnprocessableEntity("Phải nhập lý do mở khóa cột.");
         reason = reason.Trim();
-        if (reason.Length > 500)
-            return ApiResponse.UnprocessableEntity("Lý do mở khóa cột không được vượt quá 500 ký tự.");
+        if (reason.Length > OutboundOrderConstants.ManualUnlockReasonMaxLength)
+            return ApiResponse.UnprocessableEntity(
+                $"Lý do mở khóa cột không được vượt quá {OutboundOrderConstants.ManualUnlockReasonMaxLength} ký tự.");
         var order = await _outboundOrderRepository.GetByIdDetailAsync(id);
         if (order == null || order.IsDeleted)
             return ApiResponse.NotFound(message: "Không tìm thấy phiếu xuất.");
@@ -693,11 +708,34 @@ public class OutboundOrderService : IOutboundOrderService
                 : item.UnitCostPrice;
         }
 
+        var expiresBefore = now - OutboundOrderConstants.ColumnLockTimeout;
+        var expiredLockOrderIds = _locationRepository == null
+            ? new List<int>()
+            : await _locationRepository.FindByCondition(x =>
+                    locationIdsToLock.Contains(x.Id) &&
+                    x.OutboundLockOrderId.HasValue && x.OutboundLockOrderId != order.Id &&
+                    x.OutboundLockedAt.HasValue && x.OutboundLockedAt <= expiresBefore,
+                    false)
+                .Select(x => x.OutboundLockOrderId!.Value)
+                .Distinct()
+                .ToListAsync();
+
+        // Repository tự chuẩn hóa danh sách ID bằng Distinct(). ExecuteUpdateAsync bỏ qua
+        // change tracker; không được ghi lại các Location đang được theo dõi sau điểm này
+        // nếu chưa reload, vì có thể vô tình xóa khóa vừa đặt trong DB.
         if (_locationRepository == null ||
             await _locationRepository.TryLockForOutboundAsync(locationIdsToLock, order.Id, now, userId) != locationIdsToLock.Count)
             return ApiResponse.Conflict(
                 "Một hoặc nhiều cột vừa được phiếu khác sử dụng. Vui lòng tải lại và phân bổ lại.",
                 ApiCodeConstants.OutboundOrder.ConcurrencyConflict);
+
+        if (expiredLockOrderIds.Count > 0)
+        {
+            order.Note = AppendBoundedNote(
+                order.Note,
+                $"Tự động tiếp quản khóa cột quá {OutboundOrderConstants.ColumnLockTimeout.TotalHours:0} giờ " +
+                $"từ phiếu xuất: {string.Join(", ", expiredLockOrderIds.Select(x => $"#{x}"))}.");
+        }
 
         order.OutboundOrderStatusId = await GetOutboundStatusIdAsync(OutboundOrderStatusNames.Picking);
         order.LastModifiedDate      = now;

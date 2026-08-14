@@ -47,7 +47,7 @@ public partial class AddOutboundStagingAndColumnLocks : Migration
             SELECT w.`Id`, 'Khu chờ xuất', 'STAGING', NULL, CONCAT('OUT-STAGING-', w.`Id`), NULL,
                    'Vị trí hệ thống cho hàng đã đóng gói chờ xuất', 1, 0, NULL, 0,
                    0, 1, 0, CONCAT('LC-OUT-STAGING-', w.`Id`), '',
-                   0, UTC_TIMESTAMP(6), NULL, NULL, NULL
+                   0, DATE_ADD(UTC_TIMESTAMP(6), INTERVAL 7 HOUR), NULL, NULL, NULL
             FROM `Warehouse` w
             WHERE w.`IsDeleted` = 0
               AND NOT EXISTS (

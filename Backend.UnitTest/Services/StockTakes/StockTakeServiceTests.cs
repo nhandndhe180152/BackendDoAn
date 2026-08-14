@@ -437,6 +437,70 @@ public class StockTakeServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_WarehouseScope_ExcludesOutboundStagingInventory()
+    {
+        var normalLocation = new Location
+        {
+            Id = 7,
+            WarehouseId = 1,
+            IsActive = true,
+            IsOutboundStaging = false
+        };
+        var stagingLocation = new Location
+        {
+            Id = 8,
+            WarehouseId = 1,
+            IsActive = true,
+            IsOutboundStaging = true
+        };
+        var inventories = new List<Backend.Domain.Entities.Inventory>
+        {
+            new()
+            {
+                Id = 500,
+                WarehouseId = 1,
+                LocationId = normalLocation.Id,
+                Location = normalLocation,
+                ProductVariantId = 10,
+                QuantityOnHand = 120m
+            },
+            new()
+            {
+                Id = 501,
+                WarehouseId = 1,
+                LocationId = stagingLocation.Id,
+                Location = stagingLocation,
+                ProductVariantId = 11,
+                QuantityOnHand = 80m
+            }
+        };
+        _dbContext.Setup(c => c.Inventories)
+            .Returns(inventories.AsQueryable().BuildMockDbSet().Object);
+        _invRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<Backend.Domain.Entities.Inventory, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns((Expression<Func<Backend.Domain.Entities.Inventory, bool>> predicate, bool _) =>
+                inventories.AsQueryable().Where(predicate.Compile()).AsQueryable().BuildMock());
+
+        StockTake? created = null;
+        _stockTakeRepo.Setup(r => r.CreateAsync(It.IsAny<StockTake>()))
+            .Callback<StockTake>(value => created = value)
+            .Returns(Task.CompletedTask);
+
+        var result = await Sut().CreateAsync(new CreateStockTakeDto
+        {
+            WarehouseId = 1,
+            ScopeType = "WAREHOUSE"
+        });
+
+        result.Status.Should().Be(201);
+        created.Should().NotBeNull();
+        created!.StockTakeItems.Should().ContainSingle();
+        created.StockTakeItems.Single().LocationId.Should().Be(normalLocation.Id);
+        created.StockTakeItems.Should().NotContain(item => item.LocationId == stagingLocation.Id);
+    }
+
+    [Fact]
     public async Task UpdateAsync_RecountConfirmedAuditFieldsUpdated_WhenChangedToTrue()
     {
         // Arrange

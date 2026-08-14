@@ -144,7 +144,7 @@ public class OutboundOrderServiceTests
     }
 
     [Fact]
-    public async Task ForceUnlockAsync_KeepsOrderNoteWithinDatabaseLimit()
+    public async Task ForceUnlockAsync_PreservesOriginalOrderNote_WhenAuditEntryMustBeTruncated()
     {
         var order = new OutboundOrder { Id = 1, Note = new string('x', 990) };
         _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
@@ -157,9 +157,26 @@ public class OutboundOrderServiceTests
 
         result.Status.Should().Be(200);
         order.Note.Should().NotBeNull();
-        order.Note!.Length.Should().BeLessThanOrEqualTo(1000);
-        order.Note.Should().EndWith("Mở khóa cột thủ công: Kiểm tra an toàn");
+        order.Note!.Length.Should().Be(OutboundOrderConstants.NoteMaxLength);
+        order.Note.Should().StartWith(new string('x', 990));
+        order.Note![990].Should().Be('\n');
         _obRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task ForceUnlockAsync_AppendsCompleteAuditEntry_WhenOrderNoteHasRoom()
+    {
+        var order = new OutboundOrder { Id = 1, Note = "Giao tại cửa sau" };
+        _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
+        _locationRepo.Setup(r => r.ReleaseOutboundLocksAsync(
+                1, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<IReadOnlyCollection<int>?>()))
+            .ReturnsAsync(1);
+
+        var result = await Sut(withLocationRepository: true)
+            .ForceUnlockAsync(1, "Kiểm tra an toàn");
+
+        result.Status.Should().Be(200);
+        order.Note.Should().Be("Giao tại cửa sau\nMở khóa cột thủ công: Kiểm tra an toàn");
     }
 
     [Fact]
@@ -317,6 +334,120 @@ public class OutboundOrderServiceTests
     }
 
     [Fact]
+    public async Task ConfirmPackingAsync_MovesBagAndInventoryToStaging_WithoutChangingWarehouseTotal()
+    {
+        var lot = CreateLot(5);
+        var sourceLocation = new Location
+        {
+            Id = 7,
+            WarehouseId = 2,
+            ZoneName = "A",
+            SlotCode = "A-01",
+            IsActive = true,
+            CurrentOccupancy = 50,
+            CurrentProductVariantId = 100,
+            OutboundLockOrderId = 1
+        };
+        var staging = new Location
+        {
+            Id = 8,
+            WarehouseId = 2,
+            ZoneName = "Khu chờ xuất",
+            SlotCode = "OUT-STAGING-2",
+            IsActive = true,
+            IsOutboundStaging = true
+        };
+        var sourceInventory = CreateCandidateInventory(9, lot, sourceLocation);
+        sourceInventory.QuantityOnHand = 50;
+        sourceInventory.QuantityReserved = 50;
+        sourceInventory.CostPrice = 12;
+        var allocation = new OutboundOrderItemAllocation
+        {
+            Id = 101,
+            InventoryId = sourceInventory.Id,
+            Inventory = sourceInventory,
+            PaddyLotId = lot.Id,
+            PaddyLot = lot,
+            LocationId = sourceLocation.Id,
+            Location = sourceLocation,
+            QuantityAllocated = 50,
+            QuantityPicked = 50
+        };
+        var order = new OutboundOrder
+        {
+            Id = 1,
+            WarehouseId = 2,
+            OutboundOrderStatus = new OutboundOrderStatus { Code = OutboundOrderStatusNames.Picking },
+            OutboundOrderItems = new List<OutboundOrderItem>
+            {
+                new()
+                {
+                    Id = 20,
+                    ProductVariantId = 100,
+                    QuantityOrdered = 50,
+                    QuantityPicked = 50,
+                    Allocations = new List<OutboundOrderItemAllocation> { allocation }
+                }
+            }
+        };
+        var bag = CreateBag(1, 11, lot, sourceLocation.Id, stackOrder: 1, weightKg: 50);
+        bag.Location = sourceLocation;
+        var bags = new List<PaddyLotBag> { bag };
+        _bagRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<PaddyLotBag, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns((Expression<Func<PaddyLotBag, bool>> predicate, bool _) =>
+                bags.AsQueryable().Where(predicate.Compile()).AsQueryable().BuildMock());
+
+        Backend.Domain.Entities.Inventory? stagingInventory = null;
+        _invRepo.Setup(r => r.GetByVariantWarehouseLocationAsync(100, 2, staging.Id, lot.Id))
+            .ReturnsAsync(() => stagingInventory);
+        _invRepo.Setup(r => r.CreateAsync(It.IsAny<Backend.Domain.Entities.Inventory>()))
+            .Callback<Backend.Domain.Entities.Inventory>(value =>
+            {
+                value.Id = 10;
+                stagingInventory = value;
+            })
+            .Returns(Task.CompletedTask);
+        _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
+        var dbTransaction = CreateDbTransactionMock();
+        _obRepo.Setup(r => r.BeginTransactionAsync()).ReturnsAsync(dbTransaction.Object);
+        _locationRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<Location, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<Location, object>>[]>()!))
+            .ReturnsAsync(staging);
+        _locationRepo.Setup(r => r.ReleaseOutboundLocksAsync(
+                order.Id, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<IReadOnlyCollection<int>?>()))
+            .ReturnsAsync(1);
+        _obStatusRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<OutboundOrderStatus, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<OutboundOrderStatus, object>>[]>()!))
+            .ReturnsAsync(new OutboundOrderStatus { Id = 3, Code = OutboundOrderStatusNames.Packed });
+
+        var totalBefore = sourceInventory.QuantityOnHand;
+        var result = await Sut(withLocationRepository: true)
+            .ConfirmPackingAsync(1, new ConfirmPackingDto { QrCode = "OUT-001" });
+
+        result.Status.Should().Be(200);
+        bag.LocationId.Should().Be(staging.Id);
+        bag.Status.Should().Be(PaddyLotBagStatuses.OutboundStaging);
+        sourceInventory.QuantityOnHand.Should().Be(0);
+        sourceInventory.QuantityReserved.Should().Be(0);
+        stagingInventory.Should().NotBeNull();
+        stagingInventory!.QuantityOnHand.Should().Be(50);
+        stagingInventory.QuantityReserved.Should().Be(50);
+        (sourceInventory.QuantityOnHand + stagingInventory.QuantityOnHand).Should().Be(totalBefore);
+        sourceLocation.CurrentOccupancy.Should().Be(0);
+        staging.CurrentOccupancy.Should().Be(50);
+        _locationRepo.Verify(r => r.ReleaseOutboundLocksAsync(
+            order.Id, It.IsAny<DateTime>(), It.IsAny<int>(),
+            It.Is<IReadOnlyCollection<int>?>(ids => ids != null && ids.Count == 0)), Times.Once);
+        dbTransaction.Verify(x => x.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task ConfirmDispatchAsync_PartiallyPickedOrder_ReturnsUnprocessableEntity()
     {
         var order = CreatePackedOrderWithReceivable();
@@ -379,6 +510,263 @@ public class OutboundOrderServiceTests
         // Assert
         result.Status.Should().Be(200);
         location.CurrentOccupancy.Should().Be(40); // 50 - 10 = 40
+    }
+
+    [Fact]
+    public async Task ConfirmDispatchAsync_ConsumesStagedBagAndInventory_ThenReleasesLocks()
+    {
+        var lot = CreateLot(5);
+        lot.RemainingWeightKg = 50;
+        var sourceLocation = new Location
+        {
+            Id = 7,
+            WarehouseId = 2,
+            ZoneName = "A",
+            IsActive = true,
+            OutboundLockOrderId = 1
+        };
+        var staging = new Location
+        {
+            Id = 8,
+            WarehouseId = 2,
+            ZoneName = "Khu chờ xuất",
+            IsActive = true,
+            IsOutboundStaging = true,
+            CurrentOccupancy = 50,
+            CurrentProductVariantId = 100
+        };
+        var sourceInventory = CreateCandidateInventory(9, lot, sourceLocation);
+        sourceInventory.QuantityOnHand = 0;
+        sourceInventory.QuantityReserved = 0;
+        var stagingInventory = new Backend.Domain.Entities.Inventory
+        {
+            Id = 10,
+            WarehouseId = 2,
+            LocationId = staging.Id,
+            Location = staging,
+            ProductVariantId = 100,
+            PaddyLotId = lot.Id,
+            PaddyLot = lot,
+            QuantityOnHand = 50,
+            QuantityReserved = 50
+        };
+        var allocation = new OutboundOrderItemAllocation
+        {
+            Id = 101,
+            InventoryId = sourceInventory.Id,
+            Inventory = sourceInventory,
+            PaddyLotId = lot.Id,
+            PaddyLot = lot,
+            LocationId = sourceLocation.Id,
+            Location = sourceLocation,
+            QuantityAllocated = 50,
+            QuantityPicked = 50,
+            UnitCostPrice = 12
+        };
+        var order = new OutboundOrder
+        {
+            Id = 1,
+            WarehouseId = 2,
+            OutboundOrderStatus = new OutboundOrderStatus { Code = OutboundOrderStatusNames.Packed },
+            OutboundOrderItems = new List<OutboundOrderItem>
+            {
+                new()
+                {
+                    Id = 20,
+                    ProductVariantId = 100,
+                    QuantityOrdered = 50,
+                    QuantityPicked = 50,
+                    Allocations = new List<OutboundOrderItemAllocation> { allocation }
+                }
+            }
+        };
+        var stagedBag = CreateBag(1, 11, lot, staging.Id, stackOrder: 1, weightKg: 50);
+        stagedBag.Location = staging;
+        stagedBag.Status = PaddyLotBagStatuses.OutboundStaging;
+        var bags = new List<PaddyLotBag> { stagedBag };
+        var movements = new List<PaddyLotBagMovement>
+        {
+            new()
+            {
+                Id = 1,
+                BagId = stagedBag.Id,
+                MovementType = PaddyLotBagMovementTypes.OutboundStage,
+                FromLocationId = sourceLocation.Id,
+                ToLocationId = staging.Id,
+                WeightKg = 50,
+                ReferenceType = InventoryReferenceTypeConstants.OutboundOrder,
+                ReferenceId = order.Id,
+                ReferenceItemId = allocation.Id
+            }
+        };
+        _bagRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<PaddyLotBag, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns((Expression<Func<PaddyLotBag, bool>> predicate, bool _) =>
+                bags.AsQueryable().Where(predicate.Compile()).AsQueryable().BuildMock());
+        _bagMovementRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<PaddyLotBagMovement, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns((Expression<Func<PaddyLotBagMovement, bool>> predicate, bool _) =>
+                movements.AsQueryable().Where(predicate.Compile()).AsQueryable().BuildMock());
+
+        _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
+        var dbTransaction = CreateDbTransactionMock();
+        _obRepo.Setup(r => r.BeginTransactionAsync()).ReturnsAsync(dbTransaction.Object);
+        _invRepo.Setup(r => r.GetByVariantWarehouseLocationAsync(100, 2, staging.Id, lot.Id))
+            .ReturnsAsync(stagingInventory);
+        _locationRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<Location, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<Location, object>>[]>()!))
+            .ReturnsAsync(staging);
+        _locationRepo.Setup(r => r.ReleaseOutboundLocksAsync(
+                order.Id, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<IReadOnlyCollection<int>?>()))
+            .ReturnsAsync(1);
+        _obStatusRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<OutboundOrderStatus, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<OutboundOrderStatus, object>>[]>()!))
+            .ReturnsAsync(new OutboundOrderStatus { Id = 4, Code = OutboundOrderStatusNames.Dispatched });
+
+        var result = await Sut(withLocationRepository: true)
+            .ConfirmDispatchAsync(1, new ConfirmDispatchDto());
+
+        result.Status.Should().Be(200);
+        stagedBag.Status.Should().Be(PaddyLotBagStatuses.Consumed);
+        stagedBag.LocationId.Should().BeNull();
+        stagedBag.WeightKg.Should().Be(0);
+        stagingInventory.QuantityOnHand.Should().Be(0);
+        stagingInventory.QuantityReserved.Should().Be(0);
+        staging.CurrentOccupancy.Should().Be(0);
+        lot.RemainingWeightKg.Should().Be(0);
+        _locationRepo.Verify(r => r.ReleaseOutboundLocksAsync(
+            order.Id, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<IReadOnlyCollection<int>?>()), Times.Once);
+        dbTransaction.Verify(x => x.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ReturnStagedBagsAsync_MergesSplitBagBackIntoSourceAndRestoresInventory()
+    {
+        var lot = CreateLot(5);
+        var sourceLocation = new Location
+        {
+            Id = 7,
+            WarehouseId = 2,
+            ZoneName = "A",
+            IsActive = true,
+            CurrentOccupancy = 30,
+            CurrentProductVariantId = 100,
+            OutboundLockOrderId = 1
+        };
+        var staging = new Location
+        {
+            Id = 8,
+            WarehouseId = 2,
+            ZoneName = "Khu chờ xuất",
+            IsActive = true,
+            IsOutboundStaging = true,
+            CurrentOccupancy = 20,
+            CurrentProductVariantId = 100
+        };
+        var sourceBag = CreateBag(1, 11, lot, sourceLocation.Id, stackOrder: 1, weightKg: 30);
+        sourceBag.Location = sourceLocation;
+        sourceBag.IsFull = false;
+        var stagedBag = CreateBag(2, 12, lot, staging.Id, stackOrder: 1, weightKg: 20);
+        stagedBag.Location = staging;
+        stagedBag.Status = PaddyLotBagStatuses.OutboundStaging;
+        stagedBag.SourceBagId = sourceBag.Id;
+
+        var sourceInventory = CreateCandidateInventory(9, lot, sourceLocation);
+        sourceInventory.QuantityOnHand = 30;
+        sourceInventory.QuantityReserved = 0;
+        var stagingInventory = new Backend.Domain.Entities.Inventory
+        {
+            Id = 10,
+            WarehouseId = 2,
+            LocationId = staging.Id,
+            Location = staging,
+            ProductVariantId = 100,
+            PaddyLotId = lot.Id,
+            PaddyLot = lot,
+            QuantityOnHand = 20,
+            QuantityReserved = 20
+        };
+        var allocation = new OutboundOrderItemAllocation
+        {
+            Id = 101,
+            InventoryId = sourceInventory.Id,
+            Inventory = sourceInventory,
+            PaddyLotId = lot.Id,
+            PaddyLot = lot,
+            LocationId = sourceLocation.Id,
+            Location = sourceLocation,
+            QuantityAllocated = 20,
+            QuantityPicked = 20
+        };
+        var order = new OutboundOrder
+        {
+            Id = 1,
+            WarehouseId = 2,
+            OutboundOrderItems = new List<OutboundOrderItem>
+            {
+                new() { Id = 20, Allocations = new List<OutboundOrderItemAllocation> { allocation } }
+            }
+        };
+        var movement = new PaddyLotBagMovement
+        {
+            Id = 1,
+            BagId = stagedBag.Id,
+            MovementType = PaddyLotBagMovementTypes.OutboundStage,
+            FromLocationId = sourceLocation.Id,
+            ToLocationId = staging.Id,
+            WeightKg = 20,
+            ReferenceType = InventoryReferenceTypeConstants.OutboundOrder,
+            ReferenceId = order.Id,
+            ReferenceItemId = allocation.Id
+        };
+        var bags = new List<PaddyLotBag> { sourceBag, stagedBag };
+        _bagRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<PaddyLotBag, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns((Expression<Func<PaddyLotBag, bool>> predicate, bool _) =>
+                bags.AsQueryable().Where(predicate.Compile()).AsQueryable().BuildMock());
+        _bagRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<PaddyLotBag, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<PaddyLotBag, object>>[]>()!))
+            .ReturnsAsync((Expression<Func<PaddyLotBag, bool>> predicate, bool _,
+                    Expression<Func<PaddyLotBag, object>>[] __) =>
+                bags.FirstOrDefault(predicate.Compile()));
+        _bagMovementRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<PaddyLotBagMovement, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns((Expression<Func<PaddyLotBagMovement, bool>> predicate, bool _) =>
+                new[] { movement }.AsQueryable().Where(predicate.Compile()).AsQueryable().BuildMock());
+        _locationRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<Location, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns((Expression<Func<Location, bool>> predicate, bool _) =>
+                new[] { sourceLocation, staging }.AsQueryable()
+                    .Where(predicate.Compile()).AsQueryable().BuildMock());
+        _locationRepo.Setup(r => r.GetByIdAsync(staging.Id)).ReturnsAsync(staging);
+        _invRepo.Setup(r => r.GetByVariantWarehouseLocationAsync(100, 2, staging.Id, lot.Id))
+            .ReturnsAsync(stagingInventory);
+
+        var returned = await InvokeReturnStagedBagsAsync(order);
+
+        returned.Should().BeTrue();
+        sourceBag.WeightKg.Should().Be(50);
+        sourceBag.Contents.Single().WeightKg.Should().Be(50);
+        sourceBag.IsFull.Should().BeTrue();
+        stagedBag.WeightKg.Should().Be(0);
+        stagedBag.Status.Should().Be(PaddyLotBagStatuses.Reversed);
+        stagedBag.LocationId.Should().BeNull();
+        stagingInventory.QuantityOnHand.Should().Be(0);
+        stagingInventory.QuantityReserved.Should().Be(0);
+        sourceInventory.QuantityOnHand.Should().Be(50);
+        sourceLocation.CurrentOccupancy.Should().Be(50);
+        staging.CurrentOccupancy.Should().Be(0);
     }
 
     [Fact]
@@ -613,6 +1001,20 @@ public class OutboundOrderServiceTests
         var task = (Task<List<AllocateItemLotDto>>)method!.Invoke(
             Sut(),
             new object[] { productVariantId, warehouseId, requestedLots })!;
+
+        return await task;
+    }
+
+    private async Task<bool> InvokeReturnStagedBagsAsync(OutboundOrder order)
+    {
+        var method = typeof(OutboundOrderService).GetMethod(
+            "ReturnStagedBagsAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        method.Should().NotBeNull();
+
+        var task = (Task<bool>)method!.Invoke(
+            Sut(withLocationRepository: true),
+            new object[] { order, 99, new DateTime(2026, 8, 14, 10, 0, 0) })!;
 
         return await task;
     }
