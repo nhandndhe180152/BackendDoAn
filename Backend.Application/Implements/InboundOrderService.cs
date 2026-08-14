@@ -422,6 +422,10 @@ public class InboundOrderService : IInboundOrderService
                      && x.InboundOrderStatus.Code != InboundOrderStatusNames.Confirmed
                      && x.InboundOrderStatus.Code != InboundOrderStatusNames.Cancelled
                      && x.InboundOrderStatus.Code != InboundOrderStatusNames.Rejected
+                     // Endpoint pending chỉ trả phiếu còn ít nhất một dòng chưa nhận đủ.
+                     // Tránh trả dữ liệu lịch sử đã hoàn tất rồi để FE phải tự loại và hiện cảnh báo kỹ thuật.
+                     && x.InboundOrderItems.Any(i =>
+                            !i.IsDeleted && i.QuantityOrdered > i.QuantityReceived)
                      // Ẩn lô đang CHỜ KIỂM ĐỊNH (AWAITING_QC): phải kiểm tra chất lượng xong mới được xếp kho.
                      && !x.InboundOrderItems.Any(i =>
                             i.PaddyLot != null

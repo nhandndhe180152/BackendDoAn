@@ -61,6 +61,7 @@ public class ProductVariantRepository : RepositoryBase<ProductVariant, int>, IPr
                 ImageFileKey = x.Image != null ? x.Image.FileKey : null,
                 IsActive = x.IsActive,
                 MinStockLevel = x.MinStockLevel,
+                IsByproduct = x.IsByproduct,
                 CreatedDate = x.CreatedDate
             });
 
