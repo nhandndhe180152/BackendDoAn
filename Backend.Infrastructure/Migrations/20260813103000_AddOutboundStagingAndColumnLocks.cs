@@ -165,11 +165,11 @@ BEGIN
     -- VIRTUAL chứ KHÔNG phải STORED. Đây chính là câu lệnh đã làm chết API:
     -- thêm cột sinh STORED buộc MySQL COPY & DỰNG LẠI toàn bộ bảng Location, và trong bước
     -- dựng lại đó InnoDB phải tạo lại mọi khóa ngoại liên quan tới Location -> thất bại với
-    -- thông điệp "Cannot add foreign key constraint" (Location có 4 FK đi ra + 1 FK đi vào
+    -- thông điệp Cannot add foreign key constraint (Location có 4 FK đi ra + 1 FK đi vào
     -- từ PaddyLotBag.LocationId, trên bảng đang có 58 dòng dữ liệu thật).
     -- Cột VIRTUAL chỉ là thay đổi metadata (ALGORITHM=INPLACE), không dựng lại bảng,
     -- không đụng tới khóa ngoại. MySQL 5.7+ vẫn cho tạo unique index trên cột virtual,
-    -- nên ràng buộc "mỗi kho 1 khu chờ xuất" giữ nguyên hiệu lực.
+    -- nên ràng buộc mỗi kho 1 khu chờ xuất giữ nguyên hiệu lực.
     IF (SELECT COUNT(*) FROM information_schema.COLUMNS
          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Location'
            AND COLUMN_NAME = 'OutboundStagingWarehouseId') = 0 THEN
