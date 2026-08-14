@@ -1,12 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Data.Common;
 using System.Linq;
 using System.Text;
 using Backend.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -32,28 +29,40 @@ public static class MigrationExtensions
         logger.LogWarning("[MIGRATION] {Count} migration đang chờ: {Pending}",
             pending.Count, string.Join(" -> ", pending));
 
-        // Chạy TỪNG migration một để log chỉ đúng tên migration lỗi.
-        // (MySQL không rollback DDL nên biết chính xác chỗ chết là bắt buộc.)
-        var migrator = dbContext.GetService<IMigrator>();
-        foreach (var name in pending)
+        // TUYỆT ĐỐI KHÔNG dùng IMigrator.Migrate("tên-migration") để chạy từng cái một.
+        // Tham số đó là TRẠNG THÁI ĐÍCH, không phải "chạy thêm cái này": EF sẽ REVERT
+        // (chạy Down) mọi migration đã áp dụng có Id LỚN HƠN đích.
+        // DB này đang có 20260813230000 applied nhưng 20260813103000 thì chưa (Id nhỏ hơn),
+        // nên gọi Migrate("...103000") đã khiến EF revert 20260813230000 và làm chết app.
+        // Database.Migrate() không tham số chỉ áp dụng phần còn thiếu, không bao giờ revert.
+        try
         {
-            logger.LogWarning("[MIGRATION] >>> Đang chạy {Name}", name);
-            try
-            {
-                migrator.Migrate(name);
-                logger.LogWarning("[MIGRATION] <<< Xong {Name}", name);
-            }
-            catch (Exception ex)
-            {
-                logger.LogCritical(ex, "[MIGRATION] CHẾT tại migration {Name}", name);
-                LogSchemaReport(dbContext, logger);
-                LogMigrationSql(migrator, name, logger);
-                throw;
-            }
+            dbContext.Database.Migrate();
+            logger.LogInformation("[MIGRATION] Đã áp dụng xong {Count} migration.", pending.Count);
+        }
+        catch (Exception ex)
+        {
+            var stuckAt = FindStuckMigration(dbContext, pending);
+            logger.LogCritical(ex, "[MIGRATION] CHẾT tại migration {Name}", stuckAt);
+            LogSchemaReport(dbContext, logger);
+            throw;
         }
 
-        logger.LogInformation("[MIGRATION] Đã áp dụng xong {Count} migration.", pending.Count);
         ReportSkippedSteps(dbContext, logger);
+    }
+
+    /// <summary>Migration đầu tiên trong hàng chờ mà vẫn chưa được ghi nhận là đã áp dụng.</summary>
+    private static string FindStuckMigration(DbContext dbContext, List<string> pending)
+    {
+        try
+        {
+            var applied = dbContext.Database.GetAppliedMigrations().ToHashSet();
+            return pending.FirstOrDefault(p => !applied.Contains(p)) ?? "(không xác định)";
+        }
+        catch
+        {
+            return pending.FirstOrDefault() ?? "(không xác định)";
+        }
     }
 
     /// <summary>
@@ -73,26 +82,24 @@ public static class MigrationExtensions
             if (rows.Count == 0) return;
 
             logger.LogWarning(
-                "[MIGRATION] ===== CÓ {Count} BƯỚC BỊ BỎ QUA (schema chưa đầy đủ 100%) =====\n{Rows}",
+                "[MIGRATION] ===== {Count} BƯỚC BỊ BỎ QUA (schema chưa đầy đủ 100%) =====\n{Rows}",
                 rows.Count, string.Join("\n", rows));
         }
         catch
         {
-            // Bảng chưa tồn tại (chưa migration nào ghi vào) -> bỏ qua, không phải lỗi.
+            // Bảng chưa tồn tại -> chưa có bước nào bị bỏ qua, không phải lỗi.
         }
     }
 
     /// <summary>
-    /// In cấu trúc các bảng liên quan tới khóa ngoại hay lỗi: engine, collation, kiểu cột.
-    /// Khóa ngoại InnoDB -> bảng MyISAM, hoặc lệch kiểu cột, đều báo cùng một thông điệp
-    /// mơ hồ "Cannot add foreign key constraint" nên phải nhìn cấu trúc mới biết.
+    /// In cấu trúc các bảng hay dính lỗi migration: engine, collation, kiểu cột, khóa ngoại.
+    /// Nhiều lỗi MySQL dùng chung một thông điệp mơ hồ nên phải nhìn cấu trúc mới biết nguyên nhân.
     /// </summary>
     private static void LogSchemaReport(DbContext dbContext, ILogger logger)
     {
         const string tablesSql = @"
             SELECT CONCAT(TABLE_NAME, ' | engine=', IFNULL(ENGINE,'?'),
-                          ' | collation=', IFNULL(TABLE_COLLATION,'?'),
-                          ' | rows=', IFNULL(TABLE_ROWS,0)) AS Info
+                          ' | collation=', IFNULL(TABLE_COLLATION,'?')) AS Info
             FROM information_schema.TABLES
             WHERE TABLE_SCHEMA = DATABASE()
               AND TABLE_NAME IN ('Location','OutboundOrder','PaddyLotBag','PaddyLotBagAllocation','Warehouse','PaddyLot')
@@ -100,27 +107,41 @@ public static class MigrationExtensions
 
         const string columnsSql = @"
             SELECT CONCAT(TABLE_NAME, '.', COLUMN_NAME, ' | ', COLUMN_TYPE,
-                          ' | nullable=', IS_NULLABLE,
-                          ' | ', IFNULL(EXTRA,'')) AS Info
+                          ' | nullable=', IS_NULLABLE, ' | ', IFNULL(EXTRA,'')) AS Info
             FROM information_schema.COLUMNS
             WHERE TABLE_SCHEMA = DATABASE()
-              AND ( (TABLE_NAME = 'Location'    AND COLUMN_NAME IN ('Id','WarehouseId','OutboundLockOrderId','IsOutboundStaging','OutboundStagingWarehouseId'))
+              AND ( (TABLE_NAME = 'Location' AND COLUMN_NAME IN ('Id','WarehouseId','OutboundLockOrderId','OutboundLockedAt','IsOutboundStaging','OutboundStagingWarehouseId'))
                  OR (TABLE_NAME = 'OutboundOrder' AND COLUMN_NAME = 'Id')
-                 OR (TABLE_NAME = 'PaddyLotBag' AND COLUMN_NAME IN ('Id','LotId','SourceBagId')) )
+                 OR (TABLE_NAME = 'PaddyLotBag' AND COLUMN_NAME IN ('Id','LotId','SourceBagId'))
+                 OR (TABLE_NAME = 'PaddyLotBagAllocation' AND COLUMN_NAME IN ('Id','BagId','ActiveBagId')) )
             ORDER BY TABLE_NAME, COLUMN_NAME;";
+
+        const string indexSql = @"
+            SELECT CONCAT(TABLE_NAME, ' | ', INDEX_NAME, ' | unique=', IF(NON_UNIQUE = 0,'YES','NO'),
+                          ' | cols=', GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX)) AS Info
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME IN ('Location','PaddyLotBag','PaddyLotBagAllocation')
+            GROUP BY TABLE_NAME, INDEX_NAME, NON_UNIQUE
+            ORDER BY TABLE_NAME, INDEX_NAME;";
 
         const string fkSql = @"
             SELECT CONCAT(CONSTRAINT_NAME, ' : ', TABLE_NAME, '.', COLUMN_NAME,
                           ' -> ', REFERENCED_TABLE_NAME, '.', REFERENCED_COLUMN_NAME) AS Info
             FROM information_schema.KEY_COLUMN_USAGE
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND REFERENCED_TABLE_NAME IS NOT NULL
-              AND TABLE_NAME IN ('Location','PaddyLotBag')
+            WHERE TABLE_SCHEMA = DATABASE() AND REFERENCED_TABLE_NAME IS NOT NULL
+              AND TABLE_NAME IN ('Location','PaddyLotBag','PaddyLotBagAllocation')
             ORDER BY CONSTRAINT_NAME;";
+
+        const string historySql = @"
+            SELECT `MigrationId` FROM `__EFMigrationsHistory`
+            ORDER BY `MigrationId` DESC LIMIT 15;";
 
         TryLogQuery(dbContext, logger, "BẢNG", tablesSql);
         TryLogQuery(dbContext, logger, "CỘT", columnsSql);
+        TryLogQuery(dbContext, logger, "INDEX", indexSql);
         TryLogQuery(dbContext, logger, "KHÓA NGOẠI HIỆN CÓ", fkSql);
+        TryLogQuery(dbContext, logger, "MIGRATION ĐÃ GHI NHẬN (15 mới nhất)", historySql);
     }
 
     private static void TryLogQuery(DbContext dbContext, ILogger logger, string title, string sql)
@@ -133,20 +154,6 @@ public static class MigrationExtensions
         catch (Exception ex)
         {
             logger.LogError("[MIGRATION][CHẨN ĐOÁN] Không đọc được {Title}: {Message}", title, ex.Message);
-        }
-    }
-
-    /// <summary>In SQL mà EF sinh ra cho đúng migration bị lỗi, để thấy câu lệnh nào chết.</summary>
-    private static void LogMigrationSql(IMigrator migrator, string name, ILogger logger)
-    {
-        try
-        {
-            var script = migrator.GenerateScript(fromMigration: name, toMigration: name);
-            logger.LogCritical("[MIGRATION][CHẨN ĐOÁN] SQL của {Name}:\n{Script}", name, script);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError("[MIGRATION][CHẨN ĐOÁN] Không sinh được SQL cho {Name}: {Message}", name, ex.Message);
         }
     }
 

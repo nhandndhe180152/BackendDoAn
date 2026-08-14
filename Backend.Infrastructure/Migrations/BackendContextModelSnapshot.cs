@@ -1771,7 +1771,7 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<int?>("OutboundStagingWarehouseId")
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("int")
-                        .HasComputedColumnSql("CASE WHEN `IsOutboundStaging` = 1 AND `IsDeleted` = 0 THEN `WarehouseId` ELSE NULL END", true);
+                        .HasComputedColumnSql("CASE WHEN `IsOutboundStaging` = 1 AND `IsDeleted` = 0 THEN `WarehouseId` ELSE NULL END", false);
 
                     b.Property<decimal?>("MaxCapacity")
                         .HasColumnType("decimal(18,3)");
