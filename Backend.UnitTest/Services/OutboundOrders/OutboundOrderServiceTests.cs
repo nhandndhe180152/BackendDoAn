@@ -788,6 +788,82 @@ public class OutboundOrderServiceTests
     }
 
     [Fact]
+    public async Task BuildRequestedBagAllocationsAsync_ExplicitFullBag_DoesNotDrainOpenBagFirst()
+    {
+        var lot = CreateLot(5);
+        var inventory = CreateInventory(id: 9, lotId: lot.Id, locationId: 7);
+        var fullBag = CreateBag(id: 1, bagNo: 11, lot, locationId: 7, stackOrder: 1, weightKg: 50);
+        var openBag = CreateBag(id: 2, bagNo: 12, lot, locationId: 7, stackOrder: 2, weightKg: 10);
+        SetupBagAllocationSources(new[] { inventory }, new[] { openBag, fullBag });
+
+        var result = await InvokeBuildRequestedBagAllocationsAsync(
+            productVariantId: 100,
+            warehouseId: 2,
+            new[] { new AllocateItemLotDto { InventoryId = inventory.Id, QuantityAllocated = 50 } });
+
+        result.Should().ContainSingle();
+        result[0].InventoryId.Should().Be(inventory.Id);
+        result[0].QuantityAllocated.Should().Be(50);
+    }
+
+    [Fact]
+    public async Task BuildRequestedBagAllocationsAsync_SeparatePartialLines_KeepOpenAndSplitPlan()
+    {
+        var lot = CreateLot(5);
+        var inventory = CreateInventory(id: 9, lotId: lot.Id, locationId: 7);
+        var fullBag = CreateBag(id: 1, bagNo: 11, lot, locationId: 7, stackOrder: 1, weightKg: 50);
+        var openBag = CreateBag(id: 2, bagNo: 12, lot, locationId: 7, stackOrder: 2, weightKg: 10);
+        SetupBagAllocationSources(new[] { inventory }, new[] { openBag, fullBag });
+
+        var result = await InvokeBuildRequestedBagAllocationsAsync(
+            productVariantId: 100,
+            warehouseId: 2,
+            new[]
+            {
+                new AllocateItemLotDto { InventoryId = inventory.Id, QuantityAllocated = 10 },
+                new AllocateItemLotDto { InventoryId = inventory.Id, QuantityAllocated = 40 }
+            });
+
+        result.Select(x => x.QuantityAllocated).Should().Equal(10, 40);
+    }
+
+    [Fact]
+    public async Task StagePhysicalBagsAsync_ExplicitFullAllocation_MovesFullBagAndLeavesOpenBag()
+    {
+        var lot = CreateLot(5);
+        var fullBag = CreateBag(id: 1, bagNo: 11, lot, locationId: 7, stackOrder: 1, weightKg: 50);
+        var openBag = CreateBag(id: 2, bagNo: 12, lot, locationId: 7, stackOrder: 2, weightKg: 10);
+        SetupBagAllocationSources(Array.Empty<Backend.Domain.Entities.Inventory>(), new[] { openBag, fullBag });
+
+        var allocation = new OutboundOrderItemAllocation
+        {
+            Id = 101,
+            PaddyLotId = lot.Id,
+            PaddyLot = lot,
+            LocationId = 7,
+            QuantityAllocated = 50,
+            QuantityPicked = 50
+        };
+        var order = new OutboundOrder
+        {
+            Id = 1,
+            OutboundOrderItems = new List<OutboundOrderItem>
+            {
+                new() { Allocations = new List<OutboundOrderItemAllocation> { allocation } }
+            }
+        };
+        var staging = new Location { Id = 99, IsOutboundStaging = true };
+
+        var partiallySplitLocations = await InvokeStagePhysicalBagsAsync(order, staging);
+
+        fullBag.LocationId.Should().Be(staging.Id);
+        fullBag.Status.Should().Be(PaddyLotBagStatuses.OutboundStaging);
+        openBag.LocationId.Should().Be(7);
+        openBag.WeightKg.Should().Be(10);
+        partiallySplitLocations.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task BuildRequestedBagAllocationsAsync_InvalidInventoryShape_ThrowsFriendlyError()
     {
         var inventory = CreateInventory(id: 9, lotId: 5, locationId: null);
@@ -1015,6 +1091,20 @@ public class OutboundOrderServiceTests
         var task = (Task<bool>)method!.Invoke(
             Sut(withLocationRepository: true),
             new object[] { order, 99, new DateTime(2026, 8, 14, 10, 0, 0) })!;
+
+        return await task;
+    }
+
+    private async Task<HashSet<int>> InvokeStagePhysicalBagsAsync(OutboundOrder order, Location staging)
+    {
+        var method = typeof(OutboundOrderService).GetMethod(
+            "StagePhysicalBagsAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        method.Should().NotBeNull();
+
+        var task = (Task<HashSet<int>>)method!.Invoke(
+            Sut(),
+            new object[] { order, staging, 99, new DateTime(2026, 8, 15, 10, 0, 0) })!;
 
         return await task;
     }

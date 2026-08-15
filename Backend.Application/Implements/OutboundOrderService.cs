@@ -1400,6 +1400,59 @@ public class OutboundOrderService : IOutboundOrderService
 
         var allocations = new List<AllocateItemLotDto>();
         var remaining = requestedByInventory.ToDictionary(x => x.Key, x => x.Value);
+        var selectedFullBagIds = new HashSet<int>();
+
+        // A request line that is exactly one standard bag represents an explicit
+        // "full bag" choice from the UI. Preserve that choice before simulating
+        // partial picks from the top of the stack. Without this, a 10 kg full-bag
+        // request could be silently rewritten as 1 kg from an open bag + 9 kg from
+        // a new split bag when both belong to the same inventory row.
+        foreach (var request in requestedLots)
+        {
+            if (!inventories.Any(x => x.Id == request.InventoryId) ||
+                remaining.GetValueOrDefault(request.InventoryId) + 0.0005m < request.QuantityAllocated)
+                continue;
+
+            var inventory = inventories.First(x => x.Id == request.InventoryId);
+            var locationBags = bags
+                .Where(x => x.LocationId == inventory.LocationId)
+                .OrderByDescending(x => x.StackOrder)
+                .ThenByDescending(x => x.Id)
+                .ToList();
+
+            var fullBag = locationBags.FirstOrDefault(candidate =>
+            {
+                if (selectedFullBagIds.Contains(candidate.Id) || !candidate.IsFull ||
+                    !candidate.StandardWeightKg.HasValue ||
+                    Math.Abs(request.QuantityAllocated - candidate.StandardWeightKg.Value) > 0.0005m ||
+                    Math.Abs(request.QuantityAllocated - candidate.WeightKg) > 0.0005m)
+                    return false;
+
+                var activeContents = candidate.Contents
+                    .Where(x => !x.IsDeleted && x.WeightKg > 0.0005m)
+                    .ToList();
+                if (activeContents.Count == 0 || activeContents.Any(x => x.LotId != inventory.PaddyLotId))
+                    return false;
+
+                // Skipping an open bag of the same lot is allowed for an explicit
+                // full-bag choice. A different lot above remains a real blocker.
+                return locationBags
+                    .Where(x => x.StackOrder > candidate.StackOrder && !selectedFullBagIds.Contains(x.Id))
+                    .All(x => x.Contents
+                        .Where(c => !c.IsDeleted && c.WeightKg > 0.0005m)
+                        .All(c => c.LotId == inventory.PaddyLotId));
+            });
+
+            if (fullBag == null) continue;
+
+            allocations.Add(new AllocateItemLotDto
+            {
+                InventoryId = request.InventoryId,
+                QuantityAllocated = request.QuantityAllocated
+            });
+            selectedFullBagIds.Add(fullBag.Id);
+            remaining[request.InventoryId] -= request.QuantityAllocated;
+        }
 
         foreach (var locationGroup in bags.GroupBy(x => x.LocationId!.Value))
         {
@@ -1408,6 +1461,7 @@ public class OutboundOrderService : IOutboundOrderService
             foreach (var bag in locationGroup.OrderByDescending(x => x.StackOrder))
             {
                 if (locationDemandIds.All(id => remaining.GetValueOrDefault(id) <= 0.0005m)) break;
+                if (selectedFullBagIds.Contains(bag.Id)) continue;
 
                 var activeContents = bag.Contents.Where(x => x.WeightKg > 0 && !x.IsDeleted).OrderByDescending(x => x.Id).ToList();
                 foreach (var content in activeContents)
@@ -1480,7 +1534,42 @@ public class OutboundOrderService : IOutboundOrderService
                 .ThenByDescending(x => x.Id)
                 .ToListAsync();
 
-            foreach (var bag in bags)
+            var preferredFullBagByAllocationId = new Dictionary<int, PaddyLotBag>();
+            var claimedFullBagIds = new HashSet<int>();
+            foreach (var allocation in locationGroup.OrderBy(x => x.Id))
+            {
+                var fullBag = bags.FirstOrDefault(candidate =>
+                    !claimedFullBagIds.Contains(candidate.Id) &&
+                    candidate.IsFull &&
+                    candidate.StandardWeightKg.HasValue &&
+                    Math.Abs(allocation.QuantityPicked - candidate.StandardWeightKg.Value) <= 0.0005m &&
+                    Math.Abs(allocation.QuantityPicked - candidate.WeightKg) <= 0.0005m &&
+                    candidate.Contents.Any(x => !x.IsDeleted && x.WeightKg > 0.0005m) &&
+                    candidate.Contents
+                        .Where(x => !x.IsDeleted && x.WeightKg > 0.0005m)
+                        .All(x => x.LotId == allocation.PaddyLotId) &&
+                    bags
+                        .Where(x => x.StackOrder > candidate.StackOrder && !claimedFullBagIds.Contains(x.Id))
+                        .All(x => x.Contents
+                            .Where(c => !c.IsDeleted && c.WeightKg > 0.0005m)
+                            .All(c => c.LotId == allocation.PaddyLotId)));
+                if (fullBag == null) continue;
+
+                preferredFullBagByAllocationId[allocation.Id] = fullBag;
+                claimedFullBagIds.Add(fullBag.Id);
+            }
+
+            var preferredAllocationByBagId = preferredFullBagByAllocationId
+                .ToDictionary(x => x.Value.Id, x => x.Key);
+            var preferredBagIds = preferredAllocationByBagId.Keys.ToHashSet();
+            var bagsToProcess = locationGroup
+                .OrderBy(x => x.Id)
+                .Where(x => preferredFullBagByAllocationId.ContainsKey(x.Id))
+                .Select(x => preferredFullBagByAllocationId[x.Id])
+                .Concat(bags.Where(x => !preferredBagIds.Contains(x.Id)))
+                .ToList();
+
+            foreach (var bag in bagsToProcess)
             {
                 if (remaining.Values.All(x => x <= 0.0005m)) break;
 
@@ -1489,7 +1578,11 @@ public class OutboundOrderService : IOutboundOrderService
                 {
                     var contentRemaining = content.WeightKg;
                     foreach (var allocation in locationGroup.Where(a =>
-                                 a.PaddyLotId == content.LotId && remaining[a.Id] > 0.0005m).OrderBy(a => a.Id))
+                                 a.PaddyLotId == content.LotId && remaining[a.Id] > 0.0005m &&
+                                 (preferredAllocationByBagId.TryGetValue(bag.Id, out var preferredAllocationId)
+                                     ? a.Id == preferredAllocationId
+                                     : !preferredFullBagByAllocationId.ContainsKey(a.Id)))
+                             .OrderBy(a => a.Id))
                     {
                         var take = Math.Min(contentRemaining, remaining[allocation.Id]);
                         if (take <= 0.0005m) continue;
