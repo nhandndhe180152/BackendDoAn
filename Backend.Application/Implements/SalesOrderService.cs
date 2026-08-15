@@ -100,8 +100,23 @@ public class SalesOrderService : ISalesOrderService
     private static SalesOrderDetailDto MapDetail(SalesOrder so)
     {
         var remaining = so.TotalAmount - (so.DepositAmount ?? 0);
+
+        // Lệnh xay còn hiệu lực của đơn — tính giống GetPagedAsync để màn chi tiết
+        // và màn danh sách không nói hai số khác nhau.
+        var activeMillingOrders = so.MillingOrders
+            .Where(o => !o.IsDeleted && o.Status?.Code != "CANCELLED")
+            .ToList();
+        var totalRiceRequiredKg = so.SalesOrderItems
+            .Where(i => !i.IsDeleted && i.ProductVariant?.IsByproduct != true)
+            .Sum(i => i.QuantityOrdered);
+        var allocatedMillingRiceKg = activeMillingOrders.Sum(o => o.TotalRiceOutputKg);
+
         return new SalesOrderDetailDto
         {
+            MillingOrderCount      = activeMillingOrders.Count,
+            TotalRiceRequiredKg    = totalRiceRequiredKg,
+            AllocatedMillingRiceKg = allocatedMillingRiceKg,
+            RemainingMillingRiceKg = Math.Max(0, totalRiceRequiredKg - allocatedMillingRiceKg),
             Id                   = so.Id,
             SOCode               = so.SOCode,
             CustomerId           = so.CustomerId,
