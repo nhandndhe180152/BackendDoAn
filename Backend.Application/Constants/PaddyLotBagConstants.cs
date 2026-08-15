@@ -28,4 +28,5 @@ public static class PaddyLotBagMovementTypes
     public const string DeliveryRestock = "DeliveryRestock";
     public const string CustomerReturn = "CustomerReturn";
     public const string QualityQuarantineSplit = "QualityQuarantineSplit";
+    public const string QualityRecheckRelease = "QualityRecheckRelease";
 }

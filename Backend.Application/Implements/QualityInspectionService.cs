@@ -536,6 +536,38 @@ public class QualityInspectionService : IQualityInspectionService
         bool wasSplit = !entity.PassedInspection && entity.AffectedWeightKg.HasValue && entity.AffectedWeightKg.Value > 0;
         if (wasSplit)
         {
+            // Preserve the original split inspection as audit history. When the edit
+            // screen marks it as passed, recheck the quarantine child instead.
+            if (obj.PassedInspection && !entity.PassedInspection)
+            {
+                var quarantineChildren = await _context.PaddyLots
+                    .Include(x => x.Status)
+                    .Where(x => x.ParentLotId == entity.PaddyLotId && !x.IsDeleted
+                        && x.Status != null && x.Status.Code == LotStatusCodeConstants.Quarantine)
+                    .ToListAsync();
+
+                if (quarantineChildren.Count != 1)
+                    return ApiResponse.BadRequest(message: quarantineChildren.Count == 0
+                        ? "Không thể thay đổi Lô lúa/gạo, Kết quả kiểm định hoặc Khối lượng ảnh hưởng vì không tìm thấy lô con đang cách ly để kiểm tra lại."
+                        : "Có nhiều lô con đang cách ly. Vui lòng chọn đúng lô cách ly để kiểm tra lại.");
+
+                return await RecheckAsync(new CreateQualityInspectionDto
+                {
+                    PaddyLotId = quarantineChildren[0].Id,
+                    InspectorId = obj.InspectorId,
+                    InspectedAt = obj.InspectedAt,
+                    MoisturePercent = obj.MoisturePercent,
+                    ImpurityPercent = obj.ImpurityPercent,
+                    MoldLevel = obj.MoldLevel,
+                    PestLevel = obj.PestLevel,
+                    PackagingStatus = obj.PackagingStatus,
+                    PassedInspection = true,
+                    Handling = obj.Handling,
+                    Note = obj.Note,
+                    CreatedBy = obj.UpdatedBy
+                });
+            }
+
             if (entity.PaddyLotId != obj.PaddyLotId ||
                 entity.PassedInspection != obj.PassedInspection ||
                 entity.AffectedWeightKg != obj.AffectedWeightKg)
@@ -1021,6 +1053,18 @@ public class QualityInspectionService : IQualityInspectionService
                     .FindByCondition(x => x.PaddyLotId == lot.Id && !x.IsDeleted)
                     .ToListAsync();
 
+                var storedBags = await _context.PaddyLotBags
+                    .Where(x => x.LotId == lot.Id && !x.IsDeleted
+                        && x.Status == PaddyLotBagStatuses.Stored)
+                    .ToListAsync();
+                if (storedBags.Any(x => !x.LocationId.HasValue))
+                    return ApiResponse.BadRequest(message: "Dữ liệu bao cách ly không hợp lệ: có bao đang lưu kho nhưng không có vị trí.");
+
+                var storedBagWeight = storedBags.Sum(x => x.WeightKg);
+                var inventoryWeight = inventories.Sum(x => x.QuantityOnHand);
+                if (storedBags.Count > 0 && Math.Abs(storedBagWeight - inventoryWeight) > 0.001m)
+                    return ApiResponse.BadRequest(message: $"Dữ liệu bao và tồn kho cách ly không khớp (bao: {storedBagWeight:0.###} kg, tồn: {inventoryWeight:0.###} kg).");
+
                 decimal totalReleased = 0m;
                 var touchedLocationIds = new HashSet<int>();
                 foreach (var inv in inventories)
@@ -1063,6 +1107,37 @@ public class QualityInspectionService : IQualityInspectionService
                 if (totalReleased <= 0)
                     return ApiResponse.BadRequest(message: "Lô cách ly không còn tồn kho để xếp lại.");
 
+                // Put the physical bags back into the pending pool so the new inbound
+                // line can place them in a normal location.
+                foreach (var bag in storedBags)
+                {
+                    var fromLocationId = bag.LocationId;
+                    touchedLocationIds.Add(fromLocationId!.Value);
+                    bag.Status = PaddyLotBagStatuses.Pending;
+                    bag.LocationId = null;
+                    bag.StackOrder = 0;
+                    bag.OpenBagKey = null;
+                    bag.UpdatedBy = obj.CreatedBy;
+                    bag.LastModifiedDate = now;
+
+                    _context.PaddyLotBagMovements.Add(new PaddyLotBagMovement
+                    {
+                        BagId = bag.Id,
+                        MovementType = PaddyLotBagMovementTypes.QualityRecheckRelease,
+                        FromLocationId = fromLocationId,
+                        ToLocationId = null,
+                        WeightKg = bag.WeightKg,
+                        BeforeWeightKg = bag.WeightKg,
+                        AfterWeightKg = bag.WeightKg,
+                        ReferenceType = InventoryReferenceTypeConstants.QualityInspection,
+                        ReferenceId = entity.Id,
+                        Note = $"Rút bao khỏi ô cách ly sau khi tái kiểm đạt — lô {lot.LotCode}",
+                        CreatedBy = obj.CreatedBy,
+                        CreatedDate = now
+                    });
+                }
+                await _context.SaveChangesAsync();
+
                 // 2. Đồng bộ lại sức chứa các ô cách ly vừa rút (self-healing = tổng tồn thực còn lại).
                 foreach (var locId in touchedLocationIds)
                 {
@@ -1071,6 +1146,11 @@ public class QualityInspectionService : IQualityInspectionService
                     loc.CurrentOccupancy = await _context.Inventories
                         .Where(x => x.LocationId == locId && !x.IsDeleted)
                         .SumAsync(x => x.QuantityOnHand);
+                    if (loc.CurrentOccupancy <= 0.001m)
+                    {
+                        loc.CurrentOccupancy = 0m;
+                        loc.CurrentProductVariantId = null;
+                    }
                     loc.LastModifiedDate = now;
                     loc.UpdatedBy = obj.CreatedBy;
                 }
@@ -1139,6 +1219,18 @@ public class QualityInspectionService : IQualityInspectionService
     {
         if (lines.Count == 0) return;
 
+        // Quarantine children cannot copy SourceReceiptId because that relationship
+        // is unique. Resolve the purchase receipt through the parent lot so the
+        // re-entry order still retains farmer/source traceability.
+        var sourceReceiptId = receiptLot.SourceReceiptId;
+        if (!sourceReceiptId.HasValue && receiptLot.ParentLotId.HasValue)
+        {
+            sourceReceiptId = await _context.PaddyLots
+                .Where(x => x.Id == receiptLot.ParentLotId.Value && !x.IsDeleted)
+                .Select(x => x.SourceReceiptId)
+                .FirstOrDefaultAsync();
+        }
+
         var draftStatus = await _context.InboundOrderStatuses
             .FirstOrDefaultAsync(x => x.Code == InboundOrderStatusNames.Draft && !x.IsDeleted)
             ?? await _context.InboundOrderStatuses.FirstOrDefaultAsync(x => !x.IsDeleted)
@@ -1160,7 +1252,7 @@ public class QualityInspectionService : IQualityInspectionService
             WarehouseId = receiptLot.WarehouseId,
             InboundOrderStatusId = draftStatus.Id,
             POCode = code,
-            PaddyPurchaseReceiptId = receiptLot.SourceReceiptId,
+            PaddyPurchaseReceiptId = sourceReceiptId,
             OrganizationId = receiptLot.OrganizationId,
             SourceType = "RECEIPT",
             TotalAssetValue = lines.Sum(l => l.Weight * l.UnitCost),
