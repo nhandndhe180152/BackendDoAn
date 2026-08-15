@@ -53,6 +53,7 @@ public class QualityInspectionRepository : RepositoryBase<QualityInspection, int
                 PassedInspection = x.PassedInspection,
                 Handling = x.Handling,
                 Note = x.Note,
+                AffectedWeightKg = x.AffectedWeightKg,
                 CreatedDate = x.CreatedDate
             });
 

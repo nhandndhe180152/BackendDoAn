@@ -39,7 +39,9 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
             orderAscendingDirection = false;
         }
 
-        var baseQuery = _context.Inventories.Where(x => !x.IsDeleted);
+        // Zero-on-hand rows are retained for transaction history, but they do not
+        // represent physical stock and must not make an empty location appear occupied.
+        var baseQuery = _context.Inventories.Where(x => !x.IsDeleted && x.QuantityOnHand > 0);
 
         // P0-3: đếm tổng (chưa lọc) trên bảng gốc, không qua projection nặng (nhiều join + CASE).
         var totalRecord = await baseQuery.CountAsync();

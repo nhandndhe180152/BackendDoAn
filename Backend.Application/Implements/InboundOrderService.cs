@@ -336,6 +336,7 @@ public class InboundOrderService : IInboundOrderService
 
         // Gắn ProductVariant + PaddyLot cho các dòng bằng batch-load (tránh N+1 per-item).
         await HydrateItemsAsync(order.InboundOrderItems);
+        await HydrateReceiptSourcesAsync(new[] { order });
 
         var detail = order.ToDetailDto();
 
@@ -445,9 +446,64 @@ public class InboundOrderService : IInboundOrderService
             .SelectMany(o => (IEnumerable<InboundOrderItem>?)o.InboundOrderItems ?? new List<InboundOrderItem>())
             .ToList();
         await HydrateItemsAsync(allItems);
+        await HydrateReceiptSourcesAsync(orders);
 
         var result = orders.Select(o => o.ToDetailDto()).ToList();
         return ApiResponse.Success(result);
+    }
+
+    /// <summary>
+    /// Restores receipt/farmer display for legacy re-entry orders created from a
+    /// quarantine child whose SourceReceiptId is null. The source is resolved through
+    /// child lot -> parent lot -> purchase receipt without modifying historical rows.
+    /// </summary>
+    private async Task HydrateReceiptSourcesAsync(IEnumerable<InboundOrder> orders)
+    {
+        var missing = orders
+            .Where(x => string.Equals(x.SourceType, "RECEIPT", StringComparison.OrdinalIgnoreCase)
+                && x.PaddyPurchaseReceipt == null)
+            .ToList();
+        if (missing.Count == 0) return;
+
+        var lotIds = missing
+            .SelectMany(x => x.InboundOrderItems)
+            .Where(x => x.PaddyLotId.HasValue)
+            .Select(x => x.PaddyLotId!.Value)
+            .Distinct()
+            .ToList();
+        if (lotIds.Count == 0) return;
+
+        var lotSources = await _paddyLotRepository
+            .FindByCondition(x => lotIds.Contains(x.Id) && !x.IsDeleted, false, x => x.ParentLot)
+            .Select(x => new
+            {
+                x.Id,
+                SourceReceiptId = x.SourceReceiptId ??
+                    (x.ParentLot != null ? x.ParentLot.SourceReceiptId : null)
+            })
+            .ToListAsync();
+        var sourceByLot = lotSources
+            .Where(x => x.SourceReceiptId.HasValue)
+            .ToDictionary(x => x.Id, x => x.SourceReceiptId!.Value);
+        var receiptIds = sourceByLot.Values.Distinct().ToList();
+        if (receiptIds.Count == 0) return;
+
+        var receipts = await _paddyPurchaseReceiptRepository
+            .FindByCondition(x => receiptIds.Contains(x.Id) && !x.IsDeleted, false, x => x.Farmer)
+            .ToDictionaryAsync(x => x.Id);
+
+        foreach (var order in missing)
+        {
+            var receiptId = order.InboundOrderItems
+                .Where(x => x.PaddyLotId.HasValue)
+                .Select(x => sourceByLot.GetValueOrDefault(x.PaddyLotId!.Value))
+                .FirstOrDefault(x => x > 0);
+            if (receiptId > 0 && receipts.TryGetValue(receiptId, out var receipt))
+            {
+                order.PaddyPurchaseReceiptId = receiptId;
+                order.PaddyPurchaseReceipt = receipt;
+            }
+        }
     }
 
     public async Task<ApiResponse> CreateAsync(CreateInboundOrderDto dto)
@@ -1781,12 +1837,27 @@ public class InboundOrderService : IInboundOrderService
                 if (targetStatus != null) lot.StatusId = targetStatus.Id;
                 await _paddyLotRepository.UpdateAsync(lot);
             }
-            if (state.ReceiptStatus == "Confirmed")
-            {
-                order.InboundOrderStatusId = await GetStatusIdAsync(InboundOrderStatusNames.Confirmed);
-                order.CompletedDate = DateTimeHelper.VietnamNow();
-                await _inboundOrderRepository.UpdateAsync(order);
-            }
+            // A bag receipt confirms only the current inbound line. The document is
+            // complete only after every non-deleted line has been fully received.
+            // This is especially important for a quality-inspection split, where the
+            // normal lot and its quarantine child are two independent lines.
+            var allItems = await _inboundOrderItemRepository.FindByConditionAsync(
+                x => x.InboundOrderId == order.Id && !x.IsDeleted);
+            var totalLines = allItems.Count;
+            var settledLines = allItems.Count(x => x.QuantityReceived >= x.QuantityOrdered);
+            var hasAnyReceived = allItems.Any(x => x.QuantityReceived > 0);
+
+            var nextDocumentStatus = settledLines == totalLines && totalLines > 0
+                ? InboundOrderStatusNames.Confirmed
+                : hasAnyReceived
+                    ? InboundOrderStatusNames.PartiallyReceived
+                    : InboundOrderStatusNames.Receiving;
+
+            order.InboundOrderStatusId = await GetStatusIdAsync(nextDocumentStatus);
+            order.CompletedDate = nextDocumentStatus == InboundOrderStatusNames.Confirmed
+                ? DateTimeHelper.VietnamNow()
+                : null;
+            await _inboundOrderRepository.UpdateAsync(order);
             await _inboundOrderRepository.SaveChangesAsync();
 
             // Chốt bất biến ở ngay trong transaction: tổng kg bao của lô tại cột phải bằng tồn của lô tại cột.
