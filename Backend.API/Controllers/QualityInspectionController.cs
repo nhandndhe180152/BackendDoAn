@@ -96,5 +96,46 @@ namespace Backend.API.Controllers
             var result = await _service.SoftDeleteAsync(id);
             return BaseResult(result);
         }
+
+        // ── W14-D: Bag-level ─────────────────────────────────────────────────
+
+        /// <summary>GET tiến độ kiểm tra bag-level của một inspection session.</summary>
+        [HttpGet("{inspectionId}/bags")]
+        [CustomAuthorize(Enums.Menu.QUALITY_INSPECTIONS, Enums.Action.READ)]
+        public async Task<IActionResult> GetBagProgressAsync(int inspectionId)
+        {
+            var result = await _service.GetBagProgressAsync(inspectionId);
+            return BaseResult(result);
+        }
+
+        /// <summary>
+        /// PUT autosave kết quả kiểm tra cho 1 bao (upsert idempotent).
+        /// Chỉ lưu QC result — không tác động inventory/lot/debt.
+        /// </summary>
+        [HttpPut("{inspectionId}/bags/{bagId}")]
+        [CustomAuthorize(Enums.Menu.QUALITY_INSPECTIONS, Enums.Action.UPDATE)]
+        public async Task<IActionResult> SaveBagResultAsync(int inspectionId, int bagId, [FromBody] SaveBagInspectionResultDto dto)
+        {
+            dto.BagId = bagId;
+            dto.InspectorId = this.GetLoggedInUserId();
+            var result = await _service.SaveBagResultAsync(inspectionId, dto);
+            return BaseResult(result);
+        }
+
+        // ── W14-E: Complete ───────────────────────────────────────────────────
+
+        /// <summary>
+        /// Hoàn tất inspection session.
+        /// Validate 100% bag đã kiểm tra → finalize → aggregate header → mark CompletedAt.
+        /// Idempotent: gọi lại khi đã complete sẽ trả 409.
+        /// </summary>
+        [HttpPost("{inspectionId}/complete")]
+        [CustomAuthorize(Enums.Menu.QUALITY_INSPECTIONS, Enums.Action.APPROVE)]
+        public async Task<IActionResult> CompleteAsync(int inspectionId, [FromBody] CompleteInspectionDto dto)
+        {
+            dto.CompletedBy = this.GetLoggedInUserId();
+            var result = await _service.CompleteAsync(inspectionId, dto);
+            return BaseResult(result);
+        }
     }
 }

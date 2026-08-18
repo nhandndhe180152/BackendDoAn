@@ -72,6 +72,7 @@ public interface IApplicationDbContext
     DbSet<PaddyLotBagContent> PaddyLotBagContents { get; }
     DbSet<PaddyLotBagMovement> PaddyLotBagMovements { get; }
     DbSet<QualityInspection> QualityInspections { get; }
+    DbSet<QualityInspectionBagResult> QualityInspectionBagResults { get; }
     DbSet<MillingOrderStatus> MillingOrderStatuses { get; }
     DbSet<MillingYieldConfig> MillingYieldConfigs { get; }
     DbSet<MillingOrder> MillingOrders { get; }

@@ -22,4 +22,6 @@ public class PaddyLotBag : EntityAuditBase<int>
     public virtual ICollection<PaddyLotBagContent> Contents { get; set; } = new List<PaddyLotBagContent>();
     public virtual ICollection<PaddyLotBagMovement> Movements { get; set; } = new List<PaddyLotBagMovement>();
     public virtual ICollection<PaddyLotBagAllocation> Allocations { get; set; } = new List<PaddyLotBagAllocation>();
+    public virtual ICollection<QualityInspectionBagResult> QualityResults { get; set; }
+        = new List<QualityInspectionBagResult>();
 }
