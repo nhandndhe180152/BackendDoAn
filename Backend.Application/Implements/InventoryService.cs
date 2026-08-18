@@ -1,4 +1,5 @@
 using System;
+using Backend.Application.DTOs.Inventories;
 using Backend.Application.Interfaces;
 using Backend.Application.Mappings;
 using Backend.Domain.DTParameters;
@@ -20,6 +21,30 @@ public class InventoryService : IInventoryService
     {
         var result = await _inventoryRepository.GetPagedAsync(parameters);
         return ApiResponse.Success(result);
+    }
+
+    public async Task<ApiResponse> GetStockSummaryAsync(InventorySummaryParameters parameters)
+    {
+        var agg = await _inventoryRepository.GetStockSummaryAsync(parameters);
+
+        var dto = new InventoryStockSummaryDto
+        {
+            TotalOnHand = agg.TotalOnHand,
+            TotalAvailable = agg.TotalAvailable,
+            TotalReserved = agg.TotalReserved,
+            TotalProcessing = agg.TotalProcessing,
+            TotalQuarantine = agg.TotalQuarantine,
+            TotalOnHandWeightKg = agg.TotalOnHandWeightKg,
+            TotalAvailableWeightKg = agg.TotalAvailableWeightKg,
+            TotalReservedWeightKg = agg.TotalReservedWeightKg,
+            TotalProcessingWeightKg = agg.TotalProcessingWeightKg,
+            TotalQuarantineWeightKg = agg.TotalQuarantineWeightKg,
+            LineCount = agg.LineCount,
+            QuarantineLotCount = agg.QuarantineLotCount,
+            LowStockCount = agg.LowStockCount
+        };
+
+        return ApiResponse.Success(dto);
     }
 
     public async Task<ApiResponse> GetByIdAsync(int id)

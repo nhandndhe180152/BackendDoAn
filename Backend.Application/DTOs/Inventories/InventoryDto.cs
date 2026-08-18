@@ -24,15 +24,19 @@ public class InventoryDto
 
     public string? ProductName { get; set; }
 
-    public int? InboundOrderId { get; set; }
-
     public decimal CostPrice { get; set; }
 
-    public int QuantityOnHand { get; set; }
+    public decimal QuantityOnHand { get; set; }
 
-    public int QuantityReserved { get; set; }
+    public decimal QuantityReserved { get; set; }
 
-    public int QuantityAvailable { get; set; }
+    public decimal QuantityAvailable { get; set; }
+
+    public decimal QuarantinedKg { get; set; }
+
+    public decimal SellableOnHandKg { get; set; }
+
+    public decimal OtherBlockedKg { get; set; }
 
     public decimal? MinStockLevel { get; set; }
 
@@ -44,4 +48,3 @@ public class InventoryDto
 
     public DateTime? LastModifiedDate { get; set; }
 }
-

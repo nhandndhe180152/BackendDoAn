@@ -17,5 +17,7 @@ public class CreateProductVariantDto
     public int? ImageId { get; set; }
     public bool IsActive { get; set; }
     public decimal? MinStockLevel { get; set; }
+    public int? RiceVarietyId { get; set; }
+    public bool IsByproduct { get; set; }
     public int? CreatedBy { get; set; }
 }

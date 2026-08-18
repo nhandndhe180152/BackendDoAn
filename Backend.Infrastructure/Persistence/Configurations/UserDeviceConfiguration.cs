@@ -15,6 +15,8 @@ public class UserDeviceConfiguration : IEntityTypeConfiguration<UserDevice>
         builder.Property(x => x.Id)
             .ValueGeneratedOnAdd()
              .UseMySqlIdentityColumn();
+        builder.Property(x => x.DeviceId)
+            .HasMaxLength(255);
         builder.Property(x => x.DeviceName)
             .HasMaxLength(255);
         builder.Property(x => x.Platform)

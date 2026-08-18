@@ -2,6 +2,7 @@ using System;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using Backend.Application.Constants;
+using Backend.Application.Interfaces;
 using Backend.Domain.Entities;
 using Backend.Domain.Enums;
 using Backend.Infrastructure.Persistence;
@@ -17,12 +18,14 @@ namespace Backend.API.Utilities;
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true, Inherited = true)]
 public class CustomAuthorizeAttribute : Attribute, IAsyncAuthorizationFilter
 {
-    private readonly int _actionId;
-    private readonly int _menuId;
+    // Lưu CODE (tên thành viên enum) thay vì Id số. Id được suy ra từ Code lúc chạy qua ISystemLookup,
+    // nên Id trong DB đổi/re-seed vẫn không vỡ phân quyền. Call-site controller giữ nguyên.
+    private readonly string _actionCode;
+    private readonly string _menuCode;
     public CustomAuthorizeAttribute(Enums.Menu menuId, Enums.Action actionId)
     {
-        _actionId = (int)actionId;
-        _menuId = (int)menuId;
+        _actionCode = actionId.ToString();
+        _menuCode = menuId.ToString();
     }
     public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
@@ -34,6 +37,7 @@ public class CustomAuthorizeAttribute : Attribute, IAsyncAuthorizationFilter
             //var tokenProviderService = context.HttpContext.RequestServices.GetService<ITokenProviderService>();
             var cacheService = context.HttpContext.RequestServices.GetService<ICacheService>();
             var dbContext = context.HttpContext.RequestServices.GetService<BackendContext>();
+            var systemLookup = context.HttpContext.RequestServices.GetService<ISystemLookup>();
             try
             {
                 //token = tokenProviderService?.ParseToken(accessToken);
@@ -52,15 +56,19 @@ public class CustomAuthorizeAttribute : Attribute, IAsyncAuthorizationFilter
                     listPermissions = await dbContext.Permissions
                         .Where(x => !x.IsDeleted && roleIds.Contains(x.RoleId))
                         .ToListAsync();
-                if (listPermissions.Any())
+                // Suy Id yêu cầu từ CODE ổn định (Menu/Action). Nếu Code chưa backfill => coi như không có quyền.
+                var hasMenu = systemLookup!.TryMenuId(_menuCode, out var requiredMenuId);
+                var hasAction = systemLookup!.TryActionId(_actionCode, out var requiredActionId);
+
+                if (listPermissions.Any() && hasMenu && hasAction)
                 {
                     //check permisson
                     var isAllowed = listPermissions
-                        .Any(x => x.ActionId == _actionId && x.MenuId == _menuId &&
+                        .Any(x => x.ActionId == requiredActionId && x.MenuId == requiredMenuId &&
                             roleIds.Contains(x.RoleId));
                     if (!isAllowed)
                     {
-                        var response = ApiResponse.Forbidden(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.Forbidden), ApiCodeConstants.Common.Forbidden);
+                        var response = ApiResponse.Forbidden(message: ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.Forbidden), code: ApiCodeConstants.Common.Forbidden);
                         context.Result = new ObjectResult(response)
                         {
                             StatusCode = (int)HttpStatusCode.Forbidden
@@ -70,7 +78,7 @@ public class CustomAuthorizeAttribute : Attribute, IAsyncAuthorizationFilter
                 }
                 else
                 {
-                    var response = ApiResponse.Forbidden(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.Forbidden), ApiCodeConstants.Common.Forbidden);
+                    var response = ApiResponse.Forbidden(message: ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.Forbidden), code: ApiCodeConstants.Common.Forbidden);
                     context.Result = new ObjectResult(response)
                     {
                         StatusCode = (int)HttpStatusCode.Forbidden

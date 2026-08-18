@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Backend.Domain.Abstractions;
 
 namespace Backend.Domain.Entities;
@@ -11,13 +12,24 @@ public class ProductVariant : EntityCommonBase<int>
     public string? QRCode { get; set; }
     public decimal CostPrice { get; set; }
     public decimal SalePrice { get; set; }
+    /// <summary>
+    /// Khối lượng bao chuẩn theo kg cho nghiệp vụ tự động đóng/chia bao.
+    /// Giá trị 0 nghĩa là không áp dụng hoặc chưa cấu hình; không ảnh hưởng cân nặng thực tế từng bao nhập mua.
+    /// </summary>
     public decimal Weight { get; set; }
     public string? AttributeValues { get; set; }
     public int? ImageId { get; set; }
     public bool IsActive { get; set; }
     public decimal? MinStockLevel { get; set; }
 
+    /// <summary>Giống lúa — dùng cho lúa nguyên liệu và gạo thành phẩm</summary>
+    public int? RiceVarietyId { get; set; }
+
+    /// <summary>true = phụ phẩm (tấm/cám/trấu); false = lúa hoặc gạo chính</summary>
+    public bool IsByproduct { get; set; }
+
     public virtual Product Product { get; set; } = null!;
     public virtual UnitOfMeasure UnitOfMeasure { get; set; } = null!;
     public virtual FileUpload? Image { get; set; }
+    public virtual RiceVariety? RiceVariety { get; set; }
 }

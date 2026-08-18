@@ -1,4 +1,5 @@
 using System;
+using Backend.Application.Common;
 using Backend.Application.Constants;
 using Backend.Application.DependencyInjection.Options;
 using Backend.Application.DTOs.Auths;
@@ -39,8 +40,9 @@ public class AuthService : IAuthService
     private readonly IRoleRepository _roleRepository;
     private readonly ILogger<AuthService> _logger;
     private readonly IFileUploadRepository _fileUploadRepository;
+    private readonly ISystemConfigRepository _systemConfigRepository;
 
-    public AuthService(IUserRepository userRepository, IUserSessionRepository userSessionRepository, ITokenProviderService tokenProviderService, IUserRoleRepository userRoleRepository, IStorageService storageService, IPermissionRepository permissionRepository, IEmailService<GoogleMailRequest> emailService, IUserVerificationTokenRepository userVerificationTokenRepository, IHttpContextAccessor httpContextAccessor, IOptions<HostSettings> hostSettings, IEmailTemplateService emailTemplateService, IMenuRepository menuRepository, IRoleRepository roleRepository, ILoggerFactory loggerFactory, IFileUploadRepository fileUploadRepository)
+    public AuthService(IUserRepository userRepository, IUserSessionRepository userSessionRepository, ITokenProviderService tokenProviderService, IUserRoleRepository userRoleRepository, IStorageService storageService, IPermissionRepository permissionRepository, IEmailService<GoogleMailRequest> emailService, IUserVerificationTokenRepository userVerificationTokenRepository, IHttpContextAccessor httpContextAccessor, IOptions<HostSettings> hostSettings, IEmailTemplateService emailTemplateService, IMenuRepository menuRepository, IRoleRepository roleRepository, ILoggerFactory loggerFactory, IFileUploadRepository fileUploadRepository, ISystemConfigRepository systemConfigRepository)
     {
         _userRepository = userRepository;
         _userSessionRepository = userSessionRepository;
@@ -57,6 +59,23 @@ public class AuthService : IAuthService
         _roleRepository = roleRepository;
         _logger = loggerFactory.CreateLogger<AuthService>();
         _fileUploadRepository = fileUploadRepository;
+        _systemConfigRepository = systemConfigRepository;
+    }
+
+    /// <summary>
+    /// Lấy tên hệ thống + logo từ SystemConfig (có giá trị mặc định nếu chưa cấu hình) để dựng email.
+    /// </summary>
+    private async Task<(string SystemName, string LogoUrl)> GetSystemBrandAsync()
+    {
+        var systemName = await _systemConfigRepository.GetValueByKey(SystemConfigConstants.Keys.SystemName);
+        var logoUrl = await _systemConfigRepository.GetValueByKey(SystemConfigConstants.Keys.SystemLogoUrl);
+
+        if (string.IsNullOrWhiteSpace(systemName))
+            systemName = SystemConfigConstants.Defaults.SystemName;
+        if (string.IsNullOrWhiteSpace(logoUrl))
+            logoUrl = SystemConfigConstants.Defaults.SystemLogoUrl;
+
+        return (systemName, logoUrl);
     }
 
     public async Task<ApiResponse> AdminLoginAsync(LoginRequestDto obj)
@@ -73,16 +92,15 @@ public class AuthService : IAuthService
             return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.EmailNotFound), ApiCodeConstants.Auth.EmailNotFound);
 
 
-        if (user.UserStatusId == (int)Enums.UserStatus.NotActivated)
+        if (user.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.NotActivated))
             return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.UserNotActivated), ApiCodeConstants.Auth.UserNotActivated);
 
-        if (user.UserStatusId == (int)Enums.UserStatus.Deactivated)
+        if (user.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Deactivated))
             return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.UserDeactivated), ApiCodeConstants.Auth.UserDeactivated);
 
-        if (user.UserStatusId == (int)Enums.UserStatus.Locked)
+        if (user.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Locked))
             return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.UserDeactivated), ApiCodeConstants.Auth.UserLocked);
 
-        var randomCode = isClientRequest ? RandomHelper.GenerateOtpCode() : RandomHelper.GenerateRandomString(50);
         var currentDate = DateTime.Now.Date;
         var requestCountToday = await _userVerificationTokenRepository
                                         .FindByCondition(x => x.UserId == user.Id &&
@@ -94,7 +112,61 @@ public class AuthService : IAuthService
         if (requestCountToday >= AuthConstants.MAX_ACCESS_FAILED)
             return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.ForgotPasswordReachToLimit), ApiCodeConstants.Auth.ForgotPasswordReachToLimit);
 
+        // Brand hệ thống dùng chung cho cả 2 nhánh (admin/client).
+        var (systemName, logoUrl) = await GetSystemBrandAsync();
 
+        // ── ADMIN: sinh mật khẩu mới, gửi qua email, buộc đổi ở lần đăng nhập kế tiếp ──
+        if (!isClientRequest)
+        {
+            var newPassword = RandomHelper.GeneratePassword(12);
+            user.PasswordHash = PasswordHelper.HashPassword(newPassword);
+            user.MustChangePassword = true;
+            user.LastModifiedDate = DateTime.Now;
+            await _userRepository.UpdateAsync(user);
+
+            // Lưu vết yêu cầu (đánh dấu đã dùng) để phục vụ giới hạn số lần/ngày.
+            await _userVerificationTokenRepository.CreateAsync(new UserVerificationToken
+            {
+                UserId = user.Id,
+                Code = RandomHelper.GenerateRandomString(50),
+                Purpose = CommonConstants.UserVerificationTokenPurpose.FORGOT_PASSWORD,
+                ExpirationDate = DateTime.Now.AddHours(AuthConstants.FORGOT_PASSWORD_TOKEN_EXPIRE_HOURS),
+                IsUsed = true,
+                CreatedDate = DateTime.Now
+            });
+
+            await _userRepository.SaveChangesAsync();
+            await _userVerificationTokenRepository.SaveChangesAsync();
+
+            var resetModel = new ResetPasswordEmailDto
+            {
+                SystemName = systemName,
+                LogoUrl = logoUrl,
+                FullName = $"{user.FirstName} {user.LastName}".Trim(),
+                Password = newPassword,
+                LoginLink = _hostSettings.AdminUrl,
+                Year = DateTime.Now.Year.ToString()
+            };
+
+            var resetBody = await _emailTemplateService
+                .GetEmailTemplateAsync(AuthConstants.EmailTemplates.ADMIN_RESET_PASSWORD, resetModel);
+
+            var resetRequest = new GoogleMailRequest
+            {
+                ToEmails = new List<string> { email },
+                Subject = AuthConstants.NEW_PASSWORD_EMAIL_TITLE,
+                Body = resetBody,
+                CcEmails = new List<string>(),
+                BccEmails = new List<string>()
+            };
+
+            await _emailService.SendMailAsync(resetRequest);
+
+            return ApiResponse.Success();
+        }
+
+        // ── CLIENT: giữ nguyên luồng gửi mã OTP qua email ──
+        var randomCode = RandomHelper.GenerateOtpCode();
         var newToken = new UserVerificationToken
         {
             UserId = user.Id,
@@ -107,11 +179,8 @@ public class AuthService : IAuthService
         await _userVerificationTokenRepository.CreateAsync(newToken);
         await _userVerificationTokenRepository.SaveChangesAsync();
 
-        var host = isClientRequest ? _hostSettings.ClientUrl : _hostSettings.AdminUrl;
-        var resetUrl = isClientRequest
-            ? $"{host}/dat-lai-mat-khau?code={randomCode}&email={email}&purpose={newToken.Purpose}"
-            : $"{host}/reset-password?code={randomCode}&email={email}&purpose={newToken.Purpose}";
-
+        var host = _hostSettings.ClientUrl;
+        var resetUrl = $"{host}/dat-lai-mat-khau?code={randomCode}&email={email}&purpose={newToken.Purpose}";
 
         var model = new AdminForgotPasswordEmailDto
         {
@@ -120,14 +189,13 @@ public class AuthService : IAuthService
             ValidExpired = AuthConstants.FORGOT_PASSWORD_TOKEN_EXPIRE_HOURS.ToString(),
             DateTime = DateTime.Now.Year.ToString(),
             Link = host,
-            OtpCode = randomCode
+            OtpCode = randomCode,
+            SystemName = systemName,
+            LogoUrl = logoUrl
         };
 
-        var emailTemplate = isClientRequest
-            ? AuthConstants.EmailTemplates.CLIENT_FORGOT_PASSWORD_OTP
-            : AuthConstants.EmailTemplates.ADMIN_FORGOT_PASSWORD;
-        var emailBody = await _emailTemplateService.GetEmailTemplateAsync(emailTemplate, model);
-
+        var emailBody = await _emailTemplateService
+            .GetEmailTemplateAsync(AuthConstants.EmailTemplates.CLIENT_FORGOT_PASSWORD_OTP, model);
 
         var emailRequest = new GoogleMailRequest
         {
@@ -227,8 +295,29 @@ public class AuthService : IAuthService
                 .Select(x => x.Id)
                 .ToList();
 
-            if (!listRoleIds.Any(x => x != CommonConstants.Role.END_USER && x != CommonConstants.Role.DRIVER))
-                return ApiResponse.Forbidden(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.RequiredAdminUser), ApiCodeConstants.Auth.RequiredAdminUser);
+            // Mọi vai trò nghiệp vụ (Chủ kho/Thu mua/Kho/Xay/Bán hàng + Admin) đều dùng hệ thống quản lý.
+            // Chỉ chặn khi tài khoản chưa được gán vai trò nào.
+            if (!listRoleIds.Any())
+                return ApiResponse.Forbidden(message: ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.RequiredAdminUser), code: ApiCodeConstants.Auth.RequiredAdminUser);
+        }
+
+        // #14: Kiểm tra khóa tài khoản TRƯỚC khi verify mật khẩu.
+        // Nếu đang bị khóa và còn hiệu lực -> trả thông báo khóa, KHÔNG tăng AccessFailedCount
+        // (tránh mỗi lần nhập sai lại gia hạn khóa vô hạn). Hết hạn khóa -> tự mở khóa rồi cho đăng nhập tiếp.
+        if (user.LockEnabled && user.AccessFailedCount >= AuthConstants.MAX_ACCESS_FAILED)
+        {
+            if (user.LockEndDate.HasValue && user.LockEndDate.Value > DateTime.Now)
+            {
+                return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.UserLocked)
+                        .Replace("{ExpireTime}", user.LockEndDate?.ToString("dd/MM/yyy HH:mm:ss")),
+                    ApiCodeConstants.Auth.UserLocked);
+            }
+
+            user.LockEnabled = false;
+            user.LockEndDate = null;
+            user.AccessFailedCount = 0;
+            await _userRepository.UpdateAsync(user);
+            await _userRepository.SaveChangesAsync();
         }
 
         if (!PasswordHelper.VerifyPassword(obj.Password, user.PasswordHash))
@@ -236,7 +325,7 @@ public class AuthService : IAuthService
             user.AccessFailedCount++;
             if (user.AccessFailedCount >= AuthConstants.MAX_ACCESS_FAILED)
             {
-                user.UserStatusId = (int)Enums.UserStatus.Locked;
+                user.UserStatusId = Lookup.UserStatusId(LookupCodes.UserStatus.Locked);
                 user.LockEnabled = true;
                 user.LockEndDate = DateTime.Now.AddHours(AuthConstants.EXPIRE_TIME_LOCKED);
 
@@ -254,10 +343,10 @@ public class AuthService : IAuthService
             return ApiResponse.NotFound(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.UserNotFound), ApiCodeConstants.Auth.UserNotFound);
         }
 
-        if (user.UserStatusId == (int)Enums.UserStatus.NotActivated)
+        if (user.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.NotActivated))
             return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.UserNotActivated), ApiCodeConstants.Auth.UserNotActivated);
 
-        if (user.UserStatusId == (int)Enums.UserStatus.Deactivated)
+        if (user.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Deactivated))
             return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.UserDeactivated), ApiCodeConstants.Auth.UserDeactivated);
 
         if (user.LockEnabled)
@@ -284,7 +373,7 @@ public class AuthService : IAuthService
             user.LockEndDate = null;
             user.LockEnabled = false;
             user.AccessFailedCount = 0;
-            user.UserStatusId = (int)Enums.UserStatus.Actived;
+            user.UserStatusId = Lookup.UserStatusId(LookupCodes.UserStatus.Active);
         }
 
         var userToken = new UserToken
@@ -334,6 +423,7 @@ public class AuthService : IAuthService
                     Roles = listRoles,
                     Permissions = permissions,
                     Menus = menus,
+                    MustChangePassword = user.MustChangePassword,
                 }
             };
 
@@ -350,7 +440,8 @@ public class AuthService : IAuthService
                     Id = user.Id,
                     FullName = user.FirstName + " " + user.LastName,
                     Email = user.Email,
-                    AvatarUrl = userInfo.AvatarUrl
+                    AvatarUrl = userInfo.AvatarUrl,
+                    MustChangePassword = user.MustChangePassword,
                 }
             };
 
@@ -581,13 +672,16 @@ public class AuthService : IAuthService
             var apiBase = _hostSettings.ApiUrl;
             var resetUrl = $"{apiBase}/auth/activate?code={Uri.EscapeDataString(randomCode)}&email={Uri.EscapeDataString(model.Email)}&purpose={CommonConstants.UserVerificationTokenPurpose.ACCOUNT_ACTIVATION}";
 
+            var (systemName, logoUrl) = await GetSystemBrandAsync();
             var modelEmail = new UserActivationDto
             {
                 FullName = $"{model.FirstName} {model.LastName}",
                 ActiveLink = resetUrl,
                 ValidExpired = AuthConstants.ACCOUNT_ACTIVATION_EXPIRE_TIME.ToString(),
                 DateTime = DateTime.Now.Year.ToString(),
-                Link = apiBase
+                Link = apiBase,
+                SystemName = systemName,
+                LogoUrl = logoUrl
             };
 
             var emailBody = await _emailTemplateService.GetEmailTemplateAsync(AuthConstants.EmailTemplates.ADMIN_ACCOUNT_ACTIVATION, modelEmail);
@@ -619,7 +713,7 @@ public class AuthService : IAuthService
         //Check trùng tên đăng nhập
         var isExistUsername = await _userRepository.AnyAsync(x => !x.IsDeleted &&
         x.Username == obj.Username &&
-        x.UserStatusId == (int)Enums.UserStatus.Actived);
+        x.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Active));
 
         if (isExistUsername) return ApiResponse.UnprocessableEntity(
                 ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Username),
@@ -636,7 +730,7 @@ public class AuthService : IAuthService
         //Check trùng email
         var isExistEmail = await _userRepository.AnyAsync(x => !x.IsDeleted &&
         x.Email == obj.Email &&
-        x.UserStatusId == (int)Enums.UserStatus.Actived);
+        x.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Active));
         if (isExistEmail) return ApiResponse.UnprocessableEntity(
                 ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Email),
                 ApiCodeConstants.Common.DuplicatedData
@@ -659,11 +753,11 @@ public class AuthService : IAuthService
             await _userRepository.CreateAsync(model);
             await _userRepository.SaveChangesAsync();
 
-            //Thêm userRole
+            //Thêm userRole — mặc định vai trò Nhân viên kho; admin có thể đổi lại trong quản lý người dùng.
             var userRole = new UserRole()
             {
                 UserId = model.Id,
-                RoleId = CommonConstants.Role.DISPATCHER,
+                RoleId = CommonConstants.Role.WAREHOUSE,
                 CreatedDate = DateTime.Now,
             };
             await _userRoleRepository.CreateAsync(userRole);
@@ -731,7 +825,7 @@ public class AuthService : IAuthService
                 x.Purpose == dto.Purpose);
 
         if (token == null)
-            return ApiResponse.NotFound(ErrorMessagesConstants.GetMessage(Common.NotFound), ApiCodeConstants.Common.NotFound);
+            return ApiResponse.NotFound(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.NotFound), ApiCodeConstants.Common.NotFound);
 
         if (token.IsUsed)
             return ApiResponse.BadRequest(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.VerificationCodeUsed), ApiCodeConstants.Auth.VerificationCodeUsed);
@@ -741,7 +835,7 @@ public class AuthService : IAuthService
 
         if (dto.Purpose == CommonConstants.UserVerificationTokenPurpose.ACCOUNT_ACTIVATION)
         {
-            user.UserStatusId = (int)Enums.UserStatus.Actived;
+            user.UserStatusId = Lookup.UserStatusId(LookupCodes.UserStatus.Active);
             await _userRepository.UpdateAsync(user);
 
             token.IsUsed = true;
@@ -841,11 +935,11 @@ public class AuthService : IAuthService
             await _userRepository.CreateAsync(model);
             await _userRepository.SaveChangesAsync();
 
-            //Thêm userRole
+            //Thêm userRole — mặc định vai trò Nhân viên kho; admin có thể đổi lại trong quản lý người dùng.
             var userRole = new UserRole()
             {
                 UserId = model.Id,
-                RoleId = CommonConstants.Role.END_USER,
+                RoleId = CommonConstants.Role.WAREHOUSE,
                 CreatedDate = DateTime.Now,
             };
             await _userRoleRepository.CreateAsync(userRole);
@@ -879,6 +973,84 @@ public class AuthService : IAuthService
             return Task.FromResult(ApiResponse.InternalServerError());
         }
     }
+    /// <summary>
+    /// Lấy danh sách menu theo phân quyền của người dùng hiện tại.
+    /// Dùng đúng logic dựng menu như khi đăng nhập (GetMenuAsync) nên xử lý
+    /// chính xác cả role isCheckAll. Cho phép FE làm mới sidebar theo quyền
+    /// mà không cần đăng nhập lại hay tải lại trang.
+    /// </summary>
+    public async Task<ApiResponse> GetCurrentUserMenusAsync(int userId)
+    {
+        try
+        {
+            var menus = await _userRepository.GetMenuAsync(userId);
+            return ApiResponse.Success(menus);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Fail to get current user menus: {Message}", ex.Message);
+            return ApiResponse.InternalServerError();
+        }
+    }
+
+    /// <summary>
+    /// Dựng lại userInfo (profile + roles + permissions + menus) cho user hiện tại — cùng shape với login.
+    /// FE gọi khi khởi động (còn token) để nạp phân quyền vào bộ nhớ, không lưu ở localStorage.
+    /// </summary>
+    public async Task<ApiResponse> GetCurrentUserSessionAsync(int userId)
+    {
+        try
+        {
+            var userInfo = await _userRepository
+                .FindByCondition(x => x.Id == userId)
+                .Select(x => new
+                {
+                    User = x,
+                    AvatarUrl = x.Avatar == null ? null : _storageService.GetOriginalUrl(x.Avatar.FileKey)
+                })
+                .FirstOrDefaultAsync();
+
+            if (userInfo == null)
+                return ApiResponse.NotFound(
+                    ErrorMessagesConstants.GetMessage(ApiCodeConstants.Auth.UserNotFound),
+                    ApiCodeConstants.Auth.UserNotFound);
+
+            var user = userInfo.User;
+
+            var listRoles = await (from a in _userRoleRepository.GetAll()
+                                   join b in _roleRepository.GetAll() on a.RoleId equals b.Id
+                                   where a.UserId == user.Id
+                                   select new DataItem<int>
+                                   {
+                                       Id = a.RoleId,
+                                       Name = b.Name
+                                   })
+                                .ToListAsync();
+
+            var permissions = await _userRepository.GetPermissionsAsync(user.Id);
+            var menus = await _userRepository.GetMenuAsync(user.Id);
+
+            var result = new LoginResponseAdminUserInfo
+            {
+                Id = user.Id,
+                FullName = user.FirstName + " " + user.LastName,
+                Email = user.Email,
+                AvatarUrl = userInfo.AvatarUrl,
+                Roles = listRoles,
+                Permissions = permissions,
+                Menus = menus,
+                MustChangePassword = user.MustChangePassword,
+            };
+
+            return ApiResponse.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Fail to get current user session: {Message}", ex.Message);
+            return ApiResponse.InternalServerError();
+        }
+    }
+
     public async Task<ApiResponse> ResendActivationMailAsync(ResendActivationMailDto dto)
     {
         try
@@ -892,7 +1064,7 @@ public class AuthService : IAuthService
                 return ApiResponse.BadRequest();
             }
 
-            if (user.UserStatusId == (int)Enums.UserStatus.Actived)
+            if (user.UserStatusId == Lookup.UserStatusId(LookupCodes.UserStatus.Active))
             {
                 return ApiResponse.BadRequest();
             }
@@ -927,13 +1099,16 @@ public class AuthService : IAuthService
             var apiBase = _hostSettings.ApiUrl;
             var resetUrl = $"{apiBase}/auth/activate?code={Uri.EscapeDataString(randomCode)}&email={Uri.EscapeDataString(user.Email)}&purpose={CommonConstants.UserVerificationTokenPurpose.ACCOUNT_ACTIVATION}";
 
+            var (systemName, logoUrl) = await GetSystemBrandAsync();
             var modelEmail = new UserActivationDto
             {
                 FullName = $"{user.FirstName} {user.LastName}",
                 ActiveLink = resetUrl,
                 ValidExpired = AuthConstants.ACCOUNT_ACTIVATION_EXPIRE_TIME.ToString(),
                 DateTime = DateTime.Now.Year.ToString(),
-                Link = apiBase
+                Link = apiBase,
+                SystemName = systemName,
+                LogoUrl = logoUrl
             };
 
             var emailBody = await _emailTemplateService.GetEmailTemplateAsync(AuthConstants.EmailTemplates.ADMIN_ACCOUNT_ACTIVATION, modelEmail);

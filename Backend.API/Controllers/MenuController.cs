@@ -6,6 +6,7 @@ using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers
 {
@@ -23,6 +24,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost]
+        [CustomAuthorize(Enums.Menu.MENU_LIST, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreateMenuDto obj)
         {
             obj.CreatedBy = this.GetLoggedInUserId();
@@ -32,6 +34,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut]
+        [CustomAuthorize(Enums.Menu.MENU_LIST, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateMenuDto obj)
         {
             obj.UpdatedBy = this.GetLoggedInUserId();
@@ -41,6 +44,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet]
+        [CustomAuthorize(Enums.Menu.MENU_LIST, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _menuService.GetAllAsync();
@@ -58,6 +62,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}")]
+        [CustomAuthorize(Enums.Menu.MENU_LIST, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var result = await _menuService.GetByIdAsync(id);
@@ -66,6 +71,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("permissons")]
+        [CustomAuthorize(Enums.Menu.MENU_LIST, Enums.Action.READ)]
         public async Task<IActionResult> GetMenuPermissonAsync()
         {
             var result = await _menuService.GetMenuPermissionAsync();
@@ -74,6 +80,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpDelete("{id}")]
+        [CustomAuthorize(Enums.Menu.MENU_LIST, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var result = await _menuService.SoftDeleteAsync(id);
@@ -82,6 +89,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("types")]
+        [CustomAuthorize(Enums.Menu.MENU_LIST, Enums.Action.READ)]
         public async Task<IActionResult> GetAllMenuTypeAsync()
         {
             var result = await _menuService.GetAllMenuTypeAsync();

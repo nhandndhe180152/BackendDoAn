@@ -15,6 +15,10 @@ public class ProductVariantConfiguration : IEntityTypeConfiguration<ProductVaria
         builder.Property(x => x.Id)
             .ValueGeneratedOnAdd();
 
+        builder.Property(x => x.SKU).HasMaxLength(100);
+        builder.Property(x => x.QRCode).HasMaxLength(255);
+        builder.Property(x => x.IsByproduct).HasDefaultValue(false);
+
         builder.Property(x => x.CostPrice)
             .HasColumnType("decimal(18,2)");
 
@@ -25,10 +29,23 @@ public class ProductVariantConfiguration : IEntityTypeConfiguration<ProductVaria
             .HasColumnType("decimal(18,4)");
 
         builder.Property(x => x.MinStockLevel)
-    .HasPrecision(18, 2)
-    .IsRequired(false);
+            .HasPrecision(18, 2)
+            .IsRequired(false);
+
+        builder.HasIndex(x => x.SKU)
+            .IsUnique()
+            .HasDatabaseName("UX_ProductVariant_SKU");
+
+        builder.HasIndex(x => x.QRCode)
+            .IsUnique()
+            .HasDatabaseName("UX_ProductVariant_QRCode");
 
         builder.HasIndex(x => x.MinStockLevel)
             .HasDatabaseName("IX_ProductVariant_MinStockLevel");
+
+        builder.HasOne(x => x.RiceVariety)
+            .WithMany()
+            .HasForeignKey(x => x.RiceVarietyId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

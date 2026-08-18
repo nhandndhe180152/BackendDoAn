@@ -42,6 +42,7 @@ public class UserStatusRepository : RepositoryBase<UserStatus, int>, IUserStatus
             .Select(x => new UserStatusAggregate
             {
                 Color = x.Color,
+                Code = x.Code,
                 CreatedDate = x.CreatedDate,
                 Description = x.Description ?? "",
                 Id = x.Id,

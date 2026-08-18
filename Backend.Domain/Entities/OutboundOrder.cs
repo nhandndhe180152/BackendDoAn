@@ -8,17 +8,43 @@ public class OutboundOrder : EntityAuditBase<int>
 {
     public int WarehouseId { get; set; }
     public int OutboundOrderStatusId { get; set; }
-    public string SOCode { get; set; } = null!;
-    public string? CustomerName { get; set; }
-    public string? CustomerPhone { get; set; }
-    public string? CustomerAddress { get; set; }
+
+    /// <summary>Nguồn gốc phiếu xuất — FK → SalesOrder (NOT NULL: mỗi phiếu xuất phải thuộc đơn bán)</summary>
+    public int SalesOrderId { get; set; }
+
+    /// <summary>Multi-tenant (nullable ở MVP — chưa bật Global Query Filter)</summary>
+    public int? OrganizationId { get; set; }
+
     public string? Note { get; set; }
+
+    /// <summary>Lý do hủy phiếu xuất — chỉ có giá trị khi phiếu ở trạng thái CANCELLED.</summary>
+    public string? CancelReason { get; set; }
+
+    /// <summary>
+    /// Tên cân điện tử đã dùng ở bước đóng gói (ví dụ "StockLite-01").
+    /// NULL nghĩa là toàn bộ khối lượng được nhập tay — dùng để truy xuất nguồn
+    /// gốc số cân khi đối chiếu khiếu nại khối lượng với khách.
+    /// </summary>
+    public string? PackingScaleDevice { get; set; }
+
+    /// <summary>Thời điểm chốt đóng gói (PICKING → PACKED).</summary>
+    public DateTime? PackedDate { get; set; }
+
     public decimal TotalDispatchedValue { get; set; }
+    public decimal TotalDispatchedSaleValue { get; set; }
     public DateTime? CompletedDate { get; set; }
     public int? AssignedUserId { get; set; }
 
+    // Delivery details
+    public string? ReceiverName { get; set; }
+    public string? DeliveryNote { get; set; }
+    public string? ProofImageUrl { get; set; }
+
     public virtual Warehouse Warehouse { get; set; } = null!;
     public virtual OutboundOrderStatus OutboundOrderStatus { get; set; } = null!;
+    public virtual SalesOrder SalesOrder { get; set; } = null!;
+    public virtual Organization? Organization { get; set; }
     public virtual User? AssignedUser { get; set; }
     public virtual ICollection<OutboundOrderItem> OutboundOrderItems { get; set; } = new List<OutboundOrderItem>();
 }
+

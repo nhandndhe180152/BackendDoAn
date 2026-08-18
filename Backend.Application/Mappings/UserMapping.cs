@@ -2,6 +2,8 @@ using System;
 using System.Globalization;
 using Backend.Application.DTOs.Users;
 using Backend.Domain.Entities;
+using Backend.Application.Common;
+using Backend.Application.Constants;
 using Backend.Domain.Enums;
 using Backend.Share.Helpers;
 
@@ -14,18 +16,22 @@ public static class UserMapping
         return new User
         {
             CreatedBy = obj.CreatedBy,
-            Username = obj.Email.ToLower(),
-            PasswordHash = obj.PasswordHash,
+            // Username tách riêng khỏi Email; Email chỉ để nhận thông báo hệ thống.
+            Username = obj.Username.Trim().ToLower(),
+            // PasswordHash được gán ở UserService (mật khẩu do hệ thống sinh).
             FirstName = obj.FirstName,
             LastName = obj.LastName,
-            Email = obj.Email.ToLower(),
+            Email = obj.Email.Trim().ToLower(),
             PhoneNumber = obj.PhoneNumber,
             IdentityNumber = obj.IdentityNumber,
             Gender = obj.Gender,
             AddresDetail = obj.AddresDetail,
-            UserStatusId = (int)Enums.UserStatus.Actived,
+            // Chỉ admin tạo tài khoản nên kích hoạt ngay (không qua email xác thực).
+            UserStatusId = Lookup.UserStatusId(LookupCodes.UserStatus.Active),
             AccessFailedCount = 0,
             LockEnabled = false,
+            // Buộc đổi mật khẩu ở lần đăng nhập đầu tiên.
+            MustChangePassword = true,
             CreatedDate = DateTime.Now
         };
     }
@@ -69,7 +75,7 @@ public static class UserMapping
             FirstName = obj.FirstName.Trim(),
             LastName = obj.LastName.Trim(),
             Email = obj.Email.Trim(),
-            UserStatusId = (int)Enums.UserStatus.NotActivated,
+            UserStatusId = Lookup.UserStatusId(LookupCodes.UserStatus.NotActivated),
             AccessFailedCount = 0,
             LockEnabled = false,
             //OfficeId = obj.OfficeId,
@@ -89,7 +95,7 @@ public static class UserMapping
             Email = obj.Email.Trim(),
             PhoneNumber = obj.PhoneNumber.Trim(),
             IdentityNumber = obj.IdentityNumber.Trim(),
-            UserStatusId = (int)Enums.UserStatus.NotActivated,
+            UserStatusId = Lookup.UserStatusId(LookupCodes.UserStatus.NotActivated),
             AccessFailedCount = 0,
             LockEnabled = false,
             CreatedDate = DateTime.Now
@@ -109,7 +115,7 @@ public static class UserMapping
             Email = obj.Email.Trim(),
             PhoneNumber = obj.PhoneNumber != null ? obj.PhoneNumber.Trim() : null,
             IdentityNumber = obj.IdentityNumber.Trim(),
-            UserStatusId = (int)Enums.UserStatus.Actived,
+            UserStatusId = Lookup.UserStatusId(LookupCodes.UserStatus.Active),
             AccessFailedCount = 0,
             AddresDetail = obj.AddressDetail,
             LockEnabled = false,

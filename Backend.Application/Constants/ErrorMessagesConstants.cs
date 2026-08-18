@@ -69,6 +69,8 @@ public static class ErrorMessagesConstants
         [ApiCodeConstants.User.DuplicatedEmail] = "Email {key} đã tồn tại.",
         [ApiCodeConstants.User.DuplicatedPhoneNumber] = "Số điện thoại {key} đã tồn tại.",
         [ApiCodeConstants.User.DuplicatedIdentityNumber] = "CCCD {key} đã tồn tại.",
+        [ApiCodeConstants.User.DuplicatedUsername] = "Tên đăng nhập {key} đã tồn tại.",
+        [ApiCodeConstants.User.RequiredRole] = "Vui lòng chọn ít nhất một vai trò.",
     };
 
     public static string GetMessage(string code)

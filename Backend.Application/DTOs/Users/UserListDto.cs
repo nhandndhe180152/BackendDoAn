@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using Backend.Share.Entities;
 
 namespace Backend.Application.DTOs.Users;
 
@@ -17,6 +19,7 @@ public class UserListDto
     public DateTime? LockEndDate { get; set; }
     public int UserStatusId { get; set; }
     public string UserStatusName { get; set; } = null!;
+    public string UserStatusCode { get; set; } = null!;
     public int? AvatarId { get; set; }
     public string? AvatarKey { get; set; }
     public string? AvatarUrl { get; set; }
@@ -25,4 +28,10 @@ public class UserListDto
     public DateTime CreatedDate { get; set; }
 
     public DateTime? DateOfBirth { get; set; }
+
+    /// <summary>
+    /// Vai trò của user (Id + Name). Đưa vào endpoint GetAll dùng chung để các màn khác
+    /// (vd Kiểm định chất lượng) lọc người theo vai trò mà không cần quyền READ menu User.
+    /// </summary>
+    public List<DataItem<int>> Roles { get; set; } = new List<DataItem<int>>();
 }

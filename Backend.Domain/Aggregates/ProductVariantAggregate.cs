@@ -21,5 +21,6 @@ public class ProductVariantAggregate
     public string? ImageFileKey { get; set; }
     public bool IsActive { get; set; }
     public decimal? MinStockLevel { get; set; }
+    public bool IsByproduct { get; set; }
     public DateTime CreatedDate { get; set; }
 }

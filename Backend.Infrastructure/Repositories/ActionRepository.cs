@@ -40,6 +40,7 @@ public class ActionRepository : RepositoryBase<Domain.Entities.Action, int>, IAc
             .Select(x => new ActionAggregate
             {
                 CreatedDate = x.CreatedDate,
+                Code = x.Code,
                 Description = x.Description,
                 Id = x.Id,
                 Name = x.Name,

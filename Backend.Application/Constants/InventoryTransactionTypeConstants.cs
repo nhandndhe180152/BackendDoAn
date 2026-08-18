@@ -10,6 +10,10 @@ public static class InventoryTransactionTypeConstants
     public const string ManualAdjust = "MANUAL_ADJUST";
     public const string Reserve = "RESERVE";
     public const string ReleaseReserve = "RELEASE_RESERVE";
+    public const string CustomerReturnRestock = "CUSTOMER_RETURN_RESTOCK";
+    public const string CustomerReturnQuarantine = "CUSTOMER_RETURN_QUARANTINE";
+    public const string TransferOut = "TRANSFER_OUT";
+    public const string TransferIn = "TRANSFER_IN";
 
     public static readonly string[] All =
     [
@@ -18,7 +22,11 @@ public static class InventoryTransactionTypeConstants
         StockTakeAdjust,
         ManualAdjust,
         Reserve,
-        ReleaseReserve
+        ReleaseReserve,
+        CustomerReturnRestock,
+        CustomerReturnQuarantine,
+        TransferOut,
+        TransferIn
     ];
 
     public static string Normalize(string? type)
@@ -41,6 +49,8 @@ public static class InventoryTransactionTypeConstants
             "MANUAL" or "MANUAL_ADJUST" or "ADJUST" => ManualAdjust,
             "RESERVE" => Reserve,
             "RELEASE_RESERVE" or "UNRESERVE" => ReleaseReserve,
+            "TRANSFER_OUT" => TransferOut,
+            "TRANSFER_IN" => TransferIn,
             _ => value
         };
     }

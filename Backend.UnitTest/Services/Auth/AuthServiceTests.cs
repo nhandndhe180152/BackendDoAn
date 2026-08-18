@@ -1,12 +1,14 @@
 using Backend.Application.Constants;
 using Backend.Application.DTOs.Auths;
 using Backend.Application.DTOs.Emails;
+using Backend.Application.DTOs.Users;
 using Backend.Application.Implements;
 using Backend.Application.Interfaces;
 using Backend.Domain.Entities;
 using Backend.Domain.Enums;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
+using Backend.Share.Helpers;
 using Backend.UnitTest.Common;
 using Backend.UnitTest.Fixtures;
 using FluentAssertions;
@@ -35,11 +37,16 @@ public class AuthServiceTests
     private readonly Mock<IMenuRepository> _menuRepo = new();
     private readonly Mock<IRoleRepository> _roleRepo = new();
     private readonly Mock<IFileUploadRepository> _fileUploadRepo = new();
+    private readonly Mock<ISystemConfigRepository> _systemConfigRepo = new();
 
     private readonly AuthService _sut; // System Under Test
 
     public AuthServiceTests()
     {
+        // Mặc định trả rỗng cho brand config (service tự dùng giá trị mặc định).
+        _systemConfigRepo.Setup(r => r.GetValueByKey(It.IsAny<string>()))
+                         .ReturnsAsync(string.Empty);
+
         _sut = new AuthService(
             _userRepo.Object,
             _sessionRepo.Object,
@@ -55,7 +62,8 @@ public class AuthServiceTests
             _menuRepo.Object,
             _roleRepo.Object,
             MockHelper.LoggerFactory().Object,
-            _fileUploadRepo.Object
+            _fileUploadRepo.Object,
+            _systemConfigRepo.Object
         );
     }
 
@@ -137,6 +145,109 @@ public class AuthServiceTests
     // ResetPasswordAsync
     // ════════════════════════════════════════════════════════════════════════
 
+    // Note: admin forgot-password sinh mật khẩu mới, buộc đổi lần kế tiếp và gửi email.
+    [Fact]
+    [Trait("Service", "Auth")]
+    [Trait("Method", "ForgotPassword")]
+    public async Task ForgotPassword_ValidUser_ResetsPasswordAndSendsEmail()
+    {
+        // Arrange
+        UserVerificationToken? createdToken = null;
+        GoogleMailRequest? sentMail = null;
+        var user = TestDataBuilder.DefaultUser();
+        var oldHash = user.PasswordHash;
+
+        _userRepo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<Expression<Func<Domain.Entities.User, bool>>>(), false))
+                 .ReturnsAsync(user);
+        _tokenRepo.Setup(r => r.FindByCondition(It.IsAny<Expression<Func<UserVerificationToken, bool>>>(), It.IsAny<bool>()))
+                  .Returns(Enumerable.Empty<UserVerificationToken>().AsQueryable().BuildMock());
+        _tokenRepo.Setup(r => r.CreateAsync(It.IsAny<UserVerificationToken>()))
+                  .Callback<UserVerificationToken>(token => createdToken = token);
+        _emailTemplate.Setup(s => s.GetEmailTemplateAsync(It.IsAny<string>(), It.IsAny<object>()))
+                      .ReturnsAsync("<html>new password</html>");
+        _emailService.Setup(s => s.SendMailAsync(It.IsAny<GoogleMailRequest>()))
+                     .Callback<GoogleMailRequest>(mail => sentMail = mail);
+
+        // Act
+        var result = await _sut.ForgotPasswordAsync(user.Email);
+
+        // Assert
+        result.IsSucceeded.Should().BeTrue();
+        result.Status.Should().Be(200);
+        // Đã đặt lại mật khẩu và buộc đổi lần kế tiếp.
+        user.PasswordHash.Should().NotBe(oldHash);
+        user.MustChangePassword.Should().BeTrue();
+        createdToken.Should().NotBeNull();
+        createdToken!.UserId.Should().Be(user.Id);
+        createdToken.Purpose.Should().Be(CommonConstants.UserVerificationTokenPurpose.FORGOT_PASSWORD);
+        sentMail.Should().NotBeNull();
+        sentMail!.ToEmails.Should().ContainSingle(user.Email);
+        _emailService.Verify(s => s.SendMailAsync(It.IsAny<GoogleMailRequest>()), Times.Once);
+    }
+
+    // Note: client login success must create a refresh-token session and return typed user info.
+    [Fact]
+    [Trait("Service", "Auth")]
+    [Trait("Method", "Login")]
+    public async Task Login_ValidClientCredentials_ReturnsTokensAndCreatesSession()
+    {
+        // Arrange
+        UserSession? createdSession = null;
+        var user = TestDataBuilder.DefaultUser();
+        var refreshTokenExpiresAt = DateTime.Now.AddDays(7);
+
+        _userRepo.Setup(r => r.FindByCondition(It.IsAny<Expression<Func<Domain.Entities.User, bool>>>(), It.IsAny<bool>()))
+                 .Returns(new[] { user }.AsQueryable().BuildMock());
+        _tokenProvider.Setup(s => s.GenerateToken(It.IsAny<UserToken>()))
+                      .Returns("access-token");
+        _tokenProvider.Setup(s => s.GenerateRefreshToken())
+                      .Returns(("refresh-token", refreshTokenExpiresAt));
+        _sessionRepo.Setup(r => r.CreateAsync(It.IsAny<UserSession>()))
+                    .Callback<UserSession>(session => createdSession = session);
+
+        // Act
+        var result = await _sut.LoginAsync(TestDataBuilder.ValidLoginRequest());
+
+        // Assert
+        result.IsSucceeded.Should().BeTrue();
+        result.Resources.Should().BeOfType<LoginResponseDto<LoginResponseClientUserInfo>>();
+        var response = (LoginResponseDto<LoginResponseClientUserInfo>)result.Resources!;
+        response.AccessToken.Should().Be("access-token");
+        response.RefreshToken.Should().Be("refresh-token");
+        response.UserInfo.Email.Should().Be(user.Email);
+        createdSession.Should().NotBeNull();
+        createdSession!.UserId.Should().Be(user.Id);
+        createdSession.RefreshToken.Should().Be("refresh-token");
+        createdSession.ExpirationDate.Should().Be(refreshTokenExpiresAt);
+        _userRepo.Verify(r => r.UpdateAsync(It.Is<Domain.Entities.User>(x => x.Id == user.Id && x.AccessFailedCount == 0)), Times.Once);
+        _sessionRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+    }
+
+    // Note: wrong password path must not create sessions and must persist failed-attempt count.
+    [Fact]
+    [Trait("Service", "Auth")]
+    [Trait("Method", "Login")]
+    public async Task Login_WrongPassword_IncrementsAccessFailedCountAndReturnsNotFound()
+    {
+        // Arrange
+        var user = TestDataBuilder.DefaultUser();
+
+        _userRepo.Setup(r => r.FindByCondition(It.IsAny<Expression<Func<Domain.Entities.User, bool>>>(), It.IsAny<bool>()))
+                 .Returns(new[] { user }.AsQueryable().BuildMock());
+
+        // Act
+        var result = await _sut.LoginAsync(TestDataBuilder.WrongPasswordLoginRequest());
+
+        // Assert
+        result.IsSucceeded.Should().BeFalse();
+        result.Status.Should().Be(404);
+        result.Code.Should().Be(ApiCodeConstants.Auth.UserNotFound);
+        user.AccessFailedCount.Should().Be(1);
+        _userRepo.Verify(r => r.UpdateAsync(user), Times.Once);
+        _userRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _sessionRepo.Verify(r => r.CreateAsync(It.IsAny<UserSession>()), Times.Never);
+    }
+
     [Fact]
     [Trait("Service", "Auth")]
     [Trait("Method", "ResetPassword")]
@@ -206,6 +317,36 @@ public class AuthServiceTests
     // VerifyCodeAsync
     // ════════════════════════════════════════════════════════════════════════
 
+    // Note: reset success should update both password hash and verification-token usage.
+    [Fact]
+    [Trait("Service", "Auth")]
+    [Trait("Method", "ResetPassword")]
+    public async Task ResetPassword_ValidToken_UpdatesPasswordAndMarksTokenUsed()
+    {
+        // Arrange
+        var user = TestDataBuilder.DefaultUser();
+        var token = TestDataBuilder.ValidToken(user.Id);
+        var dto = TestDataBuilder.ValidResetPasswordDto(token.Code);
+        dto.Email = user.Email;
+        dto.Purpose = token.Purpose;
+
+        _userRepo.Setup(r => r.FindByCondition(It.IsAny<Expression<Func<Domain.Entities.User, bool>>>(), It.IsAny<bool>()))
+                 .Returns(new[] { user }.AsQueryable().BuildMock());
+        _tokenRepo.Setup(r => r.FindByCondition(It.IsAny<Expression<Func<UserVerificationToken, bool>>>(), It.IsAny<bool>()))
+                  .Returns(new[] { token }.AsQueryable().BuildMock());
+
+        // Act
+        var result = await _sut.ResetPasswordAsync(dto);
+
+        // Assert
+        result.IsSucceeded.Should().BeTrue();
+        token.IsUsed.Should().BeTrue();
+        PasswordHelper.VerifyPassword(dto.NewPassword, user.PasswordHash).Should().BeTrue();
+        _userRepo.Verify(r => r.UpdateAsync(user), Times.Once);
+        _tokenRepo.Verify(r => r.UpdateAsync(token), Times.Once);
+        _userRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+    }
+
     [Fact]
     [Trait("Service", "Auth")]
     [Trait("Method", "VerifyCode")]
@@ -272,6 +413,35 @@ public class AuthServiceTests
     // ════════════════════════════════════════════════════════════════════════
     // LogoutAsync
     // ════════════════════════════════════════════════════════════════════════
+
+    // Note: account activation is the VerifyCode branch that mutates user status.
+    [Fact]
+    [Trait("Service", "Auth")]
+    [Trait("Method", "VerifyCode")]
+    public async Task VerifyCode_AccountActivation_ActivatesUserAndMarksTokenUsed()
+    {
+        // Arrange
+        var user = TestDataBuilder.NotActivatedUser();
+        var token = TestDataBuilder.ValidToken(user.Id);
+        token.Purpose = CommonConstants.UserVerificationTokenPurpose.ACCOUNT_ACTIVATION;
+        var dto = new VerifyCodeDto { Email = user.Email, Code = token.Code, Purpose = token.Purpose };
+
+        _userRepo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<Expression<Func<Domain.Entities.User, bool>>>(), false))
+                 .ReturnsAsync(user);
+        _tokenRepo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<Expression<Func<UserVerificationToken, bool>>>(), false))
+                  .ReturnsAsync(token);
+
+        // Act
+        var result = await _sut.VerifyCodeAsync(dto);
+
+        // Assert
+        result.IsSucceeded.Should().BeTrue();
+        user.UserStatusId.Should().Be((int)Enums.UserStatus.Actived);
+        token.IsUsed.Should().BeTrue();
+        _userRepo.Verify(r => r.UpdateAsync(user), Times.Once);
+        _tokenRepo.Verify(r => r.UpdateAsync(token), Times.Once);
+        _tokenRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+    }
 
     [Fact]
     [Trait("Service", "Auth")]

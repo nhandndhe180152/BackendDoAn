@@ -131,6 +131,28 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        [Authorize]
+        [HttpGet("me/menus")]
+        public async Task<IActionResult> GetCurrentUserMenus()
+        {
+            var userId = this.GetLoggedInUserId();
+            var result = await _authService.GetCurrentUserMenusAsync(userId);
+            return BaseResult(result);
+        }
+
+        /// <summary>
+        /// Nạp "phiên" hiện tại (profile + roles + permissions + menus) cho FE khi khởi động lại app
+        /// mà không cần lưu thông tin user ở localStorage. Chỉ cần còn access token hợp lệ.
+        /// </summary>
+        [Authorize]
+        [HttpGet("me/session")]
+        public async Task<IActionResult> GetCurrentUserSession()
+        {
+            var userId = this.GetLoggedInUserId();
+            var result = await _authService.GetCurrentUserSessionAsync(userId);
+            return BaseResult(result);
+        }
+
         [HttpPost("resend-activation-mail")]
         public async Task<IActionResult> ResendActivationMail([FromBody] ResendActivationMailDto dto)
         {

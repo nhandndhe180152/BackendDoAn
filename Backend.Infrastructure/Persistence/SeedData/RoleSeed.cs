@@ -12,11 +12,13 @@ public class RoleSeed
                 new Role
                 {
                     Id=1001,
+                    Code="ADMIN",
                     Name="Quản trị viên",
                 },
                 new Role
                 {
                     Id=1002,
+                    Code="END_USER",
                     Name="Người dùng",
                 }
             };

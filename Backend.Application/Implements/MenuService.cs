@@ -1,4 +1,5 @@
 using System;
+using Backend.Application.Common;
 using Backend.Application.Constants;
 using Backend.Application.DTOs.Menus;
 using Backend.Application.Interfaces;
@@ -100,6 +101,7 @@ public class MenuService : IMenuService
             .Select(x => new MenuDetailDto
             {
                 ClassName = x.ClassName,
+                Code = x.Code,
                 Icon = x.Icon,
                 Id = x.Id,
                 MenuType = x.MenuType,
@@ -121,6 +123,7 @@ public class MenuService : IMenuService
             .Select(x => new MenuDetailDto
             {
                 ParentId = x.ParentId,
+                Code = x.Code,
                 ClassName = x.ClassName,
                 Icon = x.Icon,
                 Id = x.Id,
@@ -148,6 +151,7 @@ public class MenuService : IMenuService
             .Select(x => new MenuListDto
             {
                 ClassName = x.ClassName,
+                Code = x.Code,
                 Icon = x.Icon,
                 Id = x.Id,
                 MenuType = x.MenuType,
@@ -171,6 +175,7 @@ public class MenuService : IMenuService
             .Select(m => new MenuListDto
             {
                 Id = m.Id,
+                Code = m.Code,
                 Name = m.Name,
                 Url = m.Url,
                 Icon = m.Icon,
@@ -328,12 +333,12 @@ public class MenuService : IMenuService
                       Id = x.Key.Id,
                       Name = x.Key.Name,
                       TreeIds = x.Key.TreeIds,
-                      HasCreate = x.Any(xx => xx.ActionId == (int)Enums.Action.CREATE),
-                      HasRead = x.Any(xx => xx.ActionId == (int)Enums.Action.READ),
-                      HasUpdate = x.Any(xx => xx.ActionId == (int)Enums.Action.UPDATE),
-                      HasDelete = x.Any(xx => xx.ActionId == (int)Enums.Action.DELETE),
-                      HasExport = x.Any(xx => xx.ActionId == (int)Enums.Action.EXPORT),
-                      HasApprove = x.Any(xx => xx.ActionId == (int)Enums.Action.APPROVE)
+                      HasCreate = x.Any(xx => xx.ActionId == Lookup.ActionId(LookupCodes.Action.Create)),
+                      HasRead = x.Any(xx => xx.ActionId == Lookup.ActionId(LookupCodes.Action.Read)),
+                      HasUpdate = x.Any(xx => xx.ActionId == Lookup.ActionId(LookupCodes.Action.Update)),
+                      HasDelete = x.Any(xx => xx.ActionId == Lookup.ActionId(LookupCodes.Action.Delete)),
+                      HasExport = x.Any(xx => xx.ActionId == Lookup.ActionId(LookupCodes.Action.Export)),
+                      HasApprove = x.Any(xx => xx.ActionId == Lookup.ActionId(LookupCodes.Action.Approve))
                   })
                   .OrderBy(x => x.TreeIds)
                   .ToListAsync();

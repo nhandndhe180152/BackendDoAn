@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Backend.Infrastructure.Constants;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -14,5 +14,57 @@ public class LocationConfiguration : IEntityTypeConfiguration<Location>
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id)
             .ValueGeneratedOnAdd();
+
+        builder.Property(x => x.ZoneName).HasMaxLength(255);
+        builder.Property(x => x.ShelfRow).HasMaxLength(100);
+        builder.Property(x => x.ShelfLevel).HasMaxLength(100);
+        builder.Property(x => x.SlotCode).HasMaxLength(100);
+        builder.Property(x => x.Description).HasMaxLength(500);
+        builder.Property(x => x.QrCode).HasMaxLength(100).IsRequired();
+        builder.Property(x => x.QrImageUrl).HasMaxLength(500);
+        builder.HasIndex(x => x.QrCode).IsUnique().HasDatabaseName("UX_Location_QrCode");
+
+        builder.Property(x => x.MaxCapacity).HasColumnType("decimal(18,3)");
+        builder.Property(x => x.CurrentOccupancy).HasColumnType("decimal(18,3)").HasDefaultValue(0.000m);
+        builder.Property(x => x.IsOutboundStaging).HasDefaultValue(false);
+        // stored: false (VIRTUAL) — cột STORED buộc MySQL dựng lại toàn bộ bảng Location khi
+        // thêm, và bước dựng lại đó làm hỏng việc tạo lại khóa ngoại ("Cannot add foreign key
+        // constraint") trên DB đã có dữ liệu. VIRTUAL chỉ đổi metadata và vẫn index unique được.
+        builder.Property<int?>("OutboundStagingWarehouseId")
+            .HasComputedColumnSql("CASE WHEN `IsOutboundStaging` = 1 AND `IsDeleted` = 0 THEN `WarehouseId` ELSE NULL END", stored: false);
+        builder.HasIndex("OutboundStagingWarehouseId")
+            .IsUnique()
+            .HasDatabaseName("UX_Location_OneOutboundStagingPerWarehouse");
+
+        // Chỉ cấu hình FK AllowedCategory (SET NULL) — Warehouse FK được xử lý qua convention
+        builder.HasOne(x => x.AllowedCategory)
+            .WithMany()
+            .HasForeignKey(x => x.AllowedCategoryId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasOne(x => x.CurrentProductVariant)
+            .WithMany()
+            .HasForeignKey(x => x.CurrentProductVariantId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasOne(x => x.OutboundLockOrder)
+            .WithMany()
+            .HasForeignKey(x => x.OutboundLockOrderId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasIndex(x => x.AllowedCategoryId)
+            .HasDatabaseName("IX_Location_AllowedCategoryId");
+
+        builder.HasIndex(x => x.IsQuarantine)
+            .HasDatabaseName("IX_Location_IsQuarantine");
+
+        builder.HasIndex(x => new { x.WarehouseId, x.IsActive, x.IsDeleted, x.IsQuarantine, x.CurrentProductVariantId })
+            .HasDatabaseName("IX_Location_PutawayCandidate");
+
+        builder.HasIndex(x => x.OutboundLockOrderId)
+            .HasDatabaseName("IX_Location_OutboundLockOrderId");
+
+        builder.HasIndex(x => new { x.WarehouseId, x.IsOutboundStaging, x.IsActive, x.IsDeleted })
+            .HasDatabaseName("IX_Location_OutboundStaging");
     }
 }

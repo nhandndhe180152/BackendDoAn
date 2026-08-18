@@ -169,8 +169,13 @@ public class FileUploadService : IFileUploadService
     {
         var currentUserId = _httpContextAccessor.HttpContext?.GetCurrentUserId();
 
-        var data = _fileUploadRepository
+        // Chỉ truy vấn SQL những điều kiện EF dịch được (theo thư mục + chủ sở hữu).
+        // KHÔNG dịch sang SQL: GetOriginalUrl (hàm C#) và bộ lọc FileTypes dạng
+        // list.Any(StartsWith) -> cả hai gây lỗi 500. Vì đây là ảnh của 1 user trong
+        // 1 thư mục (tập nhỏ) nên lấy về rồi lọc/phân trang/gán URL trong bộ nhớ.
+        var allItems = await _fileUploadRepository
             .FindByCondition(x => !x.IsDeleted && x.FolderUploadId == folderId && x.CreatedBy == currentUserId)
+            .OrderByDescending(x => x.Id)
             .Select(x => new FileUploadDetailDto
             {
                 Id = x.Id,
@@ -178,29 +183,41 @@ public class FileUploadService : IFileUploadService
                 FileName = x.FileName,
                 FileSize = x.FileSize,
                 FileType = x.FileType,
-                Url = _storageService.GetOriginalUrl(x.FileKey)
-            });
+            })
+            .ToListAsync();
 
-        var totalRecord = await data.CountAsync();
+        var totalRecord = allItems.Count;
+
+        IEnumerable<FileUploadDetailDto> filtered = allItems;
         if (!string.IsNullOrEmpty(query.Keyword))
         {
-            data = data
-                .Where(x => x.FileName.ToLower().Contains(query.Keyword.ToLower()));
+            var keyword = query.Keyword.ToLower();
+            filtered = filtered.Where(x => (x.FileName ?? string.Empty).ToLower().Contains(keyword));
         }
 
-        if (query.FileTypes.Any())
+        if (query.FileTypes != null && query.FileTypes.Any())
         {
-            data = data
-                .Where(x => query.FileTypes.Any(type => x.FileType.StartsWith(type)));
+            filtered = filtered.Where(x =>
+                query.FileTypes.Any(type => (x.FileType ?? string.Empty).StartsWith(type, StringComparison.OrdinalIgnoreCase)));
         }
+
+        var filteredList = filtered.ToList();
+        var totalFiltered = filteredList.Count;
+
+        var dataSource = filteredList
+            .Skip((query.PageIndex - 1) * query.PageSize)
+            .Take(query.PageSize)
+            .ToList();
+
+        dataSource.ForEach(x => x.Url = _storageService.GetOriginalUrl(x.FileKey));
 
         var pagedData = new PagingData<FileUploadDetailDto>
         {
             CurrentPage = query.PageIndex,
             PageSize = query.PageSize,
-            DataSource = await data.OrderByDescending(x => x.Id).Skip((query.PageIndex - 1) * query.PageSize).Take(query.PageSize).ToListAsync(),
+            DataSource = dataSource,
             Total = totalRecord,
-            TotalFiltered = await data.CountAsync()
+            TotalFiltered = totalFiltered
         };
 
         return ApiResponse.Success(pagedData);

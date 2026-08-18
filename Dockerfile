@@ -1,17 +1,28 @@
-# Giai đoạn 1: Chạy môi trường Runtime siêu nhẹ
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+# Giai đoạn 1: Runtime siêu nhẹ trên Alpine (ít lỗ hổng OS hơn Debian rất nhiều)
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS base
 WORKDIR /app
 EXPOSE 8080
 ENV ASPNETCORE_HTTP_PORTS=8080
 
-# Cài đặt font DejaVu để hỗ trợ hiển thị tiếng Việt khi xuất PDF
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    fonts-dejavu-core \
-    && rm -rf /var/lib/apt/lists/*
+# Bật globalization đầy đủ (ICU) để định dạng tiếng Việt / ngày giờ đúng trên Alpine
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
+
+# Nâng toàn bộ package OS lên bản vá mới nhất (vá openssl/libssl3/libcrypto3...).
+# Sau đó cài font DejaVu (xuất PDF tiếng Việt) + thư viện native cho Magick.NET + ICU + tzdata.
+# Alpine dùng apk thay cho apt; gói font tên là 'font-dejavu'.
+RUN apk upgrade --no-cache \
+    && apk add --no-cache \
+        fontconfig \
+        font-dejavu \
+        icu-libs \
+        tzdata \
+        libstdc++ \
+        libgomp \
+    && fc-cache -f
 
 
-# Giai đoạn 2: Dùng SDK để build code
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+# Giai đoạn 2: Dùng SDK (Alpine) để build code
+FROM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS build
 WORKDIR /src
 
 # Copy file .sln và tất cả các file .csproj của từng layer

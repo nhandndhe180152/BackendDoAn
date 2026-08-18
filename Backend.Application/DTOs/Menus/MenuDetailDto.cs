@@ -5,6 +5,7 @@ namespace Backend.Application.DTOs.Menus;
 public class MenuDetailDto
 {
     public int Id { get; set; }
+    public string? Code { get; set; }
     public int? ParentId { get; set; }
     public string TreeIds { get; set; } = null!;
     public string MenuType { get; set; } = null!;

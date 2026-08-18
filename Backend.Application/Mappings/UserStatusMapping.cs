@@ -10,6 +10,7 @@ public static class UserStatusMapping
     {
         return new UserStatus
         {
+            Code = dto.Code,
             Name = dto.Name,
             Description = dto.Description,
             Color = dto.Color,
@@ -23,6 +24,7 @@ public static class UserStatusMapping
         existData.Color = dto.Color;
         existData.Name = dto.Name;
         existData.Description = dto.Description;
+        existData.Code = dto.Code;
         existData.UpdatedBy = dto.UpdatedBy;
         existData.LastModifiedDate = DateTime.Now;
         return existData;

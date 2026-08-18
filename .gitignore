@@ -368,3 +368,15 @@ docker-compose.yml
 windsurf-rules.md
 appsettings.json
 Configs/
+RA_SOAT_NGHIEP_VU_API.md
+HUONG_DAN_THEM_TRANG_THAI_AWAITING_QC.md
+HUONG_DAN_MAN_TRANG_THAI.md
+BAO_CAO_TOI_UU_API.md
+cleanup_rice_data.sql
+fix_location_occupancy.sql
+PHAN_QUYEN_MAN_HINH_7_ROLE.md
+HUONG_DAN_MERGE_print_Qr.md
+THIET_KE_NHAP_KHO_THEO_BAO.md
+RA_SOAT_MAN_HINH_WEB_XUONG_MOBILE.md
+REVIEW_PR_bag-putaway-sync-20260811.md
+REVIEW_PR2_enhance-ux_20260813.md

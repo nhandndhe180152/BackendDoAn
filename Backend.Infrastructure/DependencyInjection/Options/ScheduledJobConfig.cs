@@ -9,6 +9,11 @@ public class ScheduledJobConfig
     public JobSetting CleanupVerificationTokens { get; set; } = new();
     public JobSetting CreateDriverSalaries { get; set; } = new();
     public JobSetting PingDatabase { get; set; } = new();
+    public JobSetting LowStockDetection { get; set; } = new();
+    public JobSetting IntakeBottleneckEvaluation { get; set; } = new();
+    public JobSetting LotQualityRecheck { get; set; } = new();
+    public JobSetting DebtDueAndOverdueReminder { get; set; } = new();
+    public JobSetting FcmNotificationRetry { get; set; } = new();
 }
 
 public class JobSetting

@@ -4,6 +4,8 @@ using Backend.Share.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Backend.API.Utilities;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers
 {
@@ -21,6 +23,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged-advanced")]
+        [CustomAuthorize(Enums.Menu.USER_VERIFICATION_TOKEN, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] DTParameter parameters)
         {
             var result = await _userVerificationTokenService.GetPagedAsync(parameters);

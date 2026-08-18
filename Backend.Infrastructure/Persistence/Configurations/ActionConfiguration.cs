@@ -19,6 +19,8 @@ public class ActionConfiguration : IEntityTypeConfiguration<Domain.Entities.Acti
             .HasMaxLength(255);
         builder.Property(x => x.Description)
            .HasMaxLength(500);
+        builder.Property(x => x.Code).HasMaxLength(100);
+        builder.HasIndex(x => x.Code).HasDatabaseName("IX_Action_Code");
         builder.Property(x => x.CreatedDate).IsRequired().HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
         builder.Property(x => x.IsDeleted).IsRequired().HasDefaultValueSql("(0)");
         builder.HasMany(x => x.Permissions)

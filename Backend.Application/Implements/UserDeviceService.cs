@@ -2,18 +2,232 @@ using System;
 using Backend.Application.DTOs.UserDevices;
 using Backend.Application.Interfaces;
 using Backend.Application.Mappings;
+using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
+using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Application.Implements;
 
 public class UserDeviceService : IUserDeviceService
 {
     private readonly IUserDeviceRepository _userDeviceRepository;
+    private readonly IUserSessionRepository _userSessionRepository;
+    private readonly IDevicePresenceStore _presenceStore;
+    private readonly IDevicePresenceNotifier _presenceNotifier;
 
-    public UserDeviceService(IUserDeviceRepository userDeviceRepository)
+    public UserDeviceService(IUserDeviceRepository userDeviceRepository, IUserSessionRepository userSessionRepository,
+        IDevicePresenceStore presenceStore, IDevicePresenceNotifier presenceNotifier)
     {
         _userDeviceRepository = userDeviceRepository;
+        _userSessionRepository = userSessionRepository;
+        _presenceStore = presenceStore;
+        _presenceNotifier = presenceNotifier;
+    }
+
+    /// <summary>
+    /// Đăng ký hoặc cập nhật thiết bị theo (UserId, DeviceId). Nếu có RefreshToken thì liên kết phiên
+    /// hiện tại với thiết bị (đặt UserSession.UserDeviceId) để phục vụ đăng xuất theo thiết bị.
+    /// </summary>
+    public async Task<ApiResponse> RegisterDeviceAsync(RegisterDeviceDto dto)
+    {
+        try
+        {
+            if (dto.UserId == null || string.IsNullOrWhiteSpace(dto.DeviceId))
+                return ApiResponse.BadRequest();
+
+            var device = await _userDeviceRepository.FirstOrDefaultAsync(
+                x => x.UserId == dto.UserId && x.DeviceId == dto.DeviceId && !x.IsDeleted);
+
+            if (device == null)
+            {
+                device = dto.ToEntity();
+                await _userDeviceRepository.CreateAsync(device);
+            }
+            else
+            {
+                device.DeviceName = dto.DeviceName ?? device.DeviceName;
+                device.Platform = dto.Platform ?? device.Platform;
+                device.OsVersion = dto.OsVersion ?? device.OsVersion;
+                device.AppVersion = dto.AppVersion ?? device.AppVersion;
+                device.UserAgent = dto.UserAgent ?? device.UserAgent;
+                if (!string.IsNullOrWhiteSpace(dto.DeviceToken))
+                    device.DeviceToken = dto.DeviceToken;
+                device.LastModifiedDate = DateTime.Now;
+                await _userDeviceRepository.UpdateAsync(device);
+            }
+            await _userDeviceRepository.SaveChangesAsync();
+
+            // Liên kết phiên hiện tại (theo refresh token) với thiết bị.
+            if (!string.IsNullOrWhiteSpace(dto.RefreshToken))
+            {
+                var session = await _userSessionRepository.FirstOrDefaultAsync(
+                    x => x.UserId == dto.UserId && x.RefreshToken == dto.RefreshToken && !x.IsRevoked);
+                if (session != null && session.UserDeviceId != device.Id)
+                {
+                    session.UserDeviceId = device.Id;
+                    await _userSessionRepository.UpdateAsync(session);
+                    await _userSessionRepository.SaveChangesAsync();
+                }
+            }
+
+            // Báo realtime để danh sách thiết bị của user cập nhật ở các phiên khác.
+            await _presenceNotifier.NotifyDevicesChangedAsync(dto.UserId.Value);
+
+            return ApiResponse.Success(device.Id);
+        }
+        catch (Exception)
+        {
+            return ApiResponse.InternalServerError();
+        }
+    }
+
+    public async Task<ApiResponse> GetMyDevicesAsync(int userId)
+    {
+        var devices = await _userDeviceRepository
+            .FindByCondition(x => x.UserId == userId && !x.IsDeleted)
+            .OrderByDescending(x => x.CreatedDate)
+            .Select(x => new MyDeviceDto
+            {
+                Id = x.Id,
+                DeviceId = x.DeviceId,
+                DeviceName = x.DeviceName,
+                Platform = x.Platform,
+                OsVersion = x.OsVersion,
+                AppVersion = x.AppVersion,
+                UserAgent = x.UserAgent,
+                HasActiveSession = x.UserSessions.Any(s => !s.IsRevoked && !s.IsUsed && s.ExpirationDate > DateTime.Now),
+                CreatedDate = x.CreatedDate,
+                LastModifiedDate = x.LastModifiedDate,
+            })
+            .ToListAsync();
+
+        // Gán trạng thái realtime từ presence store (active/idle/offline).
+        foreach (var d in devices)
+            d.Status = string.IsNullOrWhiteSpace(d.DeviceId) ? "offline" : _presenceStore.GetStatus(d.DeviceId);
+
+        return ApiResponse.Success(devices);
+    }
+
+    public async Task<ApiResponse> LogoutDeviceAsync(int userId, string deviceId)
+    {
+        var device = await _userDeviceRepository.FirstOrDefaultAsync(
+            x => x.UserId == userId && x.DeviceId == deviceId && !x.IsDeleted);
+        if (device == null)
+            return ApiResponse.NotFound();
+
+        // Thu hồi các phiên gắn với thiết bị này.
+        var sessions = await _userSessionRepository.FindByConditionAsync(
+            x => x.UserId == userId && x.UserDeviceId == device.Id && !x.IsRevoked);
+        if (sessions.Any())
+        {
+            foreach (var s in sessions) s.IsRevoked = true;
+            await _userSessionRepository.UpdateListAsync(sessions);
+        }
+
+        // Xóa mềm đăng ký thiết bị -> biến mất khỏi danh sách "thiết bị đang đăng nhập".
+        device.IsDeleted = true;
+        device.LastModifiedDate = DateTime.Now;
+        await _userDeviceRepository.UpdateAsync(device);
+
+        await _userSessionRepository.SaveChangesAsync();
+        await _userDeviceRepository.SaveChangesAsync();
+
+        // Buộc thiết bị đó đăng xuất tại chỗ + báo realtime cho danh sách.
+        await _presenceNotifier.ForceLogoutDeviceAsync(deviceId);
+        await _presenceNotifier.NotifyDevicesChangedAsync(userId);
+
+        return ApiResponse.Success();
+    }
+
+    public async Task<ApiResponse> LogoutDeviceByIdAsync(int userId, int deviceRowId)
+    {
+        var device = await _userDeviceRepository.FirstOrDefaultAsync(
+            x => x.UserId == userId && x.Id == deviceRowId && !x.IsDeleted);
+        if (device == null)
+            return ApiResponse.NotFound();
+
+        // Thu hồi các phiên gắn với thiết bị này.
+        var sessions = await _userSessionRepository.FindByConditionAsync(
+            x => x.UserId == userId && x.UserDeviceId == device.Id && !x.IsRevoked);
+        if (sessions.Any())
+        {
+            foreach (var s in sessions) s.IsRevoked = true;
+            await _userSessionRepository.UpdateListAsync(sessions);
+        }
+
+        // Xóa mềm đăng ký thiết bị -> biến mất khỏi danh sách "thiết bị đang đăng nhập".
+        device.IsDeleted = true;
+        device.LastModifiedDate = DateTime.Now;
+        await _userDeviceRepository.UpdateAsync(device);
+
+        await _userSessionRepository.SaveChangesAsync();
+        await _userDeviceRepository.SaveChangesAsync();
+
+        // Buộc thiết bị đó đăng xuất tại chỗ (nếu có DeviceId) + báo realtime cho danh sách.
+        if (!string.IsNullOrWhiteSpace(device.DeviceId))
+            await _presenceNotifier.ForceLogoutDeviceAsync(device.DeviceId);
+        await _presenceNotifier.NotifyDevicesChangedAsync(userId);
+
+        return ApiResponse.Success();
+    }
+
+    public async Task<ApiResponse> LogoutOtherDevicesAsync(int userId, string currentDeviceId)
+    {
+        var currentDevice = await _userDeviceRepository.FirstOrDefaultAsync(
+            x => x.UserId == userId && x.DeviceId == currentDeviceId && !x.IsDeleted);
+
+        // Thu hồi mọi phiên KHÔNG thuộc thiết bị hiện tại (EF Core dùng ngữ nghĩa null của C#
+        // nên != cũng bắt cả phiên chưa gắn thiết bị).
+        IEnumerable<UserSession> sessions;
+        if (currentDevice == null)
+        {
+            sessions = await _userSessionRepository.FindByConditionAsync(
+                x => x.UserId == userId && !x.IsRevoked);
+        }
+        else
+        {
+            var currentId = currentDevice.Id;
+            sessions = await _userSessionRepository.FindByConditionAsync(
+                x => x.UserId == userId && !x.IsRevoked && x.UserDeviceId != currentId);
+        }
+        if (sessions.Any())
+        {
+            foreach (var s in sessions) s.IsRevoked = true;
+            await _userSessionRepository.UpdateListAsync(sessions);
+        }
+
+        // Xóa mềm các thiết bị khác (giữ lại thiết bị hiện tại).
+        List<UserDevice> otherDevices;
+        if (currentDevice == null)
+        {
+            otherDevices = await _userDeviceRepository
+                .FindByCondition(x => x.UserId == userId && !x.IsDeleted)
+                .ToListAsync();
+        }
+        else
+        {
+            var currentRowId = currentDevice.Id;
+            otherDevices = await _userDeviceRepository
+                .FindByCondition(x => x.UserId == userId && !x.IsDeleted && x.Id != currentRowId)
+                .ToListAsync();
+        }
+        if (otherDevices.Any())
+        {
+            foreach (var d in otherDevices) { d.IsDeleted = true; d.LastModifiedDate = DateTime.Now; }
+            await _userDeviceRepository.UpdateListAsync(otherDevices);
+        }
+
+        await _userSessionRepository.SaveChangesAsync();
+        await _userDeviceRepository.SaveChangesAsync();
+
+        // Buộc các thiết bị khác đăng xuất tại chỗ + báo realtime.
+        foreach (var d in otherDevices)
+            if (!string.IsNullOrWhiteSpace(d.DeviceId))
+                await _presenceNotifier.ForceLogoutDeviceAsync(d.DeviceId);
+        await _presenceNotifier.NotifyDevicesChangedAsync(userId);
+
+        return ApiResponse.Success();
     }
 
     public Task<ApiResponse> CreateAsync(CreateUserDeviceDto obj)

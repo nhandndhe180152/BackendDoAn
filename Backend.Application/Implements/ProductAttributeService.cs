@@ -7,6 +7,7 @@ using Backend.Application.DTOs.ProductAttributes;
 using Backend.Application.Interfaces;
 using Backend.Application.Mappings;
 using Backend.Domain.DTParameters;
+using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
 using Backend.Share.Extensions;
@@ -20,7 +21,8 @@ public class ProductAttributeService : IProductAttributeService
     private readonly IProductAttributeRepository _productAttributeRepository;
 
     /// Khởi tạo ProductAttributeService
-    public ProductAttributeService(IProductAttributeRepository productAttributeRepository)
+    public ProductAttributeService(
+        IProductAttributeRepository productAttributeRepository)
     {
         _productAttributeRepository = productAttributeRepository;
     }
@@ -122,11 +124,16 @@ public class ProductAttributeService : IProductAttributeService
     /// Xóa mềm thuộc tính sản phẩm (IsDeleted = true)
     public async Task<ApiResponse> SoftDeleteAsync(int id)
     {
+        var existData = await _productAttributeRepository.GetByIdAsync(id);
+        if (existData == null)
+            return ApiResponse.NotFound();
+
         var isDeleted = await _productAttributeRepository.SoftDeleteAsync(id);
         if (!isDeleted)
             return ApiResponse.BadRequest();
 
         await _productAttributeRepository.SaveChangesAsync();
+
         return ApiResponse.Success(isDeleted);
     }
 

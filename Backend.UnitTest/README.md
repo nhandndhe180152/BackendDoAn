@@ -231,3 +231,16 @@ Khi thêm `XxxService` mới vào `Application/Implements/`, phải:
 - Dùng `Thread.Sleep` hay delay thật
 - Để test phụ thuộc vào thứ tự chạy của test khác
 - Hardcode magic values — dùng `TestDataBuilder` và constants
+
+---
+
+## AuthServiceTests coverage notes
+
+Current Auth service tests should cover both failure paths and core success paths:
+
+- `ForgotPassword`: email not found, inactive/deactivated/locked user, valid user creates verification token and sends mail.
+- `Login`: valid client credentials return access/refresh tokens and create a session; wrong password increments failed-attempt count without creating a session.
+- `ResetPassword`: password mismatch, email not found, missing/expired token, valid token updates password hash and marks token used.
+- `VerifyCode`: missing user, used token, expired token, account activation updates user status and marks token used.
+- `Logout`: refresh-token session not found and logout-all with no active sessions.
+- `Register`: invalid username, duplicate username, invalid email, invalid phone number.

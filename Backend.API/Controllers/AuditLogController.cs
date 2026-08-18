@@ -5,6 +5,7 @@ using Backend.Domain.DTParameters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers
 {
@@ -20,12 +21,14 @@ namespace Backend.API.Controllers
             _auditLogService = auditLogService;
         }
         [HttpPost("paged-advanced")]
+        [CustomAuthorize(Enums.Menu.AUDIT_LOGS, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] AuditLogDTParameters parameters)
         {
             var result = await _auditLogService.GetPagedAsync(parameters);
             return BaseResult(result);
         }
         [HttpPost("me")]
+        [CustomAuthorize(Enums.Menu.AUDIT_LOGS, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedByUserIdAsync([FromBody] AuditLogDTParameters parameters)
         {
             parameters.UserId = this.GetLoggedInUserId();
@@ -33,6 +36,7 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
         [HttpGet("{id}")]
+        [CustomAuthorize(Enums.Menu.AUDIT_LOGS, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var data = await _auditLogService.GetByIdAsync(id);
@@ -40,6 +44,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("actions")]
+        [CustomAuthorize(Enums.Menu.AUDIT_LOGS, Enums.Action.READ)]
         public IActionResult GetListAction()
         {
             var result = _auditLogService.GetListAction();
@@ -48,6 +53,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("audit-entities")]
+        [CustomAuthorize(Enums.Menu.AUDIT_LOGS, Enums.Action.READ)]
         public IActionResult GetListAuditEntity()
         {
             var result = _auditLogService.GetListAuditEntity();

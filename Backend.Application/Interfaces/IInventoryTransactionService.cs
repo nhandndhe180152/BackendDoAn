@@ -19,5 +19,5 @@ public interface IInventoryTransactionService
 
     Task<ApiResponse> DispatchStockAsync(StockMovementRequestDto request);
 
-    Task<ApiResponse> AdjustStockAsync(StockMovementRequestDto request, int newQuantityOnHand);
+    Task<ApiResponse> AdjustStockAsync(StockMovementRequestDto request, decimal newQuantityOnHand, bool isManagedTransaction = false);
 }

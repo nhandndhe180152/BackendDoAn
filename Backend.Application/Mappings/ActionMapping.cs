@@ -11,6 +11,7 @@ public static class ActionMapping
         {
             CreatedBy = obj.CreatedBy,
             CreatedDate = DateTime.Now,
+            Code = obj.Code,
             Description = obj.Description,
             Name = obj.Name,
         };
@@ -22,6 +23,7 @@ public static class ActionMapping
         existData.LastModifiedDate = DateTime.Now;
         existData.Name = obj.Name;
         existData.Description = obj.Description;
+        existData.Code = obj.Code;
 
         return existData;
     }
@@ -31,6 +33,7 @@ public static class ActionMapping
         return new ActionDetailDto
         {
             Id = obj.Id,
+            Code = obj.Code,
             Name = obj.Name,
             Description = obj.Description,
             CreatedDate = obj.CreatedDate

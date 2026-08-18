@@ -21,4 +21,21 @@ public static class UserDeviceMapping
             CreatedBy = obj.UserId,
         };
     }
+
+    public static UserDevice ToEntity(this RegisterDeviceDto obj)
+    {
+        return new UserDevice
+        {
+            UserId = (int)obj.UserId!,
+            DeviceId = obj.DeviceId,
+            DeviceName = obj.DeviceName,
+            Platform = obj.Platform,
+            OsVersion = obj.OsVersion,
+            AppVersion = obj.AppVersion,
+            DeviceToken = obj.DeviceToken,
+            UserAgent = obj.UserAgent,
+            CreatedDate = DateTime.Now,
+            CreatedBy = obj.UserId,
+        };
+    }
 }

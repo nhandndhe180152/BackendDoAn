@@ -10,7 +10,10 @@ public class StockMovementRequestDto
 
     public int? LocationId { get; set; }
 
-    public int Quantity { get; set; }
+    /// ID lô hàng. Điền khi di chuyển hàng có lô để khớp đúng dòng Inventory theo lot-centric unique index.
+    public int? PaddyLotId { get; set; }
+
+    public decimal Quantity { get; set; }
 
     public decimal? CostPrice { get; set; }
 
@@ -21,8 +24,6 @@ public class StockMovementRequestDto
     public int? ReferenceItemId { get; set; }
 
     public decimal? WeightKg { get; set; }
-
-    public int? IotWeightLogId { get; set; }
 
     public string? Note { get; set; }
 }

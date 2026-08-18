@@ -40,6 +40,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.MicrosoftId)
             .HasMaxLength(500);
         builder.Property(x => x.AccessFailedCount).IsRequired().HasDefaultValueSql("(0)");
+        builder.Property(x => x.MustChangePassword).IsRequired().HasDefaultValueSql("(0)");
         builder.Property(x => x.LockEnabled).IsRequired().HasDefaultValueSql("(0)");
         builder.Property(x => x.CreatedDate).IsRequired().HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
         builder.Property(x => x.IsDeleted).IsRequired().HasDefaultValueSql("(0)");

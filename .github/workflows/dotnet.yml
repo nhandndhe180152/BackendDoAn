@@ -13,6 +13,11 @@ on:
       - main
       - develop
 
+# Giới hạn quyền mặc định của GITHUB_TOKEN theo nguyên tắc least-privilege.
+# Áp dụng cho tất cả job bên dưới; job nào cần ghi có thể tự khai báo thêm.
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
@@ -41,3 +46,54 @@ jobs:
         with:
           name: backend-unit-test-results
           path: TestResults
+
+  deploy:
+    name: Build image, push Docker Hub & deploy to Render
+    needs: build-and-test
+    # Chỉ deploy khi PUSH vào develop (bỏ qua pull_request) và sau khi test pass
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Tính version tag kế tiếp (vN) từ Docker Hub
+        id: version
+        run: |
+          REPO="${{ secrets.DOCKERHUB_USERNAME }}/backend-do-an-api"
+          # Lấy danh sách tag, lọc các tag dạng vN, tìm số lớn nhất rồi +1
+          LATEST=$(curl -fsSL "https://hub.docker.com/v2/repositories/${REPO}/tags?page_size=100" \
+            | grep -oE '"name":"v[0-9]+"' \
+            | grep -oE '[0-9]+' \
+            | sort -n | tail -1)
+          LATEST=${LATEST:-0}
+          NEXT=$((LATEST + 1))
+          echo "tag=v${NEXT}" >> "$GITHUB_OUTPUT"
+          echo "Version kế tiếp: v${NEXT} (cao nhất hiện tại: v${LATEST})"
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          # latest = tag mà Render theo dõi (luôn bị ghi đè mỗi lần deploy)
+          # vN     = tag bất biến, tự nối tiếp số trên Docker Hub, để rollback / truy vết
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/backend-do-an-api:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/backend-do-an-api:${{ steps.version.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trigger Render deploy
+        run: curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"

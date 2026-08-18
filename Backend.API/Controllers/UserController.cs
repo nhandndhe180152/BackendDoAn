@@ -1,5 +1,6 @@
 using Asp.Versioning;
 using Backend.API.Utilities;
+using Backend.Application.Constants;
 using Backend.Application.DTOs.Users;
 using Backend.Application.Interfaces;
 using Backend.Domain.DTParameters;
@@ -8,6 +9,7 @@ using Backend.Share.Helpers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers
 {
@@ -25,17 +27,55 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreateUserDto obj)
         {
-            var passwordHashed = PasswordHelper.HashPassword(obj.PasswordHash);
+            // Mật khẩu do hệ thống tự sinh trong UserService và gửi qua email; controller không xử lý mật khẩu.
             obj.CreatedBy = this.GetLoggedInUserId();
-            obj.PasswordHash = passwordHashed;
             var result = await _userService.CreateAsync(obj);
 
             return BaseResult(result);
         }
 
+        /// <summary>Tạo hàng loạt user (toàn bộ hoặc không). Trả lỗi theo từng dòng nếu có.</summary>
+        [HttpPost("create-list")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.CREATE)]
+        public async Task<IActionResult> CreateListAsync([FromBody] List<CreateUserDto> objs)
+        {
+            var userId = this.GetLoggedInUserId();
+            foreach (var o in objs)
+                o.CreatedBy = userId;
+
+            var result = await _userService.CreateListAsync(objs);
+
+            return BaseResult(result);
+        }
+
+        /// <summary>Tải file mẫu để import tạo user hàng loạt (format = xlsx | csv).</summary>
+        [HttpGet("import-template")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
+        public async Task<IActionResult> ImportTemplateAsync([FromQuery] string format = "xlsx")
+        {
+            var (content, contentType, fileName) = await _userService.GenerateImportTemplateAsync(format);
+            return File(content, contentType, fileName);
+        }
+
+        /// <summary>Đọc file Excel/CSV upload, trả về danh sách dòng user để hiển thị/kiểm tra trước khi tạo.</summary>
+        [HttpPost("import-parse")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
+        public async Task<IActionResult> ImportParseAsync([FromForm] ImportUserFileDto request)
+        {
+            if (request.File == null || request.File.Length == 0)
+                return BaseResult(ApiResponse.BadRequest("Vui lòng chọn file.", ApiCodeConstants.Common.InvalidFileFormat));
+
+            using var stream = request.File.OpenReadStream();
+            var result = await _userService.ParseImportFileAsync(stream, request.File.FileName);
+
+            return BaseResult(result);
+        }
+        /// <summary>Lay danh sach user</summary>
         [HttpGet]
+        // Dropdown dùng chung: bỏ CustomAuthorize READ để role không có quyền xem menu vẫn lấy được danh sách cho dropdown
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _userService.GetAllAsync();
@@ -44,6 +84,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("all")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
         public async Task<IActionResult> GetAllAsync([FromBody] UserSearchQuery query)
         {
             var result = await _userService.GetAllAsync(query);
@@ -52,6 +93,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("{id}")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var data = await _userService.GetByIdAsync(id);
@@ -60,6 +102,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] SearchQuery query)
         {
             var data = await _userService.GetPagedAsync(query);
@@ -68,6 +111,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("paged-advanced")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] UserDTParameters parameters)
         {
             var data = await _userService.GetPagedAsync(parameters);
@@ -76,6 +120,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpDelete("{id}")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var data = await _userService.SoftDeleteAsync(id);
@@ -84,6 +129,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpPut]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateUserDto obj)
         {
             obj.UpdatedBy = this.GetLoggedInUserId();
@@ -106,6 +152,15 @@ namespace Backend.API.Controllers
         {
             var userId = this.GetLoggedInUserId();
             var result = await _userService.GetPermissionsAsync(userId);
+
+            return BaseResult(result);
+        }
+
+        [HttpGet("statistics")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
+        public async Task<IActionResult> GetStatisticsAsync()
+        {
+            var result = await _userService.GetStatisticsAsync();
 
             return BaseResult(result);
         }
@@ -137,6 +192,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("search")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
         public async Task<IActionResult> SearchUser([FromQuery] UserSearchQuery query)
         {
             var data = await _userService.GetPagedAsync(query);
@@ -145,6 +201,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("paged-end-user")]
+        [CustomAuthorize(Enums.Menu.USER, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedEndUserAsync([FromQuery] SearchQuery query)
         {
             var data = await _userService.GetPagedEndUserAsync(query);

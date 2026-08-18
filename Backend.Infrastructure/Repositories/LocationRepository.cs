@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
+using Backend.Application.Constants;
 using Backend.Domain.Abstractions;
 using Backend.Domain.Aggregates;
 using Backend.Domain.Entities;
@@ -50,8 +51,11 @@ public class LocationRepository : RepositoryBase<Location, int>, ILocationReposi
                 ShelfLevel = x.ShelfLevel,
                 SlotCode = x.SlotCode,
                 MaxCapacity = x.MaxCapacity,
+                CurrentOccupancy = x.CurrentOccupancy,
                 Description = x.Description,
                 IsActive = x.IsActive,
+                IsOutboundStaging = x.IsOutboundStaging,
+                OutboundLockOrderId = x.OutboundLockOrderId,
                 CreatedDate = x.CreatedDate
             });
 
@@ -107,5 +111,123 @@ public class LocationRepository : RepositoryBase<Location, int>, ILocationReposi
         };
 
         return data;
+    }
+
+    public async Task<int> UpdateCapacitySafetyAsync(int locationId, int warehouseId, decimal weightKg, int productVariantId, bool isQuarantine, int userId)
+    {
+        if (_context.Database.ProviderName == "Microsoft.EntityFrameworkCore.InMemory")
+        {
+            var location = await _context.Locations.FirstOrDefaultAsync(x => x.Id == locationId);
+            if (location == null || !location.IsActive || location.IsDeleted ||
+                location.IsQuarantine != isQuarantine || location.IsOutboundStaging ||
+                location.OutboundLockOrderId.HasValue)
+            {
+                return 0;
+            }
+            if (location.CurrentProductVariantId != null && location.CurrentProductVariantId != productVariantId)
+            {
+                return 0;
+            }
+            if (location.CurrentOccupancy + weightKg > location.MaxCapacity)
+            {
+                return 0;
+            }
+
+            location.CurrentOccupancy += weightKg;
+            location.CurrentProductVariantId = productVariantId;
+            location.LastModifiedDate = DateTime.UtcNow;
+            location.UpdatedBy = userId;
+            _context.Locations.Update(location);
+            await _context.SaveChangesAsync();
+            return 1;
+        }
+
+        var sql = @"
+            UPDATE `Location`
+            SET
+                `CurrentOccupancy` = `CurrentOccupancy` + {0},
+                `CurrentProductVariantId` = COALESCE(`CurrentProductVariantId`, {1}),
+                `LastModifiedDate` = UTC_TIMESTAMP(6),
+                `UpdatedBy` = {2}
+            WHERE
+                `Id` = {3}
+                AND `WarehouseId` = {4}
+                AND `IsActive` = 1
+                AND `IsDeleted` = 0
+                AND `IsQuarantine` = {5}
+                AND `IsOutboundStaging` = 0
+                AND `OutboundLockOrderId` IS NULL
+                AND (
+                    `CurrentProductVariantId` IS NULL
+                    OR `CurrentProductVariantId` = {1}
+                )
+                AND (
+                    `CurrentOccupancy` + {0} <= `MaxCapacity`
+                );";
+
+        return await _context.Database.ExecuteSqlRawAsync(sql, weightKg, productVariantId, userId, locationId, warehouseId, isQuarantine);
+    }
+
+    public async Task<int> TryLockForOutboundAsync(
+        IReadOnlyCollection<int> locationIds, int outboundOrderId, DateTime lockedAt, int userId)
+    {
+        var ids = locationIds.Distinct().ToList();
+        if (ids.Count == 0) return 0;
+        var expiresBefore = lockedAt - OutboundOrderConstants.ColumnLockTimeout;
+
+        if (_context.Database.ProviderName == "Microsoft.EntityFrameworkCore.InMemory")
+        {
+            var locations = await _context.Locations.Where(x => ids.Contains(x.Id)).ToListAsync();
+            if (locations.Count != ids.Count || locations.Any(x => x.IsDeleted || !x.IsActive ||
+                    x.IsOutboundStaging ||
+                    (x.OutboundLockOrderId.HasValue && x.OutboundLockOrderId != outboundOrderId &&
+                     (!x.OutboundLockedAt.HasValue || x.OutboundLockedAt > expiresBefore))))
+                return 0;
+            foreach (var location in locations)
+            {
+                location.OutboundLockOrderId = outboundOrderId;
+                location.OutboundLockedAt = lockedAt;
+                location.LastModifiedDate = lockedAt;
+                location.UpdatedBy = userId;
+            }
+            return locations.Count;
+        }
+
+        return await _context.Locations
+            .Where(x => ids.Contains(x.Id) && !x.IsDeleted && x.IsActive && !x.IsOutboundStaging &&
+                        (!x.OutboundLockOrderId.HasValue || x.OutboundLockOrderId == outboundOrderId ||
+                         (x.OutboundLockedAt.HasValue && x.OutboundLockedAt <= expiresBefore)))
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.OutboundLockOrderId, outboundOrderId)
+                .SetProperty(x => x.OutboundLockedAt, lockedAt)
+                .SetProperty(x => x.LastModifiedDate, lockedAt)
+                .SetProperty(x => x.UpdatedBy, userId));
+    }
+
+    public async Task<int> ReleaseOutboundLocksAsync(
+        int outboundOrderId, DateTime modifiedAt, int userId, IReadOnlyCollection<int>? excludedLocationIds = null)
+    {
+        var excluded = excludedLocationIds?.Distinct().ToList() ?? new List<int>();
+        if (_context.Database.ProviderName == "Microsoft.EntityFrameworkCore.InMemory")
+        {
+            var locations = await _context.Locations
+                .Where(x => x.OutboundLockOrderId == outboundOrderId && !x.IsDeleted && !excluded.Contains(x.Id)).ToListAsync();
+            foreach (var location in locations)
+            {
+                location.OutboundLockOrderId = null;
+                location.OutboundLockedAt = null;
+                location.LastModifiedDate = modifiedAt;
+                location.UpdatedBy = userId;
+            }
+            return locations.Count;
+        }
+
+        return await _context.Locations
+            .Where(x => x.OutboundLockOrderId == outboundOrderId && !x.IsDeleted && !excluded.Contains(x.Id))
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.OutboundLockOrderId, (int?)null)
+                .SetProperty(x => x.OutboundLockedAt, (DateTime?)null)
+                .SetProperty(x => x.LastModifiedDate, modifiedAt)
+                .SetProperty(x => x.UpdatedBy, userId));
     }
 }

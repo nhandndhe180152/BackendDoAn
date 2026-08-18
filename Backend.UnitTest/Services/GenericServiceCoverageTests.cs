@@ -4,7 +4,10 @@ using Backend.Application.DTOs.Actions;
 using Backend.Application.DTOs.NotificationTypes;
 using Backend.Application.DTOs.UserStatuses;
 using Backend.Application.Implements;
+using Backend.Application.Interfaces;
 using Backend.Domain.Interfaces.Repositories;
+using Backend.Domain.Abstractions.Repositories;
+using Backend.Domain.Entities;
 using Backend.UnitTest.Common;
 using Backend.UnitTest.Fixtures;
 using FluentAssertions;
@@ -30,7 +33,7 @@ public class SimpleServiceCoverageTests
         var result = await new ActionService(repo.Object).GetAllAsync();
         result.Should().NotBeNull();
     }
- 
+
     [Fact][Trait("Service","Action")]
     public async Task ActionService_GetByIdAsync_NotFound_Returns404()
     {
@@ -40,7 +43,7 @@ public class SimpleServiceCoverageTests
         var result = await new ActionService(repo.Object).GetByIdAsync(999);
         result.Status.Should().Be(404);
     }
- 
+
     [Fact][Trait("Service","Action")]
     public async Task ActionService_SoftDeleteAsync_NotFound_Returns400()
     {
@@ -50,7 +53,7 @@ public class SimpleServiceCoverageTests
         var result = await new ActionService(repo.Object).SoftDeleteAsync(999);
         result.Status.Should().Be(400);
     }
- 
+
     [Fact][Trait("Service","Action")]
     public async Task ActionService_Create_DuplicateName_ReturnsUnprocessableEntity()
     {
@@ -60,7 +63,7 @@ public class SimpleServiceCoverageTests
         var result = await new ActionService(repo.Object).CreateAsync(new CreateActionDto { Name = "CREATE" });
         result.Status.Should().Be(422);
     }
- 
+
     // ════════════════════════════════════════════════════════════════════════
     // NotificationCategoryService — ctor: (INotificationCategoryRepository)
     // ════════════════════════════════════════════════════════════════════════
@@ -73,7 +76,7 @@ public class SimpleServiceCoverageTests
         var result = await new NotificationCategoryService(repo.Object).GetAllAsync();
         result.Should().NotBeNull();
     }
- 
+
     [Fact][Trait("Service","NotificationCategory")]
     public async Task NotificationCategoryService_GetByIdAsync_NotFound_Returns404()
     {
@@ -83,7 +86,7 @@ public class SimpleServiceCoverageTests
         var result = await new NotificationCategoryService(repo.Object).GetByIdAsync(999);
         result.Status.Should().Be(404);
     }
- 
+
     // ════════════════════════════════════════════════════════════════════════
     // NotificationTypeService — ctor: (INotificationTypeRepository)
     // ════════════════════════════════════════════════════════════════════════
@@ -96,7 +99,7 @@ public class SimpleServiceCoverageTests
         var result = await new NotificationTypeService(repo.Object).GetAllAsync();
         result.Should().NotBeNull();
     }
- 
+
     [Fact][Trait("Service","NotificationType")]
     public async Task NotificationTypeService_Create_DuplicateName_Returns422()
     {
@@ -107,7 +110,7 @@ public class SimpleServiceCoverageTests
             new CreateNotificationTypeDto { Name = "Alert" });
         result.Status.Should().Be(422);
     }
- 
+
     // ════════════════════════════════════════════════════════════════════════
     // UserStatusService — ctor: (IUserStatusRepository)
     // ════════════════════════════════════════════════════════════════════════
@@ -120,7 +123,7 @@ public class SimpleServiceCoverageTests
         var result = await new UserStatusService(repo.Object).GetAllAsync();
         result.Should().NotBeNull();
     }
- 
+
     [Fact][Trait("Service","UserStatus")]
     public async Task UserStatusService_Create_DuplicateName_Returns422()
     {
@@ -131,17 +134,43 @@ public class SimpleServiceCoverageTests
             new CreateUserStatusDto { Name = "Active", Color = "#00FF00" });
         result.Status.Should().Be(422);
     }
- 
+
     // ════════════════════════════════════════════════════════════════════════
-    // DashboardService — ctor: (ILogger<DashboardService>, IHttpContextAccessor)
-    // Lưu ý: GetReportStatisticsAsync() throw NotImplementedException nên không test
+    // DashboardService — ctor: (IDebtAgingCalculationService, etc.)
     // ════════════════════════════════════════════════════════════════════════
     [Fact][Trait("Service","Dashboard")]
     public void DashboardService_CanBeInstantiated()
     {
-        var loggerMock  = new Mock<Microsoft.Extensions.Logging.ILogger<DashboardService>>();
-        var httpContext = MockHelper.HttpContextAccessor();
-        var svc = new DashboardService(loggerMock.Object, httpContext.Object);
+        var invRepo            = new Mock<IRepositoryBase<Backend.Domain.Entities.Inventory, int>>();
+        var lotRepo            = new Mock<IRepositoryBase<Backend.Domain.Entities.PaddyLot, int>>();
+        var millRepo           = new Mock<IRepositoryBase<Backend.Domain.Entities.MillingOrder, int>>();
+        var salesRepo          = new Mock<IRepositoryBase<Backend.Domain.Entities.SalesOrder, int>>();
+        var salesStatusRepo    = new Mock<IRepositoryBase<Backend.Domain.Entities.SalesOrderStatus, int>>();
+        var debtRepo           = new Mock<IRepositoryBase<Backend.Domain.Entities.PartyDebt, int>>();
+        var txRepo             = new Mock<IRepositoryBase<Backend.Domain.Entities.DebtTransaction, int>>();
+        var alertRepo          = new Mock<IRepositoryBase<Backend.Domain.Entities.Alert, int>>();
+        var custRepo           = new Mock<IRepositoryBase<Backend.Domain.Entities.Customer, int>>();
+        var farmRepo           = new Mock<IRepositoryBase<Backend.Domain.Entities.Farmer, int>>();
+
+        var aggSvc             = new Mock<IInventoryStateAggregationService>();
+        var agingSvc           = new Mock<Backend.Application.BackgroundJobs.DebtDueOverdue.IDebtAgingCalculationService>();
+        var contextMock        = new Mock<IApplicationDbContext>();
+
+        var svc = new DashboardService(
+            invRepo.Object,
+            lotRepo.Object,
+            millRepo.Object,
+            salesRepo.Object,
+            salesStatusRepo.Object,
+            debtRepo.Object,
+            txRepo.Object,
+            alertRepo.Object,
+            custRepo.Object,
+            farmRepo.Object,
+            aggSvc.Object,
+            agingSvc.Object,
+            contextMock.Object);
+
         svc.Should().NotBeNull();
     }
 }

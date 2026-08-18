@@ -30,7 +30,7 @@ namespace Backend.API.Controllers
 
         /// API tạo mới danh mục sản phẩm
         [HttpPost]
-        //[CustomAuthorize(Enums.Menu.PRODUCT_CATEGORY, Enums.Action.CREATE)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_CATEGORIES, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreateProductCategoryDto obj)
         {
             obj.CreatedBy = this.GetLoggedInUserId();
@@ -40,6 +40,7 @@ namespace Backend.API.Controllers
 
         /// API lấy toàn bộ danh sách danh mục sản phẩm
         [HttpGet]
+        // Dropdown dùng chung: bỏ CustomAuthorize READ để role không có quyền xem menu vẫn lấy được danh sách cho dropdown
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _productCategoryService.GetAllAsync();
@@ -48,7 +49,7 @@ namespace Backend.API.Controllers
 
         /// API lấy chi tiết danh mục sản phẩm theo ID
         [HttpGet("{id}")]
-        //[CustomAuthorize(Enums.Menu.PRODUCT_CATEGORY, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_CATEGORIES, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var data = await _productCategoryService.GetByIdAsync(id);
@@ -57,6 +58,7 @@ namespace Backend.API.Controllers
 
         /// API tìm kiếm phân trang danh mục sản phẩm cơ bản
         [HttpPost("paged")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_CATEGORIES, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] SearchQuery query)
         {
             var data = await _productCategoryService.GetPagedAsync(query);
@@ -65,7 +67,7 @@ namespace Backend.API.Controllers
 
         /// API phân trang nâng cao cho Datatable
         [HttpPost("paged-advanced")]
-        //[CustomAuthorize(Enums.Menu.PRODUCT_CATEGORY, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_CATEGORIES, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] ProductCategoryDTParameters parameters)
         {
             var data = await _productCategoryService.GetPagedAsync(parameters);
@@ -74,7 +76,7 @@ namespace Backend.API.Controllers
 
         /// API xóa mềm danh mục sản phẩm
         [HttpDelete("{id}")]
-        //[CustomAuthorize(Enums.Menu.PRODUCT_CATEGORY, Enums.Action.DELETE)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_CATEGORIES, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var data = await _productCategoryService.SoftDeleteAsync(id);
@@ -83,7 +85,7 @@ namespace Backend.API.Controllers
 
         /// API cập nhật thông tin danh mục sản phẩm
         [HttpPut]
-        //[CustomAuthorize(Enums.Menu.PRODUCT_CATEGORY, Enums.Action.UPDATE)]
+        [CustomAuthorize(Enums.Menu.PRODUCT_CATEGORIES, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateProductCategoryDto obj)
         {
             obj.UpdatedBy = this.GetLoggedInUserId();
@@ -93,9 +95,19 @@ namespace Backend.API.Controllers
 
         /// API tìm kiếm lọc danh mục theo danh mục cha (ParentId)
         [HttpGet("search")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_CATEGORIES, Enums.Action.READ)]
         public async Task<IActionResult> Search([FromQuery] ProductCategorySearchQuery query)
         {
             var data = await _productCategoryService.GetPagedAsync(query);
+            return BaseResult(data);
+        }
+
+        /// API lấy cây danh mục sản phẩm dạng phân cấp
+        [HttpGet("tree")]
+        [CustomAuthorize(Enums.Menu.PRODUCT_CATEGORIES, Enums.Action.READ)]
+        public async Task<IActionResult> GetTreeAsync()
+        {
+            var data = await _productCategoryService.GetTreeAsync();
             return BaseResult(data);
         }
     }

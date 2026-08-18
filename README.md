@@ -1,722 +1,610 @@
-# 🏗️ Backend API — Clean Architecture Documentation
+# 🏗️ StockLite Backend API — Clean Architecture Documentation
 
-> **Clean Architecture · .NET 8 · MySQL · ZeroTier**
+> **Clean Architecture · .NET 8 · MySQL · Docker · JWT + RBAC**
 >
-> Tài liệu kỹ thuật toàn diện
+> Tài liệu kỹ thuật cho Backend API của dự án **StockLite** — hệ thống quản lý kho cho SME E-Commerce Businesses.
 
-| 🟢 .NET 8 | 🐬 MySQL 8 | 🔐 JWT + RBAC | 🌐 ZeroTier VPN |
-|-----------|------------|---------------|-----------------|
+| 🟢 .NET 8 | 🐬 MySQL 8 | 🔐 JWT + RBAC | 🐳 Docker | 📦 StockLite WMS |
+|-----------|------------|---------------|-----------|------------------|
 
 ---
 
 ## 1. Giới thiệu dự án
 
-Backend API được xây dựng theo kiến trúc **Clean Architecture**, chia thành 5 project riêng biệt nhằm tách biệt rõ ràng các tầng trách nhiệm. Hệ thống cung cấp RESTful API cho ứng dụng quản lý nội dung, người dùng, thông báo, thanh toán và hơn thế nữa.
+**StockLite Backend API** được xây dựng theo kiến trúc **Clean Architecture**, tách rõ các tầng trách nhiệm để dễ bảo trì, kiểm thử và mở rộng. Backend cung cấp RESTful API cho Web Admin Angular, Mobile Flutter và thiết bị IoT cân điện tử trong các nghiệp vụ quản lý kho.
+
+Hệ thống tập trung vào các luồng chính:
+
+- Quản lý người dùng, vai trò và phân quyền.
+- Quản lý sản phẩm, Product Variant, SKU và QR Label.
+- Quản lý nhập kho, xuất kho, kiểm kê và lịch sử giao dịch tồn kho.
+- Tích hợp thiết bị cân IoT qua ESP32 + HX711 để xác minh trọng lượng khi nhận hàng.
+- Gợi ý vị trí lưu kho thông minh theo rule-based logic.
+- Cảnh báo quá tải nhập kho theo rule-based inbound bottleneck warning.
+- Dashboard, báo cáo tồn kho và thông báo.
 
 ### Công nghệ chính
 
 | Thành phần | Chi tiết |
 |-----------|----------|
-| Runtime | .NET 8 (ASP.NET Core) |
-| Database | MySQL 8.x — truy cập qua ZeroTier VPN |
-| ORM | Entity Framework Core (Code-First, Migrations) |
-| Auth | JWT Bearer + RBAC (Role-Based Access Control) |
+| Runtime | .NET 8 (ASP.NET Core Web API) |
+| Database | MySQL 8.x |
+| ORM | Entity Framework Core 8 — Code-First, Fluent API, Migrations |
+| Auth | JWT Bearer + Refresh Token + RBAC |
 | Background Jobs | Hangfire + MySQL Storage |
-| File Storage | Cloudinary (ảnh & tệp) |
+| File Storage | Cloudinary — product images, QR label files |
 | Push Notification | Firebase Cloud Messaging (FCM) |
-| Email | Gmail SMTP (Google OAuth App Password) |
-| Logging | Serilog — ghi file rolling theo ngày |
-| Caching | In-Memory Cache (IMemoryCache) |
-| API Docs | Swagger / OpenAPI với API Versioning |
-| Image Processing | Magick.NET (ImageMagick wrapper) |
-| Health Checks | ASP.NET HealthChecks + MySQL probe |
-| Rate Limiting | ASP.NET Core RateLimiter (Fixed Window) |
+| Email | Gmail SMTP / SMTP Provider |
+| Logging | Serilog — console + rolling file logs |
+| Caching | ASP.NET Core IMemoryCache |
+| API Docs | Swagger / OpenAPI |
+| Rate Limiting | ASP.NET Core RateLimiter |
+| Deployment | Docker image deployed to Render |
+| CI | GitHub Actions |
 
 ---
 
-## 2. Tổng quan kiến trúc (Clean Architecture)
+## 2. Tổng quan kiến trúc Clean Architecture
 
-Dự án áp dụng Clean Architecture với 5 project, phụ thuộc chỉ hướng vào trong (**Dependency Rule**). Layer ngoài có thể phụ thuộc layer trong, nhưng không chiều ngược lại.
+Dự án chia thành nhiều project để đảm bảo dependency chỉ đi từ tầng ngoài vào tầng trong.
 
-| Thành phần | Chi tiết |
-|-----------|----------|
-|   🌐  Backend.API  (Presentation Layer)   |
-|   ⚙️  Backend.Application  (Business Logic Layer)   |
-|   🏛️  Backend.Domain  (Domain / Core Layer)   |
-|   🔧  Backend.Infrastructure  (Infrastructure Layer)   |
-|   📦  Backend.Share  (Cross-cutting Concerns)   |
+```text
+Backend.API
+   │
+   ▼
+Backend.Application
+   │
+   ▼
+Backend.Domain
+   ▲
+   │
+Backend.Infrastructure
 
+Backend.Share được dùng chung cho các layer.
+```
 
-> **📌 Quy tắc phụ thuộc:** `API → Application → Domain ← Infrastructure` | `Share` được tất cả các layer sử dụng. `Domain` không phụ thuộc vào bất kỳ layer nào khác.
+| Project | Vai trò |
+|--------|--------|
+| `Backend.API` | Presentation Layer: Controller, Middleware, Swagger, Authentication pipeline |
+| `Backend.Application` | Business Logic Layer: Service, DTO, Mapping, Validator |
+| `Backend.Domain` | Core Layer: Entity, Enum, Repository Interface, Business abstraction |
+| `Backend.Infrastructure` | Infrastructure Layer: DbContext, Repository implementation, External services, Jobs |
+| `Backend.Share` | Cross-cutting: ApiResponse, helpers, extensions, constants, common services |
+
+> **Dependency Rule:** `API → Application → Domain`, `Infrastructure → Domain/Application`. Domain không phụ thuộc vào API hoặc Infrastructure.
 
 ---
 
-## 3. Chi tiết từng project
+## 3. Các module nghiệp vụ chính
 
-### 3.1 Backend.API — Presentation Layer
+### 3.1 Authentication & Authorization
 
-Là điểm vào duy nhất của hệ thống. Chứa các Controller, Middleware, Filter và toàn bộ cấu hình pipeline HTTP. Project này chỉ phụ thuộc vào `Backend.Application` và `Backend.Share`.
+| Module | Mô tả |
+|-------|------|
+| Auth | Login, logout, refresh token, đổi mật khẩu, quên mật khẩu |
+| User | CRUD người dùng, trạng thái tài khoản, thông tin cá nhân |
+| Role | CRUD vai trò |
+| Permission | Phân quyền theo Role × Menu × Action |
+| UserSession | Lưu JWT session, refresh token, revoke token |
 
-| 📁 Thư mục / File | Mô tả |
-|------------------|-------|
-| `Controllers/` | Các lớp Controller xử lý HTTP request. Mỗi controller kế thừa `BaseController` và dùng `IBaseController` interface. |
-| `Middlewares/` | Xử lý cross-cutting concerns trong pipeline HTTP. |
-| `Filters/` | Action Filter dùng cho Hangfire Dashboard authentication. |
-| `Utilities/` | Các extension method đăng ký service và cấu hình app. |
-| `Configs/` | Chứa file cấu hình ngoài như `firebase-service.json`. |
-| `Logs/` | Thư mục chứa file log sinh ra bởi Serilog (rolling theo ngày). |
-| `Properties/` | `launchSettings.json` — cấu hình profile chạy local. |
-| `Program.cs` | Entry point: khởi tạo Serilog, đăng ký service, build & run app. |
-| `appsettings.json` | Cấu hình tổng: ConnectionString, JWT, SMTP, Cloudinary, Firebase, CORS, Kestrel… |
-| `appsettings.Development.json` | Override cấu hình riêng cho môi trường Development. |
-| `Backend.API.csproj` | Khai báo dependencies NuGet của project API. |
+### 3.2 Product & QR Label
 
-#### Controllers quan trọng
+| Module | Mô tả |
+|-------|------|
+| Product | Thông tin sản phẩm chung, không chứa SKU trực tiếp |
+| ProductVariant | Biến thể sản phẩm, chứa SKU, đơn vị tính, thuộc tính, min stock level |
+| Attribute / AttributeValue | Thuộc tính biến thể, ví dụ màu sắc, kích thước |
+| QR Label | Sinh mã QR cho Product Variant / lô nhập hàng để scan khi nhận hàng hoặc kiểm kê |
+| Product Image | Upload và quản lý ảnh sản phẩm qua Cloudinary |
+
+### 3.3 Warehouse, Location & Inventory
+
+| Module | Mô tả |
+|-------|------|
+| Warehouse | Quản lý kho |
+| Location | Vị trí lưu trữ trong kho |
+| Inventory | Số lượng tồn hiện tại theo ProductVariant, Warehouse, Location |
+| InventoryTransaction | Lịch sử nhập, xuất, điều chỉnh, kiểm kê |
+| Stock Take | Kiểm kê tồn kho bằng scan QR và cập nhật chênh lệch |
+
+### 3.4 Inbound & Outbound
+
+| Module | Mô tả |
+|-------|------|
+| Inbound / Purchase Order | Tạo phiếu nhập, chi tiết phiếu nhập, xác nhận nhận hàng |
+| Outbound / Sales Order | Tạo phiếu xuất, picking, packing và xác nhận xuất hàng |
+| Receiving | Scan QR, kiểm tra thông tin hàng, xác minh cân IoT, confirm nhận hàng |
+| Shipping | Scan QR, xác nhận lấy hàng, đóng gói và xuất kho |
+
+### 3.5 IoT Scale Integration
+
+Thiết bị IoT dự kiến dùng:
+
+```text
+ESP32 CP2102 + HX711 + load cell + OLED I2C
+```
+
+Thiết bị gửi dữ liệu qua REST API:
+
+```text
+POST /api/iot/weight-logs
+GET  /api/iot/devices/{deviceCode}/commands/pending
+POST /api/iot/device-commands/{commandId}/complete
+```
+
+| Module | Mô tả |
+|-------|------|
+| IoTDevice | Quản lý thiết bị cân tại kho hoặc vị trí nhận hàng |
+| IoTWeightLog | Lưu log trọng lượng ổn định do ESP32 gửi lên backend |
+| IoTDeviceCommand | Backend tạo lệnh như TARE / RESET / CALIBRATE để thiết bị polling |
+| Receiving Verification | So sánh trọng lượng / số lượng kỳ vọng trước khi xác nhận nhập kho |
+
+### 3.6 Smart Put-away Location Suggestion
+
+Tính năng gợi ý vị trí lưu kho dựa trên rule-based logic:
+
+- Product Variant cần lưu.
+- Kho được chọn.
+- Sức chứa còn lại của Location.
+- Vị trí ưu tiên.
+- Tồn kho hiện tại của cùng Product Variant.
+- Trạng thái khả dụng của Location.
+
+Kết quả trả về là danh sách vị trí đề xuất, nhân viên vẫn là người xác nhận cuối cùng.
+
+### 3.7 Rule-Based Inbound Bottleneck Warning
+
+Tính năng cảnh báo nguy cơ quá tải nhập kho dựa trên:
+
+- Số lượng phiếu nhập dự kiến trong 24 giờ.
+- Tổng số item cần nhận.
+- Năng lực xử lý dự kiến của nhân sự.
+- Sức chứa kho / khu nhận hàng.
+- Trạng thái tồn đọng của các phiếu chưa xử lý.
+
+Đây là rule engine đơn giản, không phải AI/ML.
+
+---
+
+## 4. Chi tiết các project
+
+### 4.1 Backend.API — Presentation Layer
+
+Project này là điểm vào của hệ thống, chứa HTTP pipeline và Controller.
+
+| Thành phần | Mô tả |
+|-----------|------|
+| `Controllers/` | API Controller cho từng module |
+| `Middlewares/` | Exception handling, token revocation, request logging |
+| `Utilities/` | Extension method đăng ký service, CORS, Swagger, Auth, Rate Limit |
+| `Program.cs` | Entry point cấu hình app |
+| `appsettings.json` | Cấu hình chung dạng placeholder |
+| `appsettings.Development.json` | Cấu hình local, không commit nếu có secret thật |
+
+Controller dự kiến:
 
 | Controller | Mô tả |
-|-----------|-------|
-| `AuthController.cs` | Đăng nhập, đăng ký, refresh token, đổi mật khẩu, quên mật khẩu, đăng xuất. |
-| `UserController.cs` | CRUD người dùng, phân trang, tìm kiếm, xuất Excel, upload avatar. |
-| `RoleController.cs` | Quản lý Role và phân quyền (Permission) theo Menu + Action. |
-| `NotificationController.cs` | Gửi & quản lý thông báo push (Firebase), lấy danh sách, đánh dấu đã đọc. |
-| `BlogPostController.cs` | CRUD bài viết blog, duyệt bài, phân trang, filter theo category/tag. |
-| `FileManagerController.cs` | Upload file/ảnh lên Cloudinary, quản lý thư mục, xoá file. |
-| `PaymentTransactionController.cs` | Tra cứu giao dịch thanh toán theo bộ lọc, phân trang. |
-| `SystemConfigController.cs` | Đọc/ghi cấu hình hệ thống động (key-value) từ database. |
-| `AuditLogController.cs` | Tra cứu lịch sử thay đổi dữ liệu (ai thay đổi gì, khi nào). |
-| `DashboardController.cs` | Endpoint trả về dữ liệu thống kê cho trang Dashboard. |
+|-----------|------|
+| `AuthController` | Đăng nhập, refresh token, logout |
+| `UserController` | Quản lý người dùng |
+| `RoleController` | Quản lý vai trò |
+| `ProductController` | Quản lý sản phẩm |
+| `ProductVariantController` | Quản lý biến thể/SKU |
+| `WarehouseController` | Quản lý kho |
+| `LocationController` | Quản lý vị trí |
+| `InventoryController` | Truy vấn tồn kho |
+| `InventoryTransactionController` | Lịch sử giao dịch tồn kho |
+| `InboundController` | Phiếu nhập / receiving |
+| `OutboundController` | Phiếu xuất / shipping |
+| `QrLabelController` | Sinh và tra cứu QR |
+| `IoTDeviceController` | Quản lý thiết bị IoT |
+| `IoTWeightLogController` | Nhận log cân |
+| `IoTDeviceCommandController` | Quản lý lệnh thiết bị |
+| `DashboardController` | Dữ liệu dashboard |
+| `ReportController` | Báo cáo tồn kho / hoạt động |
 
-#### Middlewares
+### 4.2 Backend.Application — Business Logic Layer
 
-| Middleware | Mô tả |
-|-----------|-------|
-| `TokenRevocationMiddleware.cs` | Chạy trước mọi request có `Authorization` header. Kiểm tra JWT có bị thu hồi (`UserSession.IsRevoked`) không, và trạng thái tài khoản có bị khoá không. Trả `401`/`403` ngay nếu vi phạm. |
-| `ExceptionHandlingMiddleware.cs` | Bắt toàn bộ exception chưa được xử lý, trả về JSON chuẩn `ApiResponse` với status 500. Đồng thời ghi `ActivityLog` cho mỗi request (method + path + status code). |
+Chứa service, DTO, mapping, validator và logic nghiệp vụ.
 
-#### Utilities
+| Thành phần | Mô tả |
+|-----------|------|
+| `Interfaces/` | Interface service |
+| `Implements/` | Implement service |
+| `DTOs/` | Request/Response DTO |
+| `Mappings/` | AutoMapper Profile |
+| `Validators/` | FluentValidation |
+| `Constants/` | Mã lỗi, message, business constants |
+| `DependencyInjection/` | Đăng ký service vào DI |
 
-| File | Mô tả |
-|------|-------|
-| `ServiceExtensions.cs` | Đăng ký: CORS, Controllers, Swagger + JWT Security, API Versioning, JWT Authentication, Kestrel limits (50MB), Firebase, Rate Limiter, HttpClient. |
-| `ApplicationExtensions.cs` | Cấu hình pipeline: Swagger UI, Static Files, HTTPS redirect, CORS, Auth, RateLimiter, Hangfire Dashboard, Health Checks, MapControllers. |
-| `ConfigurationExtensions.cs` | Extension `AddAppConfigurations()` — nạp các Options từ appsettings. |
-| `RateLimitExtensions.cs` | Khai báo 3 policy rate limit: `StrictLoginPolicy` (5 req/phút — cho login), `GeneralPolicy` (100 req/phút), `GlobalLimiter` (200 req/phút — cho toàn bộ IP). |
-| `CustomAuthorizeAttribute.cs` | Attribute `[CustomAuthorize(Menu, Action)]` — kiểm tra quyền RBAC dựa trên `UserRole → Permission → Menu + Action`. Hỗ trợ cache permission. |
-| `ControllerHelper.cs` | Helper lấy thông tin user hiện tại từ `HttpContext` claims. |
-| `IBaseController.cs` | Interface chuẩn hoá response type cho tất cả Controller. |
-| `ConfigureSwaggerOptions.cs` | Cấu hình Swagger tự động theo API version (v1, v2…). |
-
----
-
-### 3.2 Backend.Application — Business Logic Layer
-
-Chứa toàn bộ business logic của hệ thống. Định nghĩa Interface cho các service, implement các service cụ thể, khai báo DTO, Mapping, Validator và hằng số nghiệp vụ. Layer này **không phụ thuộc vào Infrastructure hay API**.
-
-| 📁 Thư mục / File | Mô tả |
-|------------------|-------|
-| `Interfaces/` | Định nghĩa contract cho tất cả service (`IAuthService`, `IUserService`…). Đây là abstraction layer — Infrastructure implement, API tiêu thụ. |
-| `Implements/` | Cài đặt cụ thể các service. Mỗi service inject các `IRepository` tương ứng qua constructor. |
-| `DTOs/` | Data Transfer Objects — các class Request/Response cho từng use case. Chia theo domain (`Users/`, `BlogPosts/`, `Auths/`…). |
-| `Mappings/` | AutoMapper Profile — map giữa `Entity ↔ DTO` cho từng domain. |
-| `Validators/` | FluentValidation Validator — validate dữ liệu đầu vào (Request DTO) theo từng use case. |
-| `Constants/` | Hằng số nghiệp vụ: mã lỗi (`ApiCodeConstants`), thông báo lỗi (`ErrorMessagesConstants`), cache key, notification template, v.v. |
-| `EmailTemplates/` | File HTML template email: đăng ký tài khoản, quên mật khẩu (admin & client), OTP. |
-| `StaticFiles/` | Dữ liệu tĩnh JSON: danh sách tỉnh/thành (`provinces.json`), quận/huyện, phường/xã (`wards.json`) — dùng để seed database. |
-| `DependencyInjection/` | Extension `AddApplicationServices()` — đăng ký tất cả service vào DI container. |
-| `Backend.Application.csproj` | Khai báo NuGet: AutoMapper, FluentValidation, MediatR (nếu có), v.v. |
-
-#### Các service cốt lõi
+Service chính:
 
 | Service | Mô tả |
-|--------|-------|
-| `AuthService.cs` | Xử lý toàn bộ luồng xác thực: đăng nhập (JWT + Refresh Token), đăng ký, xác thực email OTP, đổi mật khẩu, quên mật khẩu, đăng xuất (thu hồi token). Đây là service lớn nhất (~41KB). |
-| `UserService.cs` | CRUD user, phân trang DataTable, upload avatar, đổi trạng thái, xuất Excel, quản lý thiết bị (`UserDevice`). |
-| `RoleService.cs` | Quản lý Role, Permission. Đồng bộ quyền hàng loạt (bulk save permissions theo menu/action). |
-| `NotificationService.cs` | Tạo & gửi thông báo: push FCM tới thiết bị, lưu DB, đánh dấu đọc, phân trang. |
-| `BlogPostService.cs` | CRUD bài viết: soạn thảo, gán category/tag, duyệt bài, lọc theo status/category. |
-| `FileUploadService.cs` | Upload file đơn/hàng loạt lên Cloudinary, kiểm tra loại file, resize ảnh, xoá file. |
-| `SystemConfigService.cs` | CRUD cấu hình hệ thống (key-value) — cho phép thay đổi config động mà không cần restart. |
-| `ProvinceService.cs` & `WardService.cs` | Import/tra cứu dữ liệu tỉnh thành, quận huyện, phường xã từ `StaticFiles`. |
-| `PaymentTransactionService.cs` | Ghi nhận & truy vấn giao dịch thanh toán. |
-| `MenuService.cs` | Quản lý cấu trúc Menu phân cấp, gán Action vào Menu. |
+|--------|------|
+| `AuthService` | Xác thực, JWT, refresh token |
+| `UserService` | Người dùng |
+| `RoleService` | Vai trò |
+| `ProductService` | Sản phẩm |
+| `ProductVariantService` | Biến thể/SKU |
+| `WarehouseService` | Kho |
+| `LocationService` | Vị trí lưu kho |
+| `InventoryService` | Tồn kho hiện tại |
+| `InventoryTransactionService` | Nhập/xuất/điều chỉnh tồn kho |
+| `InboundService` | Phiếu nhập và nhận hàng |
+| `OutboundService` | Phiếu xuất và giao hàng |
+| `QrLabelService` | QR label |
+| `IoTDeviceService` | Thiết bị IoT |
+| `IoTWeightLogService` | Log cân |
+| `IoTDeviceCommandService` | Lệnh thiết bị |
+| `PutAwaySuggestionService` | Gợi ý vị trí lưu hàng |
+| `InboundBottleneckWarningService` | Cảnh báo quá tải nhập kho |
+| `DashboardService` | Dashboard |
+| `ReportService` | Báo cáo |
 
-#### Constants quan trọng
+### 4.3 Backend.Domain — Core Layer
 
-| File | Mô tả |
-|------|-------|
-| `ApiCodeConstants.cs` | Định nghĩa mã code API (vd: `Auth.InvalidToken`, `Common.Forbidden`…) — trả về trong `ApiResponse.Code` để client xử lý phân loại lỗi. |
-| `ErrorMessagesConstants.cs` | Map mã code → thông báo lỗi tiếng Việt/Anh. Dùng `GetMessage(code)` để lấy message. |
-| `CommonConstants.cs` | Cache key, độ dài chuỗi tối đa, regex pattern, ActivityLog type. |
-| `NotificationConstants.cs` | Template tiêu đề & nội dung thông báo FCM theo loại sự kiện. |
-| `AuthConstants.cs` | Thời gian hết hạn token, loại token, giá trị mặc định. |
-| `AuditLogConstants.cs` | Danh sách action được audit (Created/Modified/Deleted). |
-| `FileManagerConstants.cs` | Giới hạn dung lượng file, danh sách extension được phép upload. |
-
----
-
-### 3.3 Backend.Domain — Core / Domain Layer
-
-Tầng nhân lõi — **không phụ thuộc vào bất kỳ layer nào khác**. Chứa Entity, Enum, Abstraction base class và Interface Repository. Mọi business rule cốt lõi đều nằm ở đây.
-
-| 📁 Thư mục / File | Mô tả |
-|------------------|-------|
-| `Entities/` | Các class Entity map trực tiếp với bảng database (EF Core). Kế thừa `EntityBase` hoặc `EntityAuditBase`. |
-| `Abstractions/` | Base class & interface nền tảng: `EntityBase`, `EntityAuditBase`, `IRepositoryBase`, `IUnitOfWork`. |
-| `Aggregates/` | Aggregate — projection class dùng cho query phức tạp, join nhiều bảng. Không map trực tiếp DB. |
-| `DTParameters/` | Parameter class cho DataTable server-side (search, sort, paging, filter) theo từng domain. |
-| `Enums/` | Enum nghiệp vụ: `UserStatus`, `Role`, `Menu`, `Action`, `Gender`, `PaymentStatus`, `PaymentMethod`. |
-| `Commons/` | `DTResultWithSummary` — kiểu dữ liệu trả về có tổng hợp (tổng tiền, tổng bản ghi…). |
-| `Interfaces/` | Interface Repository cho từng Entity (`IUserRepository`, `IBlogPostRepository`…). |
-| `Backend.Domain.csproj` | Không có NuGet dependency bên ngoài ngoài EF Core abstractions. |
-
-#### Abstraction Base Classes
-
-| Class / Interface | Mô tả |
-|------------------|-------|
-| `EntityBase<TKey>` | Base nhỏ nhất: `Id` (generic key) + `IsDeleted` (soft delete flag). Mọi entity đều kế thừa class này. |
-| `EntityAuditBase<TKey>` | Kế thừa `EntityBase`, bổ sung: `CreatedDate`, `LastModifiedDate`, `CreatedBy`, `UpdatedBy` — dùng cho entity cần audit trail. |
-| `EntityCommonBase` | Bổ sung thêm `Name`, `Description`, `IsActive` — dùng cho các entity danh mục. |
-| `EntityFullTextSearch` | Bổ sung `SearchVector` — hỗ trợ full-text search. |
-| `IUnitOfWork` | Interface Unit of Work: `SaveChangesAsync()` — đảm bảo tính atomicity của transaction. |
-| `IUnitOfWorkContext<T>` | Generic Unit of Work gắn với DbContext cụ thể. |
-
-#### Entities chính
+Chứa entity, enum, abstraction và repository interface. Domain không phụ thuộc vào project khác.
 
 | Entity | Mô tả |
-|--------|-------|
-| `User.cs` | Thông tin người dùng: Email, FullName, Phone, Avatar, UserStatusId, các FK liên quan. |
-| `UserSession.cs` | Session JWT: `AccessTokenJti`, `RefreshToken`, `IsRevoked`, `ExpiryDate`, `DeviceInfo`. |
-| `UserRole.cs` | Mapping User ↔ Role (many-to-many). |
-| `Permission.cs` | Mapping Role ↔ Menu ↔ Action — bảng phân quyền. |
-| `BlogPost.cs` | Bài viết blog: Title, Content, Slug, ThumbnailUrl, BlogPostStatusId, BlogLayoutId… |
-| `Notification.cs` | Thông báo: Title, Body, NotificationTypeId, NotificationCategoryId, IsRead… |
-| `FileUpload.cs` | Metadata file upload: FileName, Url, FolderUploadId, FileType, Size. |
-| `AuditLog.cs` | Lịch sử thay đổi dữ liệu: TargetType, TargetId, Action, DataBefore, DataAfter (JSON), IpAddress. |
-| `ActivityLog.cs` | Log HTTP request: Method, Path, StatusCode, UserId, IpAddress, UserAgent. |
-| `PaymentTransaction.cs` | Giao dịch: Amount, PaymentMethodId, PaymentStatusId, Reference… |
-| `SystemConfig.cs` | Cấu hình key-value động: Key, Value, Description. |
+|-------|------|
+| `User` | Người dùng |
+| `Role` | Vai trò |
+| `Permission` | Phân quyền |
+| `Product` | Sản phẩm |
+| `ProductVariant` | Biến thể/SKU |
+| `Warehouse` | Kho |
+| `Location` | Vị trí |
+| `Inventory` | Tồn kho |
+| `InventoryTransaction` | Lịch sử giao dịch tồn kho |
+| `Inbound` / `InboundDetail` | Phiếu nhập |
+| `Outbound` / `OutboundDetail` | Phiếu xuất |
+| `QrLabel` | QR label |
+| `IoTDevice` | Thiết bị IoT |
+| `IoTWeightLog` | Log cân |
+| `IoTDeviceCommand` | Lệnh thiết bị |
+| `AuditLog` | Audit trail |
+| `ActivityLog` | Log request/activity |
+
+### 4.4 Backend.Infrastructure — Infrastructure Layer
+
+Implement repository, DbContext, external services và background jobs.
+
+| Thành phần | Mô tả |
+|-----------|------|
+| `Persistence/` | DbContext, configurations, migrations, seed data |
+| `Repositories/` | Implement repository |
+| `Services/` | Cloudinary, Email, Firebase, Token provider |
+| `Interceptors/` | Audit interceptor |
+| `Jobs/` | Hangfire recurring jobs |
+| `DependencyInjection/` | Đăng ký Infrastructure service |
+
+### 4.5 Backend.Share — Cross-cutting Concerns
+
+Thư viện dùng chung giữa các layer.
+
+| Thành phần | Mô tả |
+|-----------|------|
+| `Entities/` | `ApiResponse<T>`, paging model, file upload result |
+| `Extensions/` | Extension methods cho string, datetime, query, http context |
+| `Helpers/` | Helper cho password, email, file, random, string |
+| `Services/` | Cache service, serialize service |
+| `Constants/` | Shared constants |
+| `Attributes/` | Custom attributes |
 
 ---
 
-### 3.4 Backend.Infrastructure — Infrastructure Layer
+## 5. Luồng request điển hình
 
-Implement cụ thể các interface được định nghĩa ở Domain và Application. Chứa EF Core DbContext, Repository, Migration, External Service và Background Job. Layer này biết về Database, Cloud, Email — Domain và Application không biết.
-
-| 📁 Thư mục / File | Mô tả |
-|------------------|-------|
-| `Persistence/` | DbContext, EntityTypeConfiguration, Migration, SeedData. |
-| `Repositories/` | Implement các `IRepository` — truy vấn database qua EF Core. |
-| `Services/` | External services: Email (Gmail SMTP), Firebase FCM, Cloudinary, JWT Token Provider, Hangfire Jobs. |
-| `Interceptors/` | EF Core Interceptor: tự động ghi AuditLog khi SaveChanges. |
-| `DependencyInjection/` | Extension `AddInfrastructureServices()` — đăng ký DbContext, Repository, Service, Hangfire, HealthChecks vào DI. |
-| `Constants/` | `TableNames.cs` (tên bảng DB), `CommonConstants.cs` (danh sách entity được audit). |
-| `Backend.Infrastructure.csproj` | NuGet: EF Core MySQL, Hangfire.MySql, Cloudinary, Firebase, Serilog, HealthChecks. |
-
-#### Persistence
-
-| File | Mô tả |
-|------|-------|
-| `BackendContext.cs` | DbContext chính: khai báo tất cả `DbSet<>`, cấu hình DB function `DATE_FORMAT` (MySQL), nạp SeedData. |
-| `Configurations/` | `IEntityTypeConfiguration<T>` cho từng Entity: tên bảng (TableNames), index, relationship, column type, unique constraint. |
-| `Migrations/` | File migration EF Core — lịch sử thay đổi schema database. Tự động chạy khi khởi động (`ApplyMigrations()`). |
-| `SeedData/` | Dữ liệu mồi ban đầu: `ActionSeed` (CRUD/EXPORT/APPROVE), `RoleSeed` (ADMIN/USER), `UserSeed` (admin mặc định), `UserStatusSeed`, `UserRoleSeed`. |
-
-#### Repositories
-
-| File | Mô tả |
-|------|-------|
-| `RepositoryBase<TEntity,TKey>` | Generic Repository: GetAll, FindByCondition, CreateAsync, UpdateAsync, DeleteAsync, CountByCondition, BeginTransaction, v.v. Tự động lọc `IsDeleted = false` (soft delete). |
-| `RepositoryBaseDbContext<T,TEntity,TKey>` | Generic Repository nhận DbContext qua generic type — dùng khi cần truy cập context cụ thể. |
-| `UnitOfWork.cs` | Implement `IUnitOfWork`: gọi `dbContext.SaveChangesAsync()`. |
-| `UnitOfWorkContext<T>.cs` | Generic UnitOfWork — wrap SaveChanges cho context cụ thể. |
-| `[Domain]Repository.cs` | Repository cụ thể cho từng Entity — override hoặc bổ sung query phức tạp (join, stored procedure, raw SQL). |
-
-#### Services
-
-| Service | Mô tả |
-|--------|-------|
-| `TokenProviderService.cs` | Tạo và parse JWT Access Token + Refresh Token. Dùng HS256, khai báo claims (userId, roleId, jti…). |
-| `CloudinaryStorageService.cs` | Upload/xoá file trên Cloudinary. Hỗ trợ ảnh (auto-transform) và file thường. |
-| `GoogleEmailService.cs` | Gửi email qua Gmail SMTP (App Password). Hỗ trợ HTML template. |
-| `FireBaseService.cs` | Gửi push notification qua Firebase Admin SDK (FCM). Hỗ trợ gửi đơn & hàng loạt. |
-| `UserSessionCleanupJob.cs` | Hangfire Job — chạy mỗi 6 tiếng: xoá UserSession hết hạn. |
-| `VerificationTokenCleanupJob.cs` | Hangfire Job — chạy mỗi 30 phút: xoá VerificationToken hết hạn. |
-| `JobRegistrar.cs` | Đăng ký các Recurring Job vào Hangfire theo cấu hình Cron từ appsettings. |
-| `IScheduledJob` / `IJobRegistrar` | Interface để mock/test background job. |
-
-#### Interceptors
-
-| File | Mô tả |
-|------|-------|
-| `AuditSaveChangesInterceptor.cs` | Override `SavingChangesAsync()` của EF Core. Tự động tạo bản ghi `AuditLog` cho các entity trong danh sách `CommonConstants.AuditedEntityNames` mỗi khi có thay đổi (Added/Modified/Deleted). Ghi `DataBefore` & `DataAfter` dạng JSON, IpAddress, UserAgent, UserId. |
+```text
+HTTP Request
+   │
+   ▼
+Rate Limiter
+   │
+   ▼
+Exception Handling Middleware
+   │
+   ▼
+Authentication Middleware
+   │
+   ▼
+Authorization / RBAC
+   │
+   ▼
+Controller
+   │
+   ▼
+Application Service
+   │
+   ▼
+Repository / UnitOfWork
+   │
+   ▼
+EF Core / MySQL
+   │
+   ▼
+ApiResponse<T>
+```
 
 ---
 
-### 3.5 Backend.Share — Cross-cutting Concerns
+## 6. Cấu hình hệ thống
 
-Thư viện dùng chung (shared kernel) — được tất cả các layer khác tham chiếu. Không chứa business logic, chỉ chứa utility, helper, extension method và contract dùng chung.
+### 6.1 ConnectionStrings
 
-| 📁 Thư mục / File | Mô tả |
-|------------------|-------|
-| `Entities/` | Model dùng chung: `ApiResponse`, `PagingData`, `DataTableModel`, `SearchQuery`, `ApexChartData`, `FileUploadResult`, `GoogleMailRequest`… |
-| `Extensions/` | Extension methods cho DateTime, String, IEnumerable, IQueryable, HttpContext, HttpClient, ImageProcessor. |
-| `Helpers/` | Static helper: `EmailHelper`, `PhoneHelper`, `PasswordHelper` (BCrypt), `RandomHelper`, `StringHelper`, `CronHelper`, `FileHelper`. |
-| `Services/` | Interface + Implement service nhỏ: `ICacheService`/`MemoryCacheService`, `ISerializeService`/`SerializeService`, `IImageProcessor`/`MagickImageProcessor`, `IScheduledJobService`/`ScheduledJobService`. |
-| `Constants/` | `ClaimNames.cs` (tên claim trong JWT), `SQLParams.cs` (param name SQL). |
-| `Enums/` | `CommonEnum.cs` — enum chung không thuộc domain cụ thể. |
-| `Attributes/` | `SensitiveDataAttribute` (đánh dấu field nhạy cảm, bỏ qua khi serialize log), `SortTypeValidateAttribute` (validate sort direction). |
-| `Backend.Share.csproj` | NuGet: Magick.NET, Newtonsoft.Json, BCrypt.Net, v.v. |
-
-#### Extension Methods nổi bật
-
-| File | Mô tả |
-|------|-------|
-| `DateTimeExtensions.cs` | `ToVietnameseDateTime()`, `ToVietnameseDateOffset()`, `ToVietnameseDate()` — format ngày giờ kiểu Việt Nam. Map sang DB Function `DATE_FORMAT` của MySQL qua EF Core `HasDbFunction`. |
-| `StringExtensions.cs` | `ToSlug()` (tạo URL-friendly slug), `RemoveVietnameseDiacritics()`, `ToSnakeCase()`, `MaskEmail()`, `MaskPhone()`… |
-| `HttpContextExtensions.cs` | `GetCurrentUserId()` — lấy userId từ JWT claim, `GetRemoteHostIpAddress()` — lấy IP thật (hỗ trợ X-Forwarded-For). |
-| `LinqExtensions.cs` | `WhereIf()` — áp dụng điều kiện có điều kiện, tránh if/else verbose. |
-| `HttpClientExtensions.cs` | `GetAsync<T>`, `PostAsync<T>` — wrapper typed cho HttpClient với JSON deserialization. |
-
-#### ApiResponse — Chuẩn hoá response
-
-Tất cả endpoint đều trả về `ApiResponse<T>`. Cấu trúc:
+Không commit connection string thật lên GitHub. Dùng placeholder trong `appsettings.json` và inject giá trị thật bằng `.env`, Docker Compose hoặc secret của CI/CD.
 
 ```json
 {
-  "isSucceeded": true,
-  "status": 200,
-  "code": "SUCCESS",
-  "message": "Thao tác thành công",
-  "resources": { /* data */ },
-  "errors": null
+  "ConnectionStrings": {
+    "DefaultConnectionString": "Server=<MYSQL_HOST>;Port=3306;Database=<DB_NAME>;User=<DB_USER>;Password=<DB_PASSWORD>;SslMode=Required;AllowPublicKeyRetrieval=True;"
+  }
 }
 ```
 
-| Method | HTTP Status | Mô tả |
-|--------|------------|-------|
-| `ApiResponse.Ok(data)` | 200 | Thành công, có data |
-| `ApiResponse.Created(data)` | 201 | Tạo mới thành công |
-| `ApiResponse.BadRequest(msg, code)` | 400 | Dữ liệu đầu vào sai |
-| `ApiResponse.Unauthorized(msg, code)` | 401 | Chưa xác thực |
-| `ApiResponse.Forbidden(msg, code)` | 403 | Không có quyền |
-| `ApiResponse.NotFound(msg, code)` | 404 | Không tìm thấy |
-| `ApiResponse.Error(msg, status, code)` | 500 | Lỗi server |
-
----
-
-## 4. Luồng dữ liệu (Request Flow)
-
-Một HTTP request điển hình đi qua các tầng theo thứ tự sau:
-
-```
-HTTP Request
-   │
-   ▼  Rate Limiter (RateLimitExtensions)
-   │
-   ▼  TokenRevocationMiddleware
-   │       └─ Kiểm tra JWT có bị thu hồi không
-   │       └─ Kiểm tra trạng thái tài khoản
-   │
-   ▼  ExceptionHandlingMiddleware
-   │       └─ Bắt exception, ghi ActivityLog
-   │
-   ▼  Authentication (JWT Bearer)
-   │
-   ▼  Authorization ([CustomAuthorize(Menu, Action)])
-   │       └─ Kiểm tra RBAC permission
-   │
-   ▼  Controller Action
-   │       └─ Validate Request (FluentValidation)
-   │       └─ Gọi IService.MethodAsync(dto)
-   │
-   ▼  Service (Application Layer)
-   │       └─ Business logic
-   │       └─ Gọi IRepository
-   │
-   ▼  Repository (Infrastructure Layer)
-   │       └─ EF Core query → MySQL
-   │       └─ AuditSaveChangesInterceptor (tự động)
-   │
-   ▼  HTTP Response (ApiResponse<T>)
-```
-
----
-
-## 5. Cấu hình hệ thống (appsettings.json)
-
-#### ConnectionStrings
+### 6.2 JwtSettings
 
 ```json
-"ConnectionStrings": {
-  "DefaultConnectionString": "Server=<IP_ZeroTier>;Port=3306;Database=backend;User=user_login;Password=<PASSWORD>;SslMode=Required;AllowPublicKeyRetrieval=True;"
+{
+  "JwtSettings": {
+    "SecretKey": "<32+ random characters>",
+    "Issuer": "StockLiteApi",
+    "Audience": "StockLiteClient",
+    "ExpireTime": 1,
+    "RefreshTokenTtl": 7
+  }
 }
 ```
 
-#### JwtSettings
+### 6.3 CloudinarySettings
 
 ```json
-"JwtSettings": {
-  "SecretKey": "<32+ ký tự ngẫu nhiên>",
-  "Issuer": "BackendApi",
-  "Audience": "BackendClient",
-  "ExpireTime": 1,        // Access token hết hạn sau N ngày
-  "RefreshTokenTtl": 1    // Refresh token hết hạn sau N ngày
-}
-```
-
-#### HangfireSettings
-
-```json
-"HangfireSettings": {
-  "Route": "/jobs",        // URL dashboard: http://host/jobs
-  "ServerName": "Backend_Server",
-  "Dashboard": {
-    "Username": "admin",   // Basic auth Hangfire dashboard
-    "Password": "Abc@123456"
-  },
-  "ConnectionString": "..."  // Dùng cùng DB, thêm Allow User Variables=true
-}
-```
-
-#### ScheduledJobs
-
-```json
-"ScheduledJobs": {
-  "CleanupUserSession":        { "Enabled": true, "Cron": "0 */6 * * *" },   // mỗi 6h
-  "CleanupVerificationTokens": { "Enabled": true, "Cron": "*/30 * * * *" },  // mỗi 30 phút
-  "CreateDriverSalaries":      { "Enabled": true, "Cron": "0 0 25 * *" }     // ngày 25 hàng tháng
-}
-```
-
-#### CloudinarySettings
-
-```json
-"CloudinarySettings": {
-  "CloudName": "<your_cloud_name>",
-  "ApiKey": "<your_api_key>",
-  "ApiSecret": "<your_api_secret>"
+{
+  "CloudinarySettings": {
+    "CloudName": "<cloud_name>",
+    "ApiKey": "<api_key>",
+    "ApiSecret": "<api_secret>"
+  }
 }
 ```
 
 ---
 
-## 6. Kết nối MySQL từ xa qua ZeroTier VPN
+## 7. Docker & Environment Variables
 
-> **🌐 ZeroTier là gì?**
-> ZeroTier tạo một mạng LAN ảo (Virtual Private Network) ngang hàng (peer-to-peer) giữa các thiết bị. Máy laptop ở nhà và server chạy MySQL sẽ cùng nằm trong một mạng ảo riêng, kết nối trực tiếp mà không cần mở cổng public hay cấu hình NAT phức tạp.
+### 7.1 Nguyên tắc
 
-### 6.1 Kiến trúc kết nối
+Docker image chỉ nên chứa application binaries. Các giá trị môi trường như connection string, JWT secret, SMTP password, Cloudinary secret và Firebase config phải được inject khi container chạy.
 
-```
-┌──────────────────────┐          ZeroTier Network          ┌──────────────────────┐
-│   Laptop ở nhà       │◄──────────────────────────────────►│   Server MySQL       │
-│   (Dev machine)      │    IP ảo ZeroTier: 172.25.x.x      │   (Ubuntu/VPS)       │
-│                      │    (mạng riêng, mã hóa E2E)        │   Port 3306 (MySQL)  │
-│  - IDE / DBeaver     │                                     │   Port 3306 chỉ bind │
-│  - dotnet run        │                                     │   0.0.0.0 hoặc ZT IP │
-└──────────────────────┘                                     └──────────────────────┘
+Không commit các file chứa secret thật:
 
-  ConnectionString: Server=172.25.55.18;Port=3306;Database=backend;...
-                              ↑
-                    IP ZeroTier của server MySQL
+```text
+.env
+appsettings.Development.json
+appsettings.Production.json
+firebase-service.json
+docker-compose.override.yml
 ```
 
-### 6.2 Cài đặt ZeroTier trên Server (Linux/Ubuntu)
+### 7.2 Ví dụ docker-compose.yml
 
-```bash
-# Cài ZeroTier
-curl -s https://install.zerotier.com | sudo bash
-
-# Join vào network (lấy Network ID từ my.zerotier.com)
-sudo zerotier-cli join <NETWORK_ID>
-# Ví dụ: sudo zerotier-cli join 8056c2e21c000001
-
-# Kiểm tra trạng thái và lấy IP ZeroTier
-sudo zerotier-cli status
-sudo zerotier-cli listnetworks
-# Hoặc xem IP được gán:
-ip addr show zt+
+```yaml
+services:
+  stocklite-api:
+    image: stocklite-api:latest
+    build:
+      context: .
+      dockerfile: Backend.API/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnectionString: ${DB_CONNECTION_STRING}
+      JwtSettings__SecretKey: ${JWT_SECRET}
+      CloudinarySettings__CloudName: ${CLOUDINARY_CLOUD_NAME}
+      CloudinarySettings__ApiKey: ${CLOUDINARY_API_KEY}
+      CloudinarySettings__ApiSecret: ${CLOUDINARY_API_SECRET}
+      SmtpSettings__Username: ${SMTP_USERNAME}
+      SmtpSettings__Password: ${SMTP_PASSWORD}
 ```
 
-Vào **ZeroTier Central** (`my.zerotier.com`) → Network → Members → tick **Authorize** cho server.
+### 7.3 Ví dụ .env.example
 
-```bash
-# Đảm bảo MySQL bind đúng address
-# /etc/mysql/mysql.conf.d/mysqld.cnf
-bind-address = 0.0.0.0
-# Hoặc chỉ bind ZeroTier IP:
-bind-address = 172.25.55.18
-
-sudo systemctl restart mysql
+```env
+DB_CONNECTION_STRING=
+JWT_SECRET=
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
+SMTP_USERNAME=
+SMTP_PASSWORD=
+FIREBASE_CREDENTIAL_PATH=
 ```
-
-### 6.3 Cài đặt ZeroTier trên Laptop
-
-#### macOS
-- Tải ZeroTier One: https://www.zerotier.com/download/
-- Mở ứng dụng → Join Network → nhập Network ID → click Join.
-- Vào ZeroTier Central → authorize máy laptop.
-
-```bash
-ping 172.25.55.18      # ping IP ZeroTier của server
-mysql -h 172.25.55.18 -P 3306 -u user_login -p
-```
-
-#### Windows
-- Tải installer `.msi` từ https://www.zerotier.com/download/
-- Cài đặt → chuột phải icon ZeroTier trong system tray → **Join New Network**.
-- Nhập Network ID → authorize trên ZeroTier Central.
-- Kiểm tra IP được gán: Settings → Network Connections → ZeroTier adapter.
-
-### 6.4 Tạo MySQL User cho kết nối ZeroTier
-
-Thực hành bảo mật tốt: tạo user riêng chỉ cho phép kết nối từ dải IP ZeroTier.
-
-```sql
--- Kết nối MySQL với root
-mysql -u root -p
-
--- Tạo user cho phép từ toàn bộ ZeroTier subnet
-CREATE USER 'user_login'@'172.25.%'
-  IDENTIFIED BY 'S75p#qL!2026@vN_uLtr4';
-
--- Cấp quyền trên database backend
-GRANT ALL PRIVILEGES ON backend.* TO 'user_login'@'172.25.%';
-
-FLUSH PRIVILEGES;
-```
-
-> **🔐 Bảo mật:** Chỉ cho phép kết nối từ dải `172.25.%` (subnet ZeroTier). Không mở MySQL ra internet public. Dùng `SslMode=Required` trong connection string để mã hóa kết nối.
-
-### 6.5 Cấu hình Connection String trong appsettings.json
-
-```json
-"ConnectionStrings": {
-  "DefaultConnectionString":
-    "Server=172.25.55.18;Port=3306;Database=backend;User=user_login;Password=<YOUR_PASSWORD>;SslMode=Required;AllowPublicKeyRetrieval=True;"
-}
-```
-
-### 6.6 Mở cổng firewall trên Server (UFW)
-
-```bash
-# Cho phép MySQL từ ZeroTier subnet
-sudo ufw allow from 172.25.0.0/16 to any port 3306
-
-# Kiểm tra rule
-sudo ufw status verbose
-
-# KHÔNG làm điều này (nguy hiểm):
-# sudo ufw allow 3306  ← mở toàn bộ internet!
-```
-
-### 6.7 Kiểm tra kết nối từ laptop
-
-```bash
-# 1. Ping kiểm tra network ZeroTier
-ping 172.25.55.18
-
-# 2. Kiểm tra cổng MySQL mở
-telnet 172.25.55.18 3306
-# hoặc:
-nc -zv 172.25.55.18 3306
-
-# 3. Kết nối MySQL CLI
-mysql -h 172.25.55.18 -P 3306 -u user_login -p backend
-
-# 4. Chạy ứng dụng .NET từ laptop
-dotnet run --project Backend.API
-# → EF Core sẽ kết nối MySQL qua ZeroTier tự động
-```
-
-### 6.8 Troubleshooting
-
-| Vấn đề | Cách xử lý |
-|--------|-----------|
-| Không ping được `172.25.x.x` | Kiểm tra ZeroTier đã join network chưa? Máy đã được authorize trên Central chưa? |
-| Ping được nhưng MySQL từ chối kết nối | Kiểm tra MySQL `bind-address`, UFW firewall, user `'user_login'@'172.25.%'` đã tồn tại chưa. |
-| SSL error khi connect | Thêm `SslMode=None` (chỉ dùng khi test nội bộ, không dùng production) hoặc cấu hình SSL certificate đúng. |
-| ZeroTier status: DISCONNECTED | Restart ZeroTier: `sudo systemctl restart zerotier-one`. Kiểm tra internet server. |
-| Connection timeout từ .NET | Tăng `Connection Timeout` trong connection string: `Connection Timeout=30` |
-| EF Migration fail | Chạy: `dotnet ef database update --project Backend.Infrastructure --startup-project Backend.API` |
 
 ---
 
-## 7. Hướng dẫn chạy dự án
+## 8. Hướng dẫn chạy dự án local
 
-### 7.1 Yêu cầu môi trường
+### 8.1 Yêu cầu môi trường
 
 | Thành phần | Yêu cầu |
 |-----------|---------|
-| .NET SDK | 8.0 trở lên — https://dotnet.microsoft.com/download |
-| MySQL | 8.x (cài local hoặc kết nối qua ZeroTier) |
-| ZeroTier | Đã join network và authorize (nếu DB ở server xa) |
-| Cloudinary Account | Tạo free account tại cloudinary.com |
-| Firebase Project | Tạo project, tải `firebase-service.json` |
-| Gmail App Password | Bật 2FA Gmail → tạo App Password |
+| .NET SDK | 8.0 trở lên |
+| MySQL | 8.x |
+| Docker | Docker Desktop hoặc Docker Engine |
+| Git | Phiên bản mới |
+| IDE | Visual Studio 2022 / Visual Studio Code |
+| Cloudinary | Tài khoản Cloudinary nếu cần upload ảnh |
+| Firebase | Firebase project nếu cần push notification |
 
-### 7.2 Các bước chạy
-
-**1.** Clone hoặc giải nén source code vào thư mục dự án.
-
-**2.** Cập nhật `appsettings.json` với thông tin thực tế (ConnectionString, Cloudinary, Firebase, Gmail).
-
-**3.** Đặt file `firebase-service.json` vào `Backend.API/Configs/`
-
-**4.** Chạy migration (tạo database schema):
+### 8.2 Chạy bằng .NET CLI
 
 ```bash
-dotnet ef database update \
-  --project Backend.Infrastructure \
-  --startup-project Backend.API
+dotnet restore
+dotnet build
+
+dotnet ef database update   --project Backend.Infrastructure   --startup-project Backend.API
+
+dotnet run --project Backend.API
 ```
 
-**5.** Chạy ứng dụng:
+Sau khi chạy, mở:
+
+```text
+https://localhost:<port>/swagger
+```
+
+### 8.3 Chạy bằng Docker Compose
 
 ```bash
-cd Backend.API
-dotnet run
+cp .env.example .env
+# cập nhật giá trị trong .env
 
-# Hoặc chạy ở môi trường cụ thể:
-dotnet run --environment Development
+docker compose up --build
 ```
 
-**6.** Mở trình duyệt truy cập:
-- **Swagger UI:** https://localhost:7156/swagger
-- **Hangfire Dashboard:** https://localhost:7156/jobs *(username: admin, password: xem appsettings.json)*
-- **Health Check:** https://localhost:7156/health/ready
+---
 
-### 7.3 Endpoints đặc biệt
+## 9. Endpoint đặc biệt
 
 | Endpoint | Mô tả |
-|---------|-------|
-| `/swagger` | Swagger UI — tài liệu API tự động, hỗ trợ JWT Bearer test |
-| `/jobs` | Hangfire Dashboard — xem & quản lý background job |
-| `/health/live` | Liveness probe — kiểm tra app còn sống không |
-| `/health/ready` | Readiness probe — kiểm tra DB connection và các dependency |
-| `/uploads/users/avatars/*` | Static file — truy cập avatar người dùng |
-| `/uploads/blog-posts/*` | Static file — truy cập ảnh bài viết |
+|---------|------|
+| `/swagger` | Swagger UI |
+| `/jobs` | Hangfire Dashboard |
+| `/health/live` | Liveness check |
+| `/health/ready` | Readiness check |
+| `/api/auth/login` | Đăng nhập |
+| `/api/inbounds` | Quản lý nhập kho |
+| `/api/outbounds` | Quản lý xuất kho |
+| `/api/inventory` | Truy vấn tồn kho |
+| `/api/inventory-transactions` | Lịch sử giao dịch tồn kho |
+| `/api/iot/weight-logs` | Nhận log cân IoT |
+| `/api/put-away-suggestions` | Gợi ý vị trí lưu kho |
+| `/api/inbound-bottleneck-warnings` | Cảnh báo quá tải nhập kho |
 
 ---
 
-## 8. Bảo mật & Phân quyền (RBAC)
+## 10. Bảo mật & phân quyền
 
-### 8.1 JWT Authentication Flow
+### 10.1 JWT Authentication Flow
 
-```
-POST /api/v1/auth/login
-  → Validate credentials
-  → Tạo AccessToken (JWT, exp = 1 ngày) + RefreshToken
-  → Lưu UserSession (AccessTokenJti, RefreshToken, IsRevoked=false)
-  → Trả về { accessToken, refreshToken }
+```text
+POST /api/auth/login
+   → Validate credentials
+   → Generate access token + refresh token
+   → Store user session
+   → Return token pair
 
-Mỗi request tiếp theo:
-  Authorization: Bearer <accessToken>
-  → TokenRevocationMiddleware kiểm tra JTI trong UserSession
-  → Nếu IsRevoked=true → 401 Unauthorized
+Next requests:
+   Authorization: Bearer <access_token>
+   → Validate JWT
+   → Check permission
+   → Execute API action
 
-POST /api/v1/auth/refresh-token
-  → Validate refreshToken
-  → Revoke session cũ (IsRevoked=true)
-  → Tạo AccessToken + RefreshToken mới
-
-POST /api/v1/auth/logout
-  → Đặt IsRevoked=true cho session hiện tại
+POST /api/auth/refresh-token
+   → Validate refresh token
+   → Revoke old session
+   → Issue new token pair
 ```
 
-### 8.2 RBAC — Phân quyền theo Menu & Action
+### 10.2 RBAC
 
-Hệ thống dùng mô hình phân quyền 3 tầng: `User → Role → Permission (Menu + Action)`.
+Hệ thống dùng phân quyền theo mô hình:
 
-```
-User ──has many──► UserRole ──► Role
-                                 └──has many──► Permission
-                                                   ├── MenuId  (vd: BLOG_POST = 1003)
-                                                   └── ActionId (vd: CREATE = 1001)
+```text
+User → UserRole → Role → Permission → Menu + Action
 ```
 
-```csharp
-// Dùng trên Controller/Action:
-[CustomAuthorize(Enums.Menu.BLOG_POST, Enums.Action.CREATE)]
-public async Task<IActionResult> CreatePost([FromBody] CreateBlogPostRequest req)
+Ví dụ action:
+
+```text
+CREATE, READ, UPDATE, DELETE, EXPORT, APPROVE, CONFIRM
 ```
 
-### 8.3 Rate Limiting
+Ví dụ menu/module:
 
-| Policy | Giới hạn | Áp dụng |
-|--------|---------|---------|
-| `StrictLoginPolicy` | 5 request / phút / IP | Endpoint đăng nhập (chống brute force) |
-| `GeneralPolicy` | 100 request / phút / IP | Các endpoint thông thường |
-| `Global Limiter` | 200 request / phút / IP | Giới hạn tổng toàn bộ API |
-| Health Check | Bypass rate limit | Luôn trả về 200 |
+```text
+DASHBOARD, PRODUCT, PRODUCT_VARIANT, INBOUND, OUTBOUND, INVENTORY, IOT_DEVICE, REPORT
+```
 
 ---
 
-## 9. Hệ thống Logging
+## 11. Logging & Audit
 
-Dự án dùng Serilog với 2 sink file riêng biệt, rolling theo ngày:
+StockLite dùng Serilog và AuditLog để hỗ trợ debug và truy vết nghiệp vụ.
 
-| Sink | Mô tả |
-|------|-------|
-| `Logs/info-log{date}.txt` | Ghi INFO và WARN. Lọc bỏ log của EF Core database command (tránh spam query log). Rolling interval: ngày. |
-| `Logs/error-log{date}.txt` | Chỉ ghi ERROR trở lên. Dùng để debug lỗi production. Rolling interval: ngày. |
-| Console | Ghi tất cả level, hiển thị realtime khi chạy local. |
-| Serilog Request Logging | `app.UseSerilogRequestLogging()` — tự động log HTTP request (method, path, status code, thời gian xử lý). |
-
----
-
-## 10. Cấu trúc Database
-
-Tất cả tên bảng được khai báo tập trung trong `TableNames.cs`. Entity Framework Core quản lý schema qua Migrations.
-
-### Nhóm User & Auth
-
-| Bảng | Mô tả |
-|------|-------|
-| `User` | Thông tin người dùng chính |
-| `UserStatus` | Trạng thái: NotActivated, Actived, Locked, Deactivated |
-| `UserRole` | Many-to-many: User ↔ Role |
-| `UserSession` | JWT session: AccessTokenJti, RefreshToken, IsRevoked |
-| `UserVerificationToken` | Token xác thực email (đăng ký, quên mật khẩu) |
-| `UserDevice` | Thiết bị đăng nhập (FCM token, platform, device fingerprint) |
-| `UserNotification` | Mapping: User ↔ Notification (đã đọc chưa) |
-
-### Nhóm RBAC
-
-| Bảng | Mô tả |
-|------|-------|
-| `Role` | ADMIN, USER… |
-| `Action` | CREATE, READ, UPDATE, DELETE, EXPORT, APPROVE |
-| `Menu` | DASHBOARD, BLOG_POST, USER, ROLE, SYSTEM_SETTINGS… |
-| `ActionInMenu` | Mapping: Action ↔ Menu (action nào thuộc menu nào) |
-| `Permission` | Mapping: Role ↔ Menu ↔ Action (phân quyền thực tế) |
-
-### Nhóm Blog
-
-| Bảng | Mô tả |
-|------|-------|
-| `BlogPost` | Bài viết: Title, Slug, Content, ThumbnailUrl, StatusId, LayoutId |
-| `BlogPostStatus` | Draft, Published, Archived… |
-| `BlogPostCategory` | Danh mục bài viết (many-to-many) |
-| `BlogLayout` | Layout template cho bài viết |
-| `BlogPostLayout` | Mapping: BlogPost ↔ Layout |
-| `BlogPostTag` | Mapping: BlogPost ↔ Tag |
-| `BlogPostComment` | Bình luận bài viết |
-
-### Nhóm Hệ thống
-
-| Bảng | Mô tả |
-|------|-------|
-| `SystemConfig` | Cấu hình key-value động |
-| `Notification` / `NotificationCategory` / `NotificationType` | Hệ thống thông báo đa tầng |
-| `Tag` / `TagType` | Nhãn đa loại (blog tag, search tag…) |
-| `FileUpload` / `FolderUpload` | Quản lý file upload trên Cloudinary |
-| `AuditLog` | Lịch sử thay đổi dữ liệu (ai, khi nào, thay đổi gì) |
-| `ActivityLog` | Log HTTP request |
-| `Province` / `Ward` | Dữ liệu tỉnh thành, phường xã Việt Nam |
-| `PaymentTransaction` / `PaymentStatus` / `PaymentMethod` | Quản lý giao dịch thanh toán |
-| `Feedback` | Phản hồi từ người dùng |
+| Thành phần | Mô tả |
+|-----------|------|
+| Info Log | Ghi thông tin request, xử lý nghiệp vụ thông thường |
+| Error Log | Ghi exception và lỗi hệ thống |
+| ActivityLog | Ghi request activity |
+| AuditLog | Ghi thay đổi dữ liệu quan trọng như Inventory, Inbound, Outbound, ProductVariant |
 
 ---
 
-*Tài liệu được tạo tự động từ source code — Backend API Clean Architecture*
+## 12. Cấu trúc database chính
+
+| Nhóm | Bảng / Entity |
+|-----|---------------|
+| Auth & RBAC | User, Role, UserRole, Permission, UserSession |
+| Product | Product, ProductVariant, Attribute, AttributeValue, ProductImage |
+| Warehouse | Warehouse, Location |
+| Inventory | Inventory, InventoryTransaction, StockTake |
+| Inbound | Inbound, InboundDetail |
+| Outbound | Outbound, OutboundDetail |
+| QR | QrLabel |
+| IoT | IoTDevice, IoTWeightLog, IoTDeviceCommand |
+| System | Notification, AuditLog, ActivityLog, SystemConfig |
+
+---
+
+## 13. CI/CD
+
+GitHub Actions chạy build và test cho Pull Request vào `develop` và `main`.
+
+Luồng branch khuyến nghị:
+
+```text
+feature/* → develop → main
+```
+
+- `develop`: nhánh tích hợp trong quá trình phát triển.
+- `main`: nhánh ổn định để demo/release.
+- CI chạy build/test trước khi merge.
+- Docker image được build và deploy lên Render theo cấu hình của nhóm.
+
+---
+
+## 14. Ghi chú bảo mật khi public repo
+
+Trước khi public repo, kiểm tra chắc chắn không commit:
+
+```text
+.env
+appsettings.Development.json
+appsettings.Production.json
+firebase-service.json
+google-services.json
+*.pfx
+*.pem
+*.key
+*.jks
+database backup thật
+connection string thật
+JWT secret thật
+SMTP password thật
+Cloudinary API secret thật
+```
+
+Nên dùng:
+
+```text
+.env.example
+appsettings.example.json
+```
+
+để mô tả cấu hình cần thiết mà không lộ thông tin thật.
+
+---
+
+*Tài liệu được cập nhật cho dự án StockLite Backend API.*

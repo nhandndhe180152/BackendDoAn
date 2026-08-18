@@ -2,11 +2,16 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
+using Backend.Application.Constants;
 using Backend.Application.DTOs.ProductVariants;
+using Backend.Application.DTOs.QrCode;
 using Backend.Application.Interfaces;
+using Backend.Application.DependencyInjection.Extentions;
 using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
+using Backend.Share.Extensions;
 using Backend.Share.Helpers;
 using iText.IO.Font;
 using iText.IO.Image;
@@ -28,16 +33,33 @@ public class QRCodeService : IQRCodeService
     private readonly IProductVariantRepository _productVariantRepository;
     private readonly IStorageService _storageService;
     private readonly IInventoryRepository _inventoryRepository;
+    private readonly IApplicationDbContext _context;
+    private readonly IQrIdentifierService _qrIdentifierService;
+    private readonly IHttpContextAccessor _httpContextAccessor;
+
+    /// <summary>
+    /// MEDIUM-A: DocLib.Instance bọc pdfium native — KHÔNG thread-safe khi gọi đồng thời.
+    /// SemaphoreSlim này đảm bảo tại mọi thời điểm chỉ có 1 request đang dùng DocLib.
+    /// Dùng static để scope across tất cả QRCodeService instances (singleton scoped DI).
+    /// </summary>
+    private static readonly SemaphoreSlim _docLibSemaphore = new SemaphoreSlim(1, 1);
 
     public QRCodeService(
         IProductVariantRepository productVariantRepository, 
         IStorageService storageService,
-        IInventoryRepository inventoryRepository)
+        IInventoryRepository inventoryRepository,
+        IApplicationDbContext context,
+        IQrIdentifierService qrIdentifierService,
+        IHttpContextAccessor httpContextAccessor)
     {
         _productVariantRepository = productVariantRepository;
         _storageService = storageService;
         _inventoryRepository = inventoryRepository;
+        _context = context;
+        _qrIdentifierService = qrIdentifierService;
+        _httpContextAccessor = httpContextAccessor;
     }
+
 
     public async Task<byte[]> GenerateQRCodeImageAsync(int productVariantId)
     {
@@ -47,7 +69,7 @@ public class QRCodeService : IQRCodeService
             throw new KeyNotFoundException($"Product variant with ID {productVariantId} not found.");
         }
 
-        return QRCodeHelper.GenerateQRCodePng(variant.SKU, 10);
+        return QRCodeHelper.GenerateQRCodePng($"STOCKLITE|1|SKU|{variant.SKU}", 10);
     }
 
     public async Task<byte[]> GenerateQRLabelPdfAsync(int productVariantId, float widthMm = 50f, float heightMm = 30f)
@@ -105,7 +127,9 @@ public class QRCodeService : IQRCodeService
             }
         }
 
-        return ms.ToArray();
+        var pdfBytes = ms.ToArray();
+        await LogPrintAuditAsync("ProductVariant", productVariantId.ToString(), 1, "PDF", "MEDIUM", $"In nhãn SKU biến thể {variant.SKU}", CancellationToken.None);
+        return pdfBytes;
     }
 
     public async Task<byte[]> GenerateBulkQRLabelsPdfAsync(BatchQRLabelRequestDto request)
@@ -174,7 +198,10 @@ public class QRCodeService : IQRCodeService
                         locationText = $"Vị trí: {string.Join(", ", locations)}";
                     }
 
-                    for (int i = 0; i < item.Quantity; i++)
+                    // Quantity là decimal (kg/túi); làm tròn sang int để in đúng số lượng nhãn.
+                    // Math.Max(1,...) đảm bảo luôn in ít nhất 1 nhãn dù Quantity < 0.5.
+                    var labelCount = (int)Math.Max(1, Math.Round((decimal)item.Quantity, MidpointRounding.AwayFromZero));
+                    for (int i = 0; i < labelCount; i++)
                     {
                         if (!isFirst)
                         {
@@ -190,7 +217,28 @@ public class QRCodeService : IQRCodeService
             }
         }
 
-        return ms.ToArray();
+        var bulkBytes = ms.ToArray();
+        var ids = request.Items.Select(x => x.ProductVariantId).ToList();
+        var totalLabels = request.Items.Sum(x =>
+            (int)Math.Max(1, Math.Round((decimal)x.Quantity, MidpointRounding.AwayFromZero)));
+        var templateCode = GetTemplateFromDimensions(request.WidthMm, request.HeightMm);
+        await LogPrintAuditAsync(
+            "ProductVariant",
+            string.Join(",", ids),
+            1,
+            "PDF",
+            templateCode,
+            $"In hàng loạt nhãn SKU biến thể sản phẩm ({request.Items.Count} mặt hàng)",
+            CancellationToken.None,
+            totalLabels);
+        return bulkBytes;
+    }
+
+    private static string GetTemplateFromDimensions(float widthMm, float heightMm)
+    {
+        if (Math.Abs(widthMm - 50f) < 0.1f && Math.Abs(heightMm - 30f) < 0.1f) return "SMALL";
+        if (Math.Abs(widthMm - 100f) < 0.1f && Math.Abs(heightMm - 70f) < 0.1f) return "LARGE";
+        return "MEDIUM";
     }
 
     public async Task<string> GenerateAndSaveQRUrlAsync(int productVariantId)
@@ -201,7 +249,7 @@ public class QRCodeService : IQRCodeService
             throw new KeyNotFoundException($"Product variant with ID {productVariantId} not found.");
         }
 
-        byte[] qrBytes = QRCodeHelper.GenerateQRCodePng(variant.SKU, 10);
+        byte[] qrBytes = QRCodeHelper.GenerateQRCodePng($"STOCKLITE|1|SKU|{variant.SKU}", 10);
 
         using var qrStream = new MemoryStream(qrBytes);
         IFormFile file = new FormFile(qrStream, 0, qrBytes.Length, "file", $"qrcode-{variant.SKU}.png")
@@ -259,7 +307,7 @@ public class QRCodeService : IQRCodeService
         }
 
         // 1. Left cell: QR Code Image
-        byte[] qrBytes = QRCodeHelper.GenerateQRCodePng(variant.SKU, 5);
+        byte[] qrBytes = QRCodeHelper.GenerateQRCodePng($"STOCKLITE|1|SKU|{variant.SKU}", 5);
         var qrImage = new Image(ImageDataFactory.Create(qrBytes))
             .SetAutoScale(true)
             .SetHorizontalAlignment(HorizontalAlignment.CENTER);
@@ -385,5 +433,1654 @@ public class QRCodeService : IQRCodeService
         }
 
         return string.Join(" - ", parts);
+    }
+
+    public async Task<byte[]> GeneratePaddyLotQRImageAsync(int id, int size, CancellationToken cancellationToken = default)
+    {
+        var ensureRes = await _qrIdentifierService.EnsurePaddyLotQrCodeAsync(id, cancellationToken);
+        return QRCodeHelper.GenerateQRCodePng(ensureRes.QrPayload, size);
+    }
+
+    public async Task<byte[]> GenerateLocationQRImageAsync(int id, int size, CancellationToken cancellationToken = default)
+    {
+        var ensureRes = await _qrIdentifierService.EnsureLocationQrCodeAsync(id, cancellationToken);
+        return QRCodeHelper.GenerateQRCodePng(ensureRes.QrPayload, size);
+    }
+
+    public async Task<byte[]> GeneratePaddyLotLabelPdfAsync(int id, string templateCode, int copies, CancellationToken cancellationToken = default)
+    {
+        var lot = await _context.PaddyLots
+            .Include(x => x.ProductVariant)
+                .ThenInclude(pv => pv!.UnitOfMeasure)
+            .Include(x => x.RiceVariety)
+            .Include(x => x.Warehouse)
+            .Include(x => x.Status)
+            .FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
+
+        if (lot == null)
+        {
+            throw new KeyNotFoundException($"Không tìm thấy lô hàng với ID {id}");
+        }
+
+        // Bug fix: EnsurePaddyLotQrCodeAsync có thể ghi QrCode mới vào DB;
+        // gán lại vào entity đang dùng để payload thấm vào AddPaddyLotLabelContent.
+        var ensureRes = await _qrIdentifierService.EnsurePaddyLotQrCodeAsync(id, cancellationToken);
+        if (!string.IsNullOrEmpty(ensureRes.QrCode) && lot.QrCode != ensureRes.QrCode)
+            lot.QrCode = ensureRes.QrCode;
+
+        var (wMm, hMm) = GetDimensionsFromTemplate(templateCode);
+        float widthPt = (wMm / 25.4f) * 72f;
+        float heightPt = (hMm / 25.4f) * 72f;
+
+        using var ms = new MemoryStream();
+        using (var writer = new PdfWriter(ms))
+        {
+            using (var pdf = new PdfDocument(writer))
+            {
+                pdf.SetDefaultPageSize(new PageSize(widthPt, heightPt));
+                var doc = new Document(pdf);
+                doc.SetMargins(2f, 2f, 2f, 2f);
+
+                var font = GetVietnameseFont();
+                if (font != null) doc.SetFont(font);
+
+                for (int i = 0; i < copies; i++)
+                {
+                    if (i > 0) pdf.AddNewPage();
+                    AddPaddyLotLabelContent(doc, lot, widthPt, heightPt, font);
+                }
+                doc.Close();
+            }
+        }
+        var pdfBytes = ms.ToArray();
+        await LogPrintAuditAsync("PaddyLot", id.ToString(), copies, "PDF", templateCode, $"In {copies} nhãn lô hàng {lot.LotCode}", cancellationToken);
+        return pdfBytes;
+    }
+
+    public async Task<byte[]> GenerateLocationLabelPdfAsync(int id, string templateCode, int copies, CancellationToken cancellationToken = default)
+    {
+        var loc = await _context.Locations
+            .Include(x => x.Warehouse)
+            .FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
+
+        if (loc == null)
+        {
+            throw new KeyNotFoundException($"Không tìm thấy vị trí với ID {id}");
+        }
+
+        // Bug fix: gán lại QrCode nếu EnsureLocation có sinh mới
+        var ensureRes = await _qrIdentifierService.EnsureLocationQrCodeAsync(id, cancellationToken);
+        if (!string.IsNullOrEmpty(ensureRes.QrCode) && loc.QrCode != ensureRes.QrCode)
+            loc.QrCode = ensureRes.QrCode;
+
+        var (wMm, hMm) = GetDimensionsFromTemplate(templateCode);
+        float widthPt = (wMm / 25.4f) * 72f;
+        float heightPt = (hMm / 25.4f) * 72f;
+
+        using var ms = new MemoryStream();
+        using (var writer = new PdfWriter(ms))
+        {
+            using (var pdf = new PdfDocument(writer))
+            {
+                pdf.SetDefaultPageSize(new PageSize(widthPt, heightPt));
+                var doc = new Document(pdf);
+                doc.SetMargins(2f, 2f, 2f, 2f);
+
+                var font = GetVietnameseFont();
+                if (font != null) doc.SetFont(font);
+
+                for (int i = 0; i < copies; i++)
+                {
+                    if (i > 0) pdf.AddNewPage();
+                    AddLocationLabelContent(doc, loc, widthPt, heightPt, font);
+                }
+                doc.Close();
+            }
+        }
+        var locPdfBytes = ms.ToArray();
+        await LogPrintAuditAsync("Location", id.ToString(), copies, "PDF", templateCode, $"In {copies} nhãn vị trí {FormatLocation(loc)}", cancellationToken);
+        return locPdfBytes;
+    }
+
+    public async Task<byte[]> GenerateBulkPaddyLotLabelsPdfAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken = default)
+    {
+        if (ids == null || !ids.Any())
+        {
+            throw new ArgumentException("Danh sách ID không được rỗng.", nameof(ids));
+        }
+
+        var distinctIds = ids.Distinct().ToList();
+        var lots = await _context.PaddyLots
+            .Include(x => x.ProductVariant)
+            .Include(x => x.RiceVariety)
+            .Include(x => x.Warehouse)
+            .Include(x => x.Status)
+            .Where(x => distinctIds.Contains(x.Id) && !x.IsDeleted).OrderBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+        if (lots.Count != distinctIds.Count)
+        {
+            throw new KeyNotFoundException("Một hoặc nhiều lô hàng không tồn tại hoặc đã bị xóa.");
+        }
+
+        // Batch-ensure QrCode (chuỗi định danh) cho các lô chưa có — không upload Cloudinary vì PDF sinh QR tại chỗ bằng QRCodeHelper.
+        var lotsWithoutQr = lots.Where(x => string.IsNullOrWhiteSpace(x.QrCode)).ToList();
+        if (lotsWithoutQr.Count > 0)
+        {
+            foreach (var lot in lotsWithoutQr)
+                lot.QrCode = "PL-" + Guid.NewGuid().ToString("N").ToUpper();
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+
+        var (wMm, hMm) = GetDimensionsFromTemplate(templateCode);
+        float widthPt = (wMm / 25.4f) * 72f;
+        float heightPt = (hMm / 25.4f) * 72f;
+
+        using var ms = new MemoryStream();
+        using (var writer = new PdfWriter(ms))
+        {
+            using (var pdf = new PdfDocument(writer))
+            {
+                pdf.SetDefaultPageSize(new PageSize(widthPt, heightPt));
+                var doc = new Document(pdf);
+                doc.SetMargins(2f, 2f, 2f, 2f);
+
+                var font = GetVietnameseFont();
+                if (font != null) doc.SetFont(font);
+
+                bool isFirst = true;
+                foreach (var lot in lots)
+                {
+                    for (int i = 0; i < copies; i++)
+                    {
+                        if (!isFirst) pdf.AddNewPage();
+                        isFirst = false;
+                        AddPaddyLotLabelContent(doc, lot, widthPt, heightPt, font);
+                    }
+                }
+                doc.Close();
+            }
+        }
+        var pdfBytes = ms.ToArray();
+        await LogPrintAuditAsync("PaddyLot", string.Join(",", distinctIds), copies, "PDF", templateCode, $"In hàng loạt nhãn lô hàng ({lots.Count} nhãn, {copies} bản/nhãn)", cancellationToken);
+        return pdfBytes;
+    }
+
+    /// <summary>Internal: sinh PDF bytes cho bulk PaddyLot mà không ghi audit.</summary>
+    private async Task<byte[]> GenerateBulkPaddyLotLabelsPdfBytesInternalAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken)
+    {
+        if (ids == null || !ids.Any())
+            throw new ArgumentException("Danh sách ID không được rỗng.", nameof(ids));
+
+        var distinctIds = ids.Distinct().ToList();
+        var lots = await _context.PaddyLots
+            .Include(x => x.ProductVariant)
+            .Include(x => x.RiceVariety)
+            .Include(x => x.Warehouse)
+            .Include(x => x.Status)
+            .Where(x => distinctIds.Contains(x.Id) && !x.IsDeleted).OrderBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+        if (lots.Count != distinctIds.Count)
+            throw new KeyNotFoundException("Một hoặc nhiều lô hàng không tồn tại hoặc đã bị xóa.");
+
+        var lotsWithoutQr = lots.Where(x => string.IsNullOrWhiteSpace(x.QrCode)).ToList();
+        if (lotsWithoutQr.Count > 0)
+        {
+            foreach (var lot in lotsWithoutQr)
+                lot.QrCode = "PL-" + Guid.NewGuid().ToString("N").ToUpper();
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+
+        var (wMm, hMm) = GetDimensionsFromTemplate(templateCode);
+        float widthPt = (wMm / 25.4f) * 72f;
+        float heightPt = (hMm / 25.4f) * 72f;
+
+        using var ms = new MemoryStream();
+        using (var writer = new PdfWriter(ms))
+        {
+            using (var pdf = new PdfDocument(writer))
+            {
+                pdf.SetDefaultPageSize(new PageSize(widthPt, heightPt));
+                var doc = new Document(pdf);
+                doc.SetMargins(2f, 2f, 2f, 2f);
+                var font = GetVietnameseFont();
+                if (font != null) doc.SetFont(font);
+                bool isFirst = true;
+                foreach (var lot in lots)
+                {
+                    for (int i = 0; i < copies; i++)
+                    {
+                        if (!isFirst) pdf.AddNewPage();
+                        isFirst = false;
+                        AddPaddyLotLabelContent(doc, lot, widthPt, heightPt, font);
+                    }
+                }
+                doc.Close();
+            }
+        }
+        return ms.ToArray();
+    }
+
+    public async Task<byte[]> GenerateBulkLocationLabelsPdfAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken = default)
+    {
+        if (ids == null || !ids.Any())
+        {
+            throw new ArgumentException("Danh sách ID không được rỗng.", nameof(ids));
+        }
+
+        var distinctIds = ids.Distinct().ToList();
+        var locs = await _context.Locations
+            .Include(x => x.Warehouse)
+            .Where(x => distinctIds.Contains(x.Id) && !x.IsDeleted).OrderBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+        if (locs.Count != distinctIds.Count)
+        {
+            throw new KeyNotFoundException("Một hoặc nhiều vị trí không tồn tại hoặc đã bị xóa.");
+        }
+
+        // Batch-ensure QrCode (chuỗi định danh) cho các vị trí chưa có — không upload Cloudinary vì PDF sinh QR tại chỗ bằng QRCodeHelper.
+        var locsWithoutQr = locs.Where(x => string.IsNullOrWhiteSpace(x.QrCode)).ToList();
+        if (locsWithoutQr.Count > 0)
+        {
+            foreach (var loc in locsWithoutQr)
+                loc.QrCode = "LC-" + Guid.NewGuid().ToString("N").ToUpper();
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+
+        var (wMm, hMm) = GetDimensionsFromTemplate(templateCode);
+        float widthPt = (wMm / 25.4f) * 72f;
+        float heightPt = (hMm / 25.4f) * 72f;
+
+        using var ms = new MemoryStream();
+        using (var writer = new PdfWriter(ms))
+        {
+            using (var pdf = new PdfDocument(writer))
+            {
+                pdf.SetDefaultPageSize(new PageSize(widthPt, heightPt));
+                var doc = new Document(pdf);
+                doc.SetMargins(2f, 2f, 2f, 2f);
+
+                var font = GetVietnameseFont();
+                if (font != null) doc.SetFont(font);
+
+                bool isFirst = true;
+                foreach (var loc in locs)
+                {
+                    for (int i = 0; i < copies; i++)
+                    {
+                        if (!isFirst) pdf.AddNewPage();
+                        isFirst = false;
+                        AddLocationLabelContent(doc, loc, widthPt, heightPt, font);
+                    }
+                }
+                doc.Close();
+            }
+        }
+        var locPdfBytes = ms.ToArray();
+        await LogPrintAuditAsync("Location", string.Join(",", distinctIds), copies, "PDF", templateCode, $"In hàng loạt nhãn vị trí ({locs.Count} nhãn, {copies} bản/nhãn)", cancellationToken);
+        return locPdfBytes;
+    }
+
+    /// <summary>Internal: sinh PDF bytes cho bulk Location mà không ghi audit.</summary>
+    private async Task<byte[]> GenerateBulkLocationLabelsPdfBytesInternalAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken)
+    {
+        if (ids == null || !ids.Any())
+            throw new ArgumentException("Danh sách ID không được rỗng.", nameof(ids));
+
+        var distinctIds = ids.Distinct().ToList();
+        var locs = await _context.Locations
+            .Include(x => x.Warehouse)
+            .Where(x => distinctIds.Contains(x.Id) && !x.IsDeleted).OrderBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+        if (locs.Count != distinctIds.Count)
+            throw new KeyNotFoundException("Một hoặc nhiều vị trí không tồn tại hoặc đã bị xóa.");
+
+        var locsWithoutQr = locs.Where(x => string.IsNullOrWhiteSpace(x.QrCode)).ToList();
+        if (locsWithoutQr.Count > 0)
+        {
+            foreach (var loc in locsWithoutQr)
+                loc.QrCode = "LC-" + Guid.NewGuid().ToString("N").ToUpper();
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+
+        var (wMm, hMm) = GetDimensionsFromTemplate(templateCode);
+        float widthPt = (wMm / 25.4f) * 72f;
+        float heightPt = (hMm / 25.4f) * 72f;
+
+        using var ms = new MemoryStream();
+        using (var writer = new PdfWriter(ms))
+        {
+            using (var pdf = new PdfDocument(writer))
+            {
+                pdf.SetDefaultPageSize(new PageSize(widthPt, heightPt));
+                var doc = new Document(pdf);
+                doc.SetMargins(2f, 2f, 2f, 2f);
+                var font = GetVietnameseFont();
+                if (font != null) doc.SetFont(font);
+                bool isFirst = true;
+                foreach (var loc in locs)
+                {
+                    for (int i = 0; i < copies; i++)
+                    {
+                        if (!isFirst) pdf.AddNewPage();
+                        isFirst = false;
+                        AddLocationLabelContent(doc, loc, widthPt, heightPt, font);
+                    }
+                }
+                doc.Close();
+            }
+        }
+        return ms.ToArray();
+    }
+
+    private (float WidthMm, float HeightMm) GetDimensionsFromTemplate(string templateCode)
+    {
+        return templateCode?.ToUpper() switch
+        {
+            "SMALL"  => (50f,  30f),
+            "MEDIUM" => (70f,  50f),
+            "LARGE"  => (100f, 70f),
+            _ => throw new ArgumentException($"Kích cỡ nhãn (Template) không hợp lệ: '{templateCode}'. Chỉ chấp nhận SMALL, MEDIUM hoặc LARGE.")
+        };
+    }
+
+    private void AddPaddyLotLabelContent(Document doc, PaddyLot lot, float widthPt, float heightPt, PdfFont? font)
+    {
+        // Title: LÔ HÀNG hoặc LÔ LÚA/GẠO
+        string titleText = lot.LotType?.ToUpper() switch
+        {
+            "PADDY" => "LÔ LÚA",
+            "RICE" => "LÔ GẠO",
+            _ => "LÔ PHỤ PHẨM"
+        };
+
+        var headerTable = new Table(UnitValue.CreatePercentArray(new float[] { 100f }))
+            .SetWidth(UnitValue.CreatePercentValue(100f));
+        
+        var titleParagraph = new Paragraph(titleText)
+            .SetFontSize(8f)
+            .SetBold()
+            .SetTextAlignment(TextAlignment.CENTER)
+            .SetMarginBottom(1f);
+        
+        headerTable.AddCell(new Cell().Add(titleParagraph).SetBorder(Border.NO_BORDER));
+        doc.Add(headerTable);
+
+        // 2 column layout: Left (QR code), Right (Details)
+        var bodyTable = new Table(UnitValue.CreatePercentArray(new float[] { 35f, 65f }))
+            .SetWidth(UnitValue.CreatePercentValue(100f))
+            .SetMarginTop(1f);
+
+        // QR Code Image
+        var payload = $"STOCKLITE|{lot.WarehouseId}|PADDY_LOT|{lot.QrCode}";
+        byte[] qrBytes = QRCodeHelper.GenerateQRCodePng(payload, 5);
+        var qrImage = new Image(ImageDataFactory.Create(qrBytes))
+            .SetAutoScale(true)
+            .SetHorizontalAlignment(HorizontalAlignment.CENTER);
+
+        var qrCell = new Cell().Add(qrImage)
+            .SetBorder(Border.NO_BORDER)
+            .SetVerticalAlignment(VerticalAlignment.MIDDLE)
+            .SetPadding(1f);
+        bodyTable.AddCell(qrCell);
+
+        // Details Column
+        var detailsCell = new Cell()
+            .SetBorder(Border.NO_BORDER)
+            .SetVerticalAlignment(VerticalAlignment.TOP)
+            .SetPaddingLeft(2f);
+
+        // Lot Code
+        detailsCell.Add(new Paragraph($"Mã Lô: {lot.LotCode}")
+            .SetFontSize(5f)
+            .SetBold()
+            .SetMarginBottom(0.5f));
+
+        // SKU / Variant Name
+        detailsCell.Add(new Paragraph($"Sản phẩm: {lot.ProductVariant?.Name ?? "N/A"}")
+            .SetFontSize(4.5f)
+            .SetMultipliedLeading(0.9f)
+            .SetMarginBottom(0.5f));
+
+        // Rice Variety
+        if (lot.RiceVariety != null)
+        {
+            detailsCell.Add(new Paragraph($"Giống: {lot.RiceVariety.Name} ({lot.RiceVariety.Code})")
+                .SetFontSize(4.5f)
+                .SetMarginBottom(0.5f));
+        }
+
+        // Remaining Weight
+        detailsCell.Add(new Paragraph($"K.lượng: {(lot.RemainingWeightKg == 0 ? "0" : lot.RemainingWeightKg.ToString("N2"))} kg")
+            .SetFontSize(4.5f)
+            .SetMarginBottom(0.5f));
+
+        // Inbound Date
+        detailsCell.Add(new Paragraph($"Ngày nhập: {lot.InboundDate:dd/MM/yyyy}")
+            .SetFontSize(4.5f)
+            .SetMarginBottom(0.5f));
+
+        // Warehouse Info
+        detailsCell.Add(new Paragraph($"Kho: {lot.Warehouse?.Name ?? "N/A"}")
+            .SetFontSize(4.5f)
+            .SetMarginBottom(0.5f));
+
+        // If lot is quarantined at print time
+        if (lot.Status?.Code == LotStatusCodeConstants.Quarantine)
+        {
+            detailsCell.Add(new Paragraph("ĐANG CÁCH LY")
+                .SetFontSize(5f)
+                .SetBold()
+                .SetFontColor(ColorConstants.RED)
+                .SetMarginBottom(0.5f));
+        }
+
+        // Footer / Instruction
+        detailsCell.Add(new Paragraph("Quét mã để xem thông tin hiện tại")
+            .SetFontSize(4f)
+            .SetFontColor(ColorConstants.GRAY)
+            .SetItalic()
+            .SetMarginBottom(0.5f));
+
+        // Printed At
+        detailsCell.Add(new Paragraph($"In lúc: {DateTimeHelper.VietnamNow():dd/MM/yyyy HH:mm}")
+            .SetFontSize(3.5f)
+            .SetFontColor(ColorConstants.GRAY));
+
+        bodyTable.AddCell(detailsCell);
+        doc.Add(bodyTable);
+    }
+
+    private void AddLocationLabelContent(Document doc, Location loc, float widthPt, float heightPt, PdfFont? font)
+    {
+        var headerTable = new Table(UnitValue.CreatePercentArray(new float[] { 100f }))
+            .SetWidth(UnitValue.CreatePercentValue(100f));
+        
+        var titleParagraph = new Paragraph("VỊ TRÍ KHO")
+            .SetFontSize(8f)
+            .SetBold()
+            .SetTextAlignment(TextAlignment.CENTER)
+            .SetMarginBottom(1f);
+        
+        headerTable.AddCell(new Cell().Add(titleParagraph).SetBorder(Border.NO_BORDER));
+        doc.Add(headerTable);
+
+        // 2 column layout: Left (QR code), Right (Details)
+        var bodyTable = new Table(UnitValue.CreatePercentArray(new float[] { 35f, 65f }))
+            .SetWidth(UnitValue.CreatePercentValue(100f))
+            .SetMarginTop(1f);
+
+        // QR Code Image
+        var payload = $"STOCKLITE|{loc.WarehouseId}|LOCATION|{loc.QrCode}";
+        byte[] qrBytes = QRCodeHelper.GenerateQRCodePng(payload, 5);
+        var qrImage = new Image(ImageDataFactory.Create(qrBytes))
+            .SetAutoScale(true)
+            .SetHorizontalAlignment(HorizontalAlignment.CENTER);
+
+        var qrCell = new Cell().Add(qrImage)
+            .SetBorder(Border.NO_BORDER)
+            .SetVerticalAlignment(VerticalAlignment.MIDDLE)
+            .SetPadding(1f);
+        bodyTable.AddCell(qrCell);
+
+        // Details Column
+        var detailsCell = new Cell()
+            .SetBorder(Border.NO_BORDER)
+            .SetVerticalAlignment(VerticalAlignment.TOP)
+            .SetPaddingLeft(2f);
+
+        // Warehouse Info
+        detailsCell.Add(new Paragraph($"Kho: {loc.Warehouse?.Name ?? "N/A"}")
+            .SetFontSize(5f)
+            .SetBold()
+            .SetMarginBottom(0.5f));
+
+        // Location coordinates
+        detailsCell.Add(new Paragraph($"Khu vực: {loc.ZoneName ?? "--"}")
+            .SetFontSize(4.5f)
+            .SetMarginBottom(0.5f));
+
+        detailsCell.Add(new Paragraph($"Dãy: {loc.ShelfRow ?? "--"} | Tầng: {loc.ShelfLevel ?? "--"}")
+            .SetFontSize(4.5f)
+            .SetMarginBottom(0.5f));
+
+        detailsCell.Add(new Paragraph($"Ô: {loc.SlotCode ?? "--"}")
+            .SetFontSize(5f)
+            .SetBold()
+            .SetMarginBottom(0.5f));
+
+        // Quarantine check
+        if (loc.IsQuarantine)
+        {
+            detailsCell.Add(new Paragraph("KHU VỰC CÁCH LY")
+                .SetFontSize(5f)
+                .SetBold()
+                .SetFontColor(ColorConstants.RED)
+                .SetMarginBottom(0.5f));
+        }
+
+        // Footer / Instruction
+        detailsCell.Add(new Paragraph("Quét mã để xem vị trí và tồn hiện tại")
+            .SetFontSize(4f)
+            .SetFontColor(ColorConstants.GRAY)
+            .SetItalic()
+            .SetMarginBottom(0.5f));
+
+        // Printed At
+        detailsCell.Add(new Paragraph($"In lúc: {DateTimeHelper.VietnamNow():dd/MM/yyyy HH:mm}")
+            .SetFontSize(3.5f)
+            .SetFontColor(ColorConstants.GRAY));
+
+        bodyTable.AddCell(detailsCell);
+        doc.Add(bodyTable);
+    }
+
+    public async Task<QrResolveResponseDto> ResolveQrAsync(QrResolveRequestDto request, CancellationToken cancellationToken = default)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.Payload))
+        {
+            throw new ArgumentException("Payload quét QR không được để trống.", nameof(request));
+        }
+
+        var parts = request.Payload.Split('|');
+        // Payload format: STOCKLITE|{WarehouseId}|{EntityType}|{QrCode}
+        // parts[0] = "STOCKLITE" (header)
+        // parts[1] = WarehouseId (số nguyên — KHÔNG phải version)
+        // parts[2] = EntityType (PADDY_LOT / LOCATION)
+        // parts[3] = QrCode (unique code của entity)
+        if (parts.Length != 4 || parts[0] != "STOCKLITE")
+        {
+            throw new ArgumentException("Payload QR không đúng định dạng STOCKLITE|{WarehouseId}|{EntityType}|{QrCode}.", nameof(request));
+        }
+
+        // Lấy WarehouseId từ parts[1] (để validate nếu cần, không dùng version check)
+        if (!int.TryParse(parts[1], out var warehouseId) || warehouseId <= 0)
+        {
+            throw new ArgumentException("Payload QR không hợp lệ: WarehouseId phải là số nguyên dương.", nameof(request));
+        }
+
+        var entityType = parts[2].ToUpper();
+        var qrCode = parts[3];
+
+        if (entityType == "BAG")
+        {
+            var bag = await _context.PaddyLotBags
+                .Include(x => x.Lot).ThenInclude(x => x.ProductVariant)
+                .Include(x => x.Lot).ThenInclude(x => x.RiceVariety)
+                .Include(x => x.Lot).ThenInclude(x => x.Warehouse)
+                .Include(x => x.Lot).ThenInclude(x => x.Status)
+                .Include(x => x.Contents).ThenInclude(x => x.Lot).ThenInclude(x => x.Status)
+                .Include(x => x.Location)
+                .FirstOrDefaultAsync(x => x.QrCode == qrCode && !x.IsDeleted, cancellationToken);
+            if (bag == null)
+                throw new KeyNotFoundException("Không tìm thấy bao vật lý tương ứng với mã QR.");
+            var activeContents = bag.Contents
+                .Where(x => !x.IsDeleted && x.WeightKg > 0)
+                .GroupBy(x => x.LotId)
+                .Select(x => new
+                {
+                    Lot = x.First().Lot,
+                    WeightKg = x.Sum(c => c.WeightKg)
+                })
+                .OrderByDescending(x => x.WeightKg)
+                .ThenBy(x => x.Lot.Id)
+                .ToList();
+            var contentTotal = activeContents.Sum(x => x.WeightKg);
+            var anyBlockedContent = activeContents.Any(x =>
+                x.Lot.Status?.Code == LotStatusCodeConstants.Quarantine ||
+                x.Lot.Status?.IsSellable == false);
+
+            var bagResponse = new QrResolveResponseDto
+            {
+                EntityType = "BAG",
+                EntityId = bag.Id,
+                QrCode = bag.QrCode ?? string.Empty,
+                DisplayCode = $"{bag.Lot.LotCode}-B{bag.BagNo}",
+                LotType = bag.Lot.LotType,
+                BagNo = bag.BagNo,
+                BagWeightKg = bag.WeightKg,
+                StandardBagWeightKg = bag.StandardWeightKg,
+                IsFullBag = bag.IsFull,
+                LocationId = bag.LocationId,
+                StackOrder = bag.StackOrder,
+                RemainingWeightKg = bag.WeightKg,
+                IsQuarantined = anyBlockedContent || bag.Lot.Status?.Code == LotStatusCodeConstants.Quarantine,
+                IsMixedLotBag = activeContents.Count > 1,
+                ContentLotCount = activeContents.Count,
+                BagContents = activeContents.Select(x => new QrBagContentDto
+                {
+                    LotId = x.Lot.Id,
+                    LotCode = x.Lot.LotCode,
+                    WeightKg = x.WeightKg,
+                    Percentage = contentTotal > 0 ? Math.Round(x.WeightKg * 100m / contentTotal, 2) : 0,
+                    LotStatusCode = x.Lot.Status?.Code,
+                    IsSellable = x.Lot.Status?.IsSellable == true && x.Lot.Status.Code != LotStatusCodeConstants.Quarantine,
+                    SourceMillingOrderId = x.Lot.SourceMillingOrderId
+                }).ToList(),
+                ProductVariant = new QrProductVariantDto { Id = bag.Lot.ProductVariant.Id, Sku = bag.Lot.ProductVariant.SKU, Name = bag.Lot.ProductVariant.Name },
+                RiceVariety = bag.Lot.RiceVariety == null ? null : new QrRiceVarietyDto { Id = bag.Lot.RiceVariety.Id, Code = bag.Lot.RiceVariety.Code, Name = bag.Lot.RiceVariety.Name },
+                Warehouse = new QrWarehouseDto { Id = bag.Lot.Warehouse.Id, Code = bag.Lot.Warehouse.Code, Name = bag.Lot.Warehouse.Name },
+                Status = new QrLotStatusDto { Id = bag.Lot.Status.Id, Name = bag.Lot.Status.Name, IsSellable = bag.Lot.Status.IsSellable },
+                NavigationTarget = new QrNavigationTargetDto { Type = "BAG_DETAIL", Id = bag.Id }
+            };
+            if (request.Context != null)
+            {
+                var operation = request.Context.Operation?.Trim().ToUpperInvariant();
+                var requiresSellableContent = operation is "OUTBOUND_PICKING" or "MILLING_INPUT" or "STOCK_TRANSFER";
+                bagResponse.ValidationResult = requiresSellableContent && anyBlockedContent
+                    ? new QrContextValidationResultDto
+                    {
+                        Success = false,
+                        ErrorCode = "BAG_CONTENT_BLOCKED",
+                        ErrorMessage = "Bao có thành phần lô đang cách ly hoặc không được phép sử dụng."
+                    }
+                    : new QrContextValidationResultDto { Success = true };
+            }
+            return bagResponse;
+        }
+        if (entityType == "PADDY_LOT")
+        {
+            var lot = await _context.PaddyLots
+                .Include(x => x.ProductVariant)
+                .Include(x => x.RiceVariety)
+                .Include(x => x.Warehouse)
+                .Include(x => x.Status)
+                .FirstOrDefaultAsync(x => x.QrCode == qrCode, cancellationToken);
+
+            if (lot == null)
+            {
+                throw new KeyNotFoundException("Không tìm thấy thông tin lô hàng tương ứng với mã QR.");
+            }
+
+            if (lot.IsDeleted)
+            {
+                throw new InvalidOperationException("Lô hàng này đã bị xóa trên hệ thống.");
+            }
+
+            var isQuarantined = lot.Status?.Code == LotStatusCodeConstants.Quarantine;
+
+            var response = new QrResolveResponseDto
+            {
+                EntityType = entityType,
+                EntityId = lot.Id,
+                QrCode = lot.QrCode,
+                DisplayCode = lot.LotCode,
+                LotType = lot.LotType,
+                RemainingWeightKg = lot.RemainingWeightKg,
+                IsQuarantined = isQuarantined,
+                ProductVariant = lot.ProductVariant == null ? null : new QrProductVariantDto
+                {
+                    Id = lot.ProductVariant.Id,
+                    Sku = lot.ProductVariant.SKU,
+                    Name = lot.ProductVariant.Name
+                },
+                RiceVariety = lot.RiceVariety == null ? null : new QrRiceVarietyDto
+                {
+                    Id = lot.RiceVariety.Id,
+                    Code = lot.RiceVariety.Code,
+                    Name = lot.RiceVariety.Name
+                },
+                Warehouse = lot.Warehouse == null ? null : new QrWarehouseDto
+                {
+                    Id = lot.Warehouse.Id,
+                    Code = lot.Warehouse.Code,
+                    Name = lot.Warehouse.Name
+                },
+                Status = lot.Status == null ? null : new QrLotStatusDto
+                {
+                    Id = lot.Status.Id,
+                    Name = lot.Status.Name,
+                    IsSellable = lot.Status.IsSellable
+                },
+                NavigationTarget = new QrNavigationTargetDto
+                {
+                    Type = "PADDY_LOT_DETAIL",
+                    Id = lot.Id
+                }
+            };
+
+            if (request.Context != null)
+            {
+                response.ValidationResult = ValidatePaddyLotContext(lot, request.Context);
+            }
+
+            return response;
+        }
+        else if (entityType == "LOCATION")
+        {
+            var loc = await _context.Locations
+                .Include(x => x.Warehouse)
+                .FirstOrDefaultAsync(x => x.QrCode == qrCode, cancellationToken);
+
+            if (loc == null)
+            {
+                throw new KeyNotFoundException("Không tìm thấy thông tin vị trí tương ứng với mã QR.");
+            }
+
+            if (loc.IsDeleted)
+            {
+                throw new InvalidOperationException("Vị trí lưu kho này đã bị xóa trên hệ thống.");
+            }
+
+            if (!loc.IsActive)
+            {
+                throw new InvalidOperationException("Vị trí lưu kho này đã ngưng hoạt động.");
+            }
+
+            var freeCapacity = loc.MaxCapacity.HasValue ? Math.Max(0m, loc.MaxCapacity.Value - loc.CurrentOccupancy) : (decimal?)null;
+
+            var response = new QrResolveResponseDto
+            {
+                EntityType = "LOCATION",
+                EntityId = loc.Id,
+                QrCode = loc.QrCode,
+                DisplayCode = FormatLocation(loc),
+                ZoneName = loc.ZoneName,
+                ShelfRow = loc.ShelfRow,
+                ShelfLevel = loc.ShelfLevel,
+                SlotCode = loc.SlotCode,
+                MaxCapacityKg = loc.MaxCapacity,
+                CurrentOccupancyKg = loc.CurrentOccupancy,
+                FreeCapacityKg = freeCapacity,
+                IsQuarantine = loc.IsQuarantine,
+                IsActive = loc.IsActive,
+                Warehouse = loc.Warehouse == null ? null : new QrWarehouseDto
+                {
+                    Id = loc.Warehouse.Id,
+                    Code = loc.Warehouse.Code,
+                    Name = loc.Warehouse.Name
+                },
+                NavigationTarget = new QrNavigationTargetDto
+                {
+                    Type = "LOCATION_DETAIL",
+                    Id = loc.Id
+                }
+            };
+
+            if (request.Context != null)
+            {
+                response.ValidationResult = ValidateLocationContext(loc, request.Context);
+            }
+
+            return response;
+        }
+
+        else if (entityType == "SKU")
+        {
+            var variant = await _context.ProductVariants
+                .FirstOrDefaultAsync(x => x.SKU == qrCode, cancellationToken);
+
+            if (variant == null)
+            {
+                throw new KeyNotFoundException("Không tìm thấy thông tin sản phẩm tương ứng với SKU trong mã QR.");
+            }
+
+            if (variant.IsDeleted)
+            {
+                throw new InvalidOperationException("Sản phẩm này đã bị xóa trên hệ thống.");
+            }
+
+            var response = new QrResolveResponseDto
+            {
+                EntityType = "SKU",
+                EntityId = variant.Id,
+                QrCode = variant.SKU,
+                DisplayCode = variant.SKU,
+                ProductVariant = new QrProductVariantDto
+                {
+                    Id = variant.Id,
+                    Sku = variant.SKU,
+                    Name = variant.Name
+                },
+                NavigationTarget = new QrNavigationTargetDto
+                {
+                    Type = "PRODUCT_VARIANT_DETAIL",
+                    Id = variant.Id
+                }
+            };
+
+            return response;
+        }
+
+        throw new ArgumentException("Kiểu đối tượng trong mã QR không hợp lệ.", nameof(request));
+    }
+
+    private QrContextValidationResultDto ValidatePaddyLotContext(PaddyLot lot, QrContextDto context)
+    {
+        var op = context.Operation?.ToUpper();
+        if (op == "MILLING_INPUT")
+        {
+            if (lot.LotType?.ToUpper() != "PADDY")
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "LOT_PRODUCT_MISMATCH",
+                    ErrorMessage = "Chỉ chấp nhận lô lúa cho hoạt động xay xát."
+                };
+            }
+            if (lot.Status?.Code == LotStatusCodeConstants.Quarantine)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "LOT_QUARANTINED",
+                    ErrorMessage = "Lô lúa đang bị cách ly, không được xay xát."
+                };
+            }
+            if (lot.RemainingWeightKg <= 0)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "LOT_NOT_AVAILABLE",
+                    ErrorMessage = "Lô hàng đã hết hoặc không còn khối lượng."
+                };
+            }
+        }
+        else if (op == "OUTBOUND_PICKING")
+        {
+            if (lot.Status?.Code == LotStatusCodeConstants.Quarantine)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "LOT_QUARANTINED",
+                    ErrorMessage = "Lô hàng đang bị cách ly, không được phép xuất kho."
+                };
+            }
+            if (lot.RemainingWeightKg <= 0)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "LOT_NOT_AVAILABLE",
+                    ErrorMessage = "Lô hàng không còn tồn để xuất kho."
+                };
+            }
+            if (context.ReferenceId.HasValue && lot.ProductVariantId != context.ReferenceId.Value)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "LOT_PRODUCT_MISMATCH",
+                    ErrorMessage = "Biến thể sản phẩm của lô không khớp với biến thể yêu cầu xuất kho."
+                };
+            }
+        }
+        else if (op == "STOCKTAKE")
+        {
+            if (context.WarehouseId.HasValue && lot.WarehouseId != context.WarehouseId.Value)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "QR_CONTEXT_MISMATCH",
+                    ErrorMessage = "Lô lúa này thuộc kho khác với kho đang kiểm kê."
+                };
+            }
+        }
+
+        return new QrContextValidationResultDto { Success = true };
+    }
+
+    private QrContextValidationResultDto ValidateLocationContext(Location loc, QrContextDto context)
+    {
+        var op = context.Operation?.ToUpper();
+        if (op == "STORE_IN")
+        {
+            if (!loc.IsActive)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "QR_ENTITY_INACTIVE",
+                    ErrorMessage = "Vị trí lưu trữ hiện đang ngưng hoạt động."
+                };
+            }
+            if (context.WarehouseId.HasValue && loc.WarehouseId != context.WarehouseId.Value)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "LOCATION_WRONG_WAREHOUSE",
+                    ErrorMessage = "Vị trí đã quét không thuộc về kho chỉ định của phiếu nhập."
+                };
+            }
+            if (context.ReferenceId.HasValue) // representing PaddyLotId
+            {
+                var lot = _context.PaddyLots.Include(x => x.Status).FirstOrDefault(x => x.Id == context.ReferenceId.Value);
+                if (lot != null)
+                {
+                    var lotIsQuarantine = lot.Status?.Code == LotStatusCodeConstants.Quarantine;
+                    if (lotIsQuarantine && !loc.IsQuarantine)
+                    {
+                        return new QrContextValidationResultDto
+                        {
+                            Success = false,
+                            ErrorCode = "LOCATION_QUARANTINE_REQUIRED",
+                            ErrorMessage = "Lô hàng đang bị cách ly. Yêu cầu nhập vào khu vực cách ly."
+                        };
+                    }
+                    if (!lotIsQuarantine && loc.IsQuarantine)
+                    {
+                        return new QrContextValidationResultDto
+                        {
+                            Success = false,
+                            ErrorCode = "LOCATION_NORMAL_REQUIRED",
+                            ErrorMessage = "Lô hàng bình thường. Không được nhập vào khu vực cách ly."
+                        };
+                    }
+
+                    if (loc.MaxCapacity.HasValue && loc.CurrentOccupancy + lot.RemainingWeightKg > loc.MaxCapacity.Value)
+                    {
+                        return new QrContextValidationResultDto
+                        {
+                            Success = false,
+                            ErrorCode = "LOCATION_INSUFFICIENT_CAPACITY",
+                            ErrorMessage = $"Vị trí không đủ sức chứa cho lô hàng này. Còn trống: {Math.Max(0m, loc.MaxCapacity.Value - loc.CurrentOccupancy)} kg."
+                        };
+                    }
+                }
+            }
+        }
+        else if (op == "STOCK_TRANSFER")
+        {
+            if (!loc.IsActive)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "QR_ENTITY_INACTIVE",
+                    ErrorMessage = "Vị trí đích hiện đang ngưng hoạt động."
+                };
+            }
+            if (context.WarehouseId.HasValue && loc.WarehouseId != context.WarehouseId.Value)
+            {
+                return new QrContextValidationResultDto
+                {
+                    Success = false,
+                    ErrorCode = "LOCATION_WRONG_WAREHOUSE",
+                    ErrorMessage = "Vị trí đích không nằm trong kho điều chuyển."
+                };
+            }
+        }
+
+        return new QrContextValidationResultDto { Success = true };
+    }
+
+    private async Task LogPrintAuditAsync(string targetType, string targetId, int copies, string format, string template, string description, CancellationToken cancellationToken, int? totalLabels = null)
+    {
+        var httpContext = _httpContextAccessor?.HttpContext;
+        var userId = httpContext?.GetCurrentUserId();
+        var ip = httpContext?.GetRemoteHostIpAddress();
+        var userAgent = httpContext?.Request?.Headers["User-Agent"].ToString();
+
+        var subjectCount = Math.Max(1, targetId.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length);
+
+        // DataAfter lưu JSON nhỏ gọn chứa đầy đủ thông tin thao tác tạo file tem.
+        var dataAfter = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            CopiesPerLabel = copies,
+            SubjectCount = subjectCount,
+            TotalLabels = totalLabels ?? copies * subjectCount,
+            Format = format.ToUpperInvariant(),
+            Template = template.ToUpperInvariant(),
+            DeliveryMode = "BROWSER",
+            Status = "GENERATED",
+            GeneratedAt = DateTimeHelper.VietnamNow().ToString("yyyy-MM-dd HH:mm:ss")
+        });
+
+        var audit = new AuditLog
+        {
+            Action      = "PRINT_QR_LABEL",
+            TargetType  = targetType,
+            TargetId    = targetId,
+            CreatedDate = DateTimeHelper.VietnamNow(),
+            CreatedBy   = userId,
+            IpAddress   = ip,
+            UserAgent   = userAgent,
+            DataBefore  = null,
+            DataAfter   = dataAfter,
+            Description = description
+        };
+        await _context.AuditLogs.AddAsync(audit, cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<QrLabelPreviewDto> GetQrLabelPreviewAsync(string? labelType, int? subjectId, string? template, CancellationToken cancellationToken = default)
+    {
+        var result = new QrLabelPreviewDto
+        {
+            Templates = new List<QrLabelTemplateInfoDto>
+            {
+                new() { Code = "SMALL",  Name = "Nhãn cỡ nhỏ (50x30 mm)",  WidthMm = 50f,  HeightMm = 30f },
+                new() { Code = "MEDIUM", Name = "Nhãn cỡ vừa (70x50 mm)",  WidthMm = 70f,  HeightMm = 50f },
+                new() { Code = "LARGE",  Name = "Nhãn cỡ lớn (100x70 mm)", WidthMm = 100f, HeightMm = 70f }
+            },
+            Formats    = new List<string> { "PDF", "PNG" },
+            LabelTypes = new List<string> { "PADDY_LOT", "LOCATION", "SKU", "BAG" }
+        };
+
+        // Trả metadata mà không cần label data khi thiếu tham số
+        if (string.IsNullOrEmpty(labelType) || subjectId == null || string.IsNullOrEmpty(template))
+        {
+            return result;
+        }
+
+        // QR-05: Validate template — ném ArgumentException → controller trả 400
+        var validTemplate = result.Templates.FirstOrDefault(x => x.Code == template.ToUpper());
+        if (validTemplate == null)
+        {
+            throw new ArgumentException($"Kích cỡ nhãn (Template) không hợp lệ: '{template}'. Chỉ chấp nhận SMALL, MEDIUM hoặc LARGE.");
+        }
+
+        // QR-02: Validate labelType hợp lệ — ném ArgumentException → controller trả 400
+        var labelTypeUpper = labelType.ToUpper();
+        var validLabelTypes = new[] { "PADDY_LOT", "BAG", "LOCATION", "SKU" };
+        if (!validLabelTypes.Contains(labelTypeUpper))
+        {
+            throw new ArgumentException($"Loại nhãn (labelType) không hợp lệ: '{labelType}'. Chỉ chấp nhận PADDY_LOT, BAG, LOCATION hoặc SKU.");
+        }
+
+        LabelPreviewDataDto? previewData = null;
+
+        if (labelTypeUpper == "PADDY_LOT")
+        {
+            // QR-04: Include Status để IsQuarantined đúng
+            var lot = await _context.PaddyLots
+                .Include(x => x.ProductVariant)
+                .Include(x => x.RiceVariety)
+                .Include(x => x.Warehouse)
+                .Include(x => x.Location)
+                .Include(x => x.Status)
+                .FirstOrDefaultAsync(x => x.Id == subjectId && !x.IsDeleted, cancellationToken);
+
+            // QR-02: subject không tồn tại → ném KeyNotFoundException → controller trả 404
+            if (lot == null)
+                throw new KeyNotFoundException($"Không tìm thấy lô hàng với ID {subjectId}.");
+
+            // QR-03: Đảm bảo QrCode không rỗng trước khi dựng payload
+            if (string.IsNullOrWhiteSpace(lot.QrCode))
+            {
+                lot.QrCode = "PL-" + Guid.NewGuid().ToString("N").ToUpper();
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+
+            previewData = new LabelPreviewDataDto
+            {
+                LabelType       = labelTypeUpper,
+                SubjectId       = lot.Id,
+                Template        = template.ToUpper(),
+                QrPayload       = $"STOCKLITE|{lot.WarehouseId}|PADDY_LOT|{lot.QrCode}",
+                DisplayCode     = lot.LotCode,
+                ProductName     = lot.ProductVariant?.Name,
+                Sku             = lot.ProductVariant?.SKU,
+                RiceVarietyName = lot.RiceVariety?.Name,
+                WeightKg        = lot.RemainingWeightKg,
+                InboundDate     = lot.InboundDate,
+                WarehouseName   = lot.Warehouse?.Name,
+                LocationName    = lot.Location == null ? null : FormatLocation(lot.Location),
+                IsQuarantined   = lot.Status?.Code == LotStatusCodeConstants.Quarantine
+            };
+        }
+        else if (labelTypeUpper == "BAG")
+        {
+            // QR-04: ThenInclude UnitOfMeasure để hiện đúng đơn vị
+            var bag = await _context.PaddyLotBags
+                .Include(x => x.Lot).ThenInclude(x => x.ProductVariant)
+                    .ThenInclude(pv => pv!.UnitOfMeasure)
+                .Include(x => x.Lot).ThenInclude(x => x.Warehouse)
+                .Include(x => x.Lot).ThenInclude(x => x.Status)
+                .Include(x => x.Location)
+                .FirstOrDefaultAsync(x => x.Id == subjectId && !x.IsDeleted, cancellationToken);
+
+            // QR-02
+            if (bag == null)
+                throw new KeyNotFoundException($"Không tìm thấy lô hàng với ID {subjectId}.");
+
+            // QR-03
+            if (string.IsNullOrWhiteSpace(bag.QrCode))
+            {
+                bag.QrCode = "PLB-" + Guid.NewGuid().ToString("N").ToUpper();
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+
+            previewData = new LabelPreviewDataDto
+            {
+                LabelType       = labelTypeUpper,
+                SubjectId       = bag.Id,
+                Template        = template.ToUpper(),
+                QrPayload       = $"STOCKLITE|{bag.Lot.WarehouseId}|BAG|{bag.QrCode}",
+                DisplayCode     = $"{bag.Lot.LotCode}-B{bag.BagNo}",
+                ProductName     = bag.Lot.ProductVariant?.Name,
+                Sku             = bag.Lot.ProductVariant?.SKU,
+                WeightKg        = bag.WeightKg,
+                PackageWeightKg = bag.StandardWeightKg,
+                InboundDate     = bag.Lot.InboundDate,
+                WarehouseName   = bag.Lot.Warehouse?.Name,
+                LocationName    = bag.Location == null ? null : FormatLocation(bag.Location),
+                IsQuarantined   = bag.Lot.Status?.Code == LotStatusCodeConstants.Quarantine
+            };
+        }
+        else if (labelTypeUpper == "LOCATION")
+        {
+            var loc = await _context.Locations
+                .Include(x => x.Warehouse)
+                .FirstOrDefaultAsync(x => x.Id == subjectId && !x.IsDeleted, cancellationToken);
+
+            // QR-02
+            if (loc == null)
+                throw new KeyNotFoundException($"Không tìm thấy vị trí với ID {subjectId}.");
+
+            // QR-03
+            if (string.IsNullOrWhiteSpace(loc.QrCode))
+            {
+                loc.QrCode = "LC-" + Guid.NewGuid().ToString("N").ToUpper();
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+
+            previewData = new LabelPreviewDataDto
+            {
+                LabelType     = labelTypeUpper,
+                SubjectId     = loc.Id,
+                Template      = template.ToUpper(),
+                QrPayload     = $"STOCKLITE|{loc.WarehouseId}|LOCATION|{loc.QrCode}",
+                DisplayCode   = FormatLocation(loc),
+                WarehouseName = loc.Warehouse?.Name,
+                LocationName  = FormatLocation(loc),
+                IsQuarantined = loc.IsQuarantine
+            };
+        }
+        else if (labelTypeUpper == "SKU")
+        {
+            var variant = await _context.ProductVariants
+                .FirstOrDefaultAsync(x => x.Id == subjectId && !x.IsDeleted, cancellationToken);
+
+            // QR-02
+            if (variant == null)
+                throw new KeyNotFoundException($"Không tìm thấy biến thể sản phẩm với ID {subjectId}.");
+
+            previewData = new LabelPreviewDataDto
+            {
+                LabelType       = labelTypeUpper,
+                SubjectId       = variant.Id,
+                Template        = template.ToUpper(),
+                QrPayload       = string.IsNullOrEmpty(variant.SKU) ? "" : $"STOCKLITE|1|SKU|{variant.SKU}",
+                DisplayCode     = variant.SKU,
+                ProductName     = variant.Name,
+                Sku             = variant.SKU,
+                PackageWeightKg = variant.Weight,
+            };
+        }
+
+        result.Label = previewData;
+        if (previewData != null && !string.IsNullOrWhiteSpace(previewData.QrPayload))
+        {
+            var qrBytes = QRCodeHelper.GenerateQRCodePng(previewData.QrPayload, 8);
+            previewData.QrImageDataUrl = $"data:image/png;base64,{Convert.ToBase64String(qrBytes)}";
+        }
+        return result;
+    }
+
+    public async Task<QrLabelSummaryDto> GetQrLabelSummaryAsync(CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeHelper.VietnamNow();
+        var monthStart = new DateTime(now.Year, now.Month, 1);
+        var nextMonth = monthStart.AddMonths(1);
+
+        var logs = await _context.AuditLogs
+            .AsNoTracking()
+            .Where(x => !x.IsDeleted
+                && x.Action == "PRINT_QR_LABEL"
+                && x.CreatedDate >= monthStart
+                && x.CreatedDate < nextMonth)
+            .Select(x => new { x.TargetId, x.DataAfter })
+            .ToListAsync(cancellationToken);
+
+        return new QrLabelSummaryDto
+        {
+            TotalJobsThisMonth = logs.Count,
+            TotalLabelsThisMonth = logs.Sum(x => ReadPrintAuditMetadata(x.DataAfter, x.TargetId).TotalLabels),
+            PrintMode = "BROWSER"
+        };
+    }
+
+    public async Task<QrLabelHistoryResultDto> GetQrLabelHistoryAsync(QrLabelHistoryQueryDto request, CancellationToken cancellationToken = default)
+    {
+        var page = Math.Max(1, request.Page);
+        var pageSize = Math.Clamp(request.PageSize, 1, 100);
+        var keyword = request.Search?.Trim();
+        var targetType = ToAuditTargetType(request.LabelType);
+
+        var query =
+            from audit in _context.AuditLogs.AsNoTracking()
+            join user in _context.Users.AsNoTracking() on audit.CreatedBy equals user.Id into users
+            from user in users.DefaultIfEmpty()
+            where !audit.IsDeleted && audit.Action == "PRINT_QR_LABEL"
+            select new
+            {
+                Audit = audit,
+                PrintedBy = user == null ? "Hệ thống" : (user.FirstName + " " + user.LastName).Trim()
+            };
+
+        if (!string.IsNullOrWhiteSpace(targetType))
+            query = query.Where(x => x.Audit.TargetType == targetType);
+
+        if (request.DateFrom.HasValue)
+        {
+            var from = request.DateFrom.Value.Date;
+            query = query.Where(x => x.Audit.CreatedDate >= from);
+        }
+
+        if (request.DateTo.HasValue)
+        {
+            var to = request.DateTo.Value.Date.AddDays(1);
+            query = query.Where(x => x.Audit.CreatedDate < to);
+        }
+
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            query = query.Where(x =>
+                (x.Audit.TargetId != null && x.Audit.TargetId.Contains(keyword))
+                || (x.Audit.Description != null && x.Audit.Description.Contains(keyword))
+                || x.PrintedBy.Contains(keyword));
+        }
+
+        var total = await query.CountAsync(cancellationToken);
+        var rows = await query
+            .OrderByDescending(x => x.Audit.CreatedDate)
+            .ThenByDescending(x => x.Audit.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        var items = rows.Select(x =>
+        {
+            var metadata = ReadPrintAuditMetadata(x.Audit.DataAfter, x.Audit.TargetId);
+            return new QrLabelHistoryItemDto
+            {
+                Id = x.Audit.Id,
+                JobCode = $"QR-{x.Audit.CreatedDate:yyyy}-{x.Audit.Id:D6}",
+                LabelType = FromAuditTargetType(x.Audit.TargetType),
+                TargetIds = x.Audit.TargetId ?? string.Empty,
+                Content = x.Audit.Description ?? "Tạo file tem QR",
+                Quantity = metadata.TotalLabels,
+                PrintedBy = string.IsNullOrWhiteSpace(x.PrintedBy) ? "Hệ thống" : x.PrintedBy,
+                Format = metadata.Format,
+                Template = metadata.Template,
+                Status = "GENERATED",
+                CreatedDate = x.Audit.CreatedDate
+            };
+        }).ToList();
+
+        return new QrLabelHistoryResultDto
+        {
+            Items = items,
+            Total = total,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+
+    private static string? ToAuditTargetType(string? labelType) => labelType?.ToUpperInvariant() switch
+    {
+        "PADDY_LOT" => "PaddyLot",
+        "BAG" => "Bag",
+        "LOCATION" => "Location",
+        "SKU" => "ProductVariant",
+        _ => null
+    };
+
+    private static string FromAuditTargetType(string targetType) => targetType switch
+    {
+        "PaddyLot" => "PADDY_LOT",
+        "Bag" => "BAG",
+        "Location" => "LOCATION",
+        "ProductVariant" => "SKU",
+        _ => targetType.ToUpperInvariant()
+    };
+
+    private static PrintAuditMetadata ReadPrintAuditMetadata(string? json, string? targetId)
+    {
+        var subjectCount = Math.Max(1, (targetId ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length);
+        if (string.IsNullOrWhiteSpace(json))
+            return new PrintAuditMetadata(subjectCount, "PDF", "MEDIUM");
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var copies = root.TryGetProperty("CopiesPerLabel", out var copiesNode)
+                ? copiesNode.GetInt32()
+                : root.TryGetProperty("Copies", out var legacyCopiesNode) ? legacyCopiesNode.GetInt32() : 1;
+            var total = root.TryGetProperty("TotalLabels", out var totalNode)
+                ? totalNode.GetInt32()
+                : Math.Max(1, copies) * subjectCount;
+            var format = root.TryGetProperty("Format", out var formatNode) ? formatNode.GetString() ?? "PDF" : "PDF";
+            var template = root.TryGetProperty("Template", out var templateNode) ? templateNode.GetString() ?? "MEDIUM" : "MEDIUM";
+            return new PrintAuditMetadata(Math.Max(1, total), format, template);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return new PrintAuditMetadata(subjectCount, "PDF", "MEDIUM");
+        }
+    }
+
+    private sealed record PrintAuditMetadata(int TotalLabels, string Format, string Template);
+
+    public async Task<byte[]> GenerateBagLabelPdfAsync(int id, string templateCode, int copies, CancellationToken cancellationToken = default)
+    {
+        var lot = await _context.PaddyLots
+            .Include(x => x.ProductVariant)
+                .ThenInclude(pv => pv!.UnitOfMeasure)  // Bug fix: AddBagLabelContent cần UnitOfMeasure
+            .Include(x => x.Warehouse)
+            .FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
+
+        if (lot == null)
+        {
+            throw new KeyNotFoundException($"Không tìm thấy lô hàng với ID {id} để in nhãn bao.");
+        }
+
+        if (string.IsNullOrWhiteSpace(lot.QrCode))
+        {
+            lot.QrCode = "PL-" + Guid.NewGuid().ToString("N").ToUpper();
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+
+        var (wMm, hMm) = GetDimensionsFromTemplate(templateCode);
+        float widthPt = (wMm / 25.4f) * 72f;
+        float heightPt = (hMm / 25.4f) * 72f;
+
+        using var ms = new MemoryStream();
+        using (var writer = new PdfWriter(ms))
+        {
+            using (var pdf = new PdfDocument(writer))
+            {
+                pdf.SetDefaultPageSize(new PageSize(widthPt, heightPt));
+                var doc = new Document(pdf);
+                doc.SetMargins(2f, 2f, 2f, 2f);
+
+                var font = GetVietnameseFont();
+                if (font != null) doc.SetFont(font);
+
+                for (int i = 0; i < copies; i++)
+                {
+                    if (i > 0) pdf.AddNewPage();
+                    AddBagLabelContent(doc, lot, widthPt, heightPt, font);
+                }
+                doc.Close();
+            }
+        }
+
+        await LogPrintAuditAsync("Bag", id.ToString(), copies, "PDF", templateCode, $"In {copies} nhãn bao hàng của lô {lot.LotCode}", cancellationToken);
+
+        return ms.ToArray();
+    }
+
+    /// <summary>Internal: sinh PDF bytes cho bulk Bag mà không ghi audit.</summary>
+    private async Task<byte[]> GenerateBulkBagLabelsPdfBytesInternalAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken)
+    {
+        if (ids == null || !ids.Any())
+            throw new ArgumentException("Danh sách ID không được rỗng.", nameof(ids));
+
+        var distinctIds = ids.Distinct().ToList();
+        var lots = await _context.PaddyLots
+            .Include(x => x.ProductVariant)
+                .ThenInclude(pv => pv!.UnitOfMeasure)
+            .Include(x => x.Warehouse)
+            .Where(x => distinctIds.Contains(x.Id) && !x.IsDeleted).OrderBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+        if (lots.Count != distinctIds.Count)
+            throw new KeyNotFoundException("Một hoặc nhiều lô hàng không tồn tại hoặc đã bị xóa.");
+
+        var lotsWithoutQr = lots.Where(x => string.IsNullOrWhiteSpace(x.QrCode)).ToList();
+        if (lotsWithoutQr.Count > 0)
+        {
+            foreach (var lot in lotsWithoutQr)
+                lot.QrCode = "PL-" + Guid.NewGuid().ToString("N").ToUpper();
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+
+        var (wMm, hMm) = GetDimensionsFromTemplate(templateCode);
+        float widthPt = (wMm / 25.4f) * 72f;
+        float heightPt = (hMm / 25.4f) * 72f;
+
+        using var ms = new MemoryStream();
+        using (var writer = new PdfWriter(ms))
+        {
+            using (var pdf = new PdfDocument(writer))
+            {
+                pdf.SetDefaultPageSize(new PageSize(widthPt, heightPt));
+                var doc = new Document(pdf);
+                doc.SetMargins(2f, 2f, 2f, 2f);
+                var font = GetVietnameseFont();
+                if (font != null) doc.SetFont(font);
+                bool isFirst = true;
+                foreach (var lot in lots)
+                {
+                    for (int i = 0; i < copies; i++)
+                    {
+                        if (!isFirst) pdf.AddNewPage();
+                        isFirst = false;
+                        AddBagLabelContent(doc, lot, widthPt, heightPt, font);
+                    }
+                }
+                doc.Close();
+            }
+        }
+        return ms.ToArray();
+    }
+
+    /// <summary>Public: sinh bulk Bag PDF và ghi audit PDF.</summary>
+    public async Task<byte[]> GenerateBulkBagLabelsPdfAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken = default)
+    {
+        var pdfBytes = await GenerateBulkBagLabelsPdfBytesInternalAsync(ids, templateCode, copies, cancellationToken);
+        var distinctIds = ids.Distinct().ToList();
+        await LogPrintAuditAsync("Bag", string.Join(",", distinctIds), copies, "PDF", templateCode,
+            $"In hàng loạt nhãn bao hàng ({distinctIds.Count} nhãn, {copies} bản/nhãn)", cancellationToken);
+        return pdfBytes;
+    }
+
+    // QR-06: PNG methods sử dụng internal (no-audit) PDF bytes, convert, rồi mới audit.
+    public async Task<byte[]> GenerateBulkPaddyLotLabelsPngZipAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken = default)
+    {
+        var pdfBytes = await GenerateBulkPaddyLotLabelsPdfBytesInternalAsync(ids, templateCode, copies, cancellationToken);
+        var distinctIds = ids.Distinct().ToList();
+        var lots = await _context.PaddyLots.Where(x => distinctIds.Contains(x.Id)).OrderBy(x => x.Id).ToListAsync(cancellationToken);
+        var prefixes = lots.Select(lot => $"LOT_{lot.LotCode}").ToList();
+
+        var zipBytes = await ConvertPdfToPngZipAsync(pdfBytes, prefixes, copies, cancellationToken);
+
+        await LogPrintAuditAsync("PaddyLot", string.Join(",", distinctIds), copies, "PNG", templateCode,
+            $"In hàng loạt nhãn lô hàng dạng PNG ({distinctIds.Count} nhãn, {copies} bản/nhãn)", cancellationToken);
+        return zipBytes;
+    }
+
+    public async Task<byte[]> GenerateBulkLocationLabelsPngZipAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken = default)
+    {
+        var pdfBytes = await GenerateBulkLocationLabelsPdfBytesInternalAsync(ids, templateCode, copies, cancellationToken);
+        var distinctIds = ids.Distinct().ToList();
+        var locs = await _context.Locations.Where(x => distinctIds.Contains(x.Id)).OrderBy(x => x.Id).ToListAsync(cancellationToken);
+        var prefixes = locs.Select(loc => $"LOC_{loc.Id}").ToList();
+
+        var zipBytes = await ConvertPdfToPngZipAsync(pdfBytes, prefixes, copies, cancellationToken);
+
+        await LogPrintAuditAsync("Location", string.Join(",", distinctIds), copies, "PNG", templateCode,
+            $"In hàng loạt nhãn vị trí dạng PNG ({distinctIds.Count} nhãn, {copies} bản/nhãn)", cancellationToken);
+        return zipBytes;
+    }
+
+    public async Task<byte[]> GenerateBulkBagLabelsPngZipAsync(List<int> ids, string templateCode, int copies, CancellationToken cancellationToken = default)
+    {
+        var pdfBytes = await GenerateBulkBagLabelsPdfBytesInternalAsync(ids, templateCode, copies, cancellationToken);
+        var distinctIds = ids.Distinct().ToList();
+        var lots = await _context.PaddyLots.Where(x => distinctIds.Contains(x.Id)).OrderBy(x => x.Id).ToListAsync(cancellationToken);
+        var prefixes = lots.Select(lot => $"BAG_{lot.LotCode}").ToList();
+
+        var zipBytes = await ConvertPdfToPngZipAsync(pdfBytes, prefixes, copies, cancellationToken);
+
+        await LogPrintAuditAsync("Bag", string.Join(",", distinctIds), copies, "PNG", templateCode,
+            $"In hàng loạt nhãn bao hàng dạng PNG ({distinctIds.Count} nhãn, {copies} bản/nhãn)", cancellationToken);
+        return zipBytes;
+    }
+
+    private async Task<byte[]> ConvertPdfToPngZipAsync(byte[] pdfBytes, List<string> fileNamesPrefixes, int copies, CancellationToken cancellationToken)
+    {
+        // MEDIUM-A: Serialize mọi lời gọi DocLib.Instance (pdfium singleton không thread-safe).
+        // Timeout 120s — nếu request khác giữ quá lâu, fail sớm thay vì treo vô hạn.
+        if (!await _docLibSemaphore.WaitAsync(TimeSpan.FromSeconds(120), cancellationToken))
+        {
+            throw new TimeoutException("Hệ thống đang xử lý quá nhiều yêu cầu in nhãn đồng thời. Vui lòng thử lại sau.");
+        }
+
+        try
+        {
+            // MEDIUM-B: CPU-bound rendering (Docnet + ImageMagick) chạy trên thread pool riêng,
+            // tránh chiếm giữ ASP.NET request thread trong suốt quá trình render.
+            var zipBytes = await Task.Run(() => RenderPdfToPngZip(pdfBytes, fileNamesPrefixes, copies, cancellationToken), cancellationToken);
+            return zipBytes;
+        }
+        finally
+        {
+            _docLibSemaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// Thực hiện render từng trang PDF sang PNG và đóng gói vào ZIP (CPU-bound, chạy trong Task.Run).
+    /// Kiểm tra CancellationToken sau mỗi trang để cho phép hủy sớm khi client ngắt kết nối.
+    /// </summary>
+    private static byte[] RenderPdfToPngZip(byte[] pdfBytes, List<string> fileNamesPrefixes, int copies, CancellationToken cancellationToken)
+    {
+        using var ms = new MemoryStream();
+        using (var archive = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using var docReader = Docnet.Core.DocLib.Instance.GetDocReader(pdfBytes, new Docnet.Core.Models.PageDimensions(1));
+            int pageCount = docReader.GetPageCount();
+
+            for (int i = 0; i < pageCount; i++)
+            {
+                // MEDIUM-B: Kiểm tra hủy sau mỗi trang — thoát sớm nếu client ngắt kết nối.
+                cancellationToken.ThrowIfCancellationRequested();
+
+                int prefixIndex = i / copies;
+                int copyIndex = (i % copies) + 1;
+                string prefix = prefixIndex < fileNamesPrefixes.Count ? fileNamesPrefixes[prefixIndex] : "LABEL";
+                string fileName = copies > 1 ? $"{prefix}_{copyIndex:D3}.png" : $"{prefix}.png";
+
+                using var pageReader = docReader.GetPageReader(i);
+                var rawBytes = pageReader.GetImage(Docnet.Core.Models.RenderFlags.RenderAnnotations);
+                int width = pageReader.GetPageWidth();
+                int height = pageReader.GetPageHeight();
+
+                var readSettings = new ImageMagick.MagickReadSettings
+                {
+                    Width = (uint)width,
+                    Height = (uint)height,
+                    Format = ImageMagick.MagickFormat.Bgra
+                };
+
+                using var image = new ImageMagick.MagickImage(rawBytes, readSettings);
+                var pngBytes = image.ToByteArray(ImageMagick.MagickFormat.Png);
+
+                var entry = archive.CreateEntry(fileName, System.IO.Compression.CompressionLevel.Fastest);
+                using var entryStream = entry.Open();
+                entryStream.Write(pngBytes, 0, pngBytes.Length);
+            }
+        }
+        return ms.ToArray();
+    }
+
+    private void AddBagLabelContent(Document doc, PaddyLot lot, float widthPt, float heightPt, PdfFont? font)
+    {
+        var headerTable = new Table(UnitValue.CreatePercentArray(new float[] { 100f }))
+            .SetWidth(UnitValue.CreatePercentValue(100f));
+        
+        var titleParagraph = new Paragraph("BAO HÀNG")
+            .SetFontSize(8f)
+            .SetBold()
+            .SetTextAlignment(TextAlignment.CENTER)
+            .SetMarginBottom(1f);
+        
+        headerTable.AddCell(new Cell().Add(titleParagraph).SetBorder(Border.NO_BORDER));
+        doc.Add(headerTable);
+
+        // 2 column layout: Left (QR code), Right (Details)
+        var bodyTable = new Table(UnitValue.CreatePercentArray(new float[] { 35f, 65f }))
+            .SetWidth(UnitValue.CreatePercentValue(100f))
+            .SetMarginTop(1f);
+
+        // QR Code Image
+        var payload = $"STOCKLITE|{lot.WarehouseId}|BAG|{lot.QrCode}";
+        byte[] qrBytes = QRCodeHelper.GenerateQRCodePng(payload, 5);
+        var qrImage = new Image(ImageDataFactory.Create(qrBytes))
+            .SetAutoScale(true)
+            .SetHorizontalAlignment(HorizontalAlignment.CENTER);
+
+        var qrCell = new Cell().Add(qrImage)
+            .SetBorder(Border.NO_BORDER)
+            .SetVerticalAlignment(VerticalAlignment.MIDDLE)
+            .SetPadding(1f);
+        bodyTable.AddCell(qrCell);
+
+        // Details Column
+        var detailsCell = new Cell()
+            .SetBorder(Border.NO_BORDER)
+            .SetVerticalAlignment(VerticalAlignment.TOP)
+            .SetPaddingLeft(2f);
+
+        // SKU
+        detailsCell.Add(new Paragraph($"SKU: {lot.ProductVariant?.SKU ?? "N/A"}")
+            .SetFontSize(5f)
+            .SetBold()
+            .SetMarginBottom(0.5f));
+
+        // Lot Code
+        detailsCell.Add(new Paragraph($"Mã Lô: {lot.LotCode}")
+            .SetFontSize(5f)
+            .SetBold()
+            .SetMarginBottom(0.5f));
+
+        // Variant Name
+        detailsCell.Add(new Paragraph($"Sản phẩm: {lot.ProductVariant?.Name ?? "N/A"}")
+            .SetFontSize(4.5f)
+            .SetMultipliedLeading(0.9f)
+            .SetMarginBottom(0.5f));
+
+        // Package Weight / UoM
+        if (lot.ProductVariant != null)
+        {
+            var uom = lot.ProductVariant.UnitOfMeasure?.Name ?? "kg";
+            var weightStr = lot.ProductVariant.Weight.ToString("N2");
+            detailsCell.Add(new Paragraph($"Quy cách: {weightStr} {uom}")
+                .SetFontSize(4.5f)
+                .SetMarginBottom(0.5f));
+        }
+
+        // Inbound Date
+        detailsCell.Add(new Paragraph($"Ngày nhập: {lot.InboundDate:dd/MM/yyyy}")
+            .SetFontSize(4.5f)
+            .SetMarginBottom(0.5f));
+
+        // Warehouse Info
+        detailsCell.Add(new Paragraph($"Kho: {lot.Warehouse?.Name ?? "N/A"}")
+            .SetFontSize(4.5f)
+            .SetMarginBottom(0.5f));
+
+        // Footer / Instruction
+        detailsCell.Add(new Paragraph("Quét mã Bao hàng để truy xuất")
+            .SetFontSize(4f)
+            .SetFontColor(ColorConstants.GRAY)
+            .SetItalic()
+            .SetMarginBottom(0.5f));
+
+        bodyTable.AddCell(detailsCell);
+        doc.Add(bodyTable);
     }
 }

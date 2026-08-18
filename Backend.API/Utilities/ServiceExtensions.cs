@@ -38,11 +38,31 @@ public static class ServiceExtensions
         {
             options.AddPolicy("Default", policy =>
             {
-                policy.AllowAnyOrigin() // Cho phép tất cả các nguồn
+                policy.WithOrigins(
+                        "https://stocklite.dpdns.org",          // FE web (custom domain)
+                        "https://do-an-frontend-six.vercel.app", // FE web (Vercel)
+                        "http://localhost:4200",                 // FE web (local dev)
+                        "http://10.0.2.2:5257")                  // Mobile (Android emulator)
                     .AllowAnyHeader()
-                    .AllowAnyMethod();
+                    .AllowAnyMethod()
+                    .AllowCredentials(); // Cần cho SignalR (WebSocket) gửi kèm access_token
             });
         });
+        // Nén response (Gzip/Brotli) — giảm mạnh thời gian truyền các payload JSON danh sách lớn.
+        // Chỉ ảnh hưởng byte truyền đi, không đổi nội dung/logic API.
+        services.AddResponseCompression(options =>
+        {
+            options.EnableForHttps = true;
+            options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProvider>();
+            options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();
+            options.MimeTypes = Microsoft.AspNetCore.ResponseCompression.ResponseCompressionDefaults.MimeTypes
+                .Concat(new[] { "application/json", "application/json; charset=utf-8" });
+        });
+        services.Configure<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProviderOptions>(o =>
+            o.Level = System.IO.Compression.CompressionLevel.Fastest);
+        services.Configure<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProviderOptions>(o =>
+            o.Level = System.IO.Compression.CompressionLevel.Fastest);
+
         services.AddControllers()
             .AddNewtonsoftJson()
             .ConfigureApiBehaviorOptions(opt =>
@@ -123,11 +143,29 @@ public static class ServiceExtensions
                 IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings?.SecretKey ?? string.Empty)),
                 ClockSkew = TimeSpan.Zero
             };
+
+            // Cho phép SignalR (WebSocket) gửi token qua query string access_token với các path /hubs.
+            options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+            {
+                OnMessageReceived = context =>
+                {
+                    var accessToken = context.Request.Query["access_token"];
+                    var path = context.HttpContext.Request.Path;
+                    if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                        context.Token = accessToken;
+                    return System.Threading.Tasks.Task.CompletedTask;
+                }
+            };
         });
         services.Configure<HostSettings>(configuration.GetSection("HostSettings"));
         services.AddHttpClient();
         services.AddHttpContextAccessor();
         services.AddRateLimitPolicies();
+        services.AddSignalR();
+        services.AddScoped<Backend.Application.Interfaces.IDataChangeNotifier, DataChangeNotifier>();
+        // Hiện diện thiết bị (presence) cho realtime trạng thái + force-logout.
+        services.AddSingleton<Backend.Application.Interfaces.IDevicePresenceStore, Backend.Application.Implements.DevicePresenceStore>();
+        services.AddScoped<Backend.Application.Interfaces.IDevicePresenceNotifier, DevicePresenceNotifier>();
 
         var servicePath = configuration["FireBase:ServicePath"];
 

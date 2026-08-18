@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Backend.Infrastructure.Constants;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -21,6 +21,15 @@ public class InventoryTransactionConfiguration : IEntityTypeConfiguration<Invent
 
         builder.Property(x => x.ReferenceType)
             .HasMaxLength(50);
+
+        builder.Property(x => x.Quantity)
+            .HasColumnType("decimal(18,3)");
+
+        builder.Property(x => x.BeforeQuantity)
+            .HasColumnType("decimal(18,3)");
+
+        builder.Property(x => x.AfterQuantity)
+            .HasColumnType("decimal(18,3)");
 
         builder.Property(x => x.WeightKg)
             .HasColumnType("decimal(18,3)");
@@ -48,9 +57,9 @@ public class InventoryTransactionConfiguration : IEntityTypeConfiguration<Invent
             .HasForeignKey(x => x.ProductVariantId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        builder.HasOne(x => x.IotWeightLog)
+        builder.HasOne(x => x.PaddyLot)
             .WithMany()
-            .HasForeignKey(x => x.IotWeightLogId)
+            .HasForeignKey(x => x.PaddyLotId)
             .OnDelete(DeleteBehavior.SetNull);
 
         builder.HasIndex(x => x.InventoryId)
@@ -62,7 +71,12 @@ public class InventoryTransactionConfiguration : IEntityTypeConfiguration<Invent
         builder.HasIndex(x => new { x.ProductVariantId, x.CreatedDate })
             .HasDatabaseName("IX_InventoryTransaction_ProductVariant_CreatedDate");
 
-        builder.HasIndex(x => x.IotWeightLogId)
-            .HasDatabaseName("IX_InventoryTransaction_IotWeightLogId");
+        // Sắp xếp mặc định của màn danh sách giao dịch kho là ORDER BY CreatedDate DESC.
+        // Thêm index theo CreatedDate (và theo kho + CreatedDate) để tránh filesort toàn bảng.
+        builder.HasIndex(x => x.CreatedDate)
+            .HasDatabaseName("IX_InventoryTransaction_CreatedDate");
+
+        builder.HasIndex(x => new { x.WarehouseId, x.CreatedDate })
+            .HasDatabaseName("IX_InventoryTransaction_Warehouse_CreatedDate");
     }
 }

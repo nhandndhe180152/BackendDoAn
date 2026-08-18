@@ -87,12 +87,12 @@ public static class TestDataBuilder
     // ── User Create/Update DTOs ──────────────────────────────────────────────
     public static CreateUserDto ValidCreateUserDto() => new()
     {
+        Username = "adminnew",
         Email = "admin@example.com",
         PhoneNumber = "0901234567",
         IdentityNumber = "098765432101",
         FirstName = "Admin",
         LastName = "New",
-        PasswordHash = "Test@12345",
         Roles = new List<int> { 1001 },
         CreatedBy = 1
     };

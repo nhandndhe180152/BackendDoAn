@@ -25,6 +25,9 @@ public class LoginResponseClientUserInfo
     public string FullName { get; set; } = null!;
     public string? AvatarUrl { get; set; }
     public string Email { get; set; } = null!;
+
+    /// <summary>Bắt buộc đổi mật khẩu ngay sau khi đăng nhập (tài khoản mới/đã reset).</summary>
+    public bool MustChangePassword { get; set; }
 }
 
 public class LoginResponsePermission()

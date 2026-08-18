@@ -10,6 +10,7 @@ public static class MenuMapping
     {
         return new Menu
         {
+            Code = dto.Code,
             ClassName = dto.ClassName,
             CreatedBy = dto.CreatedBy,
             CreatedDate = DateTime.Now,
@@ -27,6 +28,7 @@ public static class MenuMapping
     public static Menu ToEntity(this UpdateMenuDto dto, Menu existData)
     {
         existData.ClassName = dto.ClassName;
+        existData.Code = dto.Code;
         existData.UpdatedBy = dto.UpdatedBy;
         existData.LastModifiedDate = DateTime.Now;
         existData.Icon = dto.Icon;

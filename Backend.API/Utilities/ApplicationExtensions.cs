@@ -15,18 +15,18 @@ public static class ApplicationExtensions
 {
     public static void UseInfrastructure(this WebApplication app, IConfiguration configuration)
     {
-        //if (app.Environment.IsDevelopment())
-        //{
-        app.UseSwagger();
-        app.UseSwaggerUI(options =>
+        if (app.Environment.IsDevelopment())
         {
-            var descriptions = app.DescribeApiVersions();
-            foreach (var description in descriptions)
+            app.UseSwagger();
+            app.UseSwaggerUI(options =>
             {
-                options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json", description.GroupName.ToUpperInvariant());
-            }
-        });
-        //}
+                var descriptions = app.DescribeApiVersions();
+                foreach (var description in descriptions)
+                {
+                    options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json", description.GroupName.ToUpperInvariant());
+                }
+            });
+        }
 
         var allowedStaticPrefixes = new[] {
                 "/uploads/users/avatars",
@@ -41,12 +41,13 @@ public static class ApplicationExtensions
                 !allowedStaticPrefixes.Any(p => requestPath.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
             {
                 context.Response.StatusCode = 403;
-                await context.Response.WriteAsJsonAsync(ApiResponse.Forbidden());
+                await context.Response.WriteAsJsonAsync(ApiResponse.Forbidden(message: "Forbidden"));
                 return;
             }
             await next();
         });
 
+        app.UseResponseCompression();
         app.UseStaticFiles();
         app.UseHttpsRedirection();
         app.UseCors("Default");
@@ -80,6 +81,8 @@ public static class ApplicationExtensions
             Predicate = r => r.Name != "self",
             ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
         });
+        app.MapHub<Backend.API.Hubs.DataChangeHub>("/hubs/data-change");
+        app.MapHub<Backend.API.Hubs.DevicePresenceHub>("/hubs/device-presence");
         app.Run();
     }
 }

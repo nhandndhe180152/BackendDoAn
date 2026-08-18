@@ -49,6 +49,7 @@ public class ActionService : IActionService
             .Select(x => new ActionDetailDto
             {
                 Id = x.Id,
+                Code = x.Code,
                 Name = x.Name,
                 Description = x.Description,
                 CreatedDate = x.CreatedDate
@@ -75,6 +76,7 @@ public class ActionService : IActionService
             .Select(x => new ActionListDto
             {
                 CreatedDate = x.CreatedDate,
+                Code = x.Code,
                 Description = x.Description,
                 Id = x.Id,
                 Name = x.Name,

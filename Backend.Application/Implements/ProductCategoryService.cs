@@ -7,6 +7,7 @@ using Backend.Application.DTOs.ProductCategories;
 using Backend.Application.Interfaces;
 using Backend.Application.Mappings;
 using Backend.Domain.DTParameters;
+using Backend.Domain.Entities;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
 using Backend.Share.Extensions;
@@ -20,28 +21,82 @@ public class ProductCategoryService : IProductCategoryService
     private readonly IProductCategoryRepository _productCategoryRepository;
 
     /// Khởi tạo ProductCategoryService
-    public ProductCategoryService(IProductCategoryRepository productCategoryRepository)
+    public ProductCategoryService(
+        IProductCategoryRepository productCategoryRepository)
     {
         _productCategoryRepository = productCategoryRepository;
     }
 
-    /// Tạo mới một danh mục sản phẩm
+    // ──────────────────────────────────────────────────────────
+    // CREATE
+    // ──────────────────────────────────────────────────────────
+    /// Tạo mới một danh mục sản phẩm. Tự động tính TreeIds sau khi có Id.
     public async Task<ApiResponse> CreateAsync(CreateProductCategoryDto obj)
     {
-        var model = obj.ToEntity();
-        
-        // Kiểm tra trùng tên danh mục
-        var isExistingCategory = await _productCategoryRepository.AnyAsync(
-            x => x.Name.ToLower() == model.Name.ToLower() && !x.IsDeleted);
+        var name = obj.Name?.Trim();
+        if (string.IsNullOrEmpty(name))
+            return ApiResponse.BadRequest(message: "Tên danh mục không được để trống.");
 
-        if (isExistingCategory)
-            return ApiResponse.UnprocessableEntity(
-                ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Name),
-                ApiCodeConstants.Common.DuplicatedData
-            );
+        // Validate parent exists and not deleted
+        if (obj.ParentCategoryId.HasValue)
+        {
+            var parent = await _productCategoryRepository.GetByIdAsync(obj.ParentCategoryId.Value);
+            if (parent == null || parent.IsDeleted)
+                return ApiResponse.UnprocessableEntity(
+                    "Danh mục cha không tồn tại hoặc đã bị xóa.",
+                    ApiCodeConstants.Common.InvalidData);
+        }
 
-        await _productCategoryRepository.CreateAsync(model);
-        await _productCategoryRepository.SaveChangesAsync();
+        // Sibling uniqueness (same parent, same name case-insensitive)
+        var hasDupSibling = await _productCategoryRepository.AnyAsync(x =>
+            !x.IsDeleted &&
+            x.Name.ToLower() == name.ToLower() &&
+            x.ParentCategoryId == obj.ParentCategoryId);
+
+        if (hasDupSibling)
+            return ApiResponse.Conflict(
+                $"Đã tồn tại danh mục '{name}' trong cùng cấp cha.",
+                ApiCodeConstants.Common.DuplicatedData);
+
+        // Insert first without TreeIds, then compute & update inside a transaction
+        var model = new ProductCategory
+        {
+            Name = name,
+            Description = obj.Description,
+            ParentCategoryId = obj.ParentCategoryId,
+            TreeIds = string.Empty, // temporary until ID is known
+            SortOrder = obj.SortOrder,
+            CreatedBy = obj.CreatedBy,
+            CreatedDate = DateTime.Now
+        };
+
+        await using var tx = await _productCategoryRepository.BeginTransactionAsync();
+        try
+        {
+            await _productCategoryRepository.CreateAsync(model);
+            await _productCategoryRepository.SaveChangesAsync(); // flush to get model.Id
+
+            // Compute TreeIds now that we have the Id
+            if (obj.ParentCategoryId.HasValue)
+            {
+                var parent = await _productCategoryRepository.GetByIdAsync(obj.ParentCategoryId.Value);
+                model.TreeIds = $"{parent!.TreeIds},{model.Id}";
+            }
+            else
+            {
+                model.TreeIds = model.Id.ToString();
+            }
+
+            await _productCategoryRepository.UpdateAsync(model);
+            await _productCategoryRepository.SaveChangesAsync();
+
+            await _productCategoryRepository.EndTransactionAsync();
+        }
+        catch
+        {
+            await _productCategoryRepository.RollbackTransactionAsync();
+            throw;
+        }
 
         return ApiResponse.Created(model.Id);
     }
@@ -55,6 +110,9 @@ public class ProductCategoryService : IProductCategoryService
         return ApiResponse.Created(models.Select(x => x.Id));
     }
 
+    // ──────────────────────────────────────────────────────────
+    // READ
+    // ──────────────────────────────────────────────────────────
     /// Lấy danh sách toàn bộ danh mục sản phẩm (kèm thông tin danh mục cha)
     public async Task<ApiResponse> GetAllAsync()
     {
@@ -81,6 +139,44 @@ public class ProductCategoryService : IProductCategoryService
             return ApiResponse.NotFound();
 
         return ApiResponse.Success(data.ToDto());
+    }
+
+    /// Trả về toàn bộ cây danh mục dạng phân cấp
+    public async Task<ApiResponse> GetTreeAsync()
+    {
+        var all = await _productCategoryRepository
+            .FindByCondition(x => !x.IsDeleted)
+            .Include(x => x.Products)
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.Name)
+            .ToListAsync();
+
+        var roots = all
+            .Where(x => x.ParentCategoryId == null)
+            .Select(x => BuildTree(x, all))
+            .ToList();
+
+        return ApiResponse.Success(roots);
+    }
+
+    private static ProductCategoryTreeDto BuildTree(ProductCategory node, List<ProductCategory> all)
+    {
+        var dto = new ProductCategoryTreeDto
+        {
+            Id = node.Id,
+            Name = node.Name,
+            Description = node.Description,
+            ParentCategoryId = node.ParentCategoryId,
+            TreeIds = node.TreeIds,
+            SortOrder = node.SortOrder,
+            ProductCount = node.Products != null ? node.Products.Count(p => !p.IsDeleted) : 0,
+            Children = all
+                .Where(c => c.ParentCategoryId == node.Id)
+                .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
+                .Select(c => BuildTree(c, all))
+                .ToList()
+        };
+        return dto;
     }
 
     /// Phân trang danh mục sản phẩm theo từ khóa
@@ -128,51 +224,6 @@ public class ProductCategoryService : IProductCategoryService
         return ApiResponse.Success(data);
     }
 
-    /// Xóa mềm danh mục sản phẩm (IsDeleted = true)
-    public async Task<ApiResponse> SoftDeleteAsync(int id)
-    {
-        var isDeleted = await _productCategoryRepository.SoftDeleteAsync(id);
-        if (!isDeleted)
-            return ApiResponse.BadRequest();
-
-        await _productCategoryRepository.SaveChangesAsync();
-        return ApiResponse.Success(isDeleted);
-    }
-
-    public Task<ApiResponse> SoftDeleteListAsync(IEnumerable<int> objs)
-    {
-        throw new NotImplementedException();
-    }
-
-    /// Cập nhật thông tin danh mục sản phẩm
-    public async Task<ApiResponse> UpdateAsync(UpdateProductCategoryDto obj)
-    {
-        var existData = await _productCategoryRepository.GetByIdAsync(obj.Id);
-        if (existData == null)
-            return ApiResponse.NotFound();
-
-        // Kiểm tra xem tên danh mục mới có bị trùng với danh mục khác không
-        var isDuplicatedName = await _productCategoryRepository.AnyAsync(
-            x => x.Name.ToLower() == obj.Name.ToLower() && x.Id != obj.Id && !x.IsDeleted);
-
-        if (isDuplicatedName)
-            return ApiResponse.UnprocessableEntity(
-                ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.DuplicatedData).Replace("{key}", obj.Name),
-                ApiCodeConstants.Common.DuplicatedData
-            );
-
-        obj.ToEntity(existData);
-        await _productCategoryRepository.UpdateAsync(existData);
-        await _productCategoryRepository.SaveChangesAsync();
-
-        return ApiResponse.Success();
-    }
-
-    public Task<ApiResponse> UpdateListAsync(IEnumerable<UpdateProductCategoryDto> obj)
-    {
-        throw new NotImplementedException();
-    }
-
     /// Lọc phân trang chi tiết theo ParentId
     public async Task<ApiResponse> GetPagedAsync(ProductCategorySearchQuery query)
     {
@@ -192,7 +243,7 @@ public class ProductCategoryService : IProductCategoryService
         // Lọc theo Id của danh mục cha
         if (query.ParentId.HasValue)
         {
-            data = data.Where(x => x.ParentId == query.ParentId.Value);
+            data = data.Where(x => x.ParentCategoryId == query.ParentId.Value);
         }
 
         if (!string.IsNullOrEmpty(query.OrderBy))
@@ -210,5 +261,154 @@ public class ProductCategoryService : IProductCategoryService
         };
 
         return ApiResponse.Success(pagedData);
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // UPDATE
+    // ──────────────────────────────────────────────────────────
+    /// Cập nhật thông tin danh mục sản phẩm (bao gồm re-parent với cascade TreeIds)
+    public async Task<ApiResponse> UpdateAsync(UpdateProductCategoryDto obj)
+    {
+        var existData = await _productCategoryRepository.GetByIdAsync(obj.Id);
+        if (existData == null)
+            return ApiResponse.NotFound();
+
+        // ── Rule 1: Self-parent ──
+        if (obj.ParentCategoryId.HasValue && obj.ParentCategoryId.Value == obj.Id)
+            return ApiResponse.UnprocessableEntity(
+                "Danh mục không thể là danh mục cha của chính nó.",
+                ApiCodeConstants.Common.InvalidData);
+
+        // ── Rule 2: Ancestor loop — cannot move under own descendant ──
+        if (obj.ParentCategoryId.HasValue)
+        {
+            var descendantPrefix = existData.TreeIds + ",";
+            var isDescendant = await _productCategoryRepository.AnyAsync(x =>
+                !x.IsDeleted &&
+                x.Id == obj.ParentCategoryId.Value &&
+                (x.TreeIds == existData.TreeIds || x.TreeIds.StartsWith(descendantPrefix)));
+
+            if (isDescendant)
+                return ApiResponse.UnprocessableEntity(
+                    "Không thể chuyển danh mục vào bên dưới một trong các danh mục con của nó.",
+                    ApiCodeConstants.Common.InvalidData);
+
+            // Validate new parent exists and not deleted
+            var newParent = await _productCategoryRepository.GetByIdAsync(obj.ParentCategoryId.Value);
+            if (newParent == null || newParent.IsDeleted)
+                return ApiResponse.UnprocessableEntity(
+                    "Danh mục cha không tồn tại hoặc đã bị xóa.",
+                    ApiCodeConstants.Common.InvalidData);
+        }
+
+        // ── Rule 3: Sibling uniqueness ──
+        var hasDupSibling = await _productCategoryRepository.AnyAsync(x =>
+            !x.IsDeleted &&
+            x.Id != obj.Id &&
+            x.Name.ToLower() == obj.Name.Trim().ToLower() &&
+            x.ParentCategoryId == obj.ParentCategoryId);
+
+        if (hasDupSibling)
+            return ApiResponse.Conflict(
+                $"Đã tồn tại danh mục '{obj.Name}' trong cùng cấp cha.",
+                ApiCodeConstants.Common.DuplicatedData);
+
+        // ── Compute new TreeIds ──
+        var oldTreeIds = existData.TreeIds;
+        string newTreeIds;
+
+        if (obj.ParentCategoryId.HasValue)
+        {
+            var newParent = await _productCategoryRepository.GetByIdAsync(obj.ParentCategoryId.Value);
+            newTreeIds = $"{newParent!.TreeIds},{existData.Id}";
+        }
+        else
+        {
+            newTreeIds = existData.Id.ToString();
+        }
+
+        obj.ToEntity(existData);
+        existData.TreeIds = newTreeIds;
+
+        await using var tx = await _productCategoryRepository.BeginTransactionAsync();
+        try
+        {
+            await _productCategoryRepository.UpdateAsync(existData);
+            await _productCategoryRepository.SaveChangesAsync();
+
+            // Cascade update descendants' TreeIds
+            if (oldTreeIds != newTreeIds)
+            {
+                var descendantPrefix = oldTreeIds + ",";
+                var descendants = await _productCategoryRepository
+                    .FindByCondition(x => !x.IsDeleted && x.TreeIds.StartsWith(descendantPrefix))
+                    .ToListAsync();
+
+                foreach (var desc in descendants)
+                {
+                    desc.TreeIds = newTreeIds + desc.TreeIds.Substring(oldTreeIds.Length);
+                    await _productCategoryRepository.UpdateAsync(desc);
+                }
+
+                if (descendants.Any())
+                    await _productCategoryRepository.SaveChangesAsync();
+            }
+
+            await _productCategoryRepository.EndTransactionAsync();
+        }
+        catch
+        {
+            await _productCategoryRepository.RollbackTransactionAsync();
+            throw;
+        }
+
+        return ApiResponse.Success();
+    }
+
+    public Task<ApiResponse> UpdateListAsync(IEnumerable<UpdateProductCategoryDto> obj)
+    {
+        throw new NotImplementedException();
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // DELETE
+    // ──────────────────────────────────────────────────────────
+    /// Xóa mềm danh mục sản phẩm (IsDeleted = true). Block nếu còn child hoặc products.
+    public async Task<ApiResponse> SoftDeleteAsync(int id)
+    {
+        var existData = await _productCategoryRepository.GetByIdAsync(id);
+        if (existData == null)
+            return ApiResponse.NotFound();
+
+        // Block nếu còn child categories chưa xóa
+        var hasChildren = await _productCategoryRepository.AnyAsync(x => !x.IsDeleted && x.ParentCategoryId == id);
+        if (hasChildren)
+            return ApiResponse.Conflict(
+                "Không thể xóa danh mục đang có danh mục con chưa xóa.",
+                ApiCodeConstants.Common.InvalidData);
+
+        // Block nếu còn Products chưa xóa tham chiếu
+        var hasProducts = await _productCategoryRepository
+            .FindByCondition(x => x.Id == id)
+            .Include(x => x.Products)
+            .AnyAsync(x => x.Products.Any(p => !p.IsDeleted));
+
+        if (hasProducts)
+            return ApiResponse.Conflict(
+                "Không thể xóa danh mục đang được sử dụng bởi sản phẩm chưa xóa.",
+                ApiCodeConstants.Common.InvalidData);
+
+        var isDeleted = await _productCategoryRepository.SoftDeleteAsync(id);
+        if (!isDeleted)
+            return ApiResponse.BadRequest();
+
+        await _productCategoryRepository.SaveChangesAsync();
+
+        return ApiResponse.Success(isDeleted);
+    }
+
+    public Task<ApiResponse> SoftDeleteListAsync(IEnumerable<int> objs)
+    {
+        throw new NotImplementedException();
     }
 }

@@ -32,15 +32,13 @@ public class InventoryTransactionAggregate
 
     public int? ReferenceItemId { get; set; }
 
-    public int Quantity { get; set; }
+    public decimal Quantity { get; set; }
 
-    public int BeforeQuantity { get; set; }
+    public decimal BeforeQuantity { get; set; }
 
-    public int AfterQuantity { get; set; }
+    public decimal AfterQuantity { get; set; }
 
     public decimal? WeightKg { get; set; }
-
-    public int? IotWeightLogId { get; set; }
 
     public string? Note { get; set; }
 

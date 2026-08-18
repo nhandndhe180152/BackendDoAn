@@ -20,6 +20,8 @@ public class UserStatusConfiguration : IEntityTypeConfiguration<UserStatus>
             .HasMaxLength(255);
         builder.Property(x => x.Description)
            .HasMaxLength(500);
+        builder.Property(x => x.Code).HasMaxLength(100);
+        builder.HasIndex(x => x.Code).HasDatabaseName("IX_UserStatus_Code");
         builder.Property(x => x.Color)
             .IsRequired()
             .HasMaxLength(50);

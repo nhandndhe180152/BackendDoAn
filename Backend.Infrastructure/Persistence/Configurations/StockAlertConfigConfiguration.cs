@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Backend.Infrastructure.Constants;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -14,5 +14,12 @@ public class StockAlertConfigConfiguration : IEntityTypeConfiguration<StockAlert
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id)
             .ValueGeneratedOnAdd();
+
+        builder.Property(x => x.MinThreshold)
+            .HasPrecision(18, 3)
+            .IsRequired();
+
+        builder.HasIndex(x => new { x.WarehouseId, x.ProductVariantId, x.IsActive, x.IsDeleted })
+            .HasDatabaseName("IX_StockAlertConfig_LowStockLookup");
     }
 }

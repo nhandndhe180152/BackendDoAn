@@ -14,5 +14,7 @@ public class StockTakeStatusConfiguration : IEntityTypeConfiguration<StockTakeSt
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id)
             .ValueGeneratedOnAdd();
+        builder.Property(x => x.Code).HasMaxLength(100);
+        builder.HasIndex(x => x.Code).HasDatabaseName("IX_StockTakeStatus_Code");
     }
 }

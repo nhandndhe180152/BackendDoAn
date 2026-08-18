@@ -13,16 +13,20 @@ public class InventoryTransaction : EntityAuditBase<int>
     public string? ReferenceType { get; set; }
     public int? ReferenceId { get; set; }
     public int? ReferenceItemId { get; set; }
-    public int Quantity { get; set; }
-    public int BeforeQuantity { get; set; }
-    public int AfterQuantity { get; set; }
+    public decimal Quantity { get; set; }
+    public decimal BeforeQuantity { get; set; }
+    public decimal AfterQuantity { get; set; }
     public decimal? WeightKg { get; set; }
-    public int? IotWeightLogId { get; set; }
+
+    /// <summary>Truy vết giao dịch theo lô lúa/gạo. null = không theo dõi lô.</summary>
+    public int? PaddyLotId { get; set; }
+
     public string? Note { get; set; }
 
     public virtual Inventory Inventory { get; set; } = null!;
     public virtual Warehouse Warehouse { get; set; } = null!;
     public virtual Location? Location { get; set; }
     public virtual ProductVariant? ProductVariant { get; set; }
-    public virtual IotWeightLog? IotWeightLog { get; set; }
+    public virtual PaddyLot? PaddyLot { get; set; }
 }
+

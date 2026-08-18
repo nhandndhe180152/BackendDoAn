@@ -11,19 +11,25 @@ public class CreateUserDtoValidator : AbstractValidator<CreateUserDto>
 {
     public CreateUserDtoValidator()
     {
-        RuleFor(x => x.PasswordHash)
+        // Lưu ý: KHÔNG validate mật khẩu ở đây. Mật khẩu do hệ thống tự sinh khi admin tạo
+        // tài khoản (bàn giao qua email + bắt đổi lần đầu) nên bỏ để tăng tốc thao tác tạo.
+
+        RuleFor(x => x.Username)
             .NotNull()
-            .WithName("Mật khẩu")
+            .WithName("Tên đăng nhập")
             .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.RequiredMessage))
             .NotEmpty()
-            .WithName("Mật khẩu")
+            .WithName("Tên đăng nhập")
             .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.RequiredMessage))
-            .MaximumLength(64)
-            .WithName("Mật khẩu")
+            .MinimumLength(6)
+            .WithName("Tên đăng nhập")
+            .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.MinLengthMessage))
+            .MaximumLength(30)
+            .WithName("Tên đăng nhập")
             .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.MaxLengthMessage))
-            .MinimumLength(8)
-            .WithName("Mật khẩu")
-            .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.MinLengthMessage));
+            .Must(username => string.IsNullOrEmpty(username) || StringHelper.IsValidUsername(username))
+            .WithName("Tên đăng nhập")
+            .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.InvalidFormatMessage));
 
         RuleFor(x => x.FirstName)
             .NotNull()
@@ -56,7 +62,10 @@ public class CreateUserDtoValidator : AbstractValidator<CreateUserDto>
             .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.RequiredMessage))
             .MaximumLength(500)
             .WithName("Email")
-            .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.MaxLengthMessage));
+            .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.MaxLengthMessage))
+            .EmailAddress()
+            .WithName("Email")
+            .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.InvalidFormatMessage));
 
         RuleFor(x => x.PhoneNumber)
             .MaximumLength(50)
@@ -75,5 +84,12 @@ public class CreateUserDtoValidator : AbstractValidator<CreateUserDto>
             .Must(identityNumber => string.IsNullOrEmpty(identityNumber) || StringHelper.IsValidIdentityNumber(identityNumber))
             .WithName("CCCD/CMND")
             .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.Common.InvalidFormatMessage));
+
+        // Bắt buộc chọn ít nhất một vai trò để tài khoản có quyền sử dụng.
+        RuleFor(x => x.Roles)
+            .NotNull()
+            .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.User.RequiredRole))
+            .Must(roles => roles != null && roles.Count > 0)
+            .WithMessage(ErrorMessagesConstants.GetMessage(ApiCodeConstants.User.RequiredRole));
     }
 }

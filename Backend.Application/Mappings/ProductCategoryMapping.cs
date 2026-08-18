@@ -13,7 +13,7 @@ public static class ProductCategoryMapping
         {
             Name = obj.Name,
             Description = obj.Description,
-            ParentId = obj.ParentId,
+            ParentCategoryId = obj.ParentCategoryId,
             TreeIds = obj.TreeIds,
             SortOrder = obj.SortOrder,
             CreatedBy = obj.CreatedBy,
@@ -25,7 +25,7 @@ public static class ProductCategoryMapping
     {
         existData.Name = obj.Name;
         existData.Description = obj.Description;
-        existData.ParentId = obj.ParentId;
+        existData.ParentCategoryId = obj.ParentCategoryId;
         existData.TreeIds = obj.TreeIds;
         existData.SortOrder = obj.SortOrder;
         existData.UpdatedBy = obj.UpdatedBy;
@@ -40,7 +40,7 @@ public static class ProductCategoryMapping
             Id = entity.Id,
             Name = entity.Name,
             Description = entity.Description,
-            ParentId = entity.ParentId,
+            ParentCategoryId = entity.ParentCategoryId,
             ParentName = entity.ParentCategory?.Name,
             TreeIds = entity.TreeIds,
             SortOrder = entity.SortOrder,

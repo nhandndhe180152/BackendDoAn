@@ -55,6 +55,7 @@ public class UserStatusService : IUserStatusService
             .Select(x => new UserStatusListDto()
             {
                 Id = x.Id,
+                Code = x.Code,
                 Name = x.Name,
                 Description = x.Description ?? "",
                 Color = x.Color,
@@ -70,6 +71,7 @@ public class UserStatusService : IUserStatusService
             .Select(x => new UserStatusDetailDto()
             {
                 Id = x.Id,
+                Code = x.Code,
                 Name = x.Name,
                 Description = x.Description ?? "",
                 Color = x.Color,
@@ -90,6 +92,7 @@ public class UserStatusService : IUserStatusService
             {
                 Color = x.Color,
                 CreatedDate = x.CreatedDate,
+                Code = x.Code,
                 Description = x.Description,
                 Id = x.Id,
                 Name = x.Name,

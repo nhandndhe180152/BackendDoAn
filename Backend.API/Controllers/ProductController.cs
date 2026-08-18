@@ -30,7 +30,7 @@ namespace Backend.API.Controllers
 
         /// API Tạo mới sản phẩm
         [HttpPost]
-        //[CustomAuthorize(Enums.Menu.PRODUCT, Enums.Action.CREATE)]
+        [CustomAuthorize(Enums.Menu.PRODUCT, Enums.Action.CREATE)]
         public async Task<IActionResult> CreateAsync([FromBody] CreateProductDto obj)
         {
             // Tự động gán UserId của người tạo từ Token đăng nhập
@@ -41,6 +41,7 @@ namespace Backend.API.Controllers
 
         /// API Lấy toàn bộ danh sách sản phẩm (không phân trang)
         [HttpGet]
+        // Dropdown dùng chung: bỏ CustomAuthorize READ để role không có quyền xem menu vẫn lấy được danh sách cho dropdown
         public async Task<IActionResult> GetAllAsync()
         {
             var result = await _productService.GetAllAsync();
@@ -49,7 +50,7 @@ namespace Backend.API.Controllers
 
         /// API Lấy thông tin chi tiết một sản phẩm theo ID
         [HttpGet("{id}")]
-        //[CustomAuthorize(Enums.Menu.PRODUCT, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.PRODUCT, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var data = await _productService.GetByIdAsync(id);
@@ -58,6 +59,7 @@ namespace Backend.API.Controllers
 
         /// API Tìm kiếm và phân trang sản phẩm theo từ khóa (dùng cho tìm kiếm đơn giản)
         [HttpPost("paged")]
+        [CustomAuthorize(Enums.Menu.PRODUCT, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] SearchQuery query)
         {
             var data = await _productService.GetPagedAsync(query);
@@ -66,7 +68,7 @@ namespace Backend.API.Controllers
 
         /// API Phân trang nâng cao tích hợp với DataTable ở Client
         [HttpPost("paged-advanced")]
-        //[CustomAuthorize(Enums.Menu.PRODUCT, Enums.Action.READ)]
+        [CustomAuthorize(Enums.Menu.PRODUCT, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] ProductDTParameters parameters)
         {
             var data = await _productService.GetPagedAsync(parameters);
@@ -75,7 +77,7 @@ namespace Backend.API.Controllers
 
         /// API Xóa mềm sản phẩm theo ID (IsDeleted = true)
         [HttpDelete("{id}")]
-        //[CustomAuthorize(Enums.Menu.PRODUCT, Enums.Action.DELETE)]
+        [CustomAuthorize(Enums.Menu.PRODUCT, Enums.Action.DELETE)]
         public async Task<IActionResult> SoftDeleteAsync(int id)
         {
             var data = await _productService.SoftDeleteAsync(id);
@@ -84,7 +86,7 @@ namespace Backend.API.Controllers
 
         /// API Cập nhật thông tin sản phẩm
         [HttpPut]
-        //[CustomAuthorize(Enums.Menu.PRODUCT, Enums.Action.UPDATE)]
+        [CustomAuthorize(Enums.Menu.PRODUCT, Enums.Action.UPDATE)]
         public async Task<IActionResult> UpdateAsync([FromBody] UpdateProductDto obj)
         {
             // Tự động gán UserId của người cập nhật từ Token đăng nhập
@@ -95,9 +97,37 @@ namespace Backend.API.Controllers
 
         /// API Lọc sản phẩm nâng cao theo danh mục và trạng thái hoạt động
         [HttpGet("search")]
+        [CustomAuthorize(Enums.Menu.PRODUCT, Enums.Action.READ)]
         public async Task<IActionResult> Search([FromQuery] ProductSearchQuery query)
         {
             var data = await _productService.GetPagedAsync(query);
+            return BaseResult(data);
+        }
+
+        /// API Kích hoạt sản phẩm (IsActive = true)
+        [HttpPost("{id}/activate")]
+        [CustomAuthorize(Enums.Menu.PRODUCT, Enums.Action.UPDATE)]
+        public async Task<IActionResult> ActivateAsync(int id)
+        {
+            var data = await _productService.ActivateAsync(id, this.GetLoggedInUserId());
+            return BaseResult(data);
+        }
+
+        /// API Vô hiệu hóa sản phẩm (IsActive = false)
+        [HttpPost("{id}/deactivate")]
+        [CustomAuthorize(Enums.Menu.PRODUCT, Enums.Action.UPDATE)]
+        public async Task<IActionResult> DeactivateAsync(int id)
+        {
+            var data = await _productService.DeactivateAsync(id, this.GetLoggedInUserId());
+            return BaseResult(data);
+        }
+
+        /// API Lấy danh sách biến thể của một sản phẩm
+        [HttpGet("{id}/variants")]
+        [CustomAuthorize(Enums.Menu.PRODUCT, Enums.Action.READ)]
+        public async Task<IActionResult> GetVariantsByProductIdAsync(int id)
+        {
+            var data = await _productService.GetVariantsByProductIdAsync(id);
             return BaseResult(data);
         }
     }

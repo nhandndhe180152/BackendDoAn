@@ -1,4 +1,5 @@
 using System;
+using Backend.Application.Common;
 using Backend.Share.Entities;
 
 namespace Backend.Application.Constants;
@@ -81,33 +82,98 @@ public static class CommonConstants
         public const string LOGO_KEY = "LOGO";
         public const string GOOGLE_MAPS_LINK_KEY = "GOOGLE_MAPS_LINK";
         public const string WORKING_HOURS_KEY = "WORKING_HOURS";
+
+        // ── Trọng số Smart Put-away (SCR-08) ─────────────────────────────────────
+        // KHÔNG tách bảng: lưu thẳng vào SystemConfig, ConfigValue = số thực trong [0..1].
+        // InboundOrderService.GetPutawaySuggestionsAsync đọc 4 key này; RÀNG BUỘC: cả 4 trọng số ≥ 0 và TỔNG = 1.0 (sai lệch tối đa 0.001).
+        // Ghi đè theo từng kho: nối ":{warehouseId}" (vd "PutawayCategoryMatchWeight:5"),
+        // thiếu → fallback về key global (không hậu tố) → mặc định code 0.40 / 0.30 / 0.20 / 0.10.
+        public const string PUTAWAY_CATEGORY_MATCH_WEIGHT_KEY = "PutawayCategoryMatchWeight";
+        public const string PUTAWAY_CAPACITY_FIT_WEIGHT_KEY = "PutawayCapacityFitWeight";
+        public const string PUTAWAY_OCCUPANCY_WEIGHT_KEY = "PutawayOccupancyWeight";
+        public const string PUTAWAY_PRIORITY_WEIGHT_KEY = "PutawayPriorityWeight";
+        public const string PUTAWAY_SAME_PRODUCT_SCORE_KEY = "PutawaySameProductScore";
+        public const string PUTAWAY_EMPTY_COLUMN_SCORE_KEY = "PutawayEmptyColumnScore";
+
+        // Mặc định cho Smart Put-away
+        public const decimal DEFAULT_PUTAWAY_CATEGORY_MATCH_WEIGHT = 0.20m;
+        public const decimal DEFAULT_PUTAWAY_CAPACITY_FIT_WEIGHT = 0.40m;
+        public const decimal DEFAULT_PUTAWAY_OCCUPANCY_WEIGHT = 0.30m;
+        public const decimal DEFAULT_PUTAWAY_PRIORITY_WEIGHT = 0.10m;
+        public const decimal DEFAULT_PUTAWAY_SAME_PRODUCT_SCORE = 1.00m;
+        public const decimal DEFAULT_PUTAWAY_EMPTY_COLUMN_SCORE = 0.60m;
+
+        // ── Bật/tắt quy tắc cảnh báo (SCR-21) ────────────────────────────────────
+        // KHÔNG tách bảng: lưu thẳng vào SystemConfig giống Put-away.
+        // Key = "AlertRuleEnabled:{ruleCode}" (vd "AlertRuleEnabled:LOW_STOCK"), ConfigValue = "true"/"false".
+        // Thiếu row → mặc định code = BẬT (true). AlertService đọc/ghi qua ISystemConfigService.
+        public const string ALERT_RULE_ENABLED_KEY = "AlertRuleEnabled";
     }
 
+    /// <summary>
+    /// Id role được PHÂN GIẢI TỪ CODE ổn định lúc chạy (không còn hard-code Id số).
+    /// DB đổi Id/re-seed vẫn đúng. Fallback = Id seed cũ để không vỡ khi role chưa seed/warmup chưa chạy.
+    /// </summary>
+    // Vai trò theo tài liệu nghiệp vụ (Report 1 - Vision & Scope, Table 6):
+    // owner, purchasing, warehouse, milling, sales (+ admin kỹ thuật).
+    // Id được phân giải TỪ CODE lúc chạy (không hard-code Id số). Fallback = Id seed dự phòng.
     public static class Role
     {
-        public const int ADMIN = 1001;
-        public const int END_USER = 1002;
-        public const int DRIVER = 1003;
-        public const int DISPATCHER = 1004;
-        public const int EXECUTIVE = 1005;
+        public static int ADMIN => Lookup.RoleIdOrDefault(LookupCodes.Role.Admin, 1001);
+        public static int OWNER => Lookup.RoleIdOrDefault(LookupCodes.Role.Owner, 1002);
+        public static int PURCHASING => Lookup.RoleIdOrDefault(LookupCodes.Role.Purchasing, 1007);
+        public static int WAREHOUSE => Lookup.RoleIdOrDefault(LookupCodes.Role.Warehouse, 1008);
+        public static int MILLING => Lookup.RoleIdOrDefault(LookupCodes.Role.Milling, 1009);
+        public static int SALES => Lookup.RoleIdOrDefault(LookupCodes.Role.Sales, 1010);
+        public static int AUDITOR => Lookup.RoleIdOrDefault(LookupCodes.Role.Auditor, 1011);
+
+        /// <summary>
+        /// Các Code role hệ thống mà code backend đang tham chiếu — dùng để bảo vệ khỏi bị xoá.
+        /// Không được xoá các role này vì sẽ làm hỏng gửi thông báo theo role & phân quyền.
+        /// </summary>
+        public static readonly HashSet<string> SystemCodes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            LookupCodes.Role.Admin,
+            LookupCodes.Role.Owner,
+            LookupCodes.Role.Purchasing,
+            LookupCodes.Role.Warehouse,
+            LookupCodes.Role.Milling,
+            LookupCodes.Role.Sales,
+            LookupCodes.Role.Auditor,
+        };
     }
 
+    /// <summary>Các vai trò nghiệp vụ có thể gán khi tạo tài khoản nhân viên (không gồm ADMIN).</summary>
     public static readonly HashSet<int> ListRoleRegister = new()
         {
-            Role.DISPATCHER
+            Role.OWNER,
+            Role.PURCHASING,
+            Role.WAREHOUSE,
+            Role.MILLING,
+            Role.SALES,
+            Role.AUDITOR,
         };
 
+    /// <summary>Các vai trò làm việc nội bộ (dùng hệ thống quản lý).</summary>
     public static readonly HashSet<int> ListRoleForOffice = new()
         {
-            Role.DISPATCHER,
+            Role.OWNER,
+            Role.PURCHASING,
+            Role.WAREHOUSE,
+            Role.MILLING,
+            Role.SALES,
+            Role.AUDITOR,
         };
 
     public static readonly HashSet<int> ListRoleForUserManagement = new()
         {
             Role.ADMIN,
-            Role.END_USER,
-            Role.DISPATCHER,
-            Role.EXECUTIVE
+            Role.OWNER,
+            Role.PURCHASING,
+            Role.WAREHOUSE,
+            Role.MILLING,
+            Role.SALES,
+            Role.AUDITOR,
         };
 
     public static class UserVerificationTokenPurpose
@@ -121,6 +187,12 @@ public static class CommonConstants
     public static class TagType
     {
         public const int TAG_TYPE_BLOG = 1001;
+    }
+
+    public static class ProductCategory
+    {
+        public const int Paddy = 101;
+        // Seeded in DB: 101 (Lúa thô), 102 (Gạo thành phẩm), 103 (Phụ phẩm)
     }
 
     public static class ActivityLogType
@@ -158,14 +230,9 @@ public static class CommonConstants
         public const string YEAR = "YEAR";
     }
 
-    public static class NotificationCategory
-    {
-        public const int TRIP_REQUEST = 1001;
-        public const int TRIP = 1002;
-        public const int FUEL_LOG = 1003;
-        public const int TRIP_EXPENSE = 1004;
-        public const int MAINTENANCE_RECORD = 1005;
-    }
+    // Đã gỡ các danh mục thông báo cũ (trip/fuel/maintenance) không phù hợp WMS.
+    // Danh mục + mã sự kiện của hệ thống kho được định nghĩa trong
+    // NotificationConstants (theo TÊN danh mục + Catalog code -> mẫu nội dung).
     public static class NotificationType
     {
         public const int SYSTEM = 1001;
@@ -204,9 +271,32 @@ public static class CommonConstants
             "Tháng 09", "Tháng 10", "Tháng 11", "Tháng 12"
         };
 
+    // Phải khớp với AuditedEntityNames (Backend.Infrastructure) để dropdown lọc
+    // "Đối tượng" của audit log hiển thị đủ tất cả loại đối tượng được ghi log.
     public static readonly Dictionary<string, string> EntityDisplayMap = new()
         {
             { "User", "Người dùng" },
+            { "Warehouse", "Kho" },
+            { "Location", "Vị trí lưu trữ" },
+            { "PaddyLot", "Lô hàng" },
+            { "Product", "Sản phẩm" },
+            { "ProductCategory", "Danh mục sản phẩm" },
+            { "ProductVariant", "Biến thể sản phẩm" },
+            { "InboundOrder", "Đơn nhập kho" },
+            { "InboundOrderItem", "Chi tiết đơn nhập" },
+            { "OutboundOrder", "Đơn xuất kho" },
+            { "OutboundOrderItem", "Chi tiết đơn xuất" },
+            { "Inventory", "Tồn kho" },
+            { "InventoryTransaction", "Giao dịch kho" },
+            { "Supplier", "Nhà cung cấp" },
+            { "CustomerReturnOrder", "Đơn trả hàng của khách" },
+            { "CustomerReturnOrderItem", "Chi tiết đơn trả hàng của khách" },
+            { "ReturnToSupplierOrder", "Đơn trả nhà cung cấp" },
+            { "ReturnToSupplierOrderItem", "Chi tiết đơn trả nhà cung cấp" },
+            { "StockAlertConfig", "Cấu hình cảnh báo tồn kho" },
+            { "StockTake", "Kiểm kê kho" },
+            { "StockTakeItem", "Chi tiết kiểm kê kho" },
+            { "UnitOfMeasure", "Đơn vị tính" },
         };
 
     public static readonly HashSet<DetailStatusDto<int>> DriverSalaryStatuses = new()

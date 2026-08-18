@@ -1,6 +1,8 @@
 using System;
 using System.Transactions;
 using Backend.Application.Interfaces;
+using Backend.Application.BackgroundJobs.LowStock;
+using Backend.Application.BackgroundJobs.FcmNotificationRetry;
 using Backend.Domain.Abstractions;
 using Backend.Domain.Abstractions.Repositories;
 using Backend.Domain.Interfaces.Repositories;
@@ -24,18 +26,21 @@ public static class ConfigureServices
 {
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services, IConfiguration configuration)
     {
+        var connectionString = configuration.GetConnectionString("DefaultConnectionString");
+        var serverVersion = ServerVersion.AutoDetect(connectionString);
+
         services.AddDbContext<BackendContext>((provider, options) =>
         {
-            var configuration = provider.GetRequiredService<IConfiguration>();
-
             options.UseMySql(
-                configuration.GetConnectionString("DefaultConnectionString"),
-                ServerVersion.AutoDetect(configuration.GetConnectionString("DefaultConnectionString")),
+                connectionString,
+                serverVersion,
                 builder => builder.MigrationsAssembly(typeof(BackendContext).Assembly.FullName)
             );
 
             options.AddInterceptors(provider.GetRequiredService<AuditSaveChangesInterceptor>());
         });
+
+        services.AddScoped<IApplicationDbContext>(provider => provider.GetRequiredService<BackendContext>());
 
         services.Configure<JwtSettings>(configuration.GetSection("JwtSettings"));
         services.Configure<SmtpSettings>(configuration.GetSection("SmtpSettings"));
@@ -66,6 +71,17 @@ public static class ConfigureServices
             .AddScoped<IUserRoleRepository, UserRoleRepository>()
             .AddScoped<IUserSessionRepository, UserSessionRepository>()
             .AddScoped<IUserStatusRepository, UserStatusRepository>()
+            .AddScoped<IInboundOrderStatusRepository, InboundOrderStatusRepository>()
+            .AddScoped<IOutboundOrderStatusRepository, OutboundOrderStatusRepository>()
+            .AddScoped<IStockTakeStatusRepository, StockTakeStatusRepository>()
+            .AddScoped<ICustomerReturnOrderStatusRepository, CustomerReturnOrderStatusRepository>()
+            .AddScoped<IReturnToSupplierOrderStatusRepository, ReturnToSupplierOrderStatusRepository>()
+            .AddScoped<IPaddyPurchaseScheduleStatusRepository, PaddyPurchaseScheduleStatusRepository>()
+            .AddScoped<ILotStatusRepository, LotStatusRepository>()
+            .AddScoped<IMillingOrderStatusRepository, MillingOrderStatusRepository>()
+            .AddScoped<IStockTransferStatusRepository, StockTransferStatusRepository>()
+            .AddScoped<ISalesOrderStatusRepository, SalesOrderStatusRepository>()
+            .AddScoped<IPurchaseOrderStatusRepository, PurchaseOrderStatusRepository>()
             .AddScoped<IUserVerificationTokenRepository, UserVerificationTokenRepository>()
             .AddScoped<IAuditLogRepository, AuditLogRepository>()
             .AddScoped<INotificationTypeRepository, NotificationTypeRepository>()
@@ -73,30 +89,60 @@ public static class ConfigureServices
             .AddScoped<IProductRepository, ProductRepository>()
             .AddScoped<IProductVariantRepository, ProductVariantRepository>()
             .AddScoped<IProductAttributeRepository, ProductAttributeRepository>()
-            .AddScoped<IIotDeviceRepository, IotDeviceRepository>()
-            .AddScoped<IIotWeightLogRepository, IotWeightLogRepository>()
-            .AddScoped<IIotDeviceCommandRepository, IotDeviceCommandRepository>()
             .AddScoped<IWarehouseRepository, WarehouseRepository>()
             .AddScoped<ILocationRepository, LocationRepository>()
             .AddScoped<IInboundOrderItemRepository, InboundOrderItemRepository>()
             .AddScoped<IOutboundOrderItemRepository, OutboundOrderItemRepository>()
             .AddScoped<IStockTakeItemRepository, StockTakeItemRepository>()
+            .AddScoped<IStockTakeRepository, StockTakeRepository>()
             .AddScoped<IInventoryRepository, InventoryRepository>()
-            .AddScoped<IInventoryTransactionRepository, InventoryTransactionRepository>();
+            .AddScoped<IInventoryTransactionRepository, InventoryTransactionRepository>()
+            .AddScoped<ISupplierRepository, SupplierRepository>()
+            .AddScoped<IRiceVarietyRepository, RiceVarietyRepository>()
+            .AddScoped<IFarmerRepository, FarmerRepository>()
+            .AddScoped<ICustomerRepository, CustomerRepository>()
+            .AddScoped<IOrganizationRepository, OrganizationRepository>()
+            .AddScoped<IUnitOfMeasureRepository, UnitOfMeasureRepository>()
+            // ── Rice supply chain repositories ───────────────────────────────────────
+            .AddScoped<IPaddyLotRepository, PaddyLotRepository>()
+            .AddScoped<IPaddyPurchaseReceiptRepository, PaddyPurchaseReceiptRepository>()
+            .AddScoped<IPaddyPurchaseScheduleRepository, PaddyPurchaseScheduleRepository>()
+            .AddScoped<IMillingOrderRepository, MillingOrderRepository>()
+            .AddScoped<IPartyDebtRepository, PartyDebtRepository>()
+            .AddScoped<IDebtTransactionRepository, DebtTransactionRepository>()
+            .AddScoped<IQualityInspectionRepository, QualityInspectionRepository>()
+            .AddScoped<IStockTransferRepository, StockTransferRepository>()
+            .AddScoped<ISalesOrderRepository, SalesOrderRepository>()
+            .AddScoped<IOutboundOrderRepository, OutboundOrderRepository>()
+            // ── Cấu hình rule & cảnh báo (SCR-20/21) ─────────────────────────────────
+            .AddScoped<IMillingYieldConfigRepository, MillingYieldConfigRepository>()
+            .AddScoped<IStockAlertConfigRepository, StockAlertConfigRepository>()
+            .AddScoped<IAlertRepository, AlertRepository>();
 
 
 
 
         services.AddMemoryCache();
         services.AddScoped<ICacheService, MemoryCacheService>();
+        services.AddSingleton<ISystemLookup, SystemLookup>();
         services.AddScoped<ISerializeService, SerializeService>();
         services.AddScoped<IScheduledJobService, ScheduledJobService>();
         services.AddScoped<IJobRegistrar, JobRegistrar>();
         services.AddScoped<UserSessionCleanupJob>();
         services.AddScoped<VerificationTokenCleanupJob>();
+        services.AddScoped<LowStockDetectionJob>();
+        services.AddScoped<IntakeBottleneckEvaluationJob>();
+        services.AddScoped<LotQualityRecheckJob>();
+        services.AddScoped<DebtDueAndOverdueReminderJob>();
+        services.AddScoped<FcmNotificationRetryJob>();
+        services.AddScoped<ILowStockQueryService, LowStockQueryService>();
+        services.AddScoped<ILowStockDetectionService, LowStockDetectionService>();
         services.AddScoped<IEmailService<GoogleMailRequest>, GoogleEmailService>();
         services.AddScoped<IImageProcessor, MagickImageProcessor>();
         services.AddScoped<IFireBaseService, FireBaseService>();
+        services.AddScoped<IFcmClient, FcmClient>();
+        services.AddScoped<IFcmFailureClassifier, FcmFailureClassifier>();
+        services.AddScoped<IFcmNotificationRetryService, FcmNotificationRetryService>();
 
         services.AddHealthChecks()
             .AddCheck("self", () => HealthCheckResult.Healthy())

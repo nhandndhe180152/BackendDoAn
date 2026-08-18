@@ -4,6 +4,9 @@ using Backend.Domain.DTParameters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Hangfire;
+using Backend.API.Utilities;
+using Backend.Domain.Enums;
 
 namespace Backend.API.Controllers
 {
@@ -21,13 +24,27 @@ namespace Backend.API.Controllers
         }
 
         [HttpPost("advanced")]
+        [CustomAuthorize(Enums.Menu.INVENTORIES, Enums.Action.READ)]
         public async Task<IActionResult> GetPagedAsync([FromBody] InventoryDTParameters parameters)
         {
             var result = await _inventoryService.GetPagedAsync(parameters);
             return BaseResult(result);
         }
 
+        /// <summary>
+        /// Tổng hợp KPI tồn kho theo trạng thái (Tồn thực tế / Khả dụng / Đã giữ / Đang xử lý / Cách ly)
+        /// cho 5 thẻ đầu màn giám sát tồn kho. Nhận cùng bộ lọc với bảng để hai bên đồng bộ.
+        /// </summary>
+        [HttpPost("summary")]
+        [CustomAuthorize(Enums.Menu.INVENTORIES, Enums.Action.READ)]
+        public async Task<IActionResult> GetStockSummaryAsync([FromBody] InventorySummaryParameters parameters)
+        {
+            var result = await _inventoryService.GetStockSummaryAsync(parameters ?? new InventorySummaryParameters());
+            return BaseResult(result);
+        }
+
         [HttpGet("{id:int}")]
+        [CustomAuthorize(Enums.Menu.INVENTORIES, Enums.Action.READ)]
         public async Task<IActionResult> GetByIdAsync(int id)
         {
             var result = await _inventoryService.GetByIdAsync(id);
@@ -35,6 +52,7 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("by-variant/{productVariantId:int}")]
+        [CustomAuthorize(Enums.Menu.INVENTORIES, Enums.Action.READ)]
         public async Task<IActionResult> GetByProductVariantAsync(int productVariantId)
         {
             var result = await _inventoryService.GetByProductVariantAsync(productVariantId);
@@ -42,10 +60,20 @@ namespace Backend.API.Controllers
         }
 
         [HttpGet("low-stock")]
+        [CustomAuthorize(Enums.Menu.INVENTORIES, Enums.Action.READ)]
         public async Task<IActionResult> GetLowStockAsync([FromQuery] int? warehouseId, [FromQuery] int limit = 50)
         {
             var result = await _inventoryService.GetLowStockAsync(warehouseId, limit);
             return BaseResult(result);
+        }
+
+        [HttpPost("trigger-low-stock-job")]
+        [CustomAuthorize(Backend.Domain.Enums.Enums.Menu.SYSTEM_SETTINGS, Backend.Domain.Enums.Enums.Action.UPDATE)]
+        public IActionResult TriggerLowStockJob([FromServices] Hangfire.IBackgroundJobClient backgroundJobClient)
+        {
+            backgroundJobClient.Enqueue<Backend.Infrastructure.Services.LowStockDetectionJob>(x => x.ExecuteAsync());
+                
+            return Ok(new { Message = "Đã gửi yêu cầu chạy Job quét Tồn kho thấp vào hàng đợi Hangfire!" });
         }
     }
 }
