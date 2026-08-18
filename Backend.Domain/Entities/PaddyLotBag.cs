@@ -16,6 +16,7 @@ public class PaddyLotBag : EntityAuditBase<int>
     public string BagKind { get; set; } = "Purchase";
     /// <summary>Khóa duy nhất variant:warehouse, chỉ có giá trị khi là bao Finished đang mở.</summary>
     public string? OpenBagKey { get; set; }
+    public int? SourceBagId { get; set; }
 
     public virtual PaddyLot Lot { get; set; } = null!;
     public virtual Location? Location { get; set; }
@@ -24,4 +25,6 @@ public class PaddyLotBag : EntityAuditBase<int>
     public virtual ICollection<PaddyLotBagAllocation> Allocations { get; set; } = new List<PaddyLotBagAllocation>();
     public virtual ICollection<QualityInspectionBagResult> QualityResults { get; set; }
         = new List<QualityInspectionBagResult>();
+    public virtual PaddyLotBag? SourceBag { get; set; }
+    public virtual ICollection<PaddyLotBag> SplitBags { get; set; } = new List<PaddyLotBag>();
 }
