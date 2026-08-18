@@ -11,4 +11,6 @@ public static class LotStatusCodeConstants
     public const string Quarantine     = "QUARANTINE";
     public const string Milling        = "MILLING";
     public const string Depleted       = "DEPLETED";
+    /// <summary>100% bao bị từ chối, cần trả lại nhà cung cấp. IsSellable=false.</summary>
+    public const string RejectedReturn = "REJECTED_RETURN";
 }

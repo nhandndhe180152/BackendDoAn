@@ -23,6 +23,11 @@ public class QualityInspectionConfiguration : IEntityTypeConfiguration<QualityIn
         builder.Property(x => x.PassedInspection).HasDefaultValue(false);
         builder.Property(x => x.AffectedWeightKg).HasColumnType("decimal(18,3)");
 
+        // W14-C: header mới — nullable để dữ liệu cũ không bị ảnh hưởng
+        builder.Property(x => x.InspectionType).HasMaxLength(30).IsRequired(false);
+        builder.Property(x => x.CompletedAt).IsRequired(false);
+        builder.Property(x => x.CompletedBy).IsRequired(false);
+
         builder.HasOne(x => x.PaddyLot)
             .WithMany(x => x.QualityInspections)
             .HasForeignKey(x => x.PaddyLotId)

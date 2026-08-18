@@ -14,4 +14,5 @@ public static class LotStatusNameConstants
     public const string Quarantine     = "Cách ly";
     public const string Milling        = "Đang xay";
     public const string Depleted       = "Đã dùng hết";
+    public const string RejectedReturn = "Trả lại sau kiểm định";
 }

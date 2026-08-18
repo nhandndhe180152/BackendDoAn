@@ -80,6 +80,7 @@ public static class TableNames
     public const string PaddyLotBagContent = nameof(PaddyLotBagContent);
     public const string PaddyLotBagMovement = nameof(PaddyLotBagMovement);
     public const string QualityInspection = nameof(QualityInspection);
+    public const string QualityInspectionBagResult = nameof(QualityInspectionBagResult);
     public const string MillingOrderStatus = nameof(MillingOrderStatus);
     public const string MillingYieldConfig = nameof(MillingYieldConfig);
     public const string MillingOrder = nameof(MillingOrder);
