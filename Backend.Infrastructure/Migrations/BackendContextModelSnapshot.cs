@@ -1751,11 +1751,27 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<bool>("IsQuarantine")
                         .HasColumnType("tinyint(1)");
 
+                    b.Property<bool>("IsOutboundStaging")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("IsSingleTypeColumn")
                         .HasColumnType("tinyint(1)");
 
                     b.Property<DateTime?>("LastModifiedDate")
                         .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("OutboundLockOrderId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("OutboundLockedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("OutboundStagingWarehouseId")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("int")
+                        .HasComputedColumnSql("CASE WHEN `IsOutboundStaging` = 1 AND `IsDeleted` = 0 THEN `WarehouseId` ELSE NULL END", false);
 
                     b.Property<decimal?>("MaxCapacity")
                         .HasColumnType("decimal(18,3)");
@@ -1805,6 +1821,16 @@ namespace Backend.Infrastructure.Migrations
 
                     b.HasIndex("IsQuarantine")
                         .HasDatabaseName("IX_Location_IsQuarantine");
+
+                    b.HasIndex("OutboundLockOrderId")
+                        .HasDatabaseName("IX_Location_OutboundLockOrderId");
+
+                    b.HasIndex("OutboundStagingWarehouseId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Location_OneOutboundStagingPerWarehouse");
+
+                    b.HasIndex("WarehouseId", "IsOutboundStaging", "IsActive", "IsDeleted")
+                        .HasDatabaseName("IX_Location_OutboundStaging");
 
                     b.HasIndex("QrCode")
                         .IsUnique()
@@ -6825,6 +6851,11 @@ namespace Backend.Infrastructure.Migrations
                         .HasForeignKey("CurrentProductVariantId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("Backend.Domain.Entities.OutboundOrder", "OutboundLockOrder")
+                        .WithMany()
+                        .HasForeignKey("OutboundLockOrderId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Backend.Domain.Entities.Warehouse", "Warehouse")
                         .WithMany("Locations")
                         .HasForeignKey("WarehouseId")
@@ -6834,6 +6865,8 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("AllowedCategory");
 
                     b.Navigation("CurrentProductVariant");
+
+                    b.Navigation("OutboundLockOrder");
 
                     b.Navigation("Warehouse");
                 });

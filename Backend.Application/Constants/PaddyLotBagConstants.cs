@@ -5,6 +5,7 @@ public static class PaddyLotBagStatuses
     public const string Pending = "Pending";
     public const string Stored = "Stored";
     public const string InTransit = "InTransit";
+    public const string OutboundStaging = "OutboundStaging";
     public const string Consumed = "Consumed";
     public const string Reversed = "Reversed";
     /// <summary>Bao bị trả lại sau kiểm định chất lượng (Disposition = REJECT_RETURN).</summary>
@@ -29,6 +30,8 @@ public static class PaddyLotBagMovementTypes
     public const string MillingConsume = "MillingConsume";
     public const string MillingPack = "MillingPack";
     public const string OutboundConsume = "OutboundConsume";
+    public const string OutboundStage = "OutboundStage";
+    public const string OutboundStageReturn = "OutboundStageReturn";
     public const string DeliveryRestock = "DeliveryRestock";
     public const string CustomerReturn = "CustomerReturn";
     public const string QualityQuarantineSplit = "QualityQuarantineSplit";

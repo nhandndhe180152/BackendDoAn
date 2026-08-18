@@ -763,6 +763,10 @@ public class StockTransferService : IStockTransferService
                     return $"Vị trí nguồn ID {item.FromLocationId.Value} không tồn tại hoặc đã ngưng hoạt động.";
                 if (sourceLocation.WarehouseId != fromWarehouseId)
                     return "Vị trí nguồn không thuộc kho nguồn.";
+                if (sourceLocation.IsOutboundStaging)
+                    return "Không thể dùng khu chờ xuất làm vị trí nguồn của phiếu chuyển kho.";
+                if (sourceLocation.OutboundLockOrderId.HasValue)
+                    return $"Vị trí nguồn đang được phiếu xuất #{sourceLocation.OutboundLockOrderId} khóa.";
                 if (sourceLocation.IsQuarantine)
                     return "Không thể chuyển hàng đang ở vị trí cách ly.";
             }
@@ -774,6 +778,10 @@ public class StockTransferService : IStockTransferService
                     return $"Vị trí đích ID {item.ToLocationId.Value} không tồn tại hoặc đã ngưng hoạt động.";
                 if (destinationLocation.WarehouseId != toWarehouseId)
                     return "Vị trí đích không thuộc kho đích.";
+                if (destinationLocation.IsOutboundStaging)
+                    return "Không thể dùng khu chờ xuất làm vị trí đích của phiếu chuyển kho.";
+                if (destinationLocation.OutboundLockOrderId.HasValue)
+                    return $"Vị trí đích đang được phiếu xuất #{destinationLocation.OutboundLockOrderId} khóa.";
                 if (destinationLocation.IsQuarantine)
                     return "Không thể chọn vị trí cách ly làm vị trí nhận hàng.";
 
@@ -853,6 +861,10 @@ public class StockTransferService : IStockTransferService
             throw new InvalidOperationException("Vị trí đích đã ngưng hoạt động.");
         if (location.WarehouseId != warehouseId)
             throw new InvalidOperationException("Vị trí đích không thuộc kho đích.");
+        if (location.IsOutboundStaging)
+            throw new InvalidOperationException("Không thể nhận hàng chuyển kho vào khu chờ xuất.");
+        if (location.OutboundLockOrderId.HasValue)
+            throw new InvalidOperationException($"Vị trí đích đang được phiếu xuất #{location.OutboundLockOrderId} khóa.");
         if (location.IsQuarantine)
             throw new InvalidOperationException("Không thể nhận hàng vào vị trí cách ly.");
         if (location.MaxCapacity.HasValue &&

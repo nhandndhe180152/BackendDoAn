@@ -80,6 +80,7 @@ public class InventoryRepository : RepositoryBase<Inventory, int>, IInventoryRep
                         + (string.IsNullOrEmpty(x.Location.ShelfRow) ? "" : "-" + x.Location.ShelfRow)
                         + (string.IsNullOrEmpty(x.Location.ShelfLevel) ? "" : "-" + x.Location.ShelfLevel)
                         + (string.IsNullOrEmpty(x.Location.SlotCode) ? "" : "-" + x.Location.SlotCode),
+                IsOutboundStaging = x.Location != null && x.Location.IsOutboundStaging,
                 ProductVariantId = x.ProductVariantId,
                 SKU = x.ProductVariant.SKU,
                 ProductVariantName = x.ProductVariant.Name,

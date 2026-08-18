@@ -8,6 +8,7 @@ using Backend.Application.Interfaces;
 using Backend.Application.Mappings;
 using Backend.Domain.Interfaces.Repositories;
 using Backend.Share.Entities;
+using Backend.Share.Helpers;
 using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Application.Implements;
@@ -15,10 +16,12 @@ namespace Backend.Application.Implements;
 public class WarehouseService : IWarehouseService
 {
     private readonly IWarehouseRepository _warehouseRepository;
+    private readonly ILocationRepository _locationRepository;
 
-    public WarehouseService(IWarehouseRepository warehouseRepository)
+    public WarehouseService(IWarehouseRepository warehouseRepository, ILocationRepository locationRepository)
     {
         _warehouseRepository = warehouseRepository;
+        _locationRepository = locationRepository;
     }
 
     public async Task<ApiResponse> CreateAsync(CreateWarehouseDto obj)
@@ -32,8 +35,19 @@ public class WarehouseService : IWarehouseService
 
         var model = obj.ToEntity();
 
-        await _warehouseRepository.CreateAsync(model);
-        await _warehouseRepository.SaveChangesAsync();
+        await using var tx = await _warehouseRepository.BeginTransactionAsync();
+        try
+        {
+            await _warehouseRepository.CreateAsync(model);
+            await _warehouseRepository.SaveChangesAsync();
+            await CreateStagingLocationAsync(model);
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
 
         return ApiResponse.Created(model.Id);
     }
@@ -42,8 +56,20 @@ public class WarehouseService : IWarehouseService
     {
         var models = objs.Select(x => x.ToEntity()).ToList();
 
-        await _warehouseRepository.CreateListAsync(models);
-        await _warehouseRepository.SaveChangesAsync();
+        await using var tx = await _warehouseRepository.BeginTransactionAsync();
+        try
+        {
+            await _warehouseRepository.CreateListAsync(models);
+            await _warehouseRepository.SaveChangesAsync();
+            foreach (var model in models)
+                await CreateStagingLocationAsync(model);
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
 
         return ApiResponse.Created(models.Select(x => x.Id));
     }
@@ -165,5 +191,28 @@ public class WarehouseService : IWarehouseService
         await _warehouseRepository.SaveChangesAsync();
 
         return ApiResponse.Success();
+    }
+
+    private async Task CreateStagingLocationAsync(Backend.Domain.Entities.Warehouse warehouse)
+    {
+        await _locationRepository.CreateAsync(new Backend.Domain.Entities.Location
+        {
+            WarehouseId = warehouse.Id,
+            ZoneName = "Khu chờ xuất",
+            ShelfRow = "STAGING",
+            SlotCode = $"OUT-STAGING-{warehouse.Id}",
+            MaxCapacity = null,
+            Description = "Vị trí hệ thống cho hàng đã đóng gói chờ xuất",
+            IsActive = true,
+            CurrentOccupancy = 0,
+            Priority = 0,
+            IsOutboundStaging = true,
+            IsSingleTypeColumn = false,
+            QrCode = $"LC-OUT-STAGING-{warehouse.Id}",
+            QrImageUrl = string.Empty,
+            CreatedBy = warehouse.CreatedBy,
+            CreatedDate = DateTimeHelper.VietnamNow()
+        });
+        await _locationRepository.SaveChangesAsync();
     }
 }

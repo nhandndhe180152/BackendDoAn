@@ -150,6 +150,22 @@ public class SalesOrderDetailDto
     public DateTime OrderDate { get; set; }
     public DateTime? ExpectedDeliveryDate { get; set; }
     public bool RequiresMilling { get; set; }
+
+    /// <summary>
+    /// Số lệnh xay còn hiệu lực (bỏ lệnh đã xóa và đã HỦY) đang gắn với đơn.
+    /// Client dùng để ẩn lối tắt "Xay xát" khi đơn đã có lệnh xay liên quan.
+    /// </summary>
+    public int MillingOrderCount { get; set; }
+
+    /// <summary>Tổng khối lượng gạo (kg) đơn yêu cầu, bỏ qua dòng phụ phẩm.</summary>
+    public decimal TotalRiceRequiredKg { get; set; }
+
+    /// <summary>Khối lượng gạo (kg) đã được các lệnh xay còn hiệu lực nhận.</summary>
+    public decimal AllocatedMillingRiceKg { get; set; }
+
+    /// <summary>Khối lượng gạo (kg) còn phải xay = tổng yêu cầu - đã nhận.</summary>
+    public decimal RemainingMillingRiceKg { get; set; }
+
     public decimal TotalAmount { get; set; }
     public decimal? DepositAmount { get; set; }
     public decimal RemainingAmount { get; set; }

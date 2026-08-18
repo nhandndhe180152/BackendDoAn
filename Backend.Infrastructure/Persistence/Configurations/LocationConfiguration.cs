@@ -26,6 +26,15 @@ public class LocationConfiguration : IEntityTypeConfiguration<Location>
 
         builder.Property(x => x.MaxCapacity).HasColumnType("decimal(18,3)");
         builder.Property(x => x.CurrentOccupancy).HasColumnType("decimal(18,3)").HasDefaultValue(0.000m);
+        builder.Property(x => x.IsOutboundStaging).HasDefaultValue(false);
+        // stored: false (VIRTUAL) — cột STORED buộc MySQL dựng lại toàn bộ bảng Location khi
+        // thêm, và bước dựng lại đó làm hỏng việc tạo lại khóa ngoại ("Cannot add foreign key
+        // constraint") trên DB đã có dữ liệu. VIRTUAL chỉ đổi metadata và vẫn index unique được.
+        builder.Property<int?>("OutboundStagingWarehouseId")
+            .HasComputedColumnSql("CASE WHEN `IsOutboundStaging` = 1 AND `IsDeleted` = 0 THEN `WarehouseId` ELSE NULL END", stored: false);
+        builder.HasIndex("OutboundStagingWarehouseId")
+            .IsUnique()
+            .HasDatabaseName("UX_Location_OneOutboundStagingPerWarehouse");
 
         // Chỉ cấu hình FK AllowedCategory (SET NULL) — Warehouse FK được xử lý qua convention
         builder.HasOne(x => x.AllowedCategory)
@@ -38,6 +47,11 @@ public class LocationConfiguration : IEntityTypeConfiguration<Location>
             .HasForeignKey(x => x.CurrentProductVariantId)
             .OnDelete(DeleteBehavior.SetNull);
 
+        builder.HasOne(x => x.OutboundLockOrder)
+            .WithMany()
+            .HasForeignKey(x => x.OutboundLockOrderId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         builder.HasIndex(x => x.AllowedCategoryId)
             .HasDatabaseName("IX_Location_AllowedCategoryId");
 
@@ -46,5 +60,11 @@ public class LocationConfiguration : IEntityTypeConfiguration<Location>
 
         builder.HasIndex(x => new { x.WarehouseId, x.IsActive, x.IsDeleted, x.IsQuarantine, x.CurrentProductVariantId })
             .HasDatabaseName("IX_Location_PutawayCandidate");
+
+        builder.HasIndex(x => x.OutboundLockOrderId)
+            .HasDatabaseName("IX_Location_OutboundLockOrderId");
+
+        builder.HasIndex(x => new { x.WarehouseId, x.IsOutboundStaging, x.IsActive, x.IsDeleted })
+            .HasDatabaseName("IX_Location_OutboundStaging");
     }
 }

@@ -128,4 +128,12 @@ public class OutboundOrderController : BaseController
         var result = await _outboundOrderService.CancelAsync(id, dto.Reason);
         return BaseResult(result);
     }
+
+    [HttpPost("{id}/force-unlock")]
+    [CustomAuthorize(Enums.Menu.OUTBOUND_ORDERS, Enums.Action.APPROVE)]
+    public async Task<IActionResult> ForceUnlockAsync(int id, [FromBody] ForceUnlockOutboundDto dto)
+    {
+        var result = await _outboundOrderService.ForceUnlockAsync(id, dto.Reason);
+        return BaseResult(result);
+    }
 }

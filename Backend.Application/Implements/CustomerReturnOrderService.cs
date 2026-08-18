@@ -874,7 +874,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                         return ApiResponse.BadRequest(message: "Phải chỉ định Restock Location cho hàng chất lượng Tốt (Good).");
 
                     var loc = await _context.Locations.FirstOrDefaultAsync(l => l.Id == allocDto.RestockLocationId.Value && !l.IsDeleted && l.IsActive, cancellationToken);
-                    if (loc == null || loc.WarehouseId != order.WarehouseId || loc.IsQuarantine)
+                    if (loc == null || loc.WarehouseId != order.WarehouseId || loc.IsQuarantine ||
+                        loc.IsOutboundStaging || loc.OutboundLockOrderId.HasValue)
                         return ApiResponse.BadRequest(message: "Restock Location không hợp lệ hoặc không thuộc kho của đơn hàng hoặc là khu cách ly.");
                 }
 
@@ -884,7 +885,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                         return ApiResponse.BadRequest(message: "Phải chỉ định Quarantine Location cho hàng hỏng/lỗi (Damaged).");
 
                     var loc = await _context.Locations.FirstOrDefaultAsync(l => l.Id == allocDto.QuarantineLocationId.Value && !l.IsDeleted && l.IsActive, cancellationToken);
-                    if (loc == null || loc.WarehouseId != order.WarehouseId || !loc.IsQuarantine)
+                    if (loc == null || loc.WarehouseId != order.WarehouseId || !loc.IsQuarantine ||
+                        loc.IsOutboundStaging || loc.OutboundLockOrderId.HasValue)
                         return ApiResponse.BadRequest(message: "Quarantine Location không hợp lệ hoặc không thuộc khu cách ly (IsQuarantine = true) của kho.");
                 }
 
@@ -1075,7 +1077,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 // Atomic UPDATE location with capacity limit check
                 var affected = await _context.ExecuteSqlRawAsync(
                     "UPDATE Location SET CurrentOccupancy = CurrentOccupancy + {0}, CurrentProductVariantId = {1}, LastModifiedDate = {2}, UpdatedBy = {3} " +
-                    "WHERE Id = {4} AND WarehouseId = {5} AND IsActive = 1 AND IsDeleted = 0 AND (MaxCapacity IS NULL OR CurrentOccupancy + {0} <= MaxCapacity) AND IsQuarantine = 0",
+                    "WHERE Id = {4} AND WarehouseId = {5} AND IsActive = 1 AND IsDeleted = 0 AND IsOutboundStaging = 0 AND OutboundLockOrderId IS NULL AND (MaxCapacity IS NULL OR CurrentOccupancy + {0} <= MaxCapacity) AND IsQuarantine = 0",
                     new object[] { alloc.QuantityGood, alloc.ProductVariantId, now, userId, locationId, order.WarehouseId }, cancellationToken);
 
                 if (affected == 0)
@@ -1153,7 +1155,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 // Atomic UPDATE location with capacity limit check
                 var affected = await _context.ExecuteSqlRawAsync(
                     "UPDATE Location SET CurrentOccupancy = CurrentOccupancy + {0}, CurrentProductVariantId = {1}, LastModifiedDate = {2}, UpdatedBy = {3} " +
-                    "WHERE Id = {4} AND WarehouseId = {5} AND IsActive = 1 AND IsDeleted = 0 AND (MaxCapacity IS NULL OR CurrentOccupancy + {0} <= MaxCapacity) AND IsQuarantine = 1",
+                    "WHERE Id = {4} AND WarehouseId = {5} AND IsActive = 1 AND IsDeleted = 0 AND IsOutboundStaging = 0 AND OutboundLockOrderId IS NULL AND (MaxCapacity IS NULL OR CurrentOccupancy + {0} <= MaxCapacity) AND IsQuarantine = 1",
                     new object[] { alloc.QuantityDamaged, alloc.ProductVariantId, now, userId, locationId, order.WarehouseId }, cancellationToken);
 
                 if (affected == 0)

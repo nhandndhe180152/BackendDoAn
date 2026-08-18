@@ -246,7 +246,8 @@ public class StockTakeService : IStockTakeService
 
             var inventoryQuery = _context.Inventories
                 .AsNoTracking()
-                .Where(x => !x.IsDeleted && x.WarehouseId == obj.WarehouseId && x.LocationId != null);
+                .Where(x => !x.IsDeleted && x.WarehouseId == obj.WarehouseId && x.LocationId != null &&
+                            x.Location != null && !x.Location.IsDeleted && !x.Location.IsOutboundStaging);
 
             switch (scopeType)
             {
@@ -863,6 +864,8 @@ public class StockTakeService : IStockTakeService
             .FindByCondition(x => !x.IsDeleted && x.Id == id)
             .Include(x => x.StockTakeItems)
                 .ThenInclude(i => i.ProductVariant)
+            .Include(x => x.StockTakeItems)
+                .ThenInclude(i => i.Location)
             .FirstOrDefaultAsync();
 
         if (existData == null)
@@ -904,6 +907,18 @@ public class StockTakeService : IStockTakeService
             return ApiResponse.UnprocessableEntity(
                 $"Phiếu còn {unfinishedItems.Count} dòng chưa nhập số lượng kiểm đếm ({string.Join(", ", names)}...). Vui lòng nhập đầy đủ trước khi duyệt.",
                 ApiCodeConstants.Common.UnprocessableEntity);
+        }
+
+        var stagingVarianceItems = existData.StockTakeItems
+            .Where(i => i.Location?.IsOutboundStaging == true && i.Difference != 0)
+            .ToList();
+        if (stagingVarianceItems.Any())
+        {
+            return ApiResponse.Conflict(
+                $"Có {stagingVarianceItems.Count} dòng chênh lệch tại khu Chờ xuất. " +
+                "Không thể điều chỉnh tồn trực tiếp vì hàng đang gắn với phiếu xuất và bao đã đóng gói. " +
+                "Vui lòng đối chiếu phiếu xuất/bao nguồn trước khi xử lý chênh lệch.",
+                ApiCodeConstants.Common.DuplicatedData);
         }
 
         // Mở transaction trước bước kiểm tra snapshot. RowVersion của Inventory tiếp tục

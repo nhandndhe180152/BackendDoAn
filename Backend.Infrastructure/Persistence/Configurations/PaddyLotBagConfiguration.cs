@@ -24,5 +24,10 @@ public class PaddyLotBagConfiguration : IEntityTypeConfiguration<PaddyLotBag>
         builder.HasIndex(x => x.QrCode).IsUnique();
         builder.HasOne(x => x.Lot).WithMany(x => x.Bags).HasForeignKey(x => x.LotId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(x => x.Location).WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.SetNull);
+        // RESTRICT chứ không phải SetNull: PaddyLotBag đã là con của PaddyLot với ON DELETE CASCADE,
+        // InnoDB không cho thêm khóa ngoại TỰ THAM CHIẾU kiểu SET NULL trên cùng bảng đó
+        // (MySQL 1215 "Cannot add foreign key constraint"). Bao lúa dùng xóa mềm (IsDeleted)
+        // nên không có xóa cứng, RESTRICT không đổi hành vi nghiệp vụ.
+        builder.HasOne(x => x.SourceBag).WithMany(x => x.SplitBags).HasForeignKey(x => x.SourceBagId).OnDelete(DeleteBehavior.Restrict);
     }
 }
