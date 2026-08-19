@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Backend.Domain.Abstractions;
 
 namespace Backend.Domain.Entities;
@@ -15,8 +16,34 @@ public class StockTakeItem : EntityAuditBase<int>
     /// </summary>
     public int? PaddyLotId { get; set; }
 
+    /// <summary>Tổng kg sổ sách của dòng (= tổng kg các bao được chụp).</summary>
     public decimal SystemQuantity { get; set; }
+
+    /// <summary>Tổng kg thực tế — backend TỰ TÍNH lại từ các bao, không tin client.</summary>
     public decimal? ActualQuantity { get; set; }
+
+    /// <summary>Số bao sổ sách tại vị trí này khi lập phiếu.</summary>
+    public int SystemBagCount { get; set; }
+
+    /// <summary>Số bao đếm được thực tế. Null = dòng chưa kiểm.</summary>
+    public int? CountedBagCount { get; set; }
+
+    /// <summary>
+    /// Lý do lệch — BẮT BUỘC khi lệch số bao hoặc lệch kg.
+    /// Tách khỏi Note để báo cáo chênh lệch có trường riêng.
+    /// </summary>
+    public string? VarianceReason { get; set; }
+
+    /// <summary>
+    /// Chỉnh lý sau kiểm kê: số bao chốt lại. Null = lấy đúng số bao đếm được.
+    /// </summary>
+    public int? AdjustedBagCount { get; set; }
+
+    /// <summary>
+    /// Chỉnh lý sau kiểm kê: tổng kg chốt lại. Null = lấy đúng tổng kg cân được.
+    /// </summary>
+    public decimal? AdjustedWeightKg { get; set; }
+
     public string? Note { get; set; }
     public bool QRScanned { get; set; }
 
@@ -38,6 +65,12 @@ public class StockTakeItem : EntityAuditBase<int>
 
     // Computed — không lưu DB
     public decimal Difference => (ActualQuantity ?? 0) - SystemQuantity;
+
+    /// <summary>Chênh lệch số bao (âm = thiếu bao).</summary>
+    public int BagDifference => (CountedBagCount ?? 0) - SystemBagCount;
+
+    /// <summary>Có lệch số bao hay không (dòng chưa kiểm coi như chưa lệch).</summary>
+    public bool HasBagVariance => CountedBagCount.HasValue && BagDifference != 0;
 
     /// <summary>
     /// Phần trăm chênh lệch so với tồn hệ thống.
@@ -67,4 +100,5 @@ public class StockTakeItem : EntityAuditBase<int>
     public virtual Location? Location { get; set; }
     public virtual PaddyLot? PaddyLot { get; set; }
     public virtual User? RecountConfirmedByUser { get; set; }
+    public virtual ICollection<StockTakeItemBag> Bags { get; set; } = new List<StockTakeItemBag>();
 }

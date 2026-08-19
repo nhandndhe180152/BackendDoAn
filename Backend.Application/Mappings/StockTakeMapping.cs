@@ -19,6 +19,10 @@ public static class StockTakeMapping
             StockTakeStatusId = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Draft),
             STCode = string.IsNullOrEmpty(dto.STCode) ? $"ST{now:yyyyMMddHHmmss}" : dto.STCode,
             Note = dto.Note,
+            ScopeType = string.IsNullOrWhiteSpace(dto.ScopeType) ? null : dto.ScopeType!.Trim().ToUpperInvariant(),
+            ScopeZoneName = dto.ZoneName,
+            ScopeLocationId = dto.LocationId,
+            ScopePaddyLotId = dto.PaddyLotId,
             CreatedDate = now,
             CreatedBy = dto.CreatedBy,
             StockTakeItems = dto.StockTakeItems.Select(item => new StockTakeItem
@@ -72,6 +76,14 @@ public static class StockTakeMapping
             StockTakeStatusName = entity.StockTakeStatus?.Name,
             StockTakeStatusColor = entity.StockTakeStatus?.Color,
             CreatedByUserId     = entity.CreatedBy,
+            ScopeType           = entity.ScopeType,
+            ScopeZoneName       = entity.ScopeZoneName,
+            ScopeLocationId     = entity.ScopeLocationId,
+            ScopePaddyLotId     = entity.ScopePaddyLotId,
+            IsQuarantineScope   = entity.IsQuarantineScope,
+            SystemBagCount      = entity.StockTakeItems.Where(x => !x.IsDeleted).Sum(x => x.SystemBagCount),
+            CountedBagCount     = entity.StockTakeItems.Where(x => !x.IsDeleted).Sum(x => x.CountedBagCount ?? 0),
+            NetBagVariance      = entity.StockTakeItems.Where(x => !x.IsDeleted && x.CountedBagCount.HasValue).Sum(x => x.BagDifference),
             StockTakeItems      = entity.StockTakeItems.Select(item => new StockTakeItemDto
             {
                 Id                   = item.Id,
@@ -98,8 +110,56 @@ public static class StockTakeMapping
                 QRScanned            = item.QRScanned,
                 RecountConfirmed     = item.RecountConfirmed,
                 RecountConfirmedBy   = item.RecountConfirmedBy,
-                RecountConfirmedAt   = item.RecountConfirmedAt
+                RecountConfirmedAt   = item.RecountConfirmedAt,
+                SystemBagCount       = item.SystemBagCount,
+                CountedBagCount      = item.CountedBagCount,
+                BagDifference        = item.BagDifference,
+                VarianceReason       = item.VarianceReason,
+                AdjustedBagCount     = item.AdjustedBagCount,
+                AdjustedWeightKg     = item.AdjustedWeightKg,
+                QuarantineBagCount   = item.Bags.Count(b => !b.IsDeleted && b.Disposition == StockTakeBagDispositions.Quarantine),
+                DisposedBagCount     = item.Bags.Count(b => !b.IsDeleted && b.Disposition == StockTakeBagDispositions.Dispose),
+                ReleasedBagCount     = item.Bags.Count(b => !b.IsDeleted && b.Disposition == StockTakeBagDispositions.Release),
+                Bags                 = item.Bags
+                    .Where(b => !b.IsDeleted)
+                    .OrderBy(b => b.PickSequence).ThenBy(b => b.Id)
+                    .Select(b => b.ToDto())
+                    .ToList()
             }).ToList()
+        };
+    }
+
+    public static StockTakeItemBagDto ToDto(this StockTakeItemBag bag)
+    {
+        return new StockTakeItemBagDto
+        {
+            Id                 = bag.Id,
+            StockTakeItemId    = bag.StockTakeItemId,
+            PaddyLotBagId      = bag.PaddyLotBagId,
+            BagNo              = bag.BagNo,
+            QrCode             = bag.QrCode,
+            LotCode            = bag.PaddyLotBag?.Lot?.LotCode,
+            SystemWeightKg     = bag.SystemWeightKg,
+            SystemStackOrder   = bag.SystemStackOrder,
+            PickSequence       = bag.PickSequence,
+            RestowSequence     = bag.RestowSequence,
+            Counted            = bag.Counted,
+            ScannedByQr        = bag.ScannedByQr,
+            CountedWeightKg    = bag.CountedWeightKg,
+            EffectiveWeightKg  = bag.EffectiveWeightKg,
+            IsUnexpected       = bag.IsUnexpected,
+            QualityResult      = bag.QualityResult,
+            MoldLevel          = bag.MoldLevel,
+            PestLevel          = bag.PestLevel,
+            PackagingStatus    = bag.PackagingStatus,
+            MoisturePercent    = bag.MoisturePercent,
+            ImpurityPercent    = bag.ImpurityPercent,
+            QualityNote        = bag.QualityNote,
+            Disposition        = bag.Disposition,
+            TargetLocationId   = bag.TargetLocationId,
+            TargetLocationCode = bag.TargetLocation?.SlotCode,
+            TargetZoneName     = bag.TargetLocation?.ZoneName,
+            DispositionNote    = bag.DispositionNote
         };
     }
 }

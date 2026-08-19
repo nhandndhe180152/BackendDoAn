@@ -60,6 +60,7 @@ public class BackendContext : DbContext, IApplicationDbContext
     public virtual DbSet<StockAlertConfig> StockAlertConfigs { get; set; }
     public virtual DbSet<StockTake> StockTakes { get; set; }
     public virtual DbSet<StockTakeItem> StockTakeItems { get; set; }
+    public virtual DbSet<StockTakeItemBag> StockTakeItemBags { get; set; }
     public virtual DbSet<StockTakeStatus> StockTakeStatuses { get; set; }
     public virtual DbSet<Supplier> Suppliers { get; set; }
     public virtual DbSet<UnitOfMeasure> UnitOfMeasures { get; set; }

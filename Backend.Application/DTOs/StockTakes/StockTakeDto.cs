@@ -26,6 +26,24 @@ public class StockTakeDto
     public string ScopeDisplay { get; set; } = string.Empty;
     public int VarianceLineCount { get; set; }
     public decimal NetVarianceKg { get; set; }
+
+    /// <summary>WAREHOUSE | ZONE | COLUMN | LOT.</summary>
+    public string? ScopeType { get; set; }
+    public string? ScopeZoneName { get; set; }
+    public int? ScopeLocationId { get; set; }
+    public int? ScopePaddyLotId { get; set; }
+
+    /// <summary>Phiếu kiểm kê khu CÁCH LY (cho phép rút bao đạt về khu thường).</summary>
+    public bool IsQuarantineScope { get; set; }
+
+    /// <summary>Tổng số bao sổ sách của phiếu.</summary>
+    public int SystemBagCount { get; set; }
+
+    /// <summary>Tổng số bao đếm được.</summary>
+    public int CountedBagCount { get; set; }
+
+    /// <summary>Chênh lệch số bao toàn phiếu.</summary>
+    public int NetBagVariance { get; set; }
     
     public List<StockTakeItemDto> StockTakeItems { get; set; } = new List<StockTakeItemDto>();
 }
@@ -40,8 +58,8 @@ public class CreateStockTakeDto
     public int? CreatedBy { get; set; }
 
     /// <summary>
-    /// Phạm vi tạo snapshot: WAREHOUSE / ZONE / COLUMN / LOT / SKU.
-    /// Không lưu trực tiếp xuống StockTake; scope được giữ bằng các StockTakeItem đã sinh.
+    /// Phạm vi tạo snapshot: WAREHOUSE / ZONE / COLUMN / LOT.
+    /// Được lưu xuống StockTake để biết phiếu chụp theo phạm vi nào.
     /// </summary>
     public string? ScopeType { get; set; }
     public string? ZoneName { get; set; }

@@ -114,6 +114,45 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        /// <summary>
+        /// Quét QR một bao khi đang kiểm kê. Luôn trả 200: quét nhầm bao là chuyện thường
+        /// ngoài kho, màn hình cần biết bao đó thuộc lô/cột nào chứ không chỉ báo lỗi.
+        /// </summary>
+        [HttpPost("{id:int}/scan-bag")]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.UPDATE)]
+        public async Task<IActionResult> ScanBagAsync(int id, [FromBody] ScanStockTakeBagDto dto)
+        {
+            var result = await _stockTakeService.ScanBagAsync(id, dto, this.GetLoggedInUserId());
+            return BaseResult(result);
+        }
+
+        /// <summary>Danh sách khu / cột / lô đang có bao để chọn phạm vi kiểm kê.</summary>
+        [HttpGet("scope-options")]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.READ)]
+        public async Task<IActionResult> GetScopeOptionsAsync([FromQuery] int warehouseId, [FromQuery] bool? quarantineOnly)
+        {
+            var result = await _stockTakeService.GetScopeOptionsAsync(warehouseId, quarantineOnly);
+            return BaseResult(result);
+        }
+
+        /// <summary>Quét QR dán trên khu/cột hoặc lô để chọn nhanh phạm vi kiểm kê.</summary>
+        [HttpGet("scope-resolve")]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.READ)]
+        public async Task<IActionResult> ResolveScopeQrAsync([FromQuery] string qrCode, [FromQuery] int? warehouseId)
+        {
+            var result = await _stockTakeService.ResolveScopeQrAsync(qrCode, warehouseId);
+            return BaseResult(result);
+        }
+
+        /// <summary>Gợi ý ô cách ly / cột thường cho một bao (người dùng vẫn chọn lại được).</summary>
+        [HttpGet("{id:int}/bags/{bagId:int}/target-suggestions")]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.READ)]
+        public async Task<IActionResult> GetBagTargetSuggestionsAsync(int id, int bagId)
+        {
+            var result = await _stockTakeService.GetBagTargetSuggestionsAsync(id, bagId);
+            return BaseResult(result);
+        }
+
         [HttpPut("{id:int}/reject")]
         [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.APPROVE)]
         public async Task<IActionResult> RejectAsync(int id, [FromBody] RejectStockTakeDto dto)
