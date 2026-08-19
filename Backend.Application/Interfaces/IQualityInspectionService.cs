@@ -34,5 +34,12 @@ public interface IQualityInspectionService : IServiceBase<int, CreateQualityInsp
     /// Idempotent: nếu đã Complete trả 409.
     /// </summary>
     Task<ApiResponse> CompleteAsync(int inspectionId, CompleteInspectionDto dto);
+
+    // ── W14-J: Moisture Config ────────────────────────────────────────────────────
+    /// <summary>
+    /// Trả về cấu hình ngưỡng độ ẩm (ReceivingQcMoistureMinPercent và ReceivingQcMoistureMaxPercent)
+    /// được lưu trong SystemConfig. Frontend sử dụng để hiển thị cảnh báo, không hard-code.
+    /// </summary>
+    Task<ApiResponse> GetMoistureConfigAsync();
 }
 

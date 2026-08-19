@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Backend.Application.BackgroundJobs.DebtDueOverdue;
 using Backend.Share.Services;
 using Backend.Application.Constants;
+using Backend.Application.DTOs.CustomerFeedbacks;
 using Backend.Application.DTOs.OutboundOrders;
 using Backend.Application.Interfaces;
 using Backend.Domain.Abstractions.Repositories;
@@ -44,6 +45,10 @@ public class OutboundOrderService : IOutboundOrderService
     private readonly IRepositoryBase<PaddyLotBagContent, int>? _bagContentRepository;
     private readonly IRepositoryBase<PaddyLotBagMovement, int>? _bagMovementRepository;
     private readonly ILocationRepository? _locationRepository;
+    private readonly IRepositoryBase<PaddyLotBagAllocation, int>? _bagAllocationRepository; // W14-H
+    private readonly IQualityInspectionRepository? _qualityInspectionRepository; // W14-I
+    private readonly IRepositoryBase<QualityInspectionBagResult, int>? _qualityInspectionBagResultRepository; // W14-I
+    private readonly IApplicationDbContext? _dbContext;
 
     public OutboundOrderService(
         IOutboundOrderRepository outboundOrderRepository,
@@ -63,7 +68,11 @@ public class OutboundOrderService : IOutboundOrderService
         IRepositoryBase<PaddyLotBag, int>? bagRepository = null,
         IRepositoryBase<PaddyLotBagContent, int>? bagContentRepository = null,
         IRepositoryBase<PaddyLotBagMovement, int>? bagMovementRepository = null,
-        ILocationRepository? locationRepository = null)
+        ILocationRepository? locationRepository = null,
+        IRepositoryBase<PaddyLotBagAllocation, int>? bagAllocationRepository = null, // W14-H
+        IQualityInspectionRepository? qualityInspectionRepository = null, // W14-I
+        IRepositoryBase<QualityInspectionBagResult, int>? qualityInspectionBagResultRepository = null, // W14-I
+        IApplicationDbContext? dbContext = null)
     {
         _outboundOrderRepository       = outboundOrderRepository;
         _outboundStatusRepository      = outboundStatusRepository;
@@ -83,7 +92,21 @@ public class OutboundOrderService : IOutboundOrderService
         _bagContentRepository          = bagContentRepository;
         _bagMovementRepository         = bagMovementRepository;
         _locationRepository            = locationRepository;
+        _bagAllocationRepository       = bagAllocationRepository; // W14-H
+        _qualityInspectionRepository   = qualityInspectionRepository; // W14-I
+        _qualityInspectionBagResultRepository = qualityInspectionBagResultRepository; // W14-I
+        _dbContext                     = dbContext;
     }
+
+    // ── W14-H: Internal allocation plan (giữ BagId qua toàn bộ luồng Allocate) ─────────────────
+    private sealed record PhysicalBagAllocationPlan(
+        int BagId,
+        int InventoryId,
+        int PaddyLotId,
+        int LocationId,
+        decimal QuantityAllocated,
+        decimal BagWeightSnapshotKg,
+        int StackOrderSnapshot);
 
     // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -134,6 +157,20 @@ public class OutboundOrderService : IOutboundOrderService
 
     private static IEnumerable<OutboundOrderItemAllocation> ActiveAllocations(OutboundOrderItem item)
         => item.Allocations.Where(a => !a.IsDeleted).OrderBy(a => a.Id);
+
+    private static bool IsActiveBagAllocationConflict(DbUpdateException exception)
+    {
+        for (Exception? current = exception; current != null; current = current.InnerException)
+        {
+            var message = current.Message;
+            if (message.Contains("Duplicate entry", StringComparison.OrdinalIgnoreCase) &&
+                (message.Contains("IX_PaddyLotBagAllocation_ActiveBagId", StringComparison.OrdinalIgnoreCase) ||
+                 message.Contains("PaddyLotBagAllocation.IX_PaddyLotBagAllocation_ActiveBagId", StringComparison.OrdinalIgnoreCase) ||
+                 message.Contains("ActiveBagId", StringComparison.OrdinalIgnoreCase)))
+                return true;
+        }
+        return false;
+    }
 
     private static string AppendBoundedNote(
         string? currentNote,
@@ -289,9 +326,9 @@ public class OutboundOrderService : IOutboundOrderService
         var skip     = (page - 1) * pageSize;
 
         var total = await _outboundOrderRepository.CountAsync(
-            query.Keyword, query.OutboundStatusId);
+            query.Keyword, query.OutboundStatusId, query.SalesOrderId, query.WarehouseId, query.FromDate, query.ToDate);
         var list  = await _outboundOrderRepository.GetPagedListAsync(
-            query.Keyword, skip, pageSize, query.OutboundStatusId);
+            query.Keyword, skip, pageSize, query.OutboundStatusId, query.SalesOrderId, query.WarehouseId, query.FromDate, query.ToDate);
 
         var dtos = list.Select(o => new OutboundOrderListDto
         {
@@ -322,7 +359,113 @@ public class OutboundOrderService : IOutboundOrderService
         if (o == null || o.IsDeleted)
             return ApiResponse.NotFound("Không tìm thấy phiếu xuất.", ApiCodeConstants.OutboundOrder.NotFound);
 
-        return ApiResponse.Success(MapDetail(o));
+        var dto = MapDetail(o);
+        if (_bagAllocationRepository != null)
+        {
+            var bagAllocs = await _bagAllocationRepository
+                .FindByCondition(
+                    a => a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder
+                      && a.ReferenceId   == id
+                      && !a.IsDeleted,
+                    false)
+                .Include(a => a.Bag)
+                    .ThenInclude(b => b.Lot)
+                .Include(a => a.Bag)
+                    .ThenInclude(b => b.Location)
+                .OrderBy(a => a.BagId)
+                .ToListAsync();
+
+            dto.BagAllocations = bagAllocs.Select(a => new BagAllocationDetailDto
+            {
+                BagAllocationId   = a.Id,
+                BagId             = a.BagId,
+                BagNo             = a.Bag?.BagNo ?? 0,
+                AllocatedWeightKg = a.AllocatedWeightKg,
+                PickedWeightKg    = a.PickedWeightKg,
+                LotId             = a.Bag?.LotId ?? 0,
+                LotCode           = a.Bag?.Lot?.LotCode,
+                LocationId        = a.Bag?.LocationId,
+                LocationCode      = a.Bag?.Location != null ? FormatLocationCode(a.Bag.Location) : null,
+                StackOrder        = a.StackOrderSnapshot,
+                IsFull            = a.Bag?.IsFull ?? false,
+                QrCode            = a.Bag?.QrCode,
+                Status            = a.Status
+            }).ToList();
+        }
+
+        if (_dbContext != null)
+        {
+            var feedbacks = await _dbContext.CustomerFeedbacks
+                .Include(f => f.ProductVariant)
+                .Where(f => !f.IsDeleted && f.OutboundOrderId == id)
+                .OrderByDescending(f => f.CreatedDate)
+                .ToListAsync();
+
+            dto.FeedbackCount = feedbacks.Count;
+            dto.Feedbacks = feedbacks.Select(f => new CustomerFeedbackSummaryDto
+            {
+                Id = f.Id,
+                SalesOrderId = f.SalesOrderId,
+                OutboundOrderId = f.OutboundOrderId,
+                OutboundOrderItemId = f.OutboundOrderItemId,
+                ProductVariantId = f.ProductVariantId,
+                ProductVariantName = f.ProductVariant?.Name,
+                FeedbackType = f.FeedbackType,
+                Description = f.Description,
+                Severity = f.Severity,
+                ResolutionStatus = f.ResolutionStatus,
+                CreatedDate = f.CreatedDate,
+                ResolvedAt = f.ResolvedAt,
+                ResolutionNote = f.ResolutionNote
+            }).ToList();
+        }
+
+        return ApiResponse.Success(dto);
+    }
+
+    /// <summary>
+    /// W14-H: Trả danh sách physical bag allocation của một phiếu xuất cho FE/Mobile.
+    /// </summary>
+    public async Task<ApiResponse> GetBagAllocationsAsync(int id)
+    {
+        var order = await _outboundOrderRepository.GetByIdDetailAsync(id);
+        if (order == null || order.IsDeleted)
+            return ApiResponse.NotFound("Không tìm thấy phiếu xuất.", ApiCodeConstants.OutboundOrder.NotFound);
+
+        if (_bagAllocationRepository == null)
+            return ApiResponse.Success(new List<BagAllocationDetailDto>());
+
+        var bagAllocs = await _bagAllocationRepository
+            .FindByCondition(
+                a => a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder
+                  && a.ReferenceId   == id
+                  && !a.IsDeleted,
+                false)
+            .Include(a => a.Bag)
+                .ThenInclude(b => b.Lot)
+            .Include(a => a.Bag)
+                .ThenInclude(b => b.Location)
+            .OrderBy(a => a.BagId)
+            .ToListAsync();
+
+        var result = bagAllocs.Select(a => new BagAllocationDetailDto
+        {
+            BagAllocationId  = a.Id,
+            BagId            = a.BagId,
+            BagNo            = a.Bag?.BagNo ?? 0,
+            AllocatedWeightKg = a.AllocatedWeightKg,
+            PickedWeightKg   = a.PickedWeightKg,
+            LotId            = a.Bag?.LotId ?? 0,
+            LotCode          = a.Bag?.Lot?.LotCode,
+            LocationId       = a.Bag?.LocationId,
+            LocationCode     = a.Bag?.Location != null ? FormatLocationCode(a.Bag.Location) : null,
+            StackOrder       = a.StackOrderSnapshot,
+            IsFull           = a.Bag?.IsFull ?? false,
+            QrCode           = a.Bag?.QrCode,
+            Status           = a.Status
+        }).ToList();
+
+        return ApiResponse.Success(result);
     }
 
     public async Task<ApiResponse> GetAllocationCandidatesAsync(int id)
@@ -500,6 +643,23 @@ public class OutboundOrderService : IOutboundOrderService
         var userId = GetCurrentUserId();
         var locationIdsToLock = new HashSet<int>();
 
+        // W14-H: Giải phóng các bag allocation cũ của phiếu xuất này nếu có trước khi phân bổ mới
+        if (_bagAllocationRepository != null)
+        {
+            var oldAllocations = await _bagAllocationRepository
+                .FindByCondition(x => x.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder && x.ReferenceId == order.Id &&
+                    x.Status == PaddyLotBagAllocationStatuses.Active && !x.IsDeleted, true)
+                .ToListAsync();
+            foreach (var allocation in oldAllocations)
+            {
+                allocation.Status = PaddyLotBagAllocationStatuses.Released;
+                allocation.UpdatedBy = userId;
+                allocation.LastModifiedDate = now;
+                await _bagAllocationRepository.UpdateAsync(allocation);
+            }
+            await _bagAllocationRepository.SaveChangesAsync();
+        }
+
         var requestedByItem = dto.Allocations
             .GroupBy(x => x.OutboundOrderItemId)
             .ToDictionary(g => g.Key, g => g.Sum(x => x.Lots.Sum(l => l.QuantityAllocated)));
@@ -597,11 +757,11 @@ public class OutboundOrderService : IOutboundOrderService
                 }
             }
 
-            List<AllocateItemLotDto> physicalLots;
+            List<PhysicalBagAllocationPlan> physicalPlans;
             try
             {
-                physicalLots = await BuildRequestedBagAllocationsAsync(
-                    item.ProductVariantId, order.WarehouseId, allocItem.Lots);
+                physicalPlans = await BuildRequestedBagAllocationsAsync(
+                    order.Id, item.ProductVariantId, order.WarehouseId, allocItem.Lots);
             }
             catch (InvalidOperationException ex)
             {
@@ -612,94 +772,213 @@ public class OutboundOrderService : IOutboundOrderService
             decimal totalAllocQty   = alreadyAllocated;
             decimal weightedCostSum = alreadyAllocated * item.UnitCostPrice;
 
-            // Hàng có lớp bao được phân bổ theo đúng bao/content sẽ lấy; danh sách inventory từ client
-            // chỉ còn là fallback cho dữ liệu cũ chưa bag-track.
-            var lotsToAllocate = physicalLots.Count > 0 ? physicalLots : allocItem.Lots;
-
-            var inventoryIdsToAllocate = lotsToAllocate.Select(x => x.InventoryId).Distinct().ToList();
-            var inventoriesToAllocate = await _inventoryRepository.FindByCondition(x =>
-                    inventoryIdsToAllocate.Contains(x.Id) && !x.IsDeleted,
-                    false, x => x.Location, x => x.PaddyLot, x => x.PaddyLot.Status)
-                .ToDictionaryAsync(x => x.Id);
-
-            foreach (var lot in lotsToAllocate)
+            var isPhysical = physicalPlans.Count > 0;
+            if (!isPhysical)
             {
-                if (!inventoriesToAllocate.TryGetValue(lot.InventoryId, out var inv))
-                    return ApiResponse.BadRequest(
-                        $"Inventory ID {lot.InventoryId} không tồn tại.",
-                        ApiCodeConstants.OutboundOrder.InvalidRequest);
-
-                if (inv.LocationId == null)
-                    return ApiResponse.BadRequest(
-                        $"Inventory ID {lot.InventoryId} chưa có vị trí.",
-                        ApiCodeConstants.OutboundOrder.InvalidRequest);
-
-                if (inv.Location?.IsOutboundStaging == true)
+                // W14-H: Không cho fallback làm mất physical identity với lot-tracked inventory
+                var checkInvIds = allocItem.Lots.Select(l => l.InventoryId).Distinct().ToList();
+                var checkInvs = await _inventoryRepository
+                    .FindByCondition(x => checkInvIds.Contains(x.Id) && !x.IsDeleted, false)
+                    .ToListAsync();
+                if (_bagRepository != null && checkInvs.Any(x => x.PaddyLotId.HasValue))
                     return ApiResponse.UnprocessableEntity(
-                        $"Vị trí {FormatLocationCode(inv.Location)} là khu chờ xuất, không thể dùng để phân bổ hàng mới.",
+                        "Lô chưa có dữ liệu bao vật lý để phân bổ. Vui lòng đảm bảo đã nhập kho theo bao trước khi xuất hàng.",
                         ApiCodeConstants.OutboundOrder.InvalidRequest);
+            }
 
-                if (inv.Location?.OutboundLockOrderId is int lockingOrderId && lockingOrderId != order.Id)
-                    return ApiResponse.Conflict(
-                        $"Cột '{FormatLocationCode(inv.Location)}' đang được khóa bởi phiếu xuất #{lockingOrderId}. Vui lòng chọn cột khác.",
-                        ApiCodeConstants.OutboundOrder.ConcurrencyConflict);
+            if (isPhysical)
+            {
+                var inventoryIds = physicalPlans.Select(p => p.InventoryId).Distinct().ToList();
+                var inventoriesToAllocate = await _inventoryRepository.FindByCondition(x =>
+                        inventoryIds.Contains(x.Id) && !x.IsDeleted,
+                        false, x => x.Location, x => x.PaddyLot, x => x.PaddyLot.Status)
+                    .ToDictionaryAsync(x => x.Id);
 
-                if (inv.Location != null)
+                foreach (var planGroup in physicalPlans.GroupBy(p => p.InventoryId))
                 {
-                    locationIdsToLock.Add(inv.Location.Id);
+                    if (!inventoriesToAllocate.TryGetValue(planGroup.Key, out var inv))
+                        return ApiResponse.BadRequest(
+                            $"Inventory ID {planGroup.Key} không tồn tại.",
+                            ApiCodeConstants.OutboundOrder.InvalidRequest);
+
+                    if (inv.LocationId == null)
+                        return ApiResponse.BadRequest(
+                            $"Inventory ID {planGroup.Key} chưa có vị trí.",
+                            ApiCodeConstants.OutboundOrder.InvalidRequest);
+
+                    if (inv.Location?.IsOutboundStaging == true)
+                        return ApiResponse.UnprocessableEntity(
+                            $"Vị trí {FormatLocationCode(inv.Location)} là khu chờ xuất, không thể dùng để phân bổ hàng mới.",
+                            ApiCodeConstants.OutboundOrder.InvalidRequest);
+
+                    if (inv.Location?.OutboundLockOrderId is int lockingOrderId && lockingOrderId != order.Id)
+                        return ApiResponse.Conflict(
+                            $"Cột '{FormatLocationCode(inv.Location)}' đang được khóa bởi phiếu xuất #{lockingOrderId}. Vui lòng chọn cột khác.",
+                            ApiCodeConstants.OutboundOrder.ConcurrencyConflict);
+
+                    if (inv.Location != null)
+                    {
+                        locationIdsToLock.Add(inv.Location.Id);
+                    }
+
+                    if (inv.ProductVariantId != item.ProductVariantId)
+                        return ApiResponse.BadRequest(
+                            $"Sản phẩm của Inventory ID {planGroup.Key} không khớp với yêu cầu.",
+                            ApiCodeConstants.OutboundOrder.InvalidRequest);
+
+                    if (inv.WarehouseId != order.WarehouseId)
+                        return ApiResponse.BadRequest(
+                            $"Inventory ID {planGroup.Key} không thuộc kho xuất.",
+                            ApiCodeConstants.OutboundOrder.InvalidRequest);
+
+                    var isQuarantined = (inv.Location != null && inv.Location.IsQuarantine)
+                        || (inv.PaddyLot != null && inv.PaddyLot.Status != null && inv.PaddyLot.Status.Code == LotStatusCodeConstants.Quarantine);
+
+                    if (isQuarantined || (inv.PaddyLot != null && inv.PaddyLot.Status != null && !inv.PaddyLot.Status.IsSellable))
+                        return ApiResponse.UnprocessableEntity(
+                            $"Dòng tồn kho ID {planGroup.Key} nằm ở vị trí cách ly hoặc thuộc lô hàng không hợp lệ để phân bổ.",
+                            ApiCodeConstants.OutboundOrder.LotQuarantined);
+
+                    var totalGroupQty = planGroup.Sum(p => p.QuantityAllocated);
+                    var availableQty = inv.QuantityOnHand - inv.QuantityReserved;
+                    if (totalGroupQty > availableQty)
+                        return ApiResponse.UnprocessableEntity(
+                            $"Inventory ID {planGroup.Key} chỉ còn {availableQty} kg khả dụng, không đủ để phân bổ {totalGroupQty} kg.",
+                            ApiCodeConstants.OutboundOrder.InvalidRequest);
+
+                    var allocEntity = new OutboundOrderItemAllocation
+                    {
+                        OutboundOrderItemId = item.Id,
+                        InventoryId         = inv.Id,
+                        PaddyLotId          = inv.PaddyLotId,
+                        LocationId          = inv.LocationId.Value,
+                        QuantityAllocated   = totalGroupQty,
+                        QuantityPicked      = 0,
+                        UnitCostPrice       = inv.CostPrice,
+                        CreatedDate         = now,
+                        CreatedBy           = userId
+                    };
+                    await _allocationRepository.CreateAsync(allocEntity);
+                    await _allocationRepository.SaveChangesAsync(); // flush để lấy Id
+
+                    // W14-H: Tạo PaddyLotBagAllocation ACTIVE cho từng bao trong plan
+                    if (_bagAllocationRepository != null)
+                    {
+                        foreach (var plan in planGroup)
+                        {
+                            await _bagAllocationRepository.CreateAsync(new PaddyLotBagAllocation
+                            {
+                                BagId               = plan.BagId,
+                                ReferenceType       = PaddyLotBagAllocationReferenceTypes.OutboundOrder,
+                                ReferenceId         = order.Id,
+                                ReferenceItemId     = allocEntity.Id,
+                                AllocatedWeightKg   = plan.QuantityAllocated,
+                                ConsumedWeightKg    = 0m,
+                                PickedWeightKg      = 0m,
+                                Status              = PaddyLotBagAllocationStatuses.Active,
+                                BagWeightSnapshotKg = plan.BagWeightSnapshotKg,
+                                StackOrderSnapshot  = plan.StackOrderSnapshot,
+                                CreatedBy           = userId,
+                                CreatedDate         = now
+                            });
+                        }
+                        await _bagAllocationRepository.SaveChangesAsync();
+                    }
+
+                    inv.QuantityReserved += totalGroupQty;
+                    if (inv.QuantityReserved > inv.QuantityOnHand)
+                        inv.QuantityReserved = inv.QuantityOnHand;
+                    inv.LastModifiedDate = now;
+                    inv.UpdatedBy        = userId;
+                    await _inventoryRepository.UpdateAsync(inv);
+
+                    weightedCostSum += totalGroupQty * inv.CostPrice;
+                    totalAllocQty   += totalGroupQty;
                 }
+            }
+            else
+            {
+                var inventoryIds = allocItem.Lots.Select(x => x.InventoryId).Distinct().ToList();
+                var inventoriesToAllocate = await _inventoryRepository.FindByCondition(x =>
+                        inventoryIds.Contains(x.Id) && !x.IsDeleted,
+                        false, x => x.Location, x => x.PaddyLot, x => x.PaddyLot.Status)
+                    .ToDictionaryAsync(x => x.Id);
 
-                if (inv.ProductVariantId != item.ProductVariantId)
-                    return ApiResponse.BadRequest(
-                        $"Sản phẩm của Inventory ID {lot.InventoryId} không khớp với yêu cầu.",
-                        ApiCodeConstants.OutboundOrder.InvalidRequest);
-
-                if (inv.WarehouseId != order.WarehouseId)
-                    return ApiResponse.BadRequest(
-                        $"Inventory ID {lot.InventoryId} không thuộc kho xuất.",
-                        ApiCodeConstants.OutboundOrder.InvalidRequest);
-
-                // C1: Kiểm tra xem tồn kho có bị cách ly hay không
-                var isQuarantined = (inv.Location != null && inv.Location.IsQuarantine)
-                    || (inv.PaddyLot != null && inv.PaddyLot.Status != null && inv.PaddyLot.Status.Code == LotStatusCodeConstants.Quarantine);
-
-                if (isQuarantined || (inv.PaddyLot != null && inv.PaddyLot.Status != null && !inv.PaddyLot.Status.IsSellable))
-                    return ApiResponse.UnprocessableEntity(
-                        $"Dòng tồn kho ID {lot.InventoryId} nằm ở vị trí cách ly hoặc thuộc lô hàng không hợp lệ để phân bổ.",
-                        ApiCodeConstants.OutboundOrder.LotQuarantined);
-
-                // C2: Kiểm tra tồn khả dụng thực tế của inventory row này
-                var availableQty = inv.QuantityOnHand - inv.QuantityReserved;
-                if (lot.QuantityAllocated > availableQty)
-                    return ApiResponse.UnprocessableEntity(
-                        $"Inventory ID {lot.InventoryId} chỉ còn {availableQty} kg khả dụng, " +
-                        $"không đủ để phân bổ {lot.QuantityAllocated} kg.",
-                        ApiCodeConstants.OutboundOrder.InvalidRequest);
-
-                await _allocationRepository.CreateAsync(new OutboundOrderItemAllocation
+                foreach (var lot in allocItem.Lots)
                 {
-                    OutboundOrderItemId = item.Id,
-                    InventoryId         = inv.Id,
-                    PaddyLotId          = inv.PaddyLotId,
-                    LocationId          = inv.LocationId.Value,
-                    QuantityAllocated   = lot.QuantityAllocated,
-                    QuantityPicked      = 0,
-                    UnitCostPrice       = inv.CostPrice,
-                    CreatedDate         = now,
-                    CreatedBy           = userId
-                });
+                    if (!inventoriesToAllocate.TryGetValue(lot.InventoryId, out var inv))
+                        return ApiResponse.BadRequest(
+                            $"Inventory ID {lot.InventoryId} không tồn tại.",
+                            ApiCodeConstants.OutboundOrder.InvalidRequest);
 
-                // C1: Tăng QuantityReserved trên đúng inventory row được chọn
-                inv.QuantityReserved  += lot.QuantityAllocated;
-                if (inv.QuantityReserved > inv.QuantityOnHand)
-                    inv.QuantityReserved = inv.QuantityOnHand; // safety clamp
-                inv.LastModifiedDate   = now;
-                inv.UpdatedBy          = userId;
-                await _inventoryRepository.UpdateAsync(inv);
+                    if (inv.LocationId == null)
+                        return ApiResponse.BadRequest(
+                            $"Inventory ID {lot.InventoryId} chưa có vị trí.",
+                            ApiCodeConstants.OutboundOrder.InvalidRequest);
 
-                // M3: Tích lũy để tính weighted-average cost
-                weightedCostSum += lot.QuantityAllocated * inv.CostPrice;
-                totalAllocQty   += lot.QuantityAllocated;
+                    if (inv.Location?.IsOutboundStaging == true)
+                        return ApiResponse.UnprocessableEntity(
+                            $"Vị trí {FormatLocationCode(inv.Location)} là khu chờ xuất, không thể dùng để phân bổ hàng mới.",
+                            ApiCodeConstants.OutboundOrder.InvalidRequest);
+
+                    if (inv.Location?.OutboundLockOrderId is int lockingOrderId && lockingOrderId != order.Id)
+                        return ApiResponse.Conflict(
+                            $"Cột '{FormatLocationCode(inv.Location)}' đang được khóa bởi phiếu xuất #{lockingOrderId}. Vui lòng chọn cột khác.",
+                            ApiCodeConstants.OutboundOrder.ConcurrencyConflict);
+
+                    if (inv.Location != null)
+                    {
+                        locationIdsToLock.Add(inv.Location.Id);
+                    }
+
+                    if (inv.ProductVariantId != item.ProductVariantId)
+                        return ApiResponse.BadRequest(
+                            $"Sản phẩm của Inventory ID {lot.InventoryId} không khớp với yêu cầu.",
+                            ApiCodeConstants.OutboundOrder.InvalidRequest);
+
+                    if (inv.WarehouseId != order.WarehouseId)
+                        return ApiResponse.BadRequest(
+                            $"Inventory ID {lot.InventoryId} không thuộc kho xuất.",
+                            ApiCodeConstants.OutboundOrder.InvalidRequest);
+
+                    var isQuarantined = (inv.Location != null && inv.Location.IsQuarantine)
+                        || (inv.PaddyLot != null && inv.PaddyLot.Status != null && inv.PaddyLot.Status.Code == LotStatusCodeConstants.Quarantine);
+
+                    if (isQuarantined || (inv.PaddyLot != null && inv.PaddyLot.Status != null && !inv.PaddyLot.Status.IsSellable))
+                        return ApiResponse.UnprocessableEntity(
+                            $"Dòng tồn kho ID {lot.InventoryId} nằm ở vị trí cách ly hoặc thuộc lô hàng không hợp lệ để phân bổ.",
+                            ApiCodeConstants.OutboundOrder.LotQuarantined);
+
+                    var availableQty = inv.QuantityOnHand - inv.QuantityReserved;
+                    if (lot.QuantityAllocated > availableQty)
+                        return ApiResponse.UnprocessableEntity(
+                            $"Inventory ID {lot.InventoryId} chỉ còn {availableQty} kg khả dụng, " +
+                            $"không đủ để phân bổ {lot.QuantityAllocated} kg.",
+                            ApiCodeConstants.OutboundOrder.InvalidRequest);
+
+                    await _allocationRepository.CreateAsync(new OutboundOrderItemAllocation
+                    {
+                        OutboundOrderItemId = item.Id,
+                        InventoryId         = inv.Id,
+                        PaddyLotId          = inv.PaddyLotId,
+                        LocationId          = inv.LocationId.Value,
+                        QuantityAllocated   = lot.QuantityAllocated,
+                        QuantityPicked      = 0,
+                        UnitCostPrice       = inv.CostPrice,
+                        CreatedDate         = now,
+                        CreatedBy           = userId
+                    });
+
+                    inv.QuantityReserved += lot.QuantityAllocated;
+                    if (inv.QuantityReserved > inv.QuantityOnHand)
+                        inv.QuantityReserved = inv.QuantityOnHand;
+                    inv.LastModifiedDate = now;
+                    inv.UpdatedBy        = userId;
+                    await _inventoryRepository.UpdateAsync(inv);
+
+                    weightedCostSum += lot.QuantityAllocated * inv.CostPrice;
+                    totalAllocQty   += lot.QuantityAllocated;
+                }
             }
 
             // M3: Gán weighted-average cost cho OutboundOrderItem
@@ -747,6 +1026,13 @@ public class OutboundOrderService : IOutboundOrderService
             await _outboundOrderRepository.SaveChangesAsync();
             await allocationTx.CommitAsync();
         }
+        catch (DbUpdateException ex) when (IsActiveBagAllocationConflict(ex))
+        {
+            await allocationTx.RollbackAsync();
+            return ApiResponse.Conflict(
+                "Một hoặc nhiều bao vừa được chứng từ khác giữ. Vui lòng tải lại danh sách bao và phân bổ lại.",
+                ApiCodeConstants.OutboundOrder.ConcurrencyConflict);
+        }
         catch (DbUpdateConcurrencyException)
         {
             await allocationTx.RollbackAsync();
@@ -759,7 +1045,8 @@ public class OutboundOrderService : IOutboundOrderService
     }
 
     /// <summary>
-    /// Cập nhật số lượng thực tế đã lấy cho từng allocation.
+    /// W14-I: Cập nhật số lượng thực tế đã lấy cho từng bao vật lý (PickPhysicalBagDto).
+    /// Thực hiện xác minh 16 bước trước khi cập nhật. Đồng bộ tổng QuantityPicked ngược lên OutboundOrderItem.
     /// </summary>
     public async Task<ApiResponse> PickAsync(int id, PickOutboundDto dto)
     {
@@ -772,46 +1059,179 @@ public class OutboundOrderService : IOutboundOrderService
                 $"Phiếu xuất phải ở trạng thái PICKING để cập nhật picking.",
                 ApiCodeConstants.OutboundOrder.InvalidState);
 
+        if (dto.Picks == null || dto.Picks.Count == 0)
+            return ApiResponse.BadRequest("Danh sách bao lấy hàng không được để trống.", ApiCodeConstants.OutboundOrder.InvalidRequest);
+
         var now    = DateTimeHelper.VietnamNow();
         var userId = GetCurrentUserId();
 
+        // 1. Lấy danh sách physical bag allocation ACTIVE của order
+        if (_bagAllocationRepository == null || _bagRepository == null)
+            return ApiResponse.UnprocessableEntity("Chưa cấu hình hệ thống bao vật lý cho đơn xuất.", ApiCodeConstants.OutboundOrder.InvalidRequest);
+
+        var activeBagAllocs = await _bagAllocationRepository
+            .FindByCondition(a => a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder
+                               && a.ReferenceId   == order.Id
+                               && a.Status        == PaddyLotBagAllocationStatuses.Active
+                               && !a.IsDeleted, false,
+                a => a.Bag.Lot.Status,
+                a => a.Bag.Location,
+                a => a.Bag.Contents)
+            .ToListAsync();
+
+        var activeBagAllocsDict = activeBagAllocs.ToDictionary(a => a.Id);
+        var activeItemAllocs = order.OutboundOrderItems
+            .Where(i => !i.IsDeleted)
+            .SelectMany(ActiveAllocations)
+            .ToDictionary(a => a.Id);
+
+        // Map OutboundOrderItem by Id
+        var orderItemsDict = order.OutboundOrderItems
+            .Where(i => !i.IsDeleted)
+            .ToDictionary(i => i.Id);
+
+        // 2. Validate toàn bộ trước khi update (Nếu fail bất kỳ bước nào thì 4xx và KHÔNG update)
         foreach (var pickDto in dto.Picks)
         {
-            var allocation = order.OutboundOrderItems
-                .Where(i => !i.IsDeleted)
-                .SelectMany(ActiveAllocations)
-                .FirstOrDefault(a => a.Id == pickDto.AllocationId);
-
-            if (allocation == null)
+            // 1. BagAllocation tồn tại & thuộc order & ACTIVE
+            if (!activeBagAllocsDict.TryGetValue(pickDto.BagAllocationId, out var bagAlloc))
+            {
                 return ApiResponse.BadRequest(
-                    $"Allocation ID {pickDto.AllocationId} không tồn tại.",
+                    $"Phân bổ bao #{pickDto.BagAllocationId} không tồn tại hoặc không ở trạng thái ACTIVE của phiếu xuất này.",
                     ApiCodeConstants.OutboundOrder.InvalidRequest);
+            }
 
-            if (pickDto.QuantityPicked > allocation.QuantityAllocated)
+            // 5. ReferenceItemId map đúng Outbound allocation
+            if (!bagAlloc.ReferenceItemId.HasValue || !activeItemAllocs.TryGetValue(bagAlloc.ReferenceItemId.Value, out var itemAlloc))
+            {
+                return ApiResponse.BadRequest(
+                    $"Phân bổ bao #{pickDto.BagAllocationId} không liên kết với dòng phân bổ hợp lệ của phiếu xuất.",
+                    ApiCodeConstants.OutboundOrder.InvalidRequest);
+            }
+
+            // 6. Bag tồn tại
+            var bag = bagAlloc.Bag;
+            if (bag == null || bag.IsDeleted)
+            {
+                return ApiResponse.BadRequest(
+                    $"Bao vật lý #{bagAlloc.BagId} không tồn tại hoặc đã bị xóa.",
+                    ApiCodeConstants.OutboundOrder.InvalidRequest);
+            }
+
+            // 7. Bag.Status == Stored
+            if (bag.Status != PaddyLotBagStatuses.Stored)
+            {
                 return ApiResponse.UnprocessableEntity(
-                    $"Số lượng lấy ({pickDto.QuantityPicked}) không được vượt quá số lượng đã phân bổ ({allocation.QuantityAllocated}).",
+                    $"Bao #{bag.BagNo} đang ở trạng thái '{bag.Status}', không hợp lệ để lấy hàng (yêu cầu 'Stored').",
                     ApiCodeConstants.OutboundOrder.InvalidRequest);
+            }
 
-            allocation.QuantityPicked  = pickDto.QuantityPicked;
-            allocation.LastModifiedDate = now;
-            allocation.UpdatedBy       = userId;
-            await _allocationRepository.UpdateAsync(allocation);
+            // 8. Bag/contents đúng ProductVariant của order item
+            if (orderItemsDict.TryGetValue(itemAlloc.OutboundOrderItemId, out var orderItem))
+            {
+                if (bag.Lot != null && bag.Lot.ProductVariantId != orderItem.ProductVariantId)
+                {
+                    return ApiResponse.UnprocessableEntity(
+                        $"Bao #{bag.BagNo} thuộc sản phẩm khác, không khớp với dòng sản phẩm cần xuất.",
+                        ApiCodeConstants.OutboundOrder.InvalidRequest);
+                }
+            }
+
+            // 9 & 10. Lot sellable & không QUARANTINE
+            if (bag.Lot?.Status?.IsSellable == false || bag.Lot?.Status?.Code == LotStatusCodeConstants.Quarantine)
+            {
+                return ApiResponse.UnprocessableEntity(
+                    $"Lô của bao #{bag.BagNo} đang cách ly hoặc không được phép bán.",
+                    ApiCodeConstants.OutboundOrder.InvalidRequest);
+            }
+
+            // 11. Location không quarantine
+            if (bag.Location?.IsQuarantine == true)
+            {
+                return ApiResponse.UnprocessableEntity(
+                    $"Vị trí của bao #{bag.BagNo} đang bị cách ly.",
+                    ApiCodeConstants.OutboundOrder.InvalidRequest);
+            }
+
+            // 12. Warehouse đúng order
+            if (bag.Lot != null && bag.Lot.WarehouseId != order.WarehouseId)
+            {
+                return ApiResponse.UnprocessableEntity(
+                    $"Kho của bao #{bag.BagNo} không khớp với kho xuất #{order.WarehouseId}.",
+                    ApiCodeConstants.OutboundOrder.InvalidRequest);
+            }
+
+            // 13. Bag.WeightKg không thay đổi bất thường (tồn > 0)
+            if (bag.WeightKg <= 0.0005m)
+            {
+                return ApiResponse.UnprocessableEntity(
+                    $"Bao #{bag.BagNo} không còn tồn khối lượng vật lý.",
+                    ApiCodeConstants.OutboundOrder.InvalidRequest);
+            }
+
+            // 15. QuantityPicked <= AllocatedWeightKg
+            if (pickDto.QuantityPicked > bagAlloc.AllocatedWeightKg + 0.0005m)
+            {
+                return ApiResponse.UnprocessableEntity(
+                    $"Số lượng lấy ({pickDto.QuantityPicked:0.###} kg) của bao #{bag.BagNo} vượt quá số lượng đã phân bổ ({bagAlloc.AllocatedWeightKg:0.###} kg).",
+                    ApiCodeConstants.OutboundOrder.InvalidRequest);
+            }
+
+            // 16. Bag vẫn không bị flow khác giữ
+            var isHeldByOther = await _bagAllocationRepository.AnyAsync(a =>
+                a.BagId == bag.Id &&
+                a.Status == PaddyLotBagAllocationStatuses.Active &&
+                !a.IsDeleted &&
+                !(a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder && a.ReferenceId == order.Id));
+
+            if (isHeldByOther)
+            {
+                return ApiResponse.Conflict(
+                    $"Bao #{bag.BagNo} đang được giữ bởi chứng từ khác.",
+                    ApiCodeConstants.OutboundOrder.ConcurrencyConflict);
+            }
         }
 
-        // Cập nhật QuantityPicked tổng cho mỗi OutboundOrderItem
+        // 3. Sau khi validate pass toàn bộ: Tiến hành cập nhật
+        foreach (var pickDto in dto.Picks)
+        {
+            var bagAlloc = activeBagAllocsDict[pickDto.BagAllocationId];
+            bagAlloc.PickedWeightKg    = pickDto.QuantityPicked;
+            bagAlloc.PickedAt          = now;
+            bagAlloc.PickedBy          = userId;
+            bagAlloc.LastModifiedDate  = now;
+            bagAlloc.UpdatedBy         = userId;
+            await _bagAllocationRepository.UpdateAsync(bagAlloc);
+        }
+
+        // 4. Đồng bộ tổng aggregate quantity từ bag allocations lên item allocation & order item
         foreach (var item in order.OutboundOrderItems.Where(i => !i.IsDeleted))
         {
-            item.QuantityPicked  = ActiveAllocations(item).Sum(a => a.QuantityPicked);
+            foreach (var alloc in ActiveAllocations(item))
+            {
+                var bagAllocsForAlloc = activeBagAllocs.Where(b => b.ReferenceItemId == alloc.Id).ToList();
+                if (bagAllocsForAlloc.Count > 0)
+                {
+                    alloc.QuantityPicked   = bagAllocsForAlloc.Sum(b => b.PickedWeightKg);
+                    alloc.LastModifiedDate = now;
+                    alloc.UpdatedBy        = userId;
+                    await _allocationRepository.UpdateAsync(alloc);
+                }
+            }
+
+            item.QuantityPicked   = ActiveAllocations(item).Sum(a => a.QuantityPicked);
             item.LastModifiedDate = now;
-            item.UpdatedBy       = userId;
+            item.UpdatedBy        = userId;
         }
 
         order.LastModifiedDate = now;
         order.UpdatedBy        = userId;
         await _outboundOrderRepository.UpdateAsync(order);
+        await _bagAllocationRepository.SaveChangesAsync();
+        await _allocationRepository.SaveChangesAsync();
         await _outboundOrderRepository.SaveChangesAsync();
 
-        return ApiResponse.Success(message: "Cập nhật số lượng picking thành công.");
+        return ApiResponse.Success(message: "Cập nhật số lượng picking theo bao vật lý thành công.");
     }
 
     public async Task<ApiResponse> ConfirmPackingAsync(int id, ConfirmPackingDto dto)
@@ -824,9 +1244,6 @@ public class OutboundOrderService : IOutboundOrderService
             return ApiResponse.Conflict(
                 "Phiếu xuất phải ở trạng thái PICKING để xác nhận đóng gói.",
                 ApiCodeConstants.OutboundOrder.InvalidState);
-
-        if (string.IsNullOrWhiteSpace(dto.QrCode))
-            return ApiResponse.BadRequest("Mã QR không hợp lệ.", ApiCodeConstants.OutboundOrder.InvalidRequest);
 
         // Validate mỗi item đã pick ít nhất bằng qty ordered
         foreach (var item in order.OutboundOrderItems.Where(i => !i.IsDeleted))
@@ -1058,6 +1475,18 @@ public class OutboundOrderService : IOutboundOrderService
                     .Distinct()
                     .ToListAsync()).ToHashSet();
 
+            // W14-I: Tiêu thụ chính xác các bao vật lý đã Pick (ConsumeAllocatedPhysicalBagsAsync)
+            var hasActivePhysicalBagAllocs = _bagAllocationRepository != null &&
+                await _bagAllocationRepository.AnyAsync(a => a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder
+                                                          && a.ReferenceId == order.Id
+                                                          && a.Status == PaddyLotBagAllocationStatuses.Active
+                                                          && !a.IsDeleted);
+
+            if (hasActivePhysicalBagAllocs)
+            {
+                await ConsumeAllocatedPhysicalBagsAsync(order.Id, userId, now);
+            }
+
             // 4. Với từng allocation: giảm tồn + tạo giao dịch
             foreach (var item in order.OutboundOrderItems.Where(i => !i.IsDeleted))
             {
@@ -1085,7 +1514,7 @@ public class OutboundOrderService : IOutboundOrderService
                               ?? throw new InvalidOperationException($"Không tìm thấy tồn staging cho allocation #{alloc.Id}.");
                         occupancyLocation = staging;
                     }
-                    else if (alloc.PaddyLotId.HasValue && alloc.QuantityPicked > 0.0005m &&
+                    else if (!hasActivePhysicalBagAllocs && alloc.PaddyLotId.HasValue && alloc.QuantityPicked > 0.0005m &&
                              !consumedLegacyAllocationIds.Contains(alloc.Id))
                     {
                         await ConsumePhysicalBagsAsync(alloc.PaddyLotId.Value, alloc.LocationId, alloc.QuantityPicked,
@@ -1350,7 +1779,8 @@ public class OutboundOrderService : IOutboundOrderService
             "Xác nhận xuất kho thành công.");
     }
 
-    private async Task<List<AllocateItemLotDto>> BuildRequestedBagAllocationsAsync(
+    private async Task<List<PhysicalBagAllocationPlan>> BuildRequestedBagAllocationsAsync(
+        int outboundOrderId,
         int productVariantId,
         int warehouseId,
         IReadOnlyCollection<AllocateItemLotDto> requestedLots)
@@ -1377,6 +1807,7 @@ public class OutboundOrderService : IOutboundOrderService
         var bags = await _bagRepository.FindByCondition(x => x.LocationId.HasValue && x.Status == PaddyLotBagStatuses.Stored && x.WeightKg > 0 && !x.IsDeleted, false)
             .Include(x => x.Lot)
             .Include(x => x.Contents).ThenInclude(x => x.Lot).ThenInclude(x => x.Status)
+            .Include(x => x.Allocations)
             // Load complete physical columns. Bags of another SKU/lot are real blockers
             // and must not be skipped by the picking simulation.
             .Where(x => x.LocationId.HasValue && selectedLocationIds.Contains(x.LocationId.Value))
@@ -1384,6 +1815,10 @@ public class OutboundOrderService : IOutboundOrderService
             .ThenByDescending(x => x.StackOrder)
             .ToListAsync();
         if (bags.Count == 0) return new();
+
+        bool IsHeldByOther(PaddyLotBag b) =>
+            b.Allocations.Any(a => !a.IsDeleted && a.Status == PaddyLotBagAllocationStatuses.Active &&
+                !(a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder && a.ReferenceId == outboundOrderId));
 
         foreach (var group in bags.GroupBy(x => x.LocationId))
         {
@@ -1398,7 +1833,7 @@ public class OutboundOrderService : IOutboundOrderService
                     $"Vị trí {group.Key} có bao hỗn hợp chứa thành phần lô đang cách ly hoặc không được phép bán.");
         }
 
-        var allocations = new List<AllocateItemLotDto>();
+        var allocations = new List<PhysicalBagAllocationPlan>(); // W14-H: giữ BagId
         var remaining = requestedByInventory.ToDictionary(x => x.Key, x => x.Value);
         var selectedFullBagIds = new HashSet<int>();
 
@@ -1428,6 +1863,9 @@ public class OutboundOrderService : IOutboundOrderService
                     Math.Abs(request.QuantityAllocated - candidate.WeightKg) > 0.0005m)
                     return false;
 
+                if (IsHeldByOther(candidate))
+                    return false;
+
                 var activeContents = candidate.Contents
                     .Where(x => !x.IsDeleted && x.WeightKg > 0.0005m)
                     .ToList();
@@ -1438,18 +1876,22 @@ public class OutboundOrderService : IOutboundOrderService
                 // full-bag choice. A different lot above remains a real blocker.
                 return locationBags
                     .Where(x => x.StackOrder > candidate.StackOrder && !selectedFullBagIds.Contains(x.Id))
-                    .All(x => x.Contents
+                    .All(x => !IsHeldByOther(x) && x.Contents
                         .Where(c => !c.IsDeleted && c.WeightKg > 0.0005m)
                         .All(c => c.LotId == inventory.PaddyLotId));
             });
 
             if (fullBag == null) continue;
 
-            allocations.Add(new AllocateItemLotDto
-            {
-                InventoryId = request.InventoryId,
-                QuantityAllocated = request.QuantityAllocated
-            });
+            // W14-H: giữ BagId trong plan
+            allocations.Add(new PhysicalBagAllocationPlan(
+                BagId: fullBag.Id,
+                InventoryId: request.InventoryId,
+                PaddyLotId: inventory.PaddyLotId!.Value,
+                LocationId: inventory.LocationId!.Value,
+                QuantityAllocated: request.QuantityAllocated,
+                BagWeightSnapshotKg: fullBag.WeightKg,
+                StackOrderSnapshot: fullBag.StackOrder));
             selectedFullBagIds.Add(fullBag.Id);
             remaining[request.InventoryId] -= request.QuantityAllocated;
         }
@@ -1462,6 +1904,12 @@ public class OutboundOrderService : IOutboundOrderService
             {
                 if (locationDemandIds.All(id => remaining.GetValueOrDefault(id) <= 0.0005m)) break;
                 if (selectedFullBagIds.Contains(bag.Id)) continue;
+
+                if (IsHeldByOther(bag))
+                {
+                    throw new InvalidOperationException(
+                        $"Không thể lấy hàng tại vị trí #{locationGroup.Key}: bao #{bag.BagNo} đang được giữ bởi chứng từ khác. Vui lòng chọn cột khác hoặc tải lại.");
+                }
 
                 var activeContents = bag.Contents.Where(x => x.WeightKg > 0 && !x.IsDeleted).OrderByDescending(x => x.Id).ToList();
                 foreach (var content in activeContents)
@@ -1479,11 +1927,15 @@ public class OutboundOrderService : IOutboundOrderService
                     var take = Math.Min(remaining[inventory.Id], content.WeightKg);
                     if (take > 0)
                     {
-                        allocations.Add(new AllocateItemLotDto
-                        {
-                            InventoryId = inventory.Id,
-                            QuantityAllocated = take
-                        });
+                        // W14-H: giữ BagId trong plan
+                        allocations.Add(new PhysicalBagAllocationPlan(
+                            BagId: bag.Id,
+                            InventoryId: inventory.Id,
+                            PaddyLotId: inventory.PaddyLotId!.Value,
+                            LocationId: locationGroup.Key,
+                            QuantityAllocated: take,
+                            BagWeightSnapshotKg: bag.WeightKg,
+                            StackOrderSnapshot: bag.StackOrder));
                         remaining[inventory.Id] -= take;
                     }
                     if (remaining[inventory.Id] <= 0.0005m && take + 0.0005m < content.WeightKg &&
@@ -2204,6 +2656,213 @@ public class OutboundOrderService : IOutboundOrderService
         bag.LotId = active.OrderByDescending(x => x.WeightKg).ThenBy(x => x.Id).First().LotId;
     }
 
+    /// <summary>
+    /// W14-I: Tiêu thụ chính xác các bao vật lý đã được phân bổ và Pick trong đơn xuất.
+    /// Không chạy lại thuật toán chọn bao. Trừ đúng BagId và Content tương ứng của lô.
+    /// </summary>
+    private async Task ConsumeAllocatedPhysicalBagsAsync(
+        int outboundOrderId, int userId, DateTime now)
+    {
+        if (_bagAllocationRepository == null || _bagRepository == null || _bagContentRepository == null)
+            return;
+
+        var activeBagAllocs = await _bagAllocationRepository
+            .FindByCondition(a => a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder
+                               && a.ReferenceId   == outboundOrderId
+                               && a.Status        == PaddyLotBagAllocationStatuses.Active
+                               && !a.IsDeleted, true,
+                a => a.Bag.Contents,
+                a => a.Bag.Lot)
+            .ToListAsync();
+
+        if (activeBagAllocs.Count == 0) return;
+
+        foreach (var alloc in activeBagAllocs)
+        {
+            if (alloc.PickedWeightKg <= 0.0005m)
+            {
+                // Bao không pick thì giải phóng
+                alloc.Status           = PaddyLotBagAllocationStatuses.Released;
+                alloc.LastModifiedDate = now;
+                alloc.UpdatedBy        = userId;
+                await _bagAllocationRepository.UpdateAsync(alloc);
+                continue;
+            }
+
+            var bag = alloc.Bag;
+            if (bag == null || bag.IsDeleted) continue;
+
+            var beforeBagWeight = bag.WeightKg;
+            var fromLocationId = bag.LocationId;
+            var requestedKg = alloc.PickedWeightKg;
+
+            // Giảm đúng thành phần Content của lô được phân bổ
+            var targetContents = bag.Contents
+                .Where(x => x.LotId == bag.LotId && x.WeightKg > 0 && !x.IsDeleted)
+                .OrderBy(x => x.Id)
+                .ToList();
+
+            var remainingToTake = requestedKg;
+            foreach (var content in targetContents)
+            {
+                var take = Math.Min(remainingToTake, content.WeightKg);
+                content.WeightKg -= take;
+                bag.WeightKg     -= take;
+                remainingToTake  -= take;
+                content.UpdatedBy = userId;
+                content.LastModifiedDate = now;
+                await _bagContentRepository.UpdateAsync(content);
+                if (remainingToTake <= 0.0005m) break;
+            }
+
+            bag.WeightKg = Math.Max(0, bag.WeightKg);
+            if (bag.WeightKg <= 0.0005m)
+            {
+                bag.WeightKg = 0;
+                bag.Status   = PaddyLotBagStatuses.Consumed;
+                bag.LocationId = null;
+                bag.IsFull   = false;
+                bag.OpenBagKey = null;
+            }
+            else if (bag.StandardWeightKg.HasValue)
+            {
+                bag.IsFull = bag.WeightKg >= bag.StandardWeightKg.Value;
+                bag.OpenBagKey = bag.IsFull ? null : $"{bag.Lot?.ProductVariantId}:{bag.Lot?.WarehouseId}";
+            }
+
+            if (bag.WeightKg > 0)
+            {
+                RefreshRepresentativeLot(bag);
+            }
+
+            bag.UpdatedBy        = userId;
+            bag.LastModifiedDate = now;
+            await _bagRepository.UpdateAsync(bag);
+
+            var consumedFromBag = beforeBagWeight - bag.WeightKg;
+            if (consumedFromBag > 0.0005m && _bagMovementRepository != null)
+            {
+                await _bagMovementRepository.CreateAsync(new PaddyLotBagMovement
+                {
+                    BagId          = bag.Id,
+                    MovementType   = PaddyLotBagMovementTypes.OutboundConsume,
+                    FromLocationId = fromLocationId,
+                    ToLocationId   = bag.LocationId,
+                    WeightKg       = consumedFromBag,
+                    BeforeWeightKg = beforeBagWeight,
+                    AfterWeightKg  = bag.WeightKg,
+                    ReferenceType  = InventoryReferenceTypeConstants.OutboundOrder,
+                    ReferenceId    = outboundOrderId,
+                    ReferenceItemId = alloc.ReferenceItemId,
+                    Note           = $"Xuất {consumedFromBag:0.###} kg theo phân bổ bao #{bag.BagNo}",
+                    CreatedBy      = userId,
+                    CreatedDate    = now
+                });
+            }
+
+            // Cập nhật trạng thái phân bổ sang CONSUMED
+            alloc.ConsumedWeightKg = alloc.PickedWeightKg;
+            alloc.Status           = PaddyLotBagAllocationStatuses.Consumed;
+            alloc.LastModifiedDate = now;
+            alloc.UpdatedBy        = userId;
+            await _bagAllocationRepository.UpdateAsync(alloc);
+        }
+
+        await _bagContentRepository.SaveChangesAsync();
+        await _bagRepository.SaveChangesAsync();
+        if (_bagMovementRepository != null)
+            await _bagMovementRepository.SaveChangesAsync();
+        await _bagAllocationRepository.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// W14-I: Báo cáo sự cố chất lượng bao vật lý trong lúc pick/pack.
+    /// Chuyển bao sang QualityHold và tạo QualityInspection loại OUTBOUND_EXCEPTION.
+    /// </summary>
+    public async Task<ApiResponse> ReportQualityIssueAsync(int orderId, int bagAllocationId, string? reason)
+    {
+        var order = await _outboundOrderRepository.GetByIdDetailAsync(orderId);
+        if (order == null || order.IsDeleted)
+            return ApiResponse.NotFound("Không tìm thấy phiếu xuất.", ApiCodeConstants.OutboundOrder.NotFound);
+
+        var validStates = new[] { OutboundOrderStatusNames.Picking, OutboundOrderStatusNames.Packed };
+        if (!validStates.Contains(order.OutboundOrderStatus?.Code))
+            return ApiResponse.Conflict(
+                $"Chỉ có thể báo cáo sự cố chất lượng khi phiếu xuất ở trạng thái PICKING hoặc PACKED.",
+                ApiCodeConstants.OutboundOrder.InvalidState);
+
+        if (_bagAllocationRepository == null || _bagRepository == null)
+            return ApiResponse.UnprocessableEntity("Hệ thống quản lý bao vật lý chưa được cấu hình.", ApiCodeConstants.OutboundOrder.InvalidRequest);
+
+        var bagAlloc = await _bagAllocationRepository
+            .FindByCondition(a => a.Id == bagAllocationId
+                               && a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder
+                               && a.ReferenceId == orderId
+                               && a.Status == PaddyLotBagAllocationStatuses.Active
+                               && !a.IsDeleted, true,
+                a => a.Bag.Lot)
+            .FirstOrDefaultAsync();
+
+        if (bagAlloc == null)
+            return ApiResponse.NotFound("Không tìm thấy phân bổ bao vật lý khả dụng của phiếu xuất này.", ApiCodeConstants.OutboundOrder.NotFound);
+
+        var bag = bagAlloc.Bag;
+        if (bag == null || bag.IsDeleted)
+            return ApiResponse.NotFound("Không tìm thấy bao vật lý tương ứng.", ApiCodeConstants.OutboundOrder.NotFound);
+
+        var now = DateTimeHelper.VietnamNow();
+        var userId = GetCurrentUserId();
+
+        // Đổi trạng thái Bag thành QualityHold
+        bag.Status = PaddyLotBagStatuses.QualityHold;
+        bag.LastModifiedDate = now;
+        bag.UpdatedBy = userId;
+        await _bagRepository.UpdateAsync(bag);
+        await _bagRepository.SaveChangesAsync();
+
+        // Tạo QualityInspection loại OUTBOUND_EXCEPTION
+        if (_qualityInspectionRepository != null)
+        {
+            var inspection = new QualityInspection
+            {
+                InspectionType = InspectionTypeConstants.OutboundException,
+                PaddyLotId = bag.LotId,
+                InspectorId = userId > 0 ? userId : null,
+                InspectedAt = now,
+                PassedInspection = false,
+                Note = !string.IsNullOrWhiteSpace(reason)
+                    ? reason.Trim()
+                    : $"Báo cáo sự cố chất lượng bao #{bag.BagNo} của phiếu xuất #{order.Id}",
+                CreatedBy = userId > 0 ? userId : null,
+                CreatedDate = now
+            };
+            await _qualityInspectionRepository.CreateAsync(inspection);
+            await _qualityInspectionRepository.SaveChangesAsync();
+
+            if (_qualityInspectionBagResultRepository != null)
+            {
+                var bagResult = new QualityInspectionBagResult
+                {
+                    QualityInspectionId = inspection.Id,
+                    BagId = bag.Id,
+                    InspectedAt = now,
+                    InspectorId = userId > 0 ? userId : null,
+                    QualityResult = "ISSUE_DETECTED",
+                    Disposition = BagDispositionConstants.Quarantine,
+                    Note = reason?.Trim(),
+                    CreatedBy = userId > 0 ? userId : null,
+                    CreatedDate = now
+                };
+                await _qualityInspectionBagResultRepository.CreateAsync(bagResult);
+                await _qualityInspectionBagResultRepository.SaveChangesAsync();
+            }
+        }
+
+        return ApiResponse.Success(
+            new { BagAllocationId = bagAlloc.Id, BagId = bag.Id, BagNo = bag.BagNo, Status = bag.Status },
+            "Đã ghi nhận sự cố chất lượng và chuyển bao sang tạm giữ (QualityHold).");
+    }
+
     public async Task<ApiResponse> CompleteDeliveryAsync(int id, CompleteDeliveryDto dto)
     {
         var order = await _outboundOrderRepository.GetByIdDetailAsync(id);
@@ -2688,6 +3347,25 @@ public class OutboundOrderService : IOutboundOrderService
                         await _inventoryRepository.UpdateAsync(inv);
                     }
                 }
+            }
+
+            // W14-H: Giải phóng toàn bộ phân bổ bao vật lý → RELEASED
+            if (_bagAllocationRepository != null)
+            {
+                var activeBagAllocs = await _bagAllocationRepository
+                    .FindByCondition(a => a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder
+                                       && a.ReferenceId   == order.Id
+                                       && a.Status        == PaddyLotBagAllocationStatuses.Active
+                                       && !a.IsDeleted, true)
+                    .ToListAsync();
+                foreach (var bagAlloc in activeBagAllocs)
+                {
+                    bagAlloc.Status           = PaddyLotBagAllocationStatuses.Released;
+                    bagAlloc.LastModifiedDate = now;
+                    bagAlloc.UpdatedBy        = userId;
+                    await _bagAllocationRepository.UpdateAsync(bagAlloc);
+                }
+                await _bagAllocationRepository.SaveChangesAsync();
             }
 
             await ReleaseOutboundColumnLocksAsync(order, now, userId);

@@ -42,7 +42,13 @@ public class BagLevelQualityInspectionTests
         var lotRepo = new PaddyLotRepository(context, uow);
         var inventoryRepo = Mock.Of<IInventoryRepository>();
         var inventoryTxRepo = Mock.Of<IInventoryTransactionRepository>();
-        var lotStatusRepo = Mock.Of<IRepositoryBase<LotStatus, int>>();
+        var lotStatusMock = new Mock<IRepositoryBase<LotStatus, int>>();
+        lotStatusMock.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<System.Linq.Expressions.Expression<Func<LotStatus, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<System.Linq.Expressions.Expression<Func<LotStatus, object>>[]>()))
+            .ReturnsAsync(new LotStatus { Id = 2, Code = LotStatusCodeConstants.Quarantine, Name = "Cách ly", Color = "#FFAA00", IsSellable = false });
+        var lotStatusRepo = lotStatusMock.Object;
         var notificationDispatcher = Mock.Of<INotificationDispatcher>();
 
         var sut = new QualityInspectionService(
@@ -61,6 +67,16 @@ public class BagLevelQualityInspectionTests
     {
         int lotId = 150;
         int inspectionId = 64;
+
+        context.LotStatuses.AddRange(
+            new LotStatus { Id = 1, Code = "AVAILABLE", Name = "Available", Color = "#00AA00", IsSellable = true },
+            new LotStatus { Id = 2, Code = LotStatusCodeConstants.Quarantine, Name = "Cách ly", Color = "#FFAA00", IsSellable = false }
+        );
+
+        context.InboundOrderStatuses.AddRange(
+            new InboundOrderStatus { Id = 1, Code = InboundOrderStatusNames.Receiving, Name = "Đang nhận", Color = "#00AA00" },
+            new InboundOrderStatus { Id = 2, Code = InboundOrderStatusNames.Draft, Name = "Nháp", Color = "#888888" }
+        );
 
         var lot = new PaddyLotEntity
         {
@@ -372,4 +388,30 @@ public class BagLevelQualityInspectionTests
         modifyAfterCompleteRes.Status.Should().Be(400);
         modifyAfterCompleteRes.Message.Should().Contain("Phiếu kiểm tra đã hoàn thành, không thể chỉnh sửa");
     }
+
+    // ── W14-J: Moisture Config Tests ──────────────────────────────────────────
+
+    [Fact]
+    public async Task GetMoistureConfigAsync_ReturnsValuesFromSystemConfig()
+    {
+        var (sut, context) = CreateService();
+        context.SystemConfigs.AddRange(
+            new SystemConfig { ConfigKey = "ReceivingQcMoistureMinPercent", ConfigValue = "10.5", Name = "Min" },
+            new SystemConfig { ConfigKey = "ReceivingQcMoistureMaxPercent", ConfigValue = "28.0", Name = "Max" },
+            new SystemConfig { ConfigKey = "StorageQcMoistureWarningPercent", ConfigValue = "14.5", Name = "Warn" }
+        );
+        await context.SaveChangesAsync();
+
+        var result = await sut.GetMoistureConfigAsync();
+
+        result.Status.Should().Be(200);
+        result.Resources.Should().NotBeNull();
+
+        var data = result.Resources as MoistureConfigDto;
+        data.Should().NotBeNull();
+        data!.ReceivingMoistureMinPercent.Should().Be(10.5m);
+        data.ReceivingMoistureMaxPercent.Should().Be(28.0m);
+        data.StorageQcMoistureWarningPercent.Should().Be(14.5m);
+    }
 }
+

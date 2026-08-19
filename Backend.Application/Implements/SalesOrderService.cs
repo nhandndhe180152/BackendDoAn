@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Backend.Application.Constants;
+using Backend.Application.DTOs.CustomerFeedbacks;
 using Backend.Application.DTOs.SalesOrders;
 using Backend.Application.Interfaces;
 using Backend.Domain.Abstractions.Repositories;
@@ -38,6 +39,7 @@ public class SalesOrderService : ISalesOrderService
     private readonly IRepositoryBase<Organization, int> _organizationRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly INotificationDispatcher _notificationDispatcher;
+    private readonly IApplicationDbContext? _dbContext;
 
     public SalesOrderService(
         ISalesOrderRepository salesOrderRepository,
@@ -53,7 +55,8 @@ public class SalesOrderService : ISalesOrderService
         IRepositoryBase<MillingOrder, int> millingOrderRepository,
         IRepositoryBase<Organization, int> organizationRepository,
         IHttpContextAccessor httpContextAccessor,
-        INotificationDispatcher notificationDispatcher)
+        INotificationDispatcher notificationDispatcher,
+        IApplicationDbContext? dbContext = null)
     {
         _salesOrderRepository        = salesOrderRepository;
         _salesOrderItemRepository    = salesOrderItemRepository;
@@ -69,6 +72,7 @@ public class SalesOrderService : ISalesOrderService
         _organizationRepository      = organizationRepository;
         _httpContextAccessor         = httpContextAccessor;
         _notificationDispatcher      = notificationDispatcher;
+        _dbContext                   = dbContext;
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
@@ -97,7 +101,7 @@ public class SalesOrderService : ISalesOrderService
         return status?.Id ?? throw new InvalidOperationException($"SalesOrderStatus with code '{code}' not found.");
     }
 
-    private static SalesOrderDetailDto MapDetail(SalesOrder so)
+    private static SalesOrderDetailDto MapDetail(SalesOrder so, List<CustomerFeedback>? feedbacks = null)
     {
         var remaining = so.TotalAmount - (so.DepositAmount ?? 0);
 
@@ -110,6 +114,30 @@ public class SalesOrderService : ISalesOrderService
             .Where(i => !i.IsDeleted && i.ProductVariant?.IsByproduct != true)
             .Sum(i => i.QuantityOrdered);
         var allocatedMillingRiceKg = activeMillingOrders.Sum(o => o.TotalRiceOutputKg);
+
+        var outboundList = so.OutboundOrders.Where(o => !o.IsDeleted).ToList();
+
+        var feedbackByOutbound = feedbacks?
+            .GroupBy(f => f.OutboundOrderId)
+            .ToDictionary(g => g.Key, g => g.Count())
+            ?? new Dictionary<int, int>();
+
+        var feedbackSummaryList = feedbacks?.Select(f => new CustomerFeedbackSummaryDto
+        {
+            Id = f.Id,
+            SalesOrderId = f.SalesOrderId,
+            OutboundOrderId = f.OutboundOrderId,
+            OutboundOrderItemId = f.OutboundOrderItemId,
+            ProductVariantId = f.ProductVariantId,
+            ProductVariantName = f.ProductVariant?.Name,
+            FeedbackType = f.FeedbackType,
+            Description = f.Description,
+            Severity = f.Severity,
+            ResolutionStatus = f.ResolutionStatus,
+            CreatedDate = f.CreatedDate,
+            ResolvedAt = f.ResolvedAt,
+            ResolutionNote = f.ResolutionNote
+        }).ToList() ?? new List<CustomerFeedbackSummaryDto>();
 
         return new SalesOrderDetailDto
         {
@@ -139,6 +167,8 @@ public class SalesOrderService : ISalesOrderService
             Note                 = so.Note,
             CancelReason         = so.CancelReason,
             CreatedDate          = so.CreatedDate,
+            OutboundCount        = outboundList.Count,
+            FeedbackCount        = feedbackSummaryList.Count,
             Items = so.SalesOrderItems.Select(i => new SalesOrderItemDto
             {
                 Id                 = i.Id,
@@ -151,16 +181,20 @@ public class SalesOrderService : ISalesOrderService
                 LineAmount         = i.LineAmount,
                 Note               = i.Note
             }).ToList(),
-            OutboundOrders = so.OutboundOrders.Where(o => !o.IsDeleted).Select(o => new SalesOrderOutboundSummaryDto
+            OutboundOrders = outboundList.Select(o => new SalesOrderOutboundSummaryDto
             {
                 Id                   = o.Id,
                 OutboundStatusId     = o.OutboundOrderStatusId,
                 OutboundStatusName   = o.OutboundOrderStatus?.Name ?? "",
                 OutboundStatusCode   = o.OutboundOrderStatus?.Code ?? "",
+                WarehouseId          = o.WarehouseId,
+                WarehouseName        = o.Warehouse?.Name,
                 TotalDispatchedValue = o.TotalDispatchedValue,
                 TotalDispatchedSaleValue = o.TotalDispatchedSaleValue,
-                CompletedDate        = o.CompletedDate
-            }).ToList()
+                CompletedDate        = o.CompletedDate,
+                FeedbackCount        = feedbackByOutbound.TryGetValue(o.Id, out var count) ? count : 0
+            }).ToList(),
+            Feedbacks = feedbackSummaryList
         };
     }
 
@@ -175,9 +209,9 @@ public class SalesOrderService : ISalesOrderService
         var skip = (page - 1) * pageSize;
 
         var total = await _salesOrderRepository.CountAsync(
-            query.Keyword, query.StatusId, query.Channel);
+            query.Keyword, query.StatusId, query.Channel, query.CustomerId, query.WarehouseId, query.FromDate, query.ToDate);
         var list = await _salesOrderRepository.GetPagedListAsync(
-            query.Keyword, skip, pageSize, query.StatusId, query.Channel);
+            query.Keyword, skip, pageSize, query.StatusId, query.Channel, query.CustomerId, query.WarehouseId, query.FromDate, query.ToDate);
 
         var dtos = list.Select(so =>
         {
@@ -253,7 +287,17 @@ public class SalesOrderService : ISalesOrderService
         if (so == null || so.IsDeleted)
             return ApiResponse.NotFound("Không tìm thấy đơn bán.", ApiCodeConstants.SalesOrder.NotFound);
 
-        return ApiResponse.Success(MapDetail(so));
+        List<CustomerFeedback>? feedbacks = null;
+        if (_dbContext != null)
+        {
+            feedbacks = await _dbContext.CustomerFeedbacks
+                .Include(f => f.ProductVariant)
+                .Where(f => !f.IsDeleted && f.SalesOrderId == id)
+                .OrderByDescending(f => f.CreatedDate)
+                .ToListAsync();
+        }
+
+        return ApiResponse.Success(MapDetail(so, feedbacks));
     }
 
     // ── Commands ─────────────────────────────────────────────────────────

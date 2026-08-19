@@ -339,6 +339,11 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                         LotId = lot.Id, BagNo = bag.BagNo, WeightKg = bag.WeightKg,
                         Status = "Pending", QrCode = $"PLB-{Guid.NewGuid():N}".ToUpperInvariant(),
                         BagKind = "Purchase", IsFull = true,
+                        // W14-J: Copy thông tin truy vết cân từ CreateBagDto
+                        ScaleDeviceRef      = bag.ScaleDeviceRef?.Trim(),
+                        WeightCaptureMethod = bag.WeightCaptureMethod?.Trim(),
+                        WeighedAt           = bag.WeighedAt,
+                        WeighedBy           = bag.WeighedBy,
                         Contents = new List<PaddyLotBagContent>
                         {
                             new() { LotId = lot.Id, WeightKg = bag.WeightKg, CreatedBy = confirmedById, CreatedDate = now }

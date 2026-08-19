@@ -308,6 +308,17 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
                 .Where(x => visitedReceiptIds.Contains(x.Id) && !x.IsDeleted)
                 .ToListAsync(cancellationToken);
 
+            // W14-J: Load bags của từng lô thu mua để trà về thông tin cân từng bao
+            var purchaseLotIds = receipts.Where(r => r.PaddyLot != null).Select(r => r.PaddyLot!.Id).Distinct().ToList();
+            var purchaseBagsByLot = purchaseLotIds.Count > 0
+                ? (await _context.PaddyLotBags
+                    .AsNoTracking()
+                    .Where(b => purchaseLotIds.Contains(b.LotId) && b.BagKind == "Purchase" && !b.IsDeleted)
+                    .ToListAsync(cancellationToken))
+                    .GroupBy(b => b.LotId)
+                    .ToDictionary(g => g.Key, g => g.ToList())
+                : new Dictionary<int, List<PaddyLotBag>>();
+
             purchasesList = receipts.Select(r => new TraceabilityPurchaseDto
             {
                 ReceiptId = r.Id,
@@ -327,7 +338,21 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
                 ActualWeightKg = r.ActualWeightKg,
                 BagCount = r.BagCount,
                 QualityJson = r.QualityJson,
-                InitialQuality = ParseQualityJson(r.QualityJson)
+                InitialQuality = ParseQualityJson(r.QualityJson),
+                // W14-J: Map từng bao thu mua kèm thông tin cân
+                Bags = r.PaddyLot != null && purchaseBagsByLot.TryGetValue(r.PaddyLot.Id, out var lotBags)
+                    ? lotBags.Select(b => new TraceabilityPurchaseBagDto
+                    {
+                        BagId = b.Id,
+                        BagNo = b.BagNo,
+                        WeightKg = b.WeightKg,
+                        ScaleDeviceRef = b.ScaleDeviceRef,
+                        WeightCaptureMethod = b.WeightCaptureMethod,
+                        WeighedAt = b.WeighedAt,
+                        WeighedBy = b.WeighedBy,
+                        WeighedByName = null // Note: không include User để giảm JOIN; FE dùng WeighedBy để lookup nếu cần
+                    }).ToList()
+                    : new List<TraceabilityPurchaseBagDto>()
             }).ToList();
         }
 
@@ -339,6 +364,8 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
                 .AsNoTracking()
                 .Include(x => x.Inspector)
                 .Include(x => x.PaddyLot)
+                .Include(x => x.BagResults).ThenInclude(br => br.Bag)
+                .Include(x => x.BagResults).ThenInclude(br => br.Inspector)
                 .Where(x => allLotIds.Contains(x.PaddyLotId) && !x.IsDeleted)
                 .OrderBy(x => x.InspectedAt)
                 .ToListAsync(cancellationToken);
@@ -348,6 +375,9 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
                 InspectionId = i.Id,
                 PaddyLotId = i.PaddyLotId,
                 PaddyLotCode = i.PaddyLot?.LotCode,
+                // W14-J: Map InspectionType và CompletedAt
+                InspectionType = i.InspectionType,
+                CompletedAt = i.CompletedAt,
                 InspectedAt = i.InspectedAt,
                 MoisturePercent = i.MoisturePercent,
                 ImpurityPercent = i.ImpurityPercent,
@@ -359,7 +389,23 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
                 ResultName = i.PassedInspection ? "Đạt" : "Không đạt",
                 InspectorId = i.InspectorId,
                 InspectorName = i.Inspector != null ? $"{i.Inspector.LastName} {i.Inspector.FirstName}".Trim() : null,
-                Note = i.Note
+                Note = i.Note,
+                // W14-J: Map kết quả kiểm định từng bao
+                BagResults = i.BagResults.Where(br => !br.IsDeleted).Select(br => new TraceabilityInspectionBagResultDto
+                {
+                    BagResultId = br.Id,
+                    BagId = br.BagId,
+                    BagNo = br.Bag?.BagNo ?? 0,
+                    WeightKg = br.Bag?.WeightKg ?? 0,
+                    MoisturePercent = br.MoisturePercent,
+                    QualityResult = br.QualityResult,
+                    Disposition = br.Disposition,
+                    InspectorId = br.InspectorId,
+                    InspectorName = br.Inspector != null ? $"{br.Inspector.LastName} {br.Inspector.FirstName}".Trim() : null,
+                    InspectedAt = br.InspectedAt,
+                    Handling = br.Handling,
+                    Note = br.Note
+                }).ToList()
             }).ToList();
         }
 
@@ -371,6 +417,8 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
                 .AsNoTracking()
                 .Include(x => x.Status)
                 .Include(x => x.Warehouse)
+                // W14-J: Include Operator để lấy tên người vận hành
+                .Include(x => x.Operator)
                 .Include(x => x.MillingOrderInputs).ThenInclude(i => i.PaddyLot).ThenInclude(l => l.ProductVariant)
                 .Include(x => x.MillingOrderInputs).ThenInclude(i => i.Location)
                 .Include(x => x.MillingOrderOutputs).ThenInclude(o => o.ProductVariant)
@@ -397,6 +445,12 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
                 LossKg = m.LossKg,
                 StartedAt = m.StartedAt,
                 CompletedAt = m.CompletedAt,
+                // W14-J: Map machine/operator/actual yield
+                MachineRef = m.MachineRef,
+                OperatorId = m.OperatorId,
+                OperatorName = m.Operator != null ? $"{m.Operator.LastName} {m.Operator.FirstName}".Trim() : null,
+                ActualPaddyInputKg = m.ActualPaddyInputKg,
+                ActualYieldRate = m.ActualYieldRate,
                 Inputs = m.MillingOrderInputs.Where(i => !i.IsDeleted).Select(i => new TraceabilityMillingInputDto
                 {
                     MillingOrderInputId = i.Id,

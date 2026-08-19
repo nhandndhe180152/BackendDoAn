@@ -8,7 +8,8 @@ public interface IMillingOrderService : IServiceBase<int, CreateMillingOrderDto,
 {
     Task<ApiResponse> ReserveAsync(int id, ReserveMillingOrderDto dto, int userId);
     Task<ApiResponse> SuggestSourcesAsync(int id);
-    Task<ApiResponse> StartAsync(int id, int userId);
+    /// <summary>W14-J: Bắt đầu lệnh xay với MachineRef bắt buộc và OperatorId tùy chọn.</summary>
+    Task<ApiResponse> StartAsync(int id, StartMillingOrderDto dto, int userId);
     Task<ApiResponse> CancelAsync(int id, int userId);
 
     /// <summary>

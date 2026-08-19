@@ -137,5 +137,18 @@ namespace Backend.API.Controllers
             var result = await _service.CompleteAsync(inspectionId, dto);
             return BaseResult(result);
         }
+        // ── W14-J: Moisture Config ────────────────────────────────────────────
+
+        /// <summary>
+        /// Trả về ngưỡng độ ẩm nhập kho từ SystemConfig — FE/mobile dùng để hiển thị cảnh báo, không hard-code.
+        /// Keys: ReceivingQcMoistureMinPercent, ReceivingQcMoistureMaxPercent, StorageQcMoistureWarningPercent.
+        /// </summary>
+        [HttpGet("config")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetMoistureConfigAsync()
+        {
+            var result = await _service.GetMoistureConfigAsync();
+            return BaseResult(result);
+        }
     }
 }

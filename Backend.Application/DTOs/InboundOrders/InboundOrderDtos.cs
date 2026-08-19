@@ -46,6 +46,19 @@ public class CreateBagDto
 
     [Range(0.001, double.MaxValue)]
     public decimal WeightKg { get; set; }
+
+    /// <summary>W14-J: Mã thiết bị cân (ví dụ: "SCALE-01"). Nullable — FE gửi nếu có.</summary>
+    public string? ScaleDeviceRef { get; set; }
+
+    /// <summary>W14-J: Phương thức cân: "SCALE" (cân BLE) hoặc "MANUAL" (nhập tay).</summary>
+    [MaxLength(20)]
+    public string? WeightCaptureMethod { get; set; }
+
+    /// <summary>W14-J: Thời điểm thực hiện cân.</summary>
+    public DateTime? WeighedAt { get; set; }
+
+    /// <summary>W14-J: ID người thực hiện cân.</summary>
+    public int? WeighedBy { get; set; }
 }
 
 public class UpdateInboundOrderDto

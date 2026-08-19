@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -50,8 +51,9 @@ public class OutboundOrderRepository : RepositoryBase<OutboundOrder, int>, IOutb
             .FirstOrDefaultAsync(x => !x.IsDeleted && x.Id == id);
     }
 
-        public async Task<List<OutboundOrder>> GetPagedListAsync(
-        string? keyword, int skip, int take, int? outboundStatusId = null)
+    public async Task<List<OutboundOrder>> GetPagedListAsync(
+        string? keyword, int skip, int take, int? outboundStatusId = null,
+        int? salesOrderId = null, int? warehouseId = null, DateTime? fromDate = null, DateTime? toDate = null)
     {
         var query = _context.OutboundOrders
             .Include(x => x.OutboundOrderStatus)
@@ -60,8 +62,7 @@ public class OutboundOrderRepository : RepositoryBase<OutboundOrder, int>, IOutb
                 .ThenInclude(so => so.Customer)
             .Where(x => !x.IsDeleted);
 
-        query = ApplyFilters(query, keyword, outboundStatusId);
-
+        query = ApplyFilters(query, keyword, outboundStatusId, salesOrderId, warehouseId, fromDate, toDate);
 
         return await query
             .OrderByDescending(x => x.CreatedDate)
@@ -70,11 +71,13 @@ public class OutboundOrderRepository : RepositoryBase<OutboundOrder, int>, IOutb
             .ToListAsync();
     }
 
-    public async Task<int> CountAsync(string? keyword, int? outboundStatusId = null)
+    public async Task<int> CountAsync(
+        string? keyword, int? outboundStatusId = null,
+        int? salesOrderId = null, int? warehouseId = null, DateTime? fromDate = null, DateTime? toDate = null)
     {
         var query = _context.OutboundOrders.Where(x => !x.IsDeleted);
 
-        query = ApplyFilters(query, keyword, outboundStatusId);
+        query = ApplyFilters(query, keyword, outboundStatusId, salesOrderId, warehouseId, fromDate, toDate);
         return await query.CountAsync();
     }
 
@@ -83,14 +86,16 @@ public class OutboundOrderRepository : RepositoryBase<OutboundOrder, int>, IOutb
     /// dữ liệu trả về — nếu hai bên lọc khác nhau thì phân trang sẽ sai.
     /// </summary>
     private static IQueryable<OutboundOrder> ApplyFilters(
-        IQueryable<OutboundOrder> query, string? keyword, int? outboundStatusId)
+        IQueryable<OutboundOrder> query, string? keyword, int? outboundStatusId,
+        int? salesOrderId = null, int? warehouseId = null, DateTime? fromDate = null, DateTime? toDate = null)
     {
-
-
         if (!string.IsNullOrWhiteSpace(keyword))
         {
-            var kw = keyword.ToLower();
+            var kw = keyword.Trim().ToLower();
+            bool isNumber = int.TryParse(kw, out var idVal);
+
             query = query.Where(x =>
+                (isNumber && x.Id == idVal) ||
                 x.SalesOrder.SOCode.ToLower().Contains(kw) ||
                 x.SalesOrder.Customer.Name.ToLower().Contains(kw) ||
                 (x.Note != null && x.Note.ToLower().Contains(kw)));
@@ -101,7 +106,26 @@ public class OutboundOrderRepository : RepositoryBase<OutboundOrder, int>, IOutb
             query = query.Where(x => x.OutboundOrderStatusId == outboundStatusId.Value);
         }
 
-        return query;
+        if (salesOrderId.HasValue && salesOrderId.Value > 0)
+        {
+            query = query.Where(x => x.SalesOrderId == salesOrderId.Value);
+        }
 
+        if (warehouseId.HasValue && warehouseId.Value > 0)
+        {
+            query = query.Where(x => x.WarehouseId == warehouseId.Value);
+        }
+
+        if (fromDate.HasValue)
+        {
+            query = query.Where(x => x.CreatedDate >= fromDate.Value || (x.CompletedDate.HasValue && x.CompletedDate.Value >= fromDate.Value));
+        }
+
+        if (toDate.HasValue)
+        {
+            query = query.Where(x => x.CreatedDate <= toDate.Value || (x.CompletedDate.HasValue && x.CompletedDate.Value <= toDate.Value));
+        }
+
+        return query;
     }
 }

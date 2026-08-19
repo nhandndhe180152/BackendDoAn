@@ -10,6 +10,9 @@ public interface IOutboundOrderService
     Task<ApiResponse> GetByIdAsync(int id);
     Task<ApiResponse> GetAllocationCandidatesAsync(int id);
 
+    /// <summary>W14-H: Lấy danh sách physical bag allocation theo outbound order.</summary>
+    Task<ApiResponse> GetBagAllocationsAsync(int id);
+
     /// <summary>Gắn lot/vị trí cho từng item → PICKING</summary>
     Task<ApiResponse> AllocateAsync(int id, AllocateOutboundDto dto);
 
@@ -37,4 +40,7 @@ public interface IOutboundOrderService
     /// <summary>Hủy OutboundOrder — giải phóng tồn nếu đang PICKING/PACKED</summary>
     Task<ApiResponse> CancelAsync(int id, string? reason = null);
     Task<ApiResponse> ForceUnlockAsync(int id, string reason);
+
+    /// <summary>W14-I: Báo cáo sự cố chất lượng bao vật lý trong lúc pick/pack → QualityHold + tạo QualityInspection</summary>
+    Task<ApiResponse> ReportQualityIssueAsync(int orderId, int bagAllocationId, string? reason);
 }

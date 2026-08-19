@@ -115,6 +115,8 @@ public class MillingOrderServiceTests
         {
             ActualYieldRate = 70m,
             LossKg = 15m,
+            MachineRef = "MILL-TEST-01",
+            OperatorId = 1,
             Outputs = new List<MillingOrderOutputItemDto>
             {
                 new() { OutputWeightKg = 70m, OutputType = "RICE", IsByproduct = false, ProductVariantId = 1, LocationId = 1 },
@@ -190,7 +192,6 @@ public class MillingOrderServiceTests
             .ReturnsAsync(new Backend.Domain.Entities.Inventory { Id = 1, QuantityOnHand = 100m, QuantityReserved = 100m });
         _invRepo.Setup(r => r.UpdateAsync(It.IsAny<Backend.Domain.Entities.Inventory>())).Returns(Task.CompletedTask);
         _invTxRepo.Setup(r => r.CreateWithColumnTotalsAsync(It.IsAny<InventoryTransaction>())).Returns(Task.CompletedTask);
-
         _outputRepo.Setup(r => r.CreateAsync(It.IsAny<MillingOrderOutput>())).Returns(Task.CompletedTask);
         _outputRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
         _alertRepo.Setup(r => r.CreateAsync(It.IsAny<Alert>())).Returns(Task.CompletedTask);
@@ -199,6 +200,9 @@ public class MillingOrderServiceTests
         {
             ActualYieldRate = 70m,
             LossKg = 4m,
+            // W14-J: MachineRef và OperatorId bắt buộc khi hoàn thành
+            MachineRef = "MILL-TEST-01",
+            OperatorId = 1,
             Outputs = new List<MillingOrderOutputItemDto>
             {
                 new() { OutputWeightKg = 70m, OutputType = "RICE", IsByproduct = false, ProductVariantId = 1, LocationId = 1 },
@@ -240,4 +244,145 @@ public class MillingOrderServiceTests
         var result = await Sut().UpdateListAsync(new List<UpdateMillingOrderDto>());
         result.Status.Should().Be(501);
     }
+
+    // ── W14-J Tests ──────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task StartAsync_Returns422_WhenMachineRefIsEmpty()
+    {
+        var dto = new StartMillingOrderDto { MachineRef = "   ", OperatorId = 1 };
+        var result = await Sut().StartAsync(1, dto, 1);
+        result.Status.Should().Be(422);
+        result.Message.Should().Contain("MachineRef");
+    }
+
+    [Fact]
+    public async Task StartAsync_Succeeds_AndSetsMachineRefAndOperatorId()
+    {
+        var order = new Backend.Domain.Entities.MillingOrder
+        {
+            Id = 1,
+            Status = new MillingOrderStatus { Code = LookupCodes.MillingOrderStatus.Reserved }
+        };
+
+        _orderRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<Backend.Domain.Entities.MillingOrder, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<Backend.Domain.Entities.MillingOrder, object>>[]>()))
+             .Returns(new List<Backend.Domain.Entities.MillingOrder> { order }.AsQueryable().BuildMock());
+
+        _statusRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<MillingOrderStatus, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<MillingOrderStatus, object>>[]>()))
+             .ReturnsAsync(new MillingOrderStatus { Id = 2, Code = LookupCodes.MillingOrderStatus.InProgress });
+
+        _orderRepo.Setup(r => r.UpdateAsync(It.IsAny<Backend.Domain.Entities.MillingOrder>())).Returns(Task.CompletedTask);
+        _orderRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
+
+        var dto = new StartMillingOrderDto { MachineRef = "MILL-A1", OperatorId = 5 };
+        var result = await Sut().StartAsync(1, dto, 99);
+
+        result.Status.Should().Be(200);
+        order.MachineRef.Should().Be("MILL-A1");
+        order.OperatorId.Should().Be(5);
+        order.StatusId.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task CompleteMillingOrderAsync_Returns422_WhenMachineRefMissingEverywhere()
+    {
+        var order = new Backend.Domain.Entities.MillingOrder
+        {
+            Id = 1,
+            Status = new MillingOrderStatus { Code = LookupCodes.MillingOrderStatus.InProgress },
+            YieldRateUsed = 0.70m,
+            TotalRiceOutputKg = 70m,
+            MachineRef = null, // Không có trên order
+            OperatorId = 1,
+            MillingOrderInputs = new List<MillingOrderInput>
+            {
+                new() { PaddyLotId = 1, LocationId = 1, ReservedWeightKg = 100m }
+            }
+        };
+
+        _orderRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<Backend.Domain.Entities.MillingOrder, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<Backend.Domain.Entities.MillingOrder, object>>[]>()))
+             .Returns(new List<Backend.Domain.Entities.MillingOrder> { order }.AsQueryable().BuildMock());
+
+        _statusRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<MillingOrderStatus, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<MillingOrderStatus, object>>[]>()))
+             .ReturnsAsync((Expression<Func<MillingOrderStatus, bool>> expr, bool noTracking, Expression<Func<MillingOrderStatus, object>>[] includes) => {
+                 return new MillingOrderStatus { Id = 5, Code = LookupCodes.MillingOrderStatus.Completed };
+             });
+
+        var dto = new CompleteMillingOrderDto
+        {
+            ActualYieldRate = 70m,
+            LossKg = 4m,
+            MachineRef = null, // Không có trên DTO
+            OperatorId = 1,
+            Outputs = new List<MillingOrderOutputItemDto>
+            {
+                new() { OutputWeightKg = 70m, OutputType = "RICE", IsByproduct = false, ProductVariantId = 1, LocationId = 1 }
+            }
+        };
+
+        var result = await Sut().CompleteMillingOrderAsync(1, dto, 1);
+        result.Status.Should().Be(422);
+        result.Message.Should().Contain("MachineRef");
+    }
+
+    [Fact]
+    public async Task CompleteMillingOrderAsync_Returns422_WhenOperatorIdMissingEverywhere()
+    {
+        var order = new Backend.Domain.Entities.MillingOrder
+        {
+            Id = 1,
+            Status = new MillingOrderStatus { Code = LookupCodes.MillingOrderStatus.InProgress },
+            YieldRateUsed = 0.70m,
+            TotalRiceOutputKg = 70m,
+            MachineRef = "MILL-01",
+            OperatorId = null, // Không có trên order
+            MillingOrderInputs = new List<MillingOrderInput>
+            {
+                new() { PaddyLotId = 1, LocationId = 1, ReservedWeightKg = 100m }
+            }
+        };
+
+        _orderRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<Backend.Domain.Entities.MillingOrder, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<Backend.Domain.Entities.MillingOrder, object>>[]>()))
+             .Returns(new List<Backend.Domain.Entities.MillingOrder> { order }.AsQueryable().BuildMock());
+
+        _statusRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<MillingOrderStatus, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<MillingOrderStatus, object>>[]>()))
+             .ReturnsAsync((Expression<Func<MillingOrderStatus, bool>> expr, bool noTracking, Expression<Func<MillingOrderStatus, object>>[] includes) => {
+                 return new MillingOrderStatus { Id = 5, Code = LookupCodes.MillingOrderStatus.Completed };
+             });
+
+        var dto = new CompleteMillingOrderDto
+        {
+            ActualYieldRate = 70m,
+            LossKg = 4m,
+            MachineRef = "MILL-01",
+            OperatorId = null, // Không có trên DTO
+            Outputs = new List<MillingOrderOutputItemDto>
+            {
+                new() { OutputWeightKg = 70m, OutputType = "RICE", IsByproduct = false, ProductVariantId = 1, LocationId = 1 }
+            }
+        };
+
+        var result = await Sut().CompleteMillingOrderAsync(1, dto, 1);
+        result.Status.Should().Be(422);
+        result.Message.Should().Contain("OperatorId");
+    }
 }
+

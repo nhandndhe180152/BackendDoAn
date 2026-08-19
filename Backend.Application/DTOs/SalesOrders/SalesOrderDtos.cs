@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using Backend.Application.DTOs.CustomerFeedbacks;
 
 namespace Backend.Application.DTOs.SalesOrders;
 
@@ -173,8 +174,11 @@ public class SalesOrderDetailDto
     public string? Note { get; set; }
     public string? CancelReason { get; set; }
     public DateTime? CreatedDate { get; set; }
+    public int OutboundCount { get; set; }
+    public int FeedbackCount { get; set; }
     public List<SalesOrderItemDto> Items { get; set; } = new();
     public List<SalesOrderOutboundSummaryDto> OutboundOrders { get; set; } = new();
+    public List<CustomerFeedbackSummaryDto> Feedbacks { get; set; } = new();
 }
 
 public class SalesOrderItemDto
@@ -196,9 +200,12 @@ public class SalesOrderOutboundSummaryDto
     public int OutboundStatusId { get; set; }
     public string OutboundStatusName { get; set; } = null!;
     public string OutboundStatusCode { get; set; } = null!;
+    public int? WarehouseId { get; set; }
+    public string? WarehouseName { get; set; }
     public decimal TotalDispatchedValue { get; set; }
     public decimal TotalDispatchedSaleValue { get; set; }
     public DateTime? CompletedDate { get; set; }
+    public int FeedbackCount { get; set; }
 }
 
 // ═══════════════════════════════ PAGED QUERY ═══════════════════════════════
@@ -212,6 +219,11 @@ public class SalesOrderPagedQuery
 
     /// <summary>Lọc theo kênh bán: DIRECT | WHOLESALE (null/rỗng = tất cả).</summary>
     public string? Channel { get; set; }
+
+    public int? CustomerId { get; set; }
+    public int? WarehouseId { get; set; }
+    public DateTime? FromDate { get; set; }
+    public DateTime? ToDate { get; set; }
 
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 20;

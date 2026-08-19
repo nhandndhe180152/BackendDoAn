@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -31,6 +32,8 @@ public class SalesOrderRepository : RepositoryBase<SalesOrder, int>, ISalesOrder
                     .ThenInclude(pv => pv.Product)
             .Include(x => x.OutboundOrders)
                 .ThenInclude(o => o.OutboundOrderStatus)
+            .Include(x => x.OutboundOrders)
+                .ThenInclude(o => o.Warehouse)
             .Include(x => x.MillingOrders)
                 .ThenInclude(o => o.Status)
             // Tách thành nhiều SELECT theo từng collection để tránh nổ tích Descartes
@@ -40,7 +43,8 @@ public class SalesOrderRepository : RepositoryBase<SalesOrder, int>, ISalesOrder
     }
 
     public async Task<List<SalesOrder>> GetPagedListAsync(
-    string? keyword, int skip, int take, int? statusId = null, string? channel = null)
+        string? keyword, int skip, int take, int? statusId = null, string? channel = null,
+        int? customerId = null, int? warehouseId = null, DateTime? fromDate = null, DateTime? toDate = null)
     {
         var query = _context.SalesOrders
             .Include(x => x.Customer)
@@ -53,7 +57,7 @@ public class SalesOrderRepository : RepositoryBase<SalesOrder, int>, ISalesOrder
                 .ThenInclude(x => x.Status)
             .Where(x => !x.IsDeleted);
 
-        query = ApplyFilters(query, keyword, statusId, channel);
+        query = ApplyFilters(query, keyword, statusId, channel, customerId, warehouseId, fromDate, toDate);
 
         return await query
             .AsSplitQuery()
@@ -63,11 +67,13 @@ public class SalesOrderRepository : RepositoryBase<SalesOrder, int>, ISalesOrder
             .ToListAsync();
     }
 
-    public async Task<int> CountAsync(string? keyword, int? statusId = null, string? channel = null)
+    public async Task<int> CountAsync(
+        string? keyword, int? statusId = null, string? channel = null,
+        int? customerId = null, int? warehouseId = null, DateTime? fromDate = null, DateTime? toDate = null)
     {
         var query = _context.SalesOrders.Where(x => !x.IsDeleted);
 
-        query = ApplyFilters(query, keyword, statusId, channel);
+        query = ApplyFilters(query, keyword, statusId, channel, customerId, warehouseId, fromDate, toDate);
         return await query.CountAsync();
     }
 
@@ -76,10 +82,9 @@ public class SalesOrderRepository : RepositoryBase<SalesOrder, int>, ISalesOrder
     /// dữ liệu trả về — nếu hai bên lọc khác nhau thì phân trang sẽ sai.
     /// </summary>
     private static IQueryable<SalesOrder> ApplyFilters(
-        IQueryable<SalesOrder> query, string? keyword, int? statusId, string? channel)
+        IQueryable<SalesOrder> query, string? keyword, int? statusId, string? channel,
+        int? customerId = null, int? warehouseId = null, DateTime? fromDate = null, DateTime? toDate = null)
     {
-
-
         if (!string.IsNullOrWhiteSpace(keyword))
         {
             var kw = keyword.ToLower();
@@ -100,7 +105,26 @@ public class SalesOrderRepository : RepositoryBase<SalesOrder, int>, ISalesOrder
             query = query.Where(x => x.Channel.ToUpper() == normalized);
         }
 
-        return query;
+        if (customerId.HasValue && customerId.Value > 0)
+        {
+            query = query.Where(x => x.CustomerId == customerId.Value);
+        }
 
+        if (warehouseId.HasValue && warehouseId.Value > 0)
+        {
+            query = query.Where(x => x.WarehouseId == warehouseId.Value);
+        }
+
+        if (fromDate.HasValue)
+        {
+            query = query.Where(x => x.CreatedDate >= fromDate.Value || x.OrderDate >= fromDate.Value);
+        }
+
+        if (toDate.HasValue)
+        {
+            query = query.Where(x => x.CreatedDate <= toDate.Value || x.OrderDate <= toDate.Value);
+        }
+
+        return query;
     }
 }

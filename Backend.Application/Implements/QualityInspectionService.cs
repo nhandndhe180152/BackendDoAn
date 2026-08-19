@@ -1454,18 +1454,19 @@ public class QualityInspectionService : IQualityInspectionService
         if (inspection == null)
             return ApiResponse.NotFound(message: "Không tìm thấy phiếu kiểm tra chất lượng.");
 
-        var bags = await _context.PaddyLotBags
-            .AsNoTracking()
-            .Where(x => x.LotId == inspection.PaddyLotId && !x.IsDeleted)
-            .Include(x => x.Location)
-            .OrderBy(x => x.BagNo)
-            .ToListAsync();
-
-        var bagIds = bags.Select(b => b.Id).ToList();
         var results = await _context.QualityInspectionBagResults
             .AsNoTracking()
-            .Where(x => x.QualityInspectionId == inspectionId && bagIds.Contains(x.BagId) && !x.IsDeleted)
+            .Where(x => x.QualityInspectionId == inspectionId && !x.IsDeleted)
             .Include(x => x.Inspector)
+            .ToListAsync();
+
+        var resultBagIds = results.Select(r => r.BagId).ToList();
+
+        var bags = await _context.PaddyLotBags
+            .AsNoTracking()
+            .Where(x => (x.LotId == inspection.PaddyLotId || resultBagIds.Contains(x.Id)) && !x.IsDeleted)
+            .Include(x => x.Location)
+            .OrderBy(x => x.BagNo)
             .ToListAsync();
 
         var resultMap = results.ToDictionary(r => r.BagId);
@@ -2181,7 +2182,7 @@ public class QualityInspectionService : IQualityInspectionService
     {
         // Lấy InboundOrderStatus "RECEIVING"
         var receivingStatus = await _context.InboundOrderStatuses
-            .FirstOrDefaultAsync(s => s.Name == InboundOrderStatusNames.Receiving && !s.IsDeleted);
+            .FirstOrDefaultAsync(s => (s.Code == InboundOrderStatusNames.Receiving || s.Name == InboundOrderStatusNames.Receiving) && !s.IsDeleted);
         if (receivingStatus == null)
             throw new InvalidOperationException("Không tìm thấy InboundOrderStatus 'RECEIVING'.");
 
@@ -2324,7 +2325,10 @@ public class QualityInspectionService : IQualityInspectionService
     }
 
     /// <summary>
-    /// OutboundException: RELEASE → không block xuất | QUARANTINE → đổi BagKind.
+    /// OutboundException: PASS (Release) → Bag.Status = Stored (giải phóng QualityHold, tiếp tục xuất)
+    ///                   | FAIL (Quarantine) → Bag.Status = Quarantined, BagKind = Quarantine,
+    ///                                         giải phóng active bag allocation → RELEASED,
+    ///                                         giảm Inventory.QuantityReserved để phản ánh đơn xuất bị thiếu hàng.
     /// </summary>
     private async Task FinalizeOutboundExceptionAsync(
         QualityInspection inspection,
@@ -2337,28 +2341,106 @@ public class QualityInspectionService : IQualityInspectionService
         foreach (var bag in bags)
         {
             if (!resultMap.TryGetValue(bag.Id, out var result)) continue;
-            if (result.Disposition != BagDispositionConstants.Quarantine) continue;
 
-            bag.BagKind          = PaddyLotBagKinds.Quarantine;
-            bag.LastModifiedDate = now;
-            bag.UpdatedBy        = userId;
-            _context.PaddyLotBagMovements.Add(new PaddyLotBagMovement
+            if (result.Disposition == BagDispositionConstants.Release)
             {
-                BagId          = bag.Id,
-                MovementType   = PaddyLotBagMovementTypes.QualityQuarantineSplit,
-                FromLocationId = bag.LocationId,
-                ToLocationId   = bag.LocationId,
-                WeightKg       = bag.WeightKg,
-                BeforeWeightKg = bag.WeightKg,
-                AfterWeightKg  = bag.WeightKg,
-                ReferenceType  = InventoryReferenceTypeConstants.QualityInspectionSplit,
-                ReferenceId    = inspection.Id,
-                Note           = $"Cách ly ngoại lệ khi xuất — bao #{bag.BagNo}",
-                CreatedBy      = userId,
-                CreatedDate    = now
-            });
+                // PASS: Khôi phục trạng thái Stored nếu đang ở QualityHold
+                if (bag.Status == PaddyLotBagStatuses.QualityHold)
+                {
+                    bag.Status = PaddyLotBagStatuses.Stored;
+                }
+                bag.LastModifiedDate = now;
+                bag.UpdatedBy        = userId;
+            }
+            else if (result.Disposition == BagDispositionConstants.Quarantine)
+            {
+                // FAIL: Cách ly bao
+                bag.Status           = PaddyLotBagStatuses.Quarantined;
+                bag.BagKind          = PaddyLotBagKinds.Quarantine;
+                bag.LastModifiedDate = now;
+                bag.UpdatedBy        = userId;
+                _context.PaddyLotBagMovements.Add(new PaddyLotBagMovement
+                {
+                    BagId          = bag.Id,
+                    MovementType   = PaddyLotBagMovementTypes.QualityQuarantineSplit,
+                    FromLocationId = bag.LocationId,
+                    ToLocationId   = bag.LocationId,
+                    WeightKg       = bag.WeightKg,
+                    BeforeWeightKg = bag.WeightKg,
+                    AfterWeightKg  = bag.WeightKg,
+                    ReferenceType  = InventoryReferenceTypeConstants.QualityInspectionSplit,
+                    ReferenceId    = inspection.Id,
+                    Note           = $"Cách ly ngoại lệ khi xuất — bao #{bag.BagNo}",
+                    CreatedBy      = userId,
+                    CreatedDate    = now
+                });
+
+                // Giải phóng các phân bổ ACTIVE của bao này
+                var activeAllocs = await _context.PaddyLotBagAllocations
+                    .Where(a => a.BagId == bag.Id && a.Status == PaddyLotBagAllocationStatuses.Active && !a.IsDeleted)
+                    .ToListAsync();
+
+                foreach (var alloc in activeAllocs)
+                {
+                    alloc.Status           = PaddyLotBagAllocationStatuses.Released;
+                    alloc.LastModifiedDate = now;
+                    alloc.UpdatedBy        = userId;
+
+                    // Giảm QuantityReserved tương ứng ở Inventory
+                    if (alloc.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder && alloc.ReferenceItemId.HasValue)
+                    {
+                        var itemAlloc = await _context.OutboundOrderItemAllocations.FindAsync(alloc.ReferenceItemId.Value);
+                        if (itemAlloc != null)
+                        {
+                            var inv = await _context.Inventories.FindAsync(itemAlloc.InventoryId);
+                            if (inv != null && !inv.IsDeleted)
+                            {
+                                inv.QuantityReserved = Math.Max(0, inv.QuantityReserved - alloc.AllocatedWeightKg);
+                                inv.LastModifiedDate = now;
+                                inv.UpdatedBy        = userId;
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         await _context.SaveChangesAsync();
+    }
+
+    // ── W14-J: Moisture Config ───────────────────────────────────────────────
+    /// <summary>
+    /// Đọc ngưỡng độ ẩm nhập kho từ SystemConfig và trả về cho FE/mobile.
+    /// Sử dụng key: ReceivingQcMoistureMinPercent, ReceivingQcMoistureMaxPercent, StorageQcMoistureWarningPercent.
+    /// </summary>
+    public async Task<ApiResponse> GetMoistureConfigAsync()
+    {
+        const string KeyMin     = "ReceivingQcMoistureMinPercent";
+        const string KeyMax     = "ReceivingQcMoistureMaxPercent";
+        const string KeyWarning = "StorageQcMoistureWarningPercent";
+
+        var configs = await _context.SystemConfigs
+            .Where(c => c.ConfigKey == KeyMin || c.ConfigKey == KeyMax || c.ConfigKey == KeyWarning)
+            .ToListAsync();
+
+        decimal? ParseDecimal(string key)
+        {
+            var val = configs.FirstOrDefault(c => c.ConfigKey == key)?.ConfigValue;
+            return decimal.TryParse(val, System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var d)
+                ? d : (decimal?)null;
+        }
+
+        var min     = ParseDecimal(KeyMin);
+        var max     = ParseDecimal(KeyMax);
+        var warning = ParseDecimal(KeyWarning);
+
+        return ApiResponse.Success(new MoistureConfigDto
+        {
+            ReceivingMoistureMinPercent     = min,
+            ReceivingMoistureMaxPercent     = max,
+            StorageQcMoistureWarningPercent = warning,
+            SourceNote                      = "Giá trị được đọc từ SystemConfig — không hard-code tại frontend."
+        });
     }
 }

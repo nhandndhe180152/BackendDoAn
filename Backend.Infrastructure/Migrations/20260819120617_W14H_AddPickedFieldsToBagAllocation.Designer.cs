@@ -4,6 +4,7 @@ using Backend.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Backend.Infrastructure.Migrations
 {
     [DbContext(typeof(BackendContext))]
-    partial class BackendContextModelSnapshot : ModelSnapshot
+    [Migration("20260819120617_W14H_AddPickedFieldsToBagAllocation")]
+    partial class W14H_AddPickedFieldsToBagAllocation
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -458,90 +461,6 @@ namespace Backend.Infrastructure.Migrations
                     b.ToTable("Customer", (string)null);
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.CustomerFeedback", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int?>("CreatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasMaxLength(2000)
-                        .HasColumnType("varchar(2000)");
-
-                    b.Property<string>("FeedbackType")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<DateTime?>("LastModifiedDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int>("OutboundOrderId")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("OutboundOrderItemId")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("PaddyLotBagAllocationId")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("ProductVariantId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("ResolutionNote")
-                        .HasMaxLength(2000)
-                        .HasColumnType("varchar(2000)");
-
-                    b.Property<string>("ResolutionStatus")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<DateTime?>("ResolvedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int?>("ResolvedBy")
-                        .HasColumnType("int");
-
-                    b.Property<int>("SalesOrderId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Severity")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<int?>("UpdatedBy")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OutboundOrderId");
-
-                    b.HasIndex("OutboundOrderItemId");
-
-                    b.HasIndex("PaddyLotBagAllocationId");
-
-                    b.HasIndex("ProductVariantId");
-
-                    b.HasIndex("ResolvedBy");
-
-                    b.HasIndex("SalesOrderId");
-
-                    b.ToTable("CustomerFeedback", (string)null);
-                });
-
             modelBuilder.Entity("Backend.Domain.Entities.CustomerReturnOrder", b =>
                 {
                     b.Property<int>("Id")
@@ -575,9 +494,6 @@ namespace Backend.Infrastructure.Migrations
 
                     b.Property<DateTime>("CreatedDate")
                         .HasColumnType("datetime(6)");
-
-                    b.Property<int?>("CustomerFeedbackId")
-                        .HasColumnType("int");
 
                     b.Property<int?>("CustomerId")
                         .HasColumnType("int");
@@ -631,9 +547,6 @@ namespace Backend.Infrastructure.Migrations
                     b.HasIndex("ApprovedBy");
 
                     b.HasIndex("ConfirmedByUserId");
-
-                    b.HasIndex("CustomerFeedbackId")
-                        .IsUnique();
 
                     b.HasIndex("CustomerId");
 
@@ -3252,9 +3165,6 @@ namespace Backend.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
 
-                    b.Property<string>("ScaleDeviceRef")
-                        .HasColumnType("longtext");
-
                     b.Property<int?>("SourceBagId")
                         .HasColumnType("int");
 
@@ -3271,15 +3181,6 @@ namespace Backend.Infrastructure.Migrations
 
                     b.Property<int?>("UpdatedBy")
                         .HasColumnType("int");
-
-                    b.Property<DateTime?>("WeighedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int?>("WeighedBy")
-                        .HasColumnType("int");
-
-                    b.Property<string>("WeightCaptureMethod")
-                        .HasColumnType("longtext");
 
                     b.Property<decimal>("WeightKg")
                         .HasColumnType("decimal(18,3)");
@@ -6611,53 +6512,6 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("Organization");
                 });
 
-            modelBuilder.Entity("Backend.Domain.Entities.CustomerFeedback", b =>
-                {
-                    b.HasOne("Backend.Domain.Entities.OutboundOrder", "OutboundOrder")
-                        .WithMany()
-                        .HasForeignKey("OutboundOrderId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Backend.Domain.Entities.OutboundOrderItem", "OutboundOrderItem")
-                        .WithMany()
-                        .HasForeignKey("OutboundOrderItemId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Backend.Domain.Entities.PaddyLotBagAllocation", "PaddyLotBagAllocation")
-                        .WithMany()
-                        .HasForeignKey("PaddyLotBagAllocationId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Backend.Domain.Entities.ProductVariant", "ProductVariant")
-                        .WithMany()
-                        .HasForeignKey("ProductVariantId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Backend.Domain.Entities.User", "ResolvedByUser")
-                        .WithMany()
-                        .HasForeignKey("ResolvedBy")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Backend.Domain.Entities.SalesOrder", "SalesOrder")
-                        .WithMany()
-                        .HasForeignKey("SalesOrderId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("OutboundOrder");
-
-                    b.Navigation("OutboundOrderItem");
-
-                    b.Navigation("PaddyLotBagAllocation");
-
-                    b.Navigation("ProductVariant");
-
-                    b.Navigation("ResolvedByUser");
-
-                    b.Navigation("SalesOrder");
-                });
-
             modelBuilder.Entity("Backend.Domain.Entities.CustomerReturnOrder", b =>
                 {
                     b.HasOne("Backend.Domain.Entities.User", "ApprovedByUser")
@@ -6669,11 +6523,6 @@ namespace Backend.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("ConfirmedByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Backend.Domain.Entities.CustomerFeedback", "CustomerFeedback")
-                        .WithOne("CustomerReturnOrder")
-                        .HasForeignKey("Backend.Domain.Entities.CustomerReturnOrder", "CustomerFeedbackId")
-                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("Backend.Domain.Entities.Customer", "Customer")
                         .WithMany()
@@ -6707,8 +6556,6 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("ConfirmedByUser");
 
                     b.Navigation("Customer");
-
-                    b.Navigation("CustomerFeedback");
 
                     b.Navigation("CustomerReturnOrderStatus");
 
@@ -8168,11 +8015,6 @@ namespace Backend.Infrastructure.Migrations
             modelBuilder.Entity("Backend.Domain.Entities.Customer", b =>
                 {
                     b.Navigation("SalesOrders");
-                });
-
-            modelBuilder.Entity("Backend.Domain.Entities.CustomerFeedback", b =>
-                {
-                    b.Navigation("CustomerReturnOrder");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.CustomerReturnOrder", b =>

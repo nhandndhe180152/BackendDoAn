@@ -47,6 +47,18 @@ public class OutboundOrderController : BaseController
         return BaseResult(result);
     }
 
+    /// <summary>
+    /// W14-H: Lấy danh sách physical bag allocation theo phiếu xuất.
+    /// Dùng cho FE/Mobile hiển thị bao nào được phân bổ, trạng thái pick.
+    /// </summary>
+    [HttpGet("{id}/bag-allocations")]
+    [CustomAuthorize(Enums.Menu.OUTBOUND_ORDERS, Enums.Action.READ)]
+    public async Task<IActionResult> GetBagAllocationsAsync(int id)
+    {
+        var result = await _outboundOrderService.GetBagAllocationsAsync(id);
+        return BaseResult(result);
+    }
+
     // ── Commands ─────────────────────────────────────────────────────────
 
     /// <summary>
@@ -134,6 +146,17 @@ public class OutboundOrderController : BaseController
     public async Task<IActionResult> ForceUnlockAsync(int id, [FromBody] ForceUnlockOutboundDto dto)
     {
         var result = await _outboundOrderService.ForceUnlockAsync(id, dto.Reason);
+        return BaseResult(result);
+    }
+
+    /// <summary>
+    /// W14-I: Báo cáo sự cố chất lượng bao vật lý đang phân bổ cho phiếu xuất.
+    /// </summary>
+    [HttpPost("{id}/bag-allocations/{bagAllocationId}/quality-hold")]
+    [CustomAuthorize(Enums.Menu.OUTBOUND_ORDERS, Enums.Action.UPDATE)]
+    public async Task<IActionResult> ReportQualityIssueAsync(int id, int bagAllocationId, [FromBody] OutboundQualityHoldDto? dto)
+    {
+        var result = await _outboundOrderService.ReportQualityIssueAsync(id, bagAllocationId, dto?.Reason);
         return BaseResult(result);
     }
 }

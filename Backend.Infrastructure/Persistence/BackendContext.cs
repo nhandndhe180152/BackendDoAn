@@ -69,6 +69,7 @@ public class BackendContext : DbContext, IApplicationDbContext
     public virtual DbSet<CustomerReturnOrderItem> CustomerReturnOrderItems { get; set; }
     public virtual DbSet<CustomerReturnOrderStatus> CustomerReturnOrderStatuses { get; set; }
     public virtual DbSet<CustomerReturnOrderItemAllocation> CustomerReturnOrderItemAllocations { get; set; }
+    public virtual DbSet<CustomerFeedback> CustomerFeedbacks { get; set; }
     public virtual DbSet<ReturnToSupplierOrder> ReturnToSupplierOrders { get; set; }
     public virtual DbSet<ReturnToSupplierOrderItem> ReturnToSupplierOrderItems { get; set; }
     public virtual DbSet<ReturnToSupplierOrderStatus> ReturnToSupplierOrderStatuses { get; set; }
