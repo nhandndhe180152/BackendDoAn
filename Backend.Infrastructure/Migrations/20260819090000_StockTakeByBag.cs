@@ -1,3 +1,5 @@
+using Backend.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -8,7 +10,14 @@ namespace Backend.Infrastructure.Migrations
     /// Kiểm kê theo BAO: phạm vi phiếu (khu/cột/lô, cờ cách ly), số bao + lý do lệch + chỉnh lý
     /// ở dòng kiểm kê, và bảng StockTakeItemBag ghi kết quả từng bao (đếm, cân, chất lượng, xử lý).
     /// Dùng INFORMATION_SCHEMA để chạy lại được nhiều lần trên MySQL 5.7+.
+    ///
+    /// Migration viết tay nên PHẢI tự khai [DbContext] + [Migration]: EF nhận diện
+    /// migration qua attribute (bình thường nằm ở file .Designer.cs do CLI sinh ra).
+    /// Thiếu attribute thì Database.Migrate() lúc khởi động bỏ qua file này, DB giữ
+    /// bảng cũ và API trả 500 "Unknown column".
     /// </summary>
+    [DbContext(typeof(BackendContext))]
+    [Migration("20260819090000_StockTakeByBag")]
     public partial class StockTakeByBag : Migration
     {
         protected override void Up(MigrationBuilder migrationBuilder)
