@@ -296,6 +296,7 @@ public static class CommonConstants
             { "StockAlertConfig", "Cấu hình cảnh báo tồn kho" },
             { "StockTake", "Kiểm kê kho" },
             { "StockTakeItem", "Chi tiết kiểm kê kho" },
+            { "StockTakeItemBag", "Bao trong phiếu kiểm kê" },
             { "UnitOfMeasure", "Đơn vị tính" },
         };
 

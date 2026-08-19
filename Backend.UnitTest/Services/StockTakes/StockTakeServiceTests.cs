@@ -30,6 +30,20 @@ public class StockTakeServiceTests
     private readonly Mock<INotificationDispatcher> _dispatcher = new();
     private readonly Mock<IApplicationDbContext> _dbContext = new();
 
+    public StockTakeServiceTests()
+    {
+        // Kiểm kê theo BAO: CreateAsync đọc thêm Location (để biết phạm vi có phải
+        // khu cách ly không) và PaddyLotBag (để chụp danh sách bao của cột).
+        // Mock IApplicationDbContext trả null cho DbSet chưa setup → NullReference,
+        // nên cho mặc định RỖNG ở đây; test nào cần dữ liệu thì Setup đè lên.
+        _dbContext.Setup(c => c.Locations)
+            .Returns(new List<Backend.Domain.Entities.Location>()
+                .AsQueryable().BuildMockDbSet().Object);
+        _dbContext.Setup(c => c.PaddyLotBags)
+            .Returns(new List<Backend.Domain.Entities.PaddyLotBag>()
+                .AsQueryable().BuildMockDbSet().Object);
+    }
+
     private StockTakeService Sut() => new(
         _stockTakeRepo.Object, _stockTakeItemRepo.Object, _invTxService.Object,
         _invRepo.Object, _sysConfigRepo.Object, _http.Object, _dispatcher.Object,

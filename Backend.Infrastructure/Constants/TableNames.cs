@@ -56,6 +56,7 @@ public static class TableNames
     public const string StockAlertConfig = nameof(StockAlertConfig);
     public const string StockTake = nameof(StockTake);
     public const string StockTakeItem = nameof(StockTakeItem);
+    public const string StockTakeItemBag = nameof(StockTakeItemBag);
     public const string StockTakeStatus = nameof(StockTakeStatus);
     public const string Supplier = nameof(Supplier);
     public const string UnitOfMeasure = nameof(UnitOfMeasure);

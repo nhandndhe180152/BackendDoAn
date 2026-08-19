@@ -5410,6 +5410,9 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("tinyint(1)");
 
+                    b.Property<bool>("IsQuarantineScope")
+                        .HasColumnType("tinyint(1)");
+
                     b.Property<DateTime?>("LastModifiedDate")
                         .HasColumnType("datetime(6)");
 
@@ -5420,6 +5423,20 @@ namespace Backend.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("ScopeLocationId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ScopePaddyLotId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ScopeType")
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<string>("ScopeZoneName")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
 
                     b.Property<DateTime?>("StartedDate")
                         .HasColumnType("datetime(6)");
@@ -5442,6 +5459,10 @@ namespace Backend.Infrastructure.Migrations
                         .IsUnique()
                         .HasDatabaseName("UX_StockTake_STCode");
 
+                    b.HasIndex("ScopeLocationId");
+
+                    b.HasIndex("ScopePaddyLotId");
+
                     b.HasIndex("StockTakeStatusId");
 
                     b.HasIndex("WarehouseId");
@@ -5459,6 +5480,15 @@ namespace Backend.Infrastructure.Migrations
 
                     b.Property<decimal?>("ActualQuantity")
                         .HasColumnType("decimal(18,3)");
+
+                    b.Property<int?>("AdjustedBagCount")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("AdjustedWeightKg")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<int?>("CountedBagCount")
+                        .HasColumnType("int");
 
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
@@ -5499,11 +5529,18 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<int>("StockTakeId")
                         .HasColumnType("int");
 
+                    b.Property<int>("SystemBagCount")
+                        .HasColumnType("int");
+
                     b.Property<decimal>("SystemQuantity")
                         .HasColumnType("decimal(18,3)");
 
                     b.Property<int?>("UpdatedBy")
                         .HasColumnType("int");
+
+                    b.Property<string>("VarianceReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
 
                     b.HasKey("Id");
 
@@ -5518,6 +5555,117 @@ namespace Backend.Infrastructure.Migrations
                     b.HasIndex("StockTakeId");
 
                     b.ToTable("StockTakeItem", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.StockTakeItemBag", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BagNo")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("Counted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<decimal?>("CountedWeightKg")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Disposition")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("varchar(30)");
+
+                    b.Property<string>("DispositionNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<decimal?>("ImpurityPercent")
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<bool>("IsUnexpected")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("MoldLevel")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<decimal?>("MoisturePercent")
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<string>("PackagingStatus")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int>("PaddyLotBagId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PestLevel")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int>("PickSequence")
+                        .HasColumnType("int");
+
+                    b.Property<string>("QrCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("QualityNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<string>("QualityResult")
+                        .HasMaxLength(30)
+                        .HasColumnType("varchar(30)");
+
+                    b.Property<int>("RestowSequence")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("ScannedByQr")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<int>("StockTakeItemId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SystemStackOrder")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("SystemWeightKg")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<int?>("TargetLocationId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaddyLotBagId");
+
+                    b.HasIndex("TargetLocationId");
+
+                    b.HasIndex("StockTakeItemId", "PaddyLotBagId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_StockTakeItemBag_Item_Bag");
+
+                    b.ToTable("StockTakeItemBag", (string)null);
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.StockTakeStatus", b =>
@@ -7925,6 +8073,16 @@ namespace Backend.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("ApprovedByUserId");
 
+                    b.HasOne("Backend.Domain.Entities.Location", "ScopeLocation")
+                        .WithMany()
+                        .HasForeignKey("ScopeLocationId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Backend.Domain.Entities.PaddyLot", "ScopePaddyLot")
+                        .WithMany()
+                        .HasForeignKey("ScopePaddyLotId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
                     b.HasOne("Backend.Domain.Entities.StockTakeStatus", "StockTakeStatus")
                         .WithMany("StockTakes")
                         .HasForeignKey("StockTakeStatusId")
@@ -7938,6 +8096,10 @@ namespace Backend.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("ApprovedByUser");
+
+                    b.Navigation("ScopeLocation");
+
+                    b.Navigation("ScopePaddyLot");
 
                     b.Navigation("StockTakeStatus");
 
@@ -7979,6 +8141,32 @@ namespace Backend.Infrastructure.Migrations
                     b.Navigation("RecountConfirmedByUser");
 
                     b.Navigation("StockTake");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.StockTakeItemBag", b =>
+                {
+                    b.HasOne("Backend.Domain.Entities.PaddyLotBag", "PaddyLotBag")
+                        .WithMany()
+                        .HasForeignKey("PaddyLotBagId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.StockTakeItem", "StockTakeItem")
+                        .WithMany("Bags")
+                        .HasForeignKey("StockTakeItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Domain.Entities.Location", "TargetLocation")
+                        .WithMany()
+                        .HasForeignKey("TargetLocationId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("PaddyLotBag");
+
+                    b.Navigation("StockTakeItem");
+
+                    b.Navigation("TargetLocation");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.StockTransfer", b =>
@@ -8360,6 +8548,11 @@ namespace Backend.Infrastructure.Migrations
             modelBuilder.Entity("Backend.Domain.Entities.StockTake", b =>
                 {
                     b.Navigation("StockTakeItems");
+                });
+
+            modelBuilder.Entity("Backend.Domain.Entities.StockTakeItem", b =>
+                {
+                    b.Navigation("Bags");
                 });
 
             modelBuilder.Entity("Backend.Domain.Entities.StockTakeStatus", b =>

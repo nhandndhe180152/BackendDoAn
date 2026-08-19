@@ -25,5 +25,20 @@ public class StockTakeConfiguration : IEntityTypeConfiguration<StockTake>
 
         builder.HasIndex(x => x.ApprovedByUserId)
             .HasDatabaseName("IX_StockTake_ApprovedByUserId");
+
+        builder.Property(x => x.ScopeType).HasMaxLength(20);
+        builder.Property(x => x.ScopeZoneName).HasMaxLength(255);
+
+        builder.HasOne(x => x.ScopeLocation)
+            .WithMany()
+            .HasForeignKey(x => x.ScopeLocationId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .IsRequired(false);
+
+        builder.HasOne(x => x.ScopePaddyLot)
+            .WithMany()
+            .HasForeignKey(x => x.ScopePaddyLotId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .IsRequired(false);
     }
 }

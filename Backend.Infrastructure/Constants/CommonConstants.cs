@@ -85,6 +85,7 @@ public static class CommonConstants
             "Inventory",
             "InventoryTransaction",
             "StockTake",
+            "StockTakeItemBag",
             "StockTakeItem",
             "StockTransfer",
             "StockTransferItem",
