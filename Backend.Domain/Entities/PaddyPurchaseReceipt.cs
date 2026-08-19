@@ -31,6 +31,22 @@ public class PaddyPurchaseReceipt : EntityAuditBase<int>
     public string? PriceAdjustReason { get; set; }
     public DateTime ReceiptDate { get; set; }
 
+    // ── W14-G: QC Finance fields ─────────────────────────────────────────────
+    /// <summary>Tổng kg được chấp nhận sau Receiving QC (ACCEPT_NORMAL + ACCEPT_QUARANTINE).</summary>
+    public decimal? AcceptedWeightKg { get; set; }
+
+    /// <summary>Tổng kg bị trả lại sau Receiving QC (REJECT_RETURN).</summary>
+    public decimal? RejectedWeightKg { get; set; }
+
+    /// <summary>Hạn thanh toán — lưu tạm khi ConfirmReceipt, dùng khi post debt sau QC.</summary>
+    public DateTime? DebtDueDate { get; set; }
+
+    /// <summary>Thời điểm hoàn tất Receiving QC và chốt tài chính.</summary>
+    public DateTime? QcFinalizedAt { get; set; }
+
+    /// <summary>UserId người hoàn tất Receiving QC.</summary>
+    public int? QcFinalizedBy { get; set; }
+
     // Navigation
     public virtual Organization? Organization { get; set; }
     public virtual PaddyPurchaseSchedule? Schedule { get; set; }

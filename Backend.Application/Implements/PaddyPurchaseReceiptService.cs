@@ -261,6 +261,15 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                 return ApiResponse.UnprocessableEntity("Hạn thanh toán không được trước ngày hiện tại.");
         }
 
+        // W14-G: Lưu DebtDueDate tạm — công nợ chính thức chỉ được ghi sau khi Receiving QC hoàn tất
+        // để tính đúng trên trọng lượng thực nhận (không bao gồm bao bị trả về).
+        if (dto.DueDate.HasValue)
+        {
+            receipt.DebtDueDate = dto.DueDate.Value.Date;
+            await _receiptRepository.UpdateAsync(receipt);
+            await _receiptRepository.SaveChangesAsync();
+        }
+
         // 2. Tự động sinh mã lô hàng (LotCode): LOT-PADDY-YYYYMMDD-XXXX
         var datePart = now.ToString("yyyyMMdd");
         var baseCode = $"LOT-PADDY-{datePart}";
@@ -345,22 +354,23 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             //    kiểm định (Duyệt đạt / Cách ly) tại màn Chất lượng & cách ly.
             var draftInspection = new QualityInspection
             {
-                PaddyLotId = lot.Id,
-                InspectorId = null,
-                InspectedAt = now,
+                PaddyLotId     = lot.Id,
+                InspectorId    = null,
+                InspectionType = InspectionTypeConstants.Receiving,
+                InspectedAt    = now,
                 PassedInspection = false, // chưa quyết định — phân biệt bằng trạng thái lô AWAITING_QC
                 Note = $"Phiếu kiểm định (chờ nhập kết quả) — lô {lot.LotCode} từ phiếu mua {receipt.ReceiptCode}",
-                CreatedBy = confirmedById,
-                CreatedDate = now
+                CreatedBy      = confirmedById,
+                CreatedDate    = now
             };
             await _qualityInspectionRepository.CreateAsync(draftInspection);
             await _qualityInspectionRepository.SaveChangesAsync();
 
-            // 6. GHI NHẬN CÔNG NỢ (Record Debt) nếu số tiền nợ (DebtAmount) > 0
-            if (receipt.DebtAmount > 0)
-            {
-                await RecordDebtAsync(receipt, dto.DueDate!.Value.Date, confirmedById, now);
-            }
+
+            // 6. CÔNG NỢ — W14-G: KHÔNG ghi công nợ tại đây.
+            //    Debt sẽ được tính và post sau khi Receiving QC hoàn tất (FinalizeFinanceAfterQcAsync),
+            //    dựa trên trọng lượng thực nhận (loại trừ bao bị REJECT_RETURN).
+            //    DebtDueDate đã được lưu ở bước validate ở trên.
 
             // 7. Lịch chỉ chuyển sang WEIGHED; STOCKED chỉ sau khi Inbound xác nhận đủ.
             if (receipt.ScheduleId.HasValue)

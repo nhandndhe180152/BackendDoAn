@@ -1699,6 +1699,8 @@ public class QualityInspectionService : IQualityInspectionService
             {
                 case InspectionTypeConstants.Receiving:
                     await FinalizeReceivingAsync(inspection, bags, bagResults, dto.CompletedBy, now);
+                    // W14-G: chốt tài chính sau Receiving QC (tính theo kg thực nhận)
+                    await FinalizeFinanceAfterQcAsync(inspection, bagResults, dto.CompletedBy, now);
                     break;
                 case InspectionTypeConstants.Storage:
                     await FinalizeStorageAsync(inspection, bags, bagResults, dto.CompletedBy, now);
@@ -1767,11 +1769,177 @@ public class QualityInspectionService : IQualityInspectionService
         return ApiResponse.Success(message: $"Hoàn tất phiếu kiểm tra #{inspectionId} thành công.");
     }
 
+    // ── W14-G: Finance finalization after Receiving QC ───────────────────────
+
+    /// <summary>
+    /// W14-G: Chốt tài chính sau Receiving QC.<br/>
+    /// Tính FinalTotal = AcceptedWeightKg × AgreedPrice, cập nhật receipt và ghi công nợ nhất quán.<br/>
+    /// Case 1: còn nợ nông dân → FARMER PAYABLE + DebtTransaction CHARGE.<br/>
+    /// Case 2: đã trả đủ → không tạo debt.<br/>
+    /// Case 3: trả dư, nông dân phải hoàn lại → FARMER RECEIVABLE + DebtTransaction CHARGE.<br/>
+    /// Dùng DeduplicationKey chống post debt lần 2.
+    /// </summary>
+    private async Task FinalizeFinanceAfterQcAsync(
+        QualityInspection inspection,
+        List<QualityInspectionBagResult> bagResults,
+        int? userId,
+        DateTime now)
+    {
+        if (inspection.PaddyLotId == null) return;
+
+        // Load receipt thông qua root lot
+        var receipt = await _context.PaddyLots
+            .Where(l => l.Id == inspection.PaddyLotId && !l.IsDeleted && l.SourceReceiptId != null)
+            .Join(_context.PaddyPurchaseReceipts,
+                l => l.SourceReceiptId!.Value,
+                r => r.Id,
+                (l, r) => r)
+            .FirstOrDefaultAsync();
+
+        // Chỉ thực hiện khi receipt tồn tại và chưa chốt tài chính trước đó
+        if (receipt == null || receipt.QcFinalizedAt != null) return;
+
+        // ── Tính accepted / rejected weight theo bag disposition ─────────────
+        var bagIds = bagResults.Select(r => r.BagId).ToList();
+        var bagWeights = await _context.PaddyLotBags
+            .Where(b => bagIds.Contains(b.Id) && !b.IsDeleted)
+            .Select(b => new { b.Id, b.WeightKg })
+            .ToListAsync();
+        var weightMap = bagWeights.ToDictionary(b => b.Id, b => b.WeightKg);
+
+        decimal acceptedWeightKg = bagResults
+            .Where(r => r.Disposition == BagDispositionConstants.AcceptNormal
+                     || r.Disposition == BagDispositionConstants.AcceptQuarantine)
+            .Sum(r => weightMap.TryGetValue(r.BagId, out var w) ? w : 0m);
+
+        decimal rejectedWeightKg = bagResults
+            .Where(r => r.Disposition == BagDispositionConstants.RejectReturn)
+            .Sum(r => weightMap.TryGetValue(r.BagId, out var w) ? w : 0m);
+
+        decimal finalTotal = Math.Round(acceptedWeightKg * receipt.AgreedPrice, 2);
+        decimal debtNet    = finalTotal - receipt.PaidAmount; // dương = còn nợ, âm = đã trả dư
+
+        // ── Cập nhật receipt ─────────────────────────────────────────────────
+        receipt.AcceptedWeightKg = acceptedWeightKg;
+        receipt.RejectedWeightKg = rejectedWeightKg;
+        receipt.TotalAmount      = finalTotal;
+        receipt.DebtAmount       = Math.Max(0m, debtNet);
+        receipt.QcFinalizedAt    = now;
+        receipt.QcFinalizedBy    = userId;
+        receipt.LastModifiedDate = now;
+        receipt.UpdatedBy        = userId;
+        // Không đổi ActualWeightKg — vẫn giữ tổng cân ban đầu
+        // Gross total cũ suy ra: ActualWeightKg × AgreedPrice
+
+        await _context.SaveChangesAsync();
+
+        // ── Ghi công nợ theo 3 trường hợp ───────────────────────────────────
+        if (debtNet > 0)
+        {
+            // Case 1: còn nợ nông dân → FARMER PAYABLE
+            await RecordQcDebtAsync(
+                receipt,
+                direction: LookupCodes.DebtDirection.Payable,
+                amount: debtNet,
+                deduplicationKey: $"PADDY_RECEIPT_QC_PAYABLE:{receipt.Id}",
+                refType: "PADDY_RECEIPT_QC_PAYABLE",
+                note: $"Phát sinh nợ sau QC nhận kho — phiếu {receipt.ReceiptCode}, accepted {acceptedWeightKg:F1} kg",
+                userId,
+                now);
+        }
+        else if (debtNet < 0)
+        {
+            // Case 3: trả dư, nông dân phải hoàn lại → FARMER RECEIVABLE
+            decimal refund = Math.Abs(debtNet);
+            await RecordQcDebtAsync(
+                receipt,
+                direction: LookupCodes.DebtDirection.Receivable,
+                amount: refund,
+                deduplicationKey: $"PADDY_RECEIPT_QC_REFUND:{receipt.Id}",
+                refType: "PADDY_RECEIPT_QC_REFUND",
+                note: $"Nông dân hoàn tiền trả dư sau QC — phiếu {receipt.ReceiptCode}, hoàn {refund:N0} VND",
+                userId,
+                now);
+        }
+        // Case 2: debtNet == 0 — không tạo debt
+    }
+
+    /// <summary>
+    /// Tìm hoặc tạo PartyDebt theo direction, ghi DebtTransaction CHARGE với DeduplicationKey chống post lần 2.
+    /// </summary>
+    private async Task RecordQcDebtAsync(
+        PaddyPurchaseReceipt receipt,
+        string direction,
+        decimal amount,
+        string deduplicationKey,
+        string refType,
+        string note,
+        int? userId,
+        DateTime now)
+    {
+        // Idempotency: kiểm tra đã post chưa
+        var existing = await _context.DebtTransactions
+            .FirstOrDefaultAsync(t => t.DeduplicationKey == deduplicationKey && !t.IsDeleted);
+        if (existing != null) return; // đã post trước đó — bỏ qua
+
+        // Tìm hoặc tạo PartyDebt
+        var partyDebt = await _context.PartyDebts
+            .FirstOrDefaultAsync(x =>
+                x.OrganizationId == receipt.OrganizationId &&
+                x.PartyType == "FARMER" &&
+                x.PartyId == receipt.FarmerId &&
+                x.Direction == direction &&
+                !x.IsDeleted);
+
+        if (partyDebt == null)
+        {
+            partyDebt = new PartyDebt
+            {
+                OrganizationId = receipt.OrganizationId,
+                PartyType      = "FARMER",
+                PartyId        = receipt.FarmerId,
+                Direction      = direction,
+                OpeningBalance = 0m,
+                CurrentBalance = 0m,
+                IsActive       = true,
+                CreatedBy      = userId,
+                CreatedDate    = now
+            };
+            _context.PartyDebts.Add(partyDebt);
+            await _context.SaveChangesAsync(); // flush để lấy Id
+        }
+
+        partyDebt.CurrentBalance  += amount;
+        partyDebt.LastModifiedDate = now;
+        partyDebt.UpdatedBy        = userId;
+
+        var tx = new DebtTransaction
+        {
+            PartyDebtId      = partyDebt.Id,
+            TransactionType  = LookupCodes.DebtTransactionType.Charge,
+            Amount           = amount,
+            BalanceAfter     = partyDebt.CurrentBalance,
+            RefType          = refType,
+            RefId            = receipt.Id,
+            TransactionDate  = now,
+            DueDate          = receipt.DebtDueDate,
+            DeduplicationKey = deduplicationKey,
+            Note             = note,
+            CreatedBy        = userId,
+            CreatedDate      = now
+        };
+        _context.DebtTransactions.Add(tx);
+        await _context.SaveChangesAsync();
+    }
+
     // ── Finalize handlers theo InspectionType ────────────────────────────────
 
     /// <summary>
-    /// Receiving: phân loại bag → ACCEPT_NORMAL (giữ nguyên) |
-    /// ACCEPT_QUARANTINE (đổi BagKind sang Quarantine) | REJECT_RETURN (mark Reversed + movement).
+    /// Receiving QC (W14-F): phân loại physical bag → tách child lot đúng BagId,
+    /// cập nhật root lot weight, sinh InboundOrder chỉ cho accepted lots.
+    /// ACCEPT_NORMAL  → root lot (giữ nguyên)
+    /// ACCEPT_QUARANTINE → child lot Q (mới), bag chuyển sang Q lot
+    /// REJECT_RETURN  → child lot R (mới), bag mark Reversed + movement, KHÔNG vào Inbound
     /// </summary>
     private async Task FinalizeReceivingAsync(
         QualityInspection inspection,
@@ -1781,43 +1949,297 @@ public class QualityInspectionService : IQualityInspectionService
     {
         var resultMap = bagResults.ToDictionary(r => r.BagId);
 
-        foreach (var bag in bags)
+        // ── A. Phân nhóm bags theo Disposition ───────────────────────────────
+        var normalBags     = bags.Where(b => resultMap.TryGetValue(b.Id, out var r) && r.Disposition == BagDispositionConstants.AcceptNormal).ToList();
+        var quarantineBags = bags.Where(b => resultMap.TryGetValue(b.Id, out var r) && r.Disposition == BagDispositionConstants.AcceptQuarantine).ToList();
+        var rejectedBags   = bags.Where(b => resultMap.TryGetValue(b.Id, out var r) && r.Disposition == BagDispositionConstants.RejectReturn).ToList();
+
+        // Load root lot (tracking) để cập nhật
+        var rootLot = await _context.PaddyLots
+            .Include(l => l.Status)
+            .FirstOrDefaultAsync(l => l.Id == inspection.PaddyLotId && !l.IsDeleted);
+        if (rootLot == null)
+            throw new InvalidOperationException($"Không tìm thấy lô gốc PaddyLotId={inspection.PaddyLotId}.");
+
+        // Load receipt để tạo InboundOrder
+        var receipt = rootLot.SourceReceiptId.HasValue
+            ? await _context.PaddyPurchaseReceipts
+                .FirstOrDefaultAsync(r => r.Id == rootLot.SourceReceiptId.Value && !r.IsDeleted)
+            : null;
+
+        // ── B. Tạo child Quarantine lot (nếu có quarantine bags) ─────────────
+        PaddyLot? quarantineChildLot = null;
+        if (quarantineBags.Count > 0)
         {
-            if (!resultMap.TryGetValue(bag.Id, out var result)) continue;
+            var qStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.Quarantine && !x.IsDeleted)
+                ?? throw new InvalidOperationException("Không tìm thấy LotStatus 'QUARANTINE'.");
 
-            switch (result.Disposition)
+            // Sinh LotCode duy nhất: {root}-Q1, -Q2, ...
+            int qIdx = 1;
+            string qCode = $"{rootLot.LotCode}-Q{qIdx}";
+            while (await _context.PaddyLots.AnyAsync(x => x.LotCode == qCode && x.OrganizationId == rootLot.OrganizationId))
+                qCode = $"{rootLot.LotCode}-Q{++qIdx}";
+
+            quarantineChildLot = new PaddyLot
             {
-                case BagDispositionConstants.AcceptNormal:
-                    // Giữ nguyên — không cần action
-                    break;
+                OrganizationId    = rootLot.OrganizationId,
+                LotCode           = qCode,
+                LotType           = rootLot.LotType,
+                ProductVariantId  = rootLot.ProductVariantId,
+                RiceVarietyId     = rootLot.RiceVarietyId,
+                StatusId          = qStatus.Id,
+                SourceReceiptId   = rootLot.SourceReceiptId,
+                WarehouseId       = rootLot.WarehouseId,
+                InboundDate       = rootLot.InboundDate,
+                InitialWeightKg   = quarantineBags.Sum(b => b.WeightKg),
+                RemainingWeightKg = 0m,
+                CostPricePerKg    = rootLot.CostPricePerKg,
+                QualityStatus     = QualityStatusConstants.Failed,
+                QrCode            = "PL-" + Guid.NewGuid().ToString("N").ToUpper(),
+                ParentLotId       = rootLot.Id,
+                CreatedBy         = userId,
+                CreatedDate       = now
+            };
+            _context.PaddyLots.Add(quarantineChildLot);
+            await _context.SaveChangesAsync(); // flush để lấy Id
 
-                case BagDispositionConstants.AcceptQuarantine:
-                    bag.BagKind          = PaddyLotBagKinds.Quarantine;
-                    bag.LastModifiedDate = now;
-                    bag.UpdatedBy        = userId;
-                    break;
+            // Chuyển quarantine bags + content sang child lot Q
+            foreach (var bag in quarantineBags)
+            {
+                bag.LotId         = quarantineChildLot.Id;
+                bag.BagKind       = PaddyLotBagKinds.Quarantine;
+                bag.LastModifiedDate = now;
+                bag.UpdatedBy     = userId;
 
-                case BagDispositionConstants.RejectReturn:
-                    bag.Status           = PaddyLotBagStatuses.Reversed;
-                    bag.LastModifiedDate = now;
-                    bag.UpdatedBy        = userId;
-                    _context.PaddyLotBagMovements.Add(new PaddyLotBagMovement
-                    {
-                        BagId          = bag.Id,
-                        MovementType   = PaddyLotBagMovementTypes.QualityRejectReturn,
-                        FromLocationId = bag.LocationId,
-                        ToLocationId   = null,
-                        WeightKg       = bag.WeightKg,
-                        BeforeWeightKg = bag.WeightKg,
-                        AfterWeightKg  = 0,
-                        ReferenceType  = InventoryReferenceTypeConstants.QualityInspectionSplit,
-                        ReferenceId    = inspection.Id,
-                        Note           = $"Trả lại nhà cung cấp — bao #{bag.BagNo}",
-                        CreatedBy      = userId,
-                        CreatedDate    = now
-                    });
-                    break;
+                // Cập nhật PaddyLotBagContent.LotId
+                var contents = await _context.PaddyLotBagContents
+                    .Where(c => c.BagId == bag.Id && !c.IsDeleted)
+                    .ToListAsync();
+                foreach (var c in contents)
+                {
+                    c.LotId          = quarantineChildLot.Id;
+                    c.LastModifiedDate = now;
+                    c.UpdatedBy      = userId;
+                }
+
+                _context.PaddyLotBagMovements.Add(new PaddyLotBagMovement
+                {
+                    BagId          = bag.Id,
+                    MovementType   = PaddyLotBagMovementTypes.QualityQuarantineSplit,
+                    FromLocationId = bag.LocationId,
+                    ToLocationId   = null,
+                    WeightKg       = bag.WeightKg,
+                    BeforeWeightKg = bag.WeightKg,
+                    AfterWeightKg  = bag.WeightKg,
+                    ReferenceType  = InventoryReferenceTypeConstants.QualityInspectionSplit,
+                    ReferenceId    = inspection.Id,
+                    Note           = $"Tách cách ly sau QC nhận kho — bao #{bag.BagNo}",
+                    CreatedBy      = userId,
+                    CreatedDate    = now
+                });
             }
+        }
+
+        // ── C. Tạo child Rejected lot (nếu có rejected bags) ─────────────────
+        PaddyLot? rejectedChildLot = null;
+        if (rejectedBags.Count > 0)
+        {
+            var rStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.RejectedReturn && !x.IsDeleted)
+                ?? throw new InvalidOperationException("Không tìm thấy LotStatus 'REJECTED_RETURN'.");
+
+            int rIdx = 1;
+            string rCode = $"{rootLot.LotCode}-R{rIdx}";
+            while (await _context.PaddyLots.AnyAsync(x => x.LotCode == rCode && x.OrganizationId == rootLot.OrganizationId))
+                rCode = $"{rootLot.LotCode}-R{++rIdx}";
+
+            rejectedChildLot = new PaddyLot
+            {
+                OrganizationId    = rootLot.OrganizationId,
+                LotCode           = rCode,
+                LotType           = rootLot.LotType,
+                ProductVariantId  = rootLot.ProductVariantId,
+                RiceVarietyId     = rootLot.RiceVarietyId,
+                StatusId          = rStatus.Id,
+                SourceReceiptId   = rootLot.SourceReceiptId,
+                WarehouseId       = rootLot.WarehouseId,
+                InboundDate       = rootLot.InboundDate,
+                InitialWeightKg   = rejectedBags.Sum(b => b.WeightKg),
+                RemainingWeightKg = 0m,
+                CostPricePerKg    = rootLot.CostPricePerKg,
+                QualityStatus     = QualityStatusConstants.Failed,
+                QrCode            = "PL-" + Guid.NewGuid().ToString("N").ToUpper(),
+                ParentLotId       = rootLot.Id,
+                CreatedBy         = userId,
+                CreatedDate       = now
+            };
+            _context.PaddyLots.Add(rejectedChildLot);
+            await _context.SaveChangesAsync();
+
+            // Chuyển rejected bags + content sang child lot R
+            foreach (var bag in rejectedBags)
+            {
+                bag.LotId         = rejectedChildLot.Id;
+                bag.Status        = PaddyLotBagStatuses.Reversed;
+                bag.LastModifiedDate = now;
+                bag.UpdatedBy     = userId;
+
+                var contents = await _context.PaddyLotBagContents
+                    .Where(c => c.BagId == bag.Id && !c.IsDeleted)
+                    .ToListAsync();
+                foreach (var c in contents)
+                {
+                    c.LotId          = rejectedChildLot.Id;
+                    c.LastModifiedDate = now;
+                    c.UpdatedBy      = userId;
+                }
+
+                _context.PaddyLotBagMovements.Add(new PaddyLotBagMovement
+                {
+                    BagId          = bag.Id,
+                    MovementType   = PaddyLotBagMovementTypes.QualityRejectReturn,
+                    FromLocationId = bag.LocationId,
+                    ToLocationId   = null,
+                    WeightKg       = bag.WeightKg,
+                    BeforeWeightKg = bag.WeightKg,
+                    AfterWeightKg  = 0,
+                    ReferenceType  = InventoryReferenceTypeConstants.QualityInspectionSplit,
+                    ReferenceId    = inspection.Id,
+                    Note           = $"Trả lại nhà cung cấp sau QC — bao #{bag.BagNo}",
+                    CreatedBy      = userId,
+                    CreatedDate    = now
+                });
+            }
+        }
+
+        // ── D. Cập nhật root lot ──────────────────────────────────────────────
+        if (normalBags.Count > 0)
+        {
+            // Có normal bags → root lot giữ normal bags, chuyển sang PendingInbound
+            var pendingStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.PendingInbound && !x.IsDeleted);
+            rootLot.InitialWeightKg   = normalBags.Sum(b => b.WeightKg);
+            rootLot.RemainingWeightKg = 0m;
+            if (pendingStatus != null) rootLot.StatusId = pendingStatus.Id;
+        }
+        else if (quarantineBags.Count > 0)
+        {
+            // Không có normal, có quarantine → root trở thành quarantine accepted group
+            var qStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.Quarantine && !x.IsDeleted);
+            rootLot.InitialWeightKg   = quarantineBags.Sum(b => b.WeightKg);
+            rootLot.RemainingWeightKg = 0m;
+            if (qStatus != null) rootLot.StatusId = qStatus.Id;
+            // Bags đã được move sang quarantineChildLot, nhưng root cần đại diện Q lot
+            // Thực ra root lot không có bags → chuyển root sang PendingInbound với weight 0 là sai
+            // → root lot giữ Q status với weight = quarantine bags (nhưng bags đã move sang child)
+            // → Tốt nhất: root lot = REJECTED hoặc DEPLETED, inbound chỉ từ child Q
+            // → Theo kế hoạch: root có thể trở thành Q accepted group
+            rootLot.QualityStatus = QualityStatusConstants.Failed;
+        }
+        else
+        {
+            // 100% reject → root lot = REJECTED_RETURN
+            var rStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.RejectedReturn && !x.IsDeleted);
+            rootLot.InitialWeightKg   = 0m;
+            rootLot.RemainingWeightKg = 0m;
+            if (rStatus != null) rootLot.StatusId = rStatus.Id;
+        }
+
+        rootLot.LastModifiedDate = now;
+        rootLot.UpdatedBy        = userId;
+
+        await _context.SaveChangesAsync();
+
+        // ── E. Tạo InboundOrder cho accepted lots ─────────────────────────────
+        // normalBags → root lot (nếu normalBags.Count > 0)
+        // quarantineBags → quarantineChildLot (nếu tồn tại)
+        // rejectedBags → KHÔNG tạo InboundOrder
+        if (normalBags.Count > 0 || quarantineChildLot != null)
+        {
+            await CreateReceiptInboundOrderAsync(
+                rootLot,
+                receipt,
+                normalBags,
+                quarantineChildLot,
+                quarantineBags,
+                userId,
+                now);
+        }
+    }
+
+    /// <summary>
+    /// Tạo InboundOrder từ phiếu mua lúa sau khi hoàn tất Receiving QC.
+    /// Mỗi accepted lot (normal root + quarantine child) tạo 1 InboundOrderItem.
+    /// Rejected lots KHÔNG được tạo line.
+    /// </summary>
+    private async Task CreateReceiptInboundOrderAsync(
+        PaddyLot rootLot,
+        PaddyPurchaseReceipt? receipt,
+        List<PaddyLotBag> normalBags,
+        PaddyLot? quarantineChildLot,
+        List<PaddyLotBag> quarantineBags,
+        int? userId,
+        DateTime now)
+    {
+        // Lấy InboundOrderStatus "RECEIVING"
+        var receivingStatus = await _context.InboundOrderStatuses
+            .FirstOrDefaultAsync(s => s.Name == InboundOrderStatusNames.Receiving && !s.IsDeleted);
+        if (receivingStatus == null)
+            throw new InvalidOperationException("Không tìm thấy InboundOrderStatus 'RECEIVING'.");
+
+        var order = new InboundOrder
+        {
+            WarehouseId             = rootLot.WarehouseId,
+            InboundOrderStatusId    = receivingStatus.Id,
+            PaddyPurchaseReceiptId  = rootLot.SourceReceiptId,
+            SourceType              = "RECEIPT",
+            OrganizationId          = rootLot.OrganizationId,
+            POCode                  = receipt != null ? $"RECEIPT-{receipt.ReceiptCode}" : $"QC-LOT-{rootLot.LotCode}",
+            Note                    = $"Phiếu nhập kho tự động sau QC nhận kho — lô {rootLot.LotCode}",
+            TotalAssetValue         = receipt?.TotalAmount ?? 0m,
+            ExpectedDate            = now,
+            CreatedBy               = userId,
+            CreatedDate             = now
+        };
+        _context.InboundOrders.Add(order);
+        await _context.SaveChangesAsync(); // flush để lấy order.Id
+
+        // Line 1: Normal bags (root lot) — nếu có
+        if (normalBags.Count > 0)
+        {
+            var normalWeightKg = normalBags.Sum(b => b.WeightKg);
+            _context.InboundOrderItems.Add(new InboundOrderItem
+            {
+                InboundOrderId   = order.Id,
+                ProductVariantId = rootLot.ProductVariantId,
+                PaddyLotId       = rootLot.Id,
+                QuantityOrdered  = normalWeightKg,
+                QuantityReceived = 0m,
+                UnitCostPrice    = rootLot.CostPricePerKg,
+                ExpectedWeightKg = normalWeightKg,
+                ActualWeightKg   = normalWeightKg,
+                Note             = $"Normal — {normalBags.Count} bao, {normalWeightKg:F1} kg",
+                CreatedBy        = userId,
+                CreatedDate      = now
+            });
+        }
+
+        // Line 2: Quarantine bags (child lot Q) — nếu có
+        if (quarantineChildLot != null && quarantineBags.Count > 0)
+        {
+            var qWeightKg = quarantineBags.Sum(b => b.WeightKg);
+            _context.InboundOrderItems.Add(new InboundOrderItem
+            {
+                InboundOrderId   = order.Id,
+                ProductVariantId = quarantineChildLot.ProductVariantId,
+                PaddyLotId       = quarantineChildLot.Id,
+                QuantityOrdered  = qWeightKg,
+                QuantityReceived = 0m,
+                UnitCostPrice    = quarantineChildLot.CostPricePerKg,
+                ExpectedWeightKg = qWeightKg,
+                ActualWeightKg   = qWeightKg,
+                Note             = $"Cách ly — {quarantineBags.Count} bao, {qWeightKg:F1} kg",
+                CreatedBy        = userId,
+                CreatedDate      = now
+            });
         }
 
         await _context.SaveChangesAsync();
