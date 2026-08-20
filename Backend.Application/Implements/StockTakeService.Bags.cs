@@ -514,10 +514,24 @@ public partial class StockTakeService
     {
         var locations = await _context.Locations.AsNoTracking()
             .Where(x => !x.IsDeleted && x.IsActive && x.WarehouseId == warehouseId
-                        && !x.IsOutboundStaging && x.IsQuarantine == wantQuarantine
+                        && !x.IsOutboundStaging && x.OutboundLockOrderId == null
+                        && x.IsQuarantine == wantQuarantine
                         && (!excludeLocationId.HasValue || x.Id != excludeLocationId.Value))
             .ToListAsync();
         if (locations.Count == 0) return new List<StockTakeBagTargetSuggestionDto>();
+
+        // Danh mục cho phép CHỈ ràng buộc với cột thường (khu nhận). Ô cách ly chứa hàng lỗi đa dạng.
+        if (!wantQuarantine && productVariantId.HasValue)
+        {
+            int? productCategoryId = await _context.ProductVariants.AsNoTracking()
+                .Where(x => x.Id == productVariantId.Value)
+                .Select(x => (int?)x.Product.ProductCategoryId)
+                .FirstOrDefaultAsync();
+            locations = locations
+                .Where(x => !x.AllowedCategoryId.HasValue || x.AllowedCategoryId.Value == productCategoryId)
+                .ToList();
+            if (locations.Count == 0) return new List<StockTakeBagTargetSuggestionDto>();
+        }
 
         var locationIds = locations.Select(x => x.Id).ToList();
         var occupancy = await _context.Inventories.AsNoTracking()
@@ -1171,6 +1185,40 @@ public partial class StockTakeService
                     return $"Bao #{row.BagNo}: vị trí đích phải là ô CÁCH LY.";
                 if (!wantQuarantine && target.IsQuarantine)
                     return $"Bao #{row.BagNo}: vị trí đích phải là cột THƯỜNG.";
+
+                // Nếu ô đích (người dùng chọn / gợi ý cũ) đã bị chiếm bởi SKU khác trong cột một-loại,
+                // hoặc sai danh mục cho phép → tự chọn lại ô hợp lệ để không cất nhầm cột (self-healing).
+                var singleTypeConflict = !wantQuarantine
+                    && target.IsSingleTypeColumn && target.CurrentOccupancy > 0
+                    && target.CurrentProductVariantId.HasValue
+                    && target.CurrentProductVariantId.Value != variantId;
+                var categoryConflict = false;
+                if (!wantQuarantine && !singleTypeConflict && target.AllowedCategoryId.HasValue)
+                {
+                    var targetCategoryId = await _context.ProductVariants.AsNoTracking()
+                        .Where(x => x.Id == variantId)
+                        .Select(x => (int?)x.Product.ProductCategoryId)
+                        .FirstOrDefaultAsync();
+                    categoryConflict = target.AllowedCategoryId.Value != targetCategoryId;
+                }
+                if (singleTypeConflict || categoryConflict)
+                {
+                    var alternative = await ResolveDefaultTargetLocationAsync(
+                        stockTake.WarehouseId, variantId, item.LocationId,
+                        row.CountedWeightKg ?? row.SystemWeightKg, wantQuarantine);
+                    if (alternative.HasValue && alternative.Value != row.TargetLocationId.Value)
+                    {
+                        row.TargetLocationId = alternative;
+                        row.LastModifiedDate = now;
+                        row.UpdatedBy = userId;
+                    }
+                    else if (!alternative.HasValue)
+                    {
+                        return wantQuarantine
+                            ? $"Bao #{row.BagNo}: kho chưa có ô cách ly nào còn chỗ. Vui lòng giải phóng hoặc thêm ô cách ly trước."
+                            : $"Bao #{row.BagNo}: không còn cột thường phù hợp để cất lại (ô đang chứa loại khác/đầy). Vui lòng chọn vị trí khác.";
+                    }
+                }
             }
         }
 

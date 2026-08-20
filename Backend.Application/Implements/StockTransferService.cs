@@ -459,13 +459,14 @@ public class StockTransferService : IStockTransferService
                 if (duplicated)
                     throw new InvalidOperationException($"Dòng hàng {item.Id} đã được nhận trước đó.");
 
-                // Người dùng chưa chọn vị trí đích → backend tự gợi ý ô lưu tốt nhất ở kho đích.
-                if (!item.ToLocationId.HasValue)
+                // Giữ vị trí đích nếu còn hợp lệ; nếu chưa chọn / đã bị chiếm bởi SKU khác / đầy
+                // thì tự chọn lại ô hợp lệ → tránh lỗi "Vị trí đích đang chứa một loại sản phẩm khác".
+                var resolvedTo = await EnsureUsableDestinationAsync(
+                    item.ToLocationId, transfer.ToWarehouseId, item.ProductVariantId, item.WeightKg);
+                if (resolvedTo != item.ToLocationId)
                 {
-                    item.ToLocationId = await ResolveDestinationLocationAsync(
-                        transfer.ToWarehouseId, item.ProductVariantId, item.WeightKg);
-                    if (item.ToLocationId.HasValue)
-                        await _itemRepository.UpdateAsync(item);
+                    item.ToLocationId = resolvedTo;
+                    await _itemRepository.UpdateAsync(item);
                 }
 
                 await ValidateDestinationLocationAsync(
@@ -1007,66 +1008,108 @@ public class StockTransferService : IStockTransferService
     }
 
     /// <summary>
-    /// Chọn ô cách ly ở kho nguồn cho bao không đạt chất lượng.
-    /// Ưu tiên ô đang chứa cùng loại hàng, rồi ô còn nhiều chỗ, rồi độ ưu tiên.
+    /// Một ô có DÙNG ĐƯỢC để cất hàng không — khớp CHÍNH XÁC bộ điều kiện của
+    /// ValidateDestinationLocationAsync để gợi ý không bao giờ chọn ô sẽ bị từ chối khi nhận:
+    /// đúng kho, đúng loại khu (thường/cách ly), không phải khu chờ xuất, không bị khóa xuất,
+    /// đủ sức chứa, không phải cột một-loại đang chứa SKU khác, và khớp danh mục cho phép.
     /// </summary>
-    private async Task<Location> ResolveQuarantineLocationAsync(
-        int sourceWarehouseId, int productVariantId, decimal weightKg, int? preferredLocationId)
+    private static bool IsLocationUsableForStorage(
+        Location loc, int warehouseId, int productVariantId, decimal weightKg,
+        int? productCategoryId, bool wantQuarantine)
     {
-        if (preferredLocationId.HasValue)
+        if (loc == null) return false;
+        if (!loc.IsActive || loc.IsDeleted) return false;
+        if (loc.WarehouseId != warehouseId) return false;
+        if (loc.IsQuarantine != wantQuarantine) return false;
+        if (loc.IsOutboundStaging) return false;
+        if (loc.OutboundLockOrderId.HasValue) return false;
+        if (loc.MaxCapacity.HasValue && loc.CurrentOccupancy + weightKg > loc.MaxCapacity.Value) return false;
+        // Cột một-loại & ràng buộc danh mục CHỈ áp cho cột thường (khu nhận hàng). Ô cách ly được
+        // phép chứa nhiều SKU lỗi khác nhau nên bỏ qua hai điều kiện này khi wantQuarantine.
+        if (!wantQuarantine)
         {
-            var chosen = await _locationRepository.GetByIdAsync(preferredLocationId.Value)
-                ?? throw new InvalidOperationException($"Không tìm thấy ô cách ly ID {preferredLocationId.Value}.");
-            if (!chosen.IsActive || chosen.WarehouseId != sourceWarehouseId || !chosen.IsQuarantine)
-                throw new InvalidOperationException("Ô cách ly đã chọn không hợp lệ hoặc không thuộc khu cách ly kho nguồn.");
-            if (chosen.MaxCapacity.HasValue && chosen.CurrentOccupancy + weightKg > chosen.MaxCapacity.Value)
-                throw new InvalidOperationException($"Ô cách ly {chosen.SlotCode} không đủ sức chứa cho bao cần cách ly.");
-            return chosen;
+            if (loc.IsSingleTypeColumn && loc.CurrentOccupancy > 0 &&
+                loc.CurrentProductVariantId.HasValue && loc.CurrentProductVariantId.Value != productVariantId) return false;
+            if (loc.AllowedCategoryId.HasValue && loc.AllowedCategoryId.Value != productCategoryId) return false;
         }
+        return true;
+    }
 
-        var candidates = await _locationRepository.FindByCondition(x =>
-                x.WarehouseId == sourceWarehouseId && x.IsActive && !x.IsDeleted &&
-                x.IsQuarantine && !x.IsOutboundStaging && x.OutboundLockOrderId == null)
-            .ToListAsync();
-
-        var best = candidates
-            .Where(x => !x.MaxCapacity.HasValue || x.CurrentOccupancy + weightKg <= x.MaxCapacity.Value)
-            .OrderByDescending(x => x.CurrentProductVariantId == productVariantId)
-            .ThenByDescending(x => x.MaxCapacity.HasValue ? x.MaxCapacity.Value - x.CurrentOccupancy : decimal.MaxValue / 2)
-            .ThenBy(x => x.Priority)
-            .FirstOrDefault();
-
-        return best ?? throw new InvalidOperationException(
-            "Không có ô cách ly khả dụng ở kho nguồn để đưa bao không đạt chất lượng vào. Vui lòng tạo/giải phóng ô cách ly.");
+    private async Task<int?> GetProductCategoryIdAsync(int productVariantId)
+    {
+        var variant = await _productVariantRepository.GetByIdAsync(productVariantId, x => x.Product);
+        return variant?.Product?.ProductCategoryId;
     }
 
     /// <summary>
-    /// Gợi ý ô LƯU (giống cách kiểm kê gợi ý vị trí): ưu tiên ô đang chứa cùng loại hàng,
-    /// rồi ô còn nhiều chỗ, rồi độ ưu tiên. Bỏ khu chờ xuất / ô đang khóa xuất / cột một-loại
-    /// đang chứa SKU khác. <paramref name="wantQuarantine"/>=true → chỉ khu cách ly; false → cột thường.
+    /// Gợi ý ô LƯU (giống cách kiểm kê gợi ý vị trí): CHỈ trả về ô thật sự dùng được (đã lọc đủ:
+    /// sức chứa + cột một-loại + danh mục), ưu tiên ô đang chứa cùng loại hàng → ô trống hẳn →
+    /// ô còn nhiều chỗ → độ ưu tiên. <paramref name="wantQuarantine"/>=true → khu cách ly; false → cột thường.
     /// </summary>
     private async Task<List<Location>> BuildStorageSuggestionsAsync(
         int warehouseId, int productVariantId, decimal weightKg, bool wantQuarantine)
     {
+        var categoryId = await GetProductCategoryIdAsync(productVariantId);
         var candidates = await _locationRepository.FindByCondition(x =>
                 x.WarehouseId == warehouseId && x.IsActive && !x.IsDeleted &&
                 x.IsQuarantine == wantQuarantine && !x.IsOutboundStaging && x.OutboundLockOrderId == null)
             .ToListAsync();
 
         return candidates
-            .Where(x => !x.MaxCapacity.HasValue || x.CurrentOccupancy + weightKg <= x.MaxCapacity.Value)
-            .Where(x => !(x.IsSingleTypeColumn && x.CurrentOccupancy > 0 &&
-                          x.CurrentProductVariantId.HasValue && x.CurrentProductVariantId != productVariantId))
+            .Where(x => IsLocationUsableForStorage(x, warehouseId, productVariantId, weightKg, categoryId, wantQuarantine))
             .OrderByDescending(x => x.CurrentProductVariantId == productVariantId)
+            .ThenByDescending(x => x.CurrentOccupancy <= 0m)
             .ThenByDescending(x => x.MaxCapacity.HasValue ? x.MaxCapacity.Value - x.CurrentOccupancy : decimal.MaxValue / 2)
             .ThenBy(x => x.Priority)
             .ToList();
     }
 
-    /// <summary>Vị trí đích mặc định khi người dùng chưa chọn (backend tự chọn ô tốt nhất).</summary>
+    /// <summary>Vị trí đích mặc định khi người dùng chưa chọn (backend tự chọn ô tốt nhất còn dùng được).</summary>
     private async Task<int?> ResolveDestinationLocationAsync(int toWarehouseId, int productVariantId, decimal weightKg)
         => (await BuildStorageSuggestionsAsync(toWarehouseId, productVariantId, weightKg, wantQuarantine: false))
             .FirstOrDefault()?.Id;
+
+    /// <summary>
+    /// Đảm bảo vị trí đích DÙNG ĐƯỢC lúc nhận hàng: giữ ô người dùng đã chọn nếu còn hợp lệ,
+    /// nếu không (đã bị chiếm bởi SKU khác / đầy / sai danh mục) thì tự chọn lại ô hợp lệ khác —
+    /// nhờ vậy không còn văng lỗi "Vị trí đích đang chứa một loại sản phẩm khác".
+    /// </summary>
+    private async Task<int?> EnsureUsableDestinationAsync(
+        int? chosenLocationId, int toWarehouseId, int productVariantId, decimal weightKg)
+    {
+        if (chosenLocationId.HasValue)
+        {
+            var chosen = await _locationRepository.GetByIdAsync(chosenLocationId.Value);
+            var categoryId = await GetProductCategoryIdAsync(productVariantId);
+            if (chosen != null &&
+                IsLocationUsableForStorage(chosen, toWarehouseId, productVariantId, weightKg, categoryId, wantQuarantine: false))
+                return chosenLocationId;
+        }
+        return await ResolveDestinationLocationAsync(toWarehouseId, productVariantId, weightKg);
+    }
+
+    /// <summary>
+    /// Chọn ô cách ly ở kho nguồn cho bao không đạt chất lượng. Ưu tiên ô người dùng đã chọn nếu
+    /// còn hợp lệ; nếu không thì tự chọn ô cách ly tốt nhất còn dùng được (không văng lỗi giữa chừng).
+    /// </summary>
+    private async Task<Location> ResolveQuarantineLocationAsync(
+        int sourceWarehouseId, int productVariantId, decimal weightKg, int? preferredLocationId)
+    {
+        if (preferredLocationId.HasValue)
+        {
+            var chosen = await _locationRepository.GetByIdAsync(preferredLocationId.Value);
+            var categoryId = await GetProductCategoryIdAsync(productVariantId);
+            if (chosen != null &&
+                IsLocationUsableForStorage(chosen, sourceWarehouseId, productVariantId, weightKg, categoryId, wantQuarantine: true))
+                return chosen;
+            // Ô người dùng chọn không còn hợp lệ → tự chọn ô cách ly khác thay vì báo lỗi.
+        }
+
+        var best = (await BuildStorageSuggestionsAsync(sourceWarehouseId, productVariantId, weightKg, wantQuarantine: true))
+            .FirstOrDefault();
+        return best ?? throw new InvalidOperationException(
+            "Không có ô cách ly khả dụng ở kho nguồn để đưa bao không đạt chất lượng vào. Vui lòng tạo/giải phóng ô cách ly.");
+    }
 
     private static List<LocationSuggestionDto> ToLocationSuggestions(IEnumerable<Location> locations)
         => locations.Select(loc => new LocationSuggestionDto
