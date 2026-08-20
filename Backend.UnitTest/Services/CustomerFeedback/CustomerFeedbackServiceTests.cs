@@ -110,7 +110,8 @@ namespace Backend.UnitTest.Services.CustomerFeedback
         {
             var dto = new ResolveCustomerFeedbackDto
             {
-                ResolutionStatus = CustomerFeedbackStatus.Resolved
+                ResolutionStatus = CustomerFeedbackStatus.Resolved,
+                ResolutionNote = "Đã giải quyết"
             };
 
             _contextMock.Setup(c => c.CustomerFeedbacks)
@@ -119,6 +120,35 @@ namespace Backend.UnitTest.Services.CustomerFeedback
             var result = await _service.ResolveAsync(99, dto);
 
             Assert.Equal((int)System.Net.HttpStatusCode.NotFound, result.Status);
+        }
+
+        [Fact]
+        public async Task ResolveAsync_MissingResolutionNote_ReturnsBadRequest()
+        {
+            var dto = new ResolveCustomerFeedbackDto
+            {
+                ResolutionStatus = CustomerFeedbackStatus.Resolved,
+                ResolutionNote = ""
+            };
+
+            var result = await _service.ResolveAsync(1, dto);
+
+            Assert.Equal((int)System.Net.HttpStatusCode.BadRequest, result.Status);
+            Assert.Contains("Ghi chú xử lý là bắt buộc", result.Message);
+        }
+
+        [Fact]
+        public async Task ResolveAsync_InvalidStatus_ReturnsBadRequest()
+        {
+            var dto = new ResolveCustomerFeedbackDto
+            {
+                ResolutionStatus = "INVALID_STATUS"
+            };
+
+            var result = await _service.ResolveAsync(1, dto);
+
+            Assert.Equal((int)System.Net.HttpStatusCode.BadRequest, result.Status);
+            Assert.Contains("Trạng thái không hợp lệ", result.Message);
         }
 
         [Fact]
