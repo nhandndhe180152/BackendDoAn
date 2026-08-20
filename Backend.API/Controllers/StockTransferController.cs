@@ -65,6 +65,17 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        /// <summary>Gợi ý ô lưu ở kho đích (chọn ô tốt nhất) để tự điền vị trí đích.</summary>
+        [HttpGet("destination-suggestions")]
+        public async Task<IActionResult> GetDestinationSuggestionsAsync(
+            [FromQuery] int toWarehouseId,
+            [FromQuery] int productVariantId,
+            [FromQuery] decimal weightKg = 0)
+        {
+            var result = await _service.GetDestinationSuggestionsAsync(toWarehouseId, productVariantId, weightKg);
+            return BaseResult(result);
+        }
+
         [HttpPost]
         public async Task<IActionResult> CreateAsync([FromBody] CreateStockTransferDto dto)
         {

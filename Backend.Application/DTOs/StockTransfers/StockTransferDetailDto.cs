@@ -92,6 +92,13 @@ public class SourceColumnBagDto
     public string? LotQualityStatus { get; set; }
 }
 
+/// <summary>Gợi ý ô lưu ở kho đích (chỉ tên vị trí — không kèm điểm/lý do chấm).</summary>
+public class LocationSuggestionDto
+{
+    public int LocationId { get; set; }
+    public string? LocationName { get; set; }
+}
+
 public class StockTransferSummaryDto
 {
     public int TransfersThisMonth { get; set; }

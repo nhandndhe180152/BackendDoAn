@@ -459,6 +459,15 @@ public class StockTransferService : IStockTransferService
                 if (duplicated)
                     throw new InvalidOperationException($"Dòng hàng {item.Id} đã được nhận trước đó.");
 
+                // Người dùng chưa chọn vị trí đích → backend tự gợi ý ô lưu tốt nhất ở kho đích.
+                if (!item.ToLocationId.HasValue)
+                {
+                    item.ToLocationId = await ResolveDestinationLocationAsync(
+                        transfer.ToWarehouseId, item.ProductVariantId, item.WeightKg);
+                    if (item.ToLocationId.HasValue)
+                        await _itemRepository.UpdateAsync(item);
+                }
+
                 await ValidateDestinationLocationAsync(
                     item.ToLocationId,
                     transfer.ToWarehouseId,
@@ -1027,6 +1036,45 @@ public class StockTransferService : IStockTransferService
 
         return best ?? throw new InvalidOperationException(
             "Không có ô cách ly khả dụng ở kho nguồn để đưa bao không đạt chất lượng vào. Vui lòng tạo/giải phóng ô cách ly.");
+    }
+
+    /// <summary>
+    /// Gợi ý ô LƯU ở kho đích (giống cách kiểm kê gợi ý vị trí): ưu tiên ô đang chứa
+    /// cùng loại hàng, rồi ô còn nhiều chỗ, rồi độ ưu tiên. Bỏ khu cách ly / khu chờ xuất /
+    /// ô đang bị khóa xuất / cột một-loại đang chứa SKU khác.
+    /// </summary>
+    private async Task<List<Location>> BuildDestinationSuggestionsAsync(
+        int toWarehouseId, int productVariantId, decimal weightKg)
+    {
+        var candidates = await _locationRepository.FindByCondition(x =>
+                x.WarehouseId == toWarehouseId && x.IsActive && !x.IsDeleted &&
+                !x.IsQuarantine && !x.IsOutboundStaging && x.OutboundLockOrderId == null)
+            .ToListAsync();
+
+        return candidates
+            .Where(x => !x.MaxCapacity.HasValue || x.CurrentOccupancy + weightKg <= x.MaxCapacity.Value)
+            .Where(x => !(x.IsSingleTypeColumn && x.CurrentOccupancy > 0 &&
+                          x.CurrentProductVariantId.HasValue && x.CurrentProductVariantId != productVariantId))
+            .OrderByDescending(x => x.CurrentProductVariantId == productVariantId)
+            .ThenByDescending(x => x.MaxCapacity.HasValue ? x.MaxCapacity.Value - x.CurrentOccupancy : decimal.MaxValue / 2)
+            .ThenBy(x => x.Priority)
+            .ToList();
+    }
+
+    /// <summary>Vị trí đích mặc định khi người dùng chưa chọn (backend tự chọn ô tốt nhất).</summary>
+    private async Task<int?> ResolveDestinationLocationAsync(int toWarehouseId, int productVariantId, decimal weightKg)
+        => (await BuildDestinationSuggestionsAsync(toWarehouseId, productVariantId, weightKg)).FirstOrDefault()?.Id;
+
+    /// <summary>Danh sách gợi ý ô lưu ở kho đích cho picker (chỉ tên vị trí, không chấm điểm/lý do).</summary>
+    public async Task<ApiResponse> GetDestinationSuggestionsAsync(int toWarehouseId, int productVariantId, decimal weightKg)
+    {
+        var suggestions = await BuildDestinationSuggestionsAsync(toWarehouseId, productVariantId, weightKg);
+        var result = suggestions.Select(loc => new LocationSuggestionDto
+        {
+            LocationId = loc.Id,
+            LocationName = FormatLocation(loc) ?? loc.SlotCode ?? $"Ô #{loc.Id}"
+        }).ToList();
+        return ApiResponse.Success(result);
     }
 
     /// <summary>Danh sách bao ở ĐỈNH cột nguồn có thể chọn để chuyển kho (picker theo BAO).</summary>

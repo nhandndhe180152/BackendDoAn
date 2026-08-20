@@ -8,6 +8,7 @@ public interface IStockTransferService : IServiceBase<int, CreateStockTransferDt
 {
     Task<ApiResponse> GetSummaryAsync();
     Task<ApiResponse> GetSourceBagsAsync(int fromWarehouseId, int fromLocationId, int? productVariantId);
+    Task<ApiResponse> GetDestinationSuggestionsAsync(int toWarehouseId, int productVariantId, decimal weightKg);
     Task<ApiResponse> DispatchAsync(int id, int dispatchedById);
     Task<ApiResponse> ReceiveAsync(int id, int receivedById);
     Task<ApiResponse> CancelAsync(int id, string? reason, int cancelledById);
