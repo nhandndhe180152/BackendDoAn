@@ -297,72 +297,75 @@ public partial class StockTakeService
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Nguồn dữ liệu cho dropdown chọn phạm vi kiểm kê. Chỉ liệt kê nơi ĐANG CÓ BAO,
-    /// vì kiểm kê theo bao mà cột rỗng thì không có gì để đếm.
+    /// Nguồn dữ liệu cho dropdown chọn CỘT cần kiểm kê.
+    ///
+    /// Lấy theo TỒN KHO (Inventory) — đúng nguồn mà <see cref="CreateAsync"/> dùng
+    /// để dựng dòng phiếu — rồi hợp nhất thêm cột đang có bao. Trước đây chỉ liệt kê
+    /// cột có PaddyLotBag nên bỏ sót gần hết: dữ liệu cũ nhập kho khi chưa quản lý
+    /// theo bao chỉ có dòng Inventory, không có bao nào.
     /// </summary>
     public async Task<ApiResponse> GetScopeOptionsAsync(int warehouseId, bool? quarantineOnly)
     {
-        var query = _context.PaddyLotBags.AsNoTracking()
-            .Include(x => x.Location)
-            .Include(x => x.Lot).ThenInclude(x => x.ProductVariant)
+        var inventoryRows = await _context.Inventories.AsNoTracking()
+            .Where(x => !x.IsDeleted
+                        && x.WarehouseId == warehouseId
+                        && x.LocationId != null
+                        && x.QuantityOnHand > 0)
+            .Select(x => new { LocationId = x.LocationId!.Value, x.QuantityOnHand })
+            .ToListAsync();
+
+        var bagRows = await _context.PaddyLotBags.AsNoTracking()
             .Where(x => !x.IsDeleted
                         && x.Status == PaddyLotBagStatuses.Stored
+                        && x.LocationId != null
                         && x.Location != null
-                        && !x.Location.IsDeleted
-                        && !x.Location.IsOutboundStaging
-                        && x.Location.WarehouseId == warehouseId);
+                        && x.Location.WarehouseId == warehouseId)
+            .Select(x => new { LocationId = x.LocationId!.Value, x.WeightKg })
+            .ToListAsync();
 
-        if (quarantineOnly == true) query = query.Where(x => x.Location!.IsQuarantine);
-        else if (quarantineOnly == false) query = query.Where(x => !x.Location!.IsQuarantine);
+        var locationIds = inventoryRows.Select(x => x.LocationId)
+            .Concat(bagRows.Select(x => x.LocationId))
+            .Distinct()
+            .ToList();
+        if (locationIds.Count == 0)
+            return ApiResponse.Success(new StockTakeScopeOptionsDto());
 
-        var bags = await query.ToListAsync();
+        var locations = await _context.Locations.AsNoTracking()
+            .Where(x => !x.IsDeleted && !x.IsOutboundStaging && locationIds.Contains(x.Id))
+            .ToListAsync();
+
+        if (quarantineOnly == true) locations = locations.Where(x => x.IsQuarantine).ToList();
+        else if (quarantineOnly == false) locations = locations.Where(x => !x.IsQuarantine).ToList();
+
+        var inventoryByLocation = inventoryRows
+            .GroupBy(x => x.LocationId)
+            .ToDictionary(g => g.Key, g => g.Sum(x => x.QuantityOnHand));
+        var bagsByLocation = bagRows
+            .GroupBy(x => x.LocationId)
+            .ToDictionary(g => g.Key, g => new { Count = g.Count(), Kg = g.Sum(x => x.WeightKg) });
 
         var result = new StockTakeScopeOptionsDto
         {
-            Zones = bags
-                .GroupBy(x => new { x.Location!.ZoneName, x.Location.IsQuarantine })
-                .Select(g => new StockTakeZoneOptionDto
+            Columns = locations
+                .Select(loc =>
                 {
-                    ZoneName = g.Key.ZoneName,
-                    IsQuarantine = g.Key.IsQuarantine,
-                    ColumnCount = g.Select(x => x.LocationId).Distinct().Count(),
-                    BagCount = g.Count(),
-                    TotalWeightKg = g.Sum(x => x.WeightKg)
-                })
-                .OrderBy(x => x.ZoneName)
-                .ToList(),
-
-            // Gom theo Id chứ không theo tham chiếu entity: AsNoTracking sinh nhiều
-            // instance khác nhau cho cùng một hàng nên GroupBy theo object sẽ tách nhóm.
-            Columns = bags
-                .GroupBy(x => x.LocationId!.Value)
-                .Select(g => new StockTakeColumnOptionDto
-                {
-                    LocationId = g.Key,
-                    ZoneName = g.First().Location!.ZoneName,
-                    LocationCode = g.First().Location!.SlotCode,
-                    QrCode = g.First().Location!.QrCode,
-                    IsQuarantine = g.First().Location!.IsQuarantine,
-                    BagCount = g.Count(),
-                    TotalWeightKg = g.Sum(x => x.WeightKg)
+                    var hasBags = bagsByLocation.TryGetValue(loc.Id, out var bags);
+                    return new StockTakeColumnOptionDto
+                    {
+                        LocationId = loc.Id,
+                        ZoneName = loc.ZoneName,
+                        LocationCode = loc.SlotCode,
+                        QrCode = loc.QrCode,
+                        IsQuarantine = loc.IsQuarantine,
+                        BagCount = hasBags ? bags!.Count : 0,
+                        // Ưu tiên kg theo tồn kho: đó mới là con số phiếu kiểm kê
+                        // đối chiếu; kg trong bao chỉ dùng khi chưa có dòng tồn.
+                        TotalWeightKg = inventoryByLocation.TryGetValue(loc.Id, out var kg)
+                            ? kg
+                            : (hasBags ? bags!.Kg : 0m)
+                    };
                 })
                 .OrderBy(x => x.ZoneName).ThenBy(x => x.LocationCode)
-                .ToList(),
-
-            Lots = bags
-                .GroupBy(x => x.LotId)
-                .Select(g => new StockTakeLotOptionDto
-                {
-                    PaddyLotId = g.Key,
-                    LotCode = g.First().Lot.LotCode,
-                    QrCode = g.First().Lot.QrCode,
-                    ProductVariantName = g.First().Lot.ProductVariant?.Name,
-                    BagCount = g.Count(),
-                    TotalWeightKg = g.Sum(x => x.WeightKg),
-                    ColumnCount = g.Select(x => x.LocationId).Distinct().Count(),
-                    IsQuarantine = g.All(x => x.Location!.IsQuarantine)
-                })
-                .OrderBy(x => x.LotCode)
                 .ToList()
         };
 
@@ -370,68 +373,102 @@ public partial class StockTakeService
     }
 
     /// <summary>
-    /// Quét QR dán trên KHU/CỘT hoặc trên LÔ để chọn phạm vi kiểm kê,
-    /// thay cho việc mò trong dropdown khi đang đứng giữa kho.
+    /// Quét QR dán trên CỘT để chọn nhanh phạm vi kiểm kê.
+    ///
+    /// Tem QR mang payload <c>STOCKLITE|{WarehouseId}|LOCATION|{QrCode}</c>
+    /// (xem QRCodeService) nên phải tách lấy phần mã ở cuối.
+    ///
+    /// KHÔNG lọc theo kho khi tìm: quét đúng tem mà app đang mở kho khác thì báo
+    /// "không khớp" là sai và rất khó hiểu — cứ trả về cột kèm kho của nó để màn
+    /// hình tự chuyển kho theo.
     /// </summary>
     public async Task<ApiResponse> ResolveScopeQrAsync(string qrCode, int? warehouseId)
     {
-        var code = qrCode?.Trim();
-        if (string.IsNullOrWhiteSpace(code))
+        var raw = qrCode?.Trim();
+        if (string.IsNullOrWhiteSpace(raw))
             return ApiResponse.BadRequest(message: "Mã QR không được để trống.");
 
+        var (entityType, code) = ParseQrPayload(raw);
+
+        if (entityType != null && entityType != "LOCATION")
+            return ApiResponse.Success(new StockTakeScopeResolveDto
+            {
+                Matched = false,
+                Message = entityType == "BAG"
+                    ? "Đây là tem của một BAO. Kiểm kê chọn phạm vi bằng tem dán trên CỘT."
+                    : "Tem này không phải tem cột. Vui lòng quét tem QR dán trên cột."
+            });
+
         var location = await _context.Locations.AsNoTracking()
-            .FirstOrDefaultAsync(x => !x.IsDeleted && x.QrCode == code
-                                      && (!warehouseId.HasValue || x.WarehouseId == warehouseId.Value));
-        if (location != null)
-        {
-            var bags = await _context.PaddyLotBags.AsNoTracking()
-                .Where(x => !x.IsDeleted && x.Status == PaddyLotBagStatuses.Stored && x.LocationId == location.Id)
-                .ToListAsync();
+            .FirstOrDefaultAsync(x => !x.IsDeleted && x.QrCode == code);
 
+        // Máy quét/bàn phím có thể trả mã lẫn hoa-thường; so lại một lần nữa
+        // trước khi kết luận là không khớp.
+        location ??= await _context.Locations.AsNoTracking()
+            .FirstOrDefaultAsync(x => !x.IsDeleted && x.QrCode != null
+                                      && x.QrCode.ToLower() == code.ToLower());
+
+        if (location == null)
             return ApiResponse.Success(new StockTakeScopeResolveDto
             {
-                Matched = true,
-                ScopeType = "COLUMN",
-                Message = $"Cột {location.SlotCode ?? location.Id.ToString()} — khu {location.ZoneName}.",
-                ZoneName = location.ZoneName,
-                LocationId = location.Id,
-                LocationCode = location.SlotCode,
-                WarehouseId = location.WarehouseId,
-                IsQuarantine = location.IsQuarantine,
-                BagCount = bags.Count,
-                TotalWeightKg = bags.Sum(x => x.WeightKg)
+                Matched = false,
+                Message = $"Mã QR '{code}' không khớp cột nào trong hệ thống."
             });
-        }
 
-        var lot = await _context.PaddyLots.AsNoTracking()
-            .FirstOrDefaultAsync(x => !x.IsDeleted && (x.QrCode == code || x.LotCode == code)
-                                      && (!warehouseId.HasValue || x.WarehouseId == warehouseId.Value));
-        if (lot != null)
-        {
-            var lotBags = await _context.PaddyLotBags.AsNoTracking()
-                .Include(x => x.Location)
-                .Where(x => !x.IsDeleted && x.Status == PaddyLotBagStatuses.Stored && x.LotId == lot.Id)
-                .ToListAsync();
-
+        if (location.IsOutboundStaging)
             return ApiResponse.Success(new StockTakeScopeResolveDto
             {
-                Matched = true,
-                ScopeType = "LOT",
-                Message = $"Lô {lot.LotCode} — {lotBags.Select(x => x.LocationId).Distinct().Count()} cột.",
-                PaddyLotId = lot.Id,
-                LotCode = lot.LotCode,
-                WarehouseId = lot.WarehouseId,
-                IsQuarantine = lotBags.Count > 0 && lotBags.All(x => x.Location != null && x.Location.IsQuarantine),
-                BagCount = lotBags.Count,
-                TotalWeightKg = lotBags.Sum(x => x.WeightKg)
+                Matched = false,
+                Message = "Khu chờ xuất không kiểm kê được vì hàng đang gắn với phiếu xuất."
             });
-        }
+
+        var bagCount = await _context.PaddyLotBags.AsNoTracking()
+            .CountAsync(x => !x.IsDeleted && x.Status == PaddyLotBagStatuses.Stored
+                             && x.LocationId == location.Id);
+        var stockKg = await _context.Inventories.AsNoTracking()
+            .Where(x => !x.IsDeleted && x.LocationId == location.Id)
+            .SumAsync(x => (decimal?)x.QuantityOnHand) ?? 0m;
+
+        var columnName = location.SlotCode ?? location.Id.ToString();
+        var message = warehouseId.HasValue && warehouseId.Value != location.WarehouseId
+            ? $"Cột {columnName} — khu {location.ZoneName} (thuộc kho khác, đã tự chuyển kho)."
+            : $"Cột {columnName} — khu {location.ZoneName}.";
 
         return ApiResponse.Success(new StockTakeScopeResolveDto
         {
-            Matched = false,
-            Message = "Mã QR không khớp cột/khu hay lô nào trong kho."
+            Matched = true,
+            ScopeType = ScopeTypes.Column,
+            Message = message,
+            ZoneName = location.ZoneName,
+            LocationId = location.Id,
+            LocationCode = location.SlotCode,
+            WarehouseId = location.WarehouseId,
+            IsQuarantine = location.IsQuarantine,
+            BagCount = bagCount,
+            TotalWeightKg = stockKg
         });
+    }
+
+    /// <summary>
+    /// Tách payload tem QR. Trả về (null, chuỗi gốc) khi không đúng định dạng
+    /// STOCKLITE — coi như người dùng gõ thẳng mã của cột.
+    ///
+    /// Có bước giải mã %xx: payload chứa ký tự '|', đi qua query string mà lỡ bị
+    /// encode hai lần thì chuỗi tới nơi vẫn còn %7C và không tách ra được.
+    /// </summary>
+    private static (string? EntityType, string Code) ParseQrPayload(string raw)
+    {
+        var value = raw;
+        if (value.Contains('%'))
+        {
+            try { value = Uri.UnescapeDataString(value).Trim(); }
+            catch (UriFormatException) { /* giữ nguyên chuỗi gốc */ }
+        }
+
+        var parts = value.Split('|');
+        if (parts.Length == 4 && string.Equals(parts[0], "STOCKLITE", StringComparison.OrdinalIgnoreCase))
+            return (parts[2].Trim().ToUpperInvariant(), parts[3].Trim());
+        return (null, value);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1139,6 +1176,16 @@ public partial class StockTakeService
 
         return null;
     }
+}
+
+/// <summary>
+/// Phạm vi chụp phiếu kiểm kê. Kho chỉ dán QR theo CỘT và thủ kho dỡ hàng theo cột
+/// nên nghiệp vụ rút gọn còn đúng một giá trị; các phạm vi cũ (khu / lô / toàn kho)
+/// chỉ còn tồn tại trong phiếu đã tạo trước đây.
+/// </summary>
+public static class ScopeTypes
+{
+    public const string Column = "COLUMN";
 }
 
 /// <summary>Kết quả đánh giá chất lượng của một bao khi kiểm kê.</summary>

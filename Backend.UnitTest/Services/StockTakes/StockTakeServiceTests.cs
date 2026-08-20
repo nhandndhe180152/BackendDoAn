@@ -42,6 +42,9 @@ public class StockTakeServiceTests
         _dbContext.Setup(c => c.PaddyLotBags)
             .Returns(new List<Backend.Domain.Entities.PaddyLotBag>()
                 .AsQueryable().BuildMockDbSet().Object);
+        _dbContext.Setup(c => c.Inventories)
+            .Returns(new List<Backend.Domain.Entities.Inventory>()
+                .AsQueryable().BuildMockDbSet().Object);
     }
 
     private StockTakeService Sut() => new(
@@ -450,8 +453,12 @@ public class StockTakeServiceTests
         result.Status.Should().Be(201);
     }
 
+    /// <summary>
+    /// Kiểm kê chỉ còn theo CỘT, nhưng vẫn phải loại vị trí Chờ xuất: hàng ở đó
+    /// đã gắn với phiếu xuất và bao đã đóng gói nên không được điều chỉnh tay.
+    /// </summary>
     [Fact]
-    public async Task CreateAsync_WarehouseScope_ExcludesOutboundStagingInventory()
+    public async Task CreateAsync_ColumnScope_ExcludesOutboundStagingInventory()
     {
         var normalLocation = new Location
         {
@@ -504,7 +511,8 @@ public class StockTakeServiceTests
         var result = await Sut().CreateAsync(new CreateStockTakeDto
         {
             WarehouseId = 1,
-            ScopeType = "WAREHOUSE"
+            ScopeType = "COLUMN",
+            LocationId = normalLocation.Id
         });
 
         result.Status.Should().Be(201);
@@ -512,6 +520,48 @@ public class StockTakeServiceTests
         created!.StockTakeItems.Should().ContainSingle();
         created.StockTakeItems.Single().LocationId.Should().Be(normalLocation.Id);
         created.StockTakeItems.Should().NotContain(item => item.LocationId == stagingLocation.Id);
+
+        // Chọn thẳng vị trí Chờ xuất thì không dựng được phiếu: hàng ở đó đã gắn
+        // với phiếu xuất và bao đã đóng gói, không được điều chỉnh bằng kiểm kê.
+        var stagingResult = await Sut().CreateAsync(new CreateStockTakeDto
+        {
+            WarehouseId = 1,
+            ScopeType = "COLUMN",
+            LocationId = stagingLocation.Id
+        });
+
+        stagingResult.Status.Should().Be(422);
+    }
+
+    [Theory]
+    [InlineData("WAREHOUSE")]
+    [InlineData("ZONE")]
+    [InlineData("LOT")]
+    [InlineData("SKU")]
+    public async Task CreateAsync_NonColumnScope_IsRejected(string scopeType)
+    {
+        // Kho chỉ dán QR theo cột và thủ kho dỡ hàng theo cột nên phạm vi khác
+        // không còn dựng được phiếu mới.
+        var result = await Sut().CreateAsync(new CreateStockTakeDto
+        {
+            WarehouseId = 1,
+            ScopeType = scopeType,
+            LocationId = 7
+        });
+
+        result.Status.Should().Be(400);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ColumnScopeWithoutLocation_IsRejected()
+    {
+        var result = await Sut().CreateAsync(new CreateStockTakeDto
+        {
+            WarehouseId = 1,
+            ScopeType = "COLUMN"
+        });
+
+        result.Status.Should().Be(400);
     }
 
     [Fact]

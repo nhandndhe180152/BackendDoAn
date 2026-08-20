@@ -135,12 +135,24 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
-        /// <summary>Quét QR dán trên khu/cột hoặc lô để chọn nhanh phạm vi kiểm kê.</summary>
+        /// <summary>Quét QR dán trên cột để chọn nhanh phạm vi kiểm kê.</summary>
         [HttpGet("scope-resolve")]
         [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.READ)]
         public async Task<IActionResult> ResolveScopeQrAsync([FromQuery] string qrCode, [FromQuery] int? warehouseId)
         {
             var result = await _stockTakeService.ResolveScopeQrAsync(qrCode, warehouseId);
+            return BaseResult(result);
+        }
+
+        /// <summary>
+        /// Bản POST của scope-resolve — app quét QR nên dùng bản này: payload tem
+        /// chứa ký tự '|', đi qua query string dễ bị encode/decode lệch nhau.
+        /// </summary>
+        [HttpPost("scope-resolve")]
+        [CustomAuthorize(Enums.Menu.STOCKTAKE, Enums.Action.READ)]
+        public async Task<IActionResult> ResolveScopeQrAsync([FromBody] ResolveScopeQrDto dto)
+        {
+            var result = await _stockTakeService.ResolveScopeQrAsync(dto?.QrCode ?? string.Empty, dto?.WarehouseId);
             return BaseResult(result);
         }
 

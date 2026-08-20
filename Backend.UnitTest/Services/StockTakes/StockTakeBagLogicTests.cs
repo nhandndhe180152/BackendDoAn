@@ -224,7 +224,202 @@ public class StockTakeBagLogicTests
         dto.StockTakeItems.Single().VarianceSeverity.Should().Be("SMALL");
     }
 
+    // ─── Quét tem QR cột ────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task ResolveScopeQr_ReadsTheStockliteLabelPayload()
+    {
+        // Tem in ra không chứa mỗi mã cột mà là cả payload có tiền tố; so khớp
+        // nguyên chuỗi với Location.QrCode thì không bao giờ ra.
+        SetupLocations(Location(7, "LC-ABC", zone: "Khu A", slot: "A-01"));
+        SetupEmptyStock();
+
+        var response = await Sut().ResolveScopeQrAsync("STOCKLITE|1|LOCATION|LC-ABC", 1);
+
+        var dto = (response.Resources as StockTakeScopeResolveDto)!;
+        dto.Matched.Should().BeTrue();
+        dto.LocationId.Should().Be(7);
+        dto.ScopeType.Should().Be("COLUMN");
+    }
+
+    [Fact]
+    public async Task ResolveScopeQr_AcceptsAPlainCodeTypedByHand()
+    {
+        SetupLocations(Location(7, "LC-ABC"));
+        SetupEmptyStock();
+
+        var response = await Sut().ResolveScopeQrAsync("  LC-ABC  ", null);
+
+        (response.Resources as StockTakeScopeResolveDto)!.Matched.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ResolveScopeQr_RecoversWhenThePayloadArrivesStillPercentEncoded()
+    {
+        // Ký tự '|' đi qua query string có thể bị encode hai lần; chuỗi tới nơi
+        // vẫn còn %7C thì phải giải mã trước khi tách.
+        SetupLocations(Location(7, "LC-ABC"));
+        SetupEmptyStock();
+
+        var response = await Sut().ResolveScopeQrAsync("STOCKLITE%7C1%7CLOCATION%7CLC-ABC", 1);
+
+        (response.Resources as StockTakeScopeResolveDto)!.Matched.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ResolveScopeQr_MatchesEvenWhenTheAppHasAnotherWarehouseOpen()
+    {
+        // Quét đúng tem mà báo "không khớp" chỉ vì app đang mở kho khác là sai:
+        // trả về cột kèm kho của nó để màn hình tự chuyển theo.
+        SetupLocations(Location(7, "LC-ABC", warehouseId: 9));
+        SetupEmptyStock();
+
+        var response = await Sut().ResolveScopeQrAsync("STOCKLITE|9|LOCATION|LC-ABC", warehouseId: 1);
+
+        var dto = (response.Resources as StockTakeScopeResolveDto)!;
+        dto.Matched.Should().BeTrue();
+        dto.WarehouseId.Should().Be(9);
+        dto.Message.Should().Contain("kho khác");
+    }
+
+    [Fact]
+    public async Task ResolveScopeQr_RejectsABagLabel()
+    {
+        SetupLocations(Location(7, "LC-ABC"));
+        SetupEmptyStock();
+
+        var response = await Sut().ResolveScopeQrAsync("STOCKLITE|1|BAG|PLB-123", 1);
+
+        var dto = (response.Resources as StockTakeScopeResolveDto)!;
+        dto.Matched.Should().BeFalse();
+        dto.Message.Should().Contain("BAO");
+    }
+
+    [Fact]
+    public async Task ResolveScopeQr_RefusesTheOutboundStagingArea()
+    {
+        var staging = Location(8, "LC-STG");
+        staging.IsOutboundStaging = true;
+        SetupLocations(staging);
+        SetupEmptyStock();
+
+        var response = await Sut().ResolveScopeQrAsync("STOCKLITE|1|LOCATION|LC-STG", 1);
+
+        (response.Resources as StockTakeScopeResolveDto)!.Matched.Should().BeFalse();
+    }
+
+    // ─── Danh sách cột để chọn phạm vi ──────────────────────────────────────
+
+    [Fact]
+    public async Task GetScopeOptions_ListsColumnsThatOnlyHaveInventoryRows()
+    {
+        // Dữ liệu nhập kho từ trước khi quản lý theo bao chỉ có dòng Inventory.
+        // Liệt kê theo bao thôi thì gần hết kho biến mất khỏi danh sách chọn.
+        var withBags = Location(7, "LC-A", slot: "A-01");
+        var inventoryOnly = Location(8, "LC-B", slot: "A-02");
+        SetupLocations(withBags, inventoryOnly);
+        SetupInventories(
+            Inventory(withBags.Id, 500m),
+            Inventory(inventoryOnly.Id, 320m));
+        SetupBags(StoredBag(1, withBags, 50m), StoredBag(2, withBags, 50m));
+
+        var response = await Sut().GetScopeOptionsAsync(1, null);
+
+        var dto = (response.Resources as StockTakeScopeOptionsDto)!;
+        dto.Columns.Should().HaveCount(2);
+        dto.Columns.Single(x => x.LocationId == inventoryOnly.Id).BagCount.Should().Be(0);
+        dto.Columns.Single(x => x.LocationId == inventoryOnly.Id).TotalWeightKg.Should().Be(320m);
+        dto.Columns.Single(x => x.LocationId == withBags.Id).BagCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task GetScopeOptions_SkipsEmptyColumnsAndTheOutboundStagingArea()
+    {
+        var stocked = Location(7, "LC-A");
+        var empty = Location(8, "LC-B");
+        var staging = Location(9, "LC-STG");
+        staging.IsOutboundStaging = true;
+        SetupLocations(stocked, empty, staging);
+        SetupInventories(Inventory(stocked.Id, 100m), Inventory(staging.Id, 80m), Inventory(empty.Id, 0m));
+        SetupBags();
+
+        var response = await Sut().GetScopeOptionsAsync(1, null);
+
+        var dto = (response.Resources as StockTakeScopeOptionsDto)!;
+        dto.Columns.Select(x => x.LocationId).Should().Equal(stocked.Id);
+    }
+
+    [Fact]
+    public async Task GetScopeOptions_QuarantineOnlyKeepsOnlyQuarantineColumns()
+    {
+        var normal = Location(7, "LC-A");
+        var quarantine = Location(8, "LC-Q");
+        quarantine.IsQuarantine = true;
+        SetupLocations(normal, quarantine);
+        SetupInventories(Inventory(normal.Id, 100m), Inventory(quarantine.Id, 60m));
+        SetupBags();
+
+        var response = await Sut().GetScopeOptionsAsync(1, quarantineOnly: true);
+
+        var dto = (response.Resources as StockTakeScopeOptionsDto)!;
+        dto.Columns.Select(x => x.LocationId).Should().Equal(quarantine.Id);
+    }
+
     // ─── Helpers ────────────────────────────────────────────────────────────
+
+    private static Backend.Domain.Entities.Location Location(
+        int id, string qrCode, int warehouseId = 1, string zone = "Khu A", string? slot = null) =>
+        new()
+        {
+            Id = id,
+            WarehouseId = warehouseId,
+            ZoneName = zone,
+            SlotCode = slot ?? $"S-{id}",
+            QrCode = qrCode,
+            IsActive = true
+        };
+
+    private static Backend.Domain.Entities.Inventory Inventory(int locationId, decimal kg, int warehouseId = 1) =>
+        new()
+        {
+            Id = locationId * 100,
+            WarehouseId = warehouseId,
+            LocationId = locationId,
+            ProductVariantId = 1,
+            QuantityOnHand = kg
+        };
+
+    private static PaddyLotBag StoredBag(int id, Backend.Domain.Entities.Location location, decimal kg) =>
+        new()
+        {
+            Id = id,
+            LotId = 1,
+            BagNo = id,
+            WeightKg = kg,
+            LocationId = location.Id,
+            Location = location,
+            Status = "Stored"
+        };
+
+    private void SetupLocations(params Backend.Domain.Entities.Location[] locations) =>
+        _dbContext.Setup(c => c.Locations)
+            .Returns(locations.ToList().AsQueryable().BuildMockDbSet().Object);
+
+    private void SetupInventories(params Backend.Domain.Entities.Inventory[] inventories) =>
+        _dbContext.Setup(c => c.Inventories)
+            .Returns(inventories.ToList().AsQueryable().BuildMockDbSet().Object);
+
+    private void SetupBags(params PaddyLotBag[] bags) =>
+        _dbContext.Setup(c => c.PaddyLotBags)
+            .Returns(bags.ToList().AsQueryable().BuildMockDbSet().Object);
+
+    /// <summary>Tồn kho và bao rỗng — dùng cho các test chỉ quan tâm việc tra tem.</summary>
+    private void SetupEmptyStock()
+    {
+        SetupInventories();
+        SetupBags();
+    }
+
 
     private void SetupThresholds()
     {

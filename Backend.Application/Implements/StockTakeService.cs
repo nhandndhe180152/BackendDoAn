@@ -245,42 +245,33 @@ public partial class StockTakeService : IStockTakeService
         // không tin SystemQuantity do client truyền lên.
         if (!obj.StockTakeItems.Any())
         {
+            // Kho gạo chỉ dán QR theo CỘT và thủ kho dỡ hàng theo cột, nên phạm vi
+            // kiểm kê rút gọn còn đúng một cột. Phiếu cũ tạo theo khu/lô/toàn kho
+            // vẫn mở xem được, chỉ chặn TẠO MỚI.
             var scopeType = (obj.ScopeType ?? string.Empty).Trim().ToUpperInvariant();
-            if (string.IsNullOrEmpty(scopeType))
-                return ApiResponse.BadRequest(message: "Phạm vi kiểm kê là bắt buộc.");
+            if (string.IsNullOrEmpty(scopeType)) scopeType = ScopeTypes.Column;
+            if (scopeType != ScopeTypes.Column)
+                return ApiResponse.BadRequest(
+                    message: "Kiểm kê chỉ thực hiện theo CỘT. Vui lòng chọn cột cần kiểm.");
+
+            // Validate đầu vào TRƯỚC khi dựng truy vấn: thiếu cột thì không có lý do
+            // gì phải đụng tới DbSet, và dựng query trước còn làm lỗi nghiệp vụ
+            // (thiếu cột) biến thành lỗi hạ tầng khi tồn kho chưa sẵn sàng.
+            if (!obj.LocationId.HasValue)
+                return ApiResponse.BadRequest(message: "Cột kiểm kê là bắt buộc.");
 
             var inventoryQuery = _context.Inventories
                 .AsNoTracking()
                 .Where(x => !x.IsDeleted && x.WarehouseId == obj.WarehouseId && x.LocationId != null &&
-                            x.Location != null && !x.Location.IsDeleted && !x.Location.IsOutboundStaging);
+                            x.Location != null && !x.Location.IsDeleted && !x.Location.IsOutboundStaging
+                            && x.LocationId == obj.LocationId);
 
-            switch (scopeType)
-            {
-                case "WAREHOUSE":
-                    break;
-                case "ZONE":
-                    if (string.IsNullOrWhiteSpace(obj.ZoneName))
-                        return ApiResponse.BadRequest(message: "Khu vực kiểm kê là bắt buộc.");
-                    inventoryQuery = inventoryQuery.Where(x => x.Location != null && x.Location.ZoneName == obj.ZoneName);
-                    break;
-                case "COLUMN":
-                    if (!obj.LocationId.HasValue)
-                        return ApiResponse.BadRequest(message: "Cột/vị trí kiểm kê là bắt buộc.");
-                    inventoryQuery = inventoryQuery.Where(x => x.LocationId == obj.LocationId);
-                    break;
-                case "LOT":
-                    if (!obj.PaddyLotId.HasValue)
-                        return ApiResponse.BadRequest(message: "Lô kiểm kê là bắt buộc.");
-                    inventoryQuery = inventoryQuery.Where(x => x.PaddyLotId == obj.PaddyLotId);
-                    break;
-                case "SKU":
-                    if (!obj.ProductVariantId.HasValue)
-                        return ApiResponse.BadRequest(message: "SKU kiểm kê là bắt buộc.");
-                    inventoryQuery = inventoryQuery.Where(x => x.ProductVariantId == obj.ProductVariantId);
-                    break;
-                default:
-                    return ApiResponse.BadRequest(message: "Phạm vi kiểm kê không hợp lệ.");
-            }
+            // Chuẩn hoá lại phạm vi lưu xuống phiếu: kiểm kê theo cột thì khu và lô
+            // không còn ý nghĩa, để sót lại sẽ làm ScopeDisplay và báo cáo hiểu sai.
+            obj.ScopeType = ScopeTypes.Column;
+            obj.ZoneName = null;
+            obj.PaddyLotId = null;
+            obj.ProductVariantId = null;
 
             obj.StockTakeItems = await inventoryQuery
                 .OrderBy(x => x.LocationId)

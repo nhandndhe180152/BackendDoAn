@@ -110,22 +110,11 @@ public class ScanStockTakeBagResultDto
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Chọn phạm vi kiểm kê (dropdown hoặc quét QR khu/cột/lô)
+// Chọn CỘT cần kiểm kê (dropdown hoặc quét QR dán trên cột)
 // ─────────────────────────────────────────────────────────────────────────────
 public class StockTakeScopeOptionsDto
 {
-    public List<StockTakeZoneOptionDto> Zones { get; set; } = new();
     public List<StockTakeColumnOptionDto> Columns { get; set; } = new();
-    public List<StockTakeLotOptionDto> Lots { get; set; } = new();
-}
-
-public class StockTakeZoneOptionDto
-{
-    public string ZoneName { get; set; } = string.Empty;
-    public int ColumnCount { get; set; }
-    public int BagCount { get; set; }
-    public decimal TotalWeightKg { get; set; }
-    public bool IsQuarantine { get; set; }
 }
 
 public class StockTakeColumnOptionDto
@@ -139,32 +128,30 @@ public class StockTakeColumnOptionDto
     public bool IsQuarantine { get; set; }
 }
 
-public class StockTakeLotOptionDto
+/// <summary>
+/// Yêu cầu tra tem QR cột. Gửi bằng POST vì payload chứa ký tự '|' — nhét vào
+/// query string là dễ bị encode/decode sai giữa app và server.
+/// </summary>
+public class ResolveScopeQrDto
 {
-    public int PaddyLotId { get; set; }
-    public string LotCode { get; set; } = string.Empty;
     public string? QrCode { get; set; }
-    public string? ProductVariantName { get; set; }
-    public int BagCount { get; set; }
-    public decimal TotalWeightKg { get; set; }
-    public int ColumnCount { get; set; }
-    public bool IsQuarantine { get; set; }
+
+    /// <summary>Kho đang mở trên màn hình; chỉ dùng để soạn thông báo, không lọc.</summary>
+    public int? WarehouseId { get; set; }
 }
 
-/// <summary>Kết quả quét QR khu/cột/lô để chọn phạm vi kiểm kê.</summary>
+/// <summary>Kết quả quét QR dán trên cột để chọn phạm vi kiểm kê.</summary>
 public class StockTakeScopeResolveDto
 {
     public bool Matched { get; set; }
 
-    /// <summary>ZONE | COLUMN | LOT.</summary>
+    /// <summary>Luôn là COLUMN khi khớp.</summary>
     public string? ScopeType { get; set; }
     public string Message { get; set; } = string.Empty;
 
     public string? ZoneName { get; set; }
     public int? LocationId { get; set; }
     public string? LocationCode { get; set; }
-    public int? PaddyLotId { get; set; }
-    public string? LotCode { get; set; }
     public int? WarehouseId { get; set; }
     public bool IsQuarantine { get; set; }
     public int BagCount { get; set; }
