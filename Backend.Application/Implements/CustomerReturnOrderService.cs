@@ -151,6 +151,22 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 return ApiResponse.BadRequest(message: "Kho tiếp nhận phải khớp với kho xuất hàng gốc.");
         }
 
+        if (dto.CustomerFeedbackId.HasValue)
+        {
+            if (outbound == null)
+                return ApiResponse.BadRequest(message: "Phiếu xuất gốc là bắt buộc khi tạo trả hàng từ khiếu nại.");
+
+            var feedback = await _context.CustomerFeedbacks
+                .Include(x => x.CustomerReturnOrder)
+                .FirstOrDefaultAsync(x => x.Id == dto.CustomerFeedbackId.Value && !x.IsDeleted, cancellationToken);
+            if (feedback == null)
+                return ApiResponse.NotFound(message: "Không tìm thấy khiếu nại gốc.");
+            if (feedback.OutboundOrderId != outbound.Id || feedback.SalesOrderId != outbound.SalesOrderId)
+                return ApiResponse.BadRequest(message: "Khiếu nại không thuộc phiếu xuất/đơn bán đã chọn.");
+            if (feedback.CustomerReturnOrder != null)
+                return ApiResponse.Conflict(message: "Khiếu nại này đã có phiếu trả hàng.");
+        }
+
         var status = await _context.CustomerReturnOrderStatuses
             .FirstOrDefaultAsync(s => s.Code == CustomerReturnOrderStatusNames.Draft && !s.IsDeleted, cancellationToken);
         if (status == null)

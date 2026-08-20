@@ -25,6 +25,7 @@ public class OutboundOrderListDto
     public string? Note { get; set; }
     public string? CancelReason { get; set; }
     public DateTime? CreatedDate { get; set; }
+    public int FeedbackCount { get; set; }
 }
 
 public class OutboundOrderDetailDto
@@ -50,6 +51,9 @@ public class OutboundOrderDetailDto
     public string? PackingScaleDevice { get; set; }
 
     public DateTime? PackedDate { get; set; }
+    public string? ReceiverName { get; set; }
+    public string? DeliveryNote { get; set; }
+    public string? ProofImageUrl { get; set; }
     public DateTime? CreatedDate { get; set; }
     public List<OutboundOrderItemDto> Items { get; set; } = new();
 
@@ -288,5 +292,6 @@ public class BagAllocationDetailDto
     public int StackOrder { get; set; }
     public bool IsFull { get; set; }
     public string? QrCode { get; set; }
+    public string? BagStatus { get; set; }
     public string Status { get; set; } = null!;
 }

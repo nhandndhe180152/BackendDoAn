@@ -31,6 +31,10 @@ public static class SystemConfigConstants
 
         /// <summary>Ngưỡng trên của mức MEDIUM theo kg (FDS: 20 kg).</summary>
         public const string StockTakeMediumVarianceKg = "StockTakeMediumVarianceKg";
+
+        public const string ReceivingQcMoistureMinPercent = "ReceivingQcMoistureMinPercent";
+        public const string ReceivingQcMoistureMaxPercent = "ReceivingQcMoistureMaxPercent";
+        public const string StorageQcMoistureWarningPercent = "StorageQcMoistureWarningPercent";
     }
 
     public static class Defaults

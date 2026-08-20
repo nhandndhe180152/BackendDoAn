@@ -14,7 +14,7 @@ namespace Backend.Infrastructure.Migrations
             migrationBuilder.AddColumn<decimal>(
                 name: "AcceptedWeightKg",
                 table: "PaddyPurchaseReceipt",
-                type: "decimal(65,30)",
+                type: "decimal(18,3)",
                 nullable: true);
 
             migrationBuilder.AddColumn<DateTime>(
@@ -38,7 +38,7 @@ namespace Backend.Infrastructure.Migrations
             migrationBuilder.AddColumn<decimal>(
                 name: "RejectedWeightKg",
                 table: "PaddyPurchaseReceipt",
-                type: "decimal(65,30)",
+                type: "decimal(18,3)",
                 nullable: true);
         }
 

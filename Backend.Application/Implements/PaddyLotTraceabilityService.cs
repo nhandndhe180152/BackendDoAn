@@ -318,6 +318,12 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
                     .GroupBy(b => b.LotId)
                     .ToDictionary(g => g.Key, g => g.ToList())
                 : new Dictionary<int, List<PaddyLotBag>>();
+            var weighedByIds = purchaseBagsByLot.Values.SelectMany(x => x)
+                .Where(x => x.WeighedBy.HasValue).Select(x => x.WeighedBy!.Value).Distinct().ToList();
+            var weighedByNames = weighedByIds.Count == 0
+                ? new Dictionary<int, string>()
+                : await _context.Users.AsNoTracking().Where(x => weighedByIds.Contains(x.Id))
+                    .ToDictionaryAsync(x => x.Id, x => (x.LastName + " " + x.FirstName).Trim(), cancellationToken);
 
             purchasesList = receipts.Select(r => new TraceabilityPurchaseDto
             {
@@ -350,7 +356,8 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
                         WeightCaptureMethod = b.WeightCaptureMethod,
                         WeighedAt = b.WeighedAt,
                         WeighedBy = b.WeighedBy,
-                        WeighedByName = null // Note: không include User để giảm JOIN; FE dùng WeighedBy để lookup nếu cần
+                        WeighedByName = b.WeighedBy.HasValue && weighedByNames.TryGetValue(b.WeighedBy.Value, out var name)
+                            ? name : null
                     }).ToList()
                     : new List<TraceabilityPurchaseBagDto>()
             }).ToList();

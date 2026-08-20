@@ -93,6 +93,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
     public async Task<ApiResponse> CreateAsync(CreatePaddyPurchaseReceiptDto obj)
     {
+        NormalizeBagTrace(obj.Bags, GetCurrentUserId());
         NormalizeReceiptAmounts(obj);
         if (obj.PaidAmount < 0 || obj.PaidAmount > obj.TotalAmount)
             return ApiResponse.UnprocessableEntity("Số tiền đã trả phải nằm trong khoảng từ 0 đến tổng tiền.");
@@ -169,6 +170,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
     public async Task<ApiResponse> UpdateAsync(UpdatePaddyPurchaseReceiptDto obj)
     {
+        NormalizeBagTrace(obj.Bags, GetCurrentUserId());
         NormalizeReceiptAmounts(obj);
         if (obj.PaidAmount < 0 || obj.PaidAmount > obj.TotalAmount)
             return ApiResponse.UnprocessableEntity("Số tiền đã trả phải nằm trong khoảng từ 0 đến tổng tiền.");
@@ -536,6 +538,12 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         if (bags == null || bags.Count == 0) return null;
         if (bags.Any(x => x.BagNo <= 0 || x.WeightKg <= 0))
             return "Số thứ tự bao và khối lượng từng bao phải lớn hơn 0.";
+        if (bags.Any(x => x.ScaleDeviceRef?.Trim().Length > 255))
+            return "Mã thiết bị cân không được vượt quá 255 ký tự.";
+        if (bags.Any(x => x.WeightCaptureMethod != null &&
+            !string.Equals(x.WeightCaptureMethod.Trim(), "SCALE", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(x.WeightCaptureMethod.Trim(), "MANUAL", StringComparison.OrdinalIgnoreCase)))
+            return "Phương thức ghi nhận cân chỉ được là SCALE hoặc MANUAL.";
         if (bags.Select(x => x.BagNo).Distinct().Count() != bags.Count)
             return "Số thứ tự bao không được trùng trong cùng phiếu.";
         var orderedNumbers = bags.Select(x => x.BagNo).OrderBy(x => x).ToArray();
@@ -545,6 +553,20 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         if (declaredWeight > 0 && Math.Abs(sum - declaredWeight) > 0.001m)
             return $"Tổng khối lượng các bao ({sum:0.###} kg) không khớp ActualWeightKg ({declaredWeight:0.###} kg).";
         return null;
+    }
+
+    private static void NormalizeBagTrace(IEnumerable<DTOs.InboundOrders.CreateBagDto>? bags, int currentUserId)
+    {
+        if (bags == null) return;
+        foreach (var bag in bags)
+        {
+            bag.ScaleDeviceRef = string.IsNullOrWhiteSpace(bag.ScaleDeviceRef) ? null : bag.ScaleDeviceRef.Trim();
+            bag.WeightCaptureMethod = string.IsNullOrWhiteSpace(bag.WeightCaptureMethod)
+                ? "MANUAL" : bag.WeightCaptureMethod.Trim().ToUpperInvariant();
+            bag.WeighedAt ??= DateTimeHelper.VietnamNow();
+            // The actor is security-sensitive trace data; never trust a client-supplied user id.
+            bag.WeighedBy = currentUserId;
+        }
     }
 
     private static void NormalizeReceiptAmounts(CreatePaddyPurchaseReceiptDto dto)

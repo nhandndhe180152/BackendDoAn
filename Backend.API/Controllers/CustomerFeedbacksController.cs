@@ -41,6 +41,7 @@ public class CustomerFeedbacksController : BaseController
         return BaseResult(result);
     }
 
+    [HttpGet("by-sales-order/{salesOrderId}")]
     [HttpGet("sales-order/{salesOrderId}")]
     public async Task<IActionResult> GetBySalesOrder(int salesOrderId, CancellationToken cancellationToken)
     {
@@ -48,6 +49,7 @@ public class CustomerFeedbacksController : BaseController
         return BaseResult(result);
     }
 
+    [HttpGet("by-outbound/{outboundOrderId}")]
     [HttpGet("outbound-order/{outboundOrderId}")]
     public async Task<IActionResult> GetByOutbound(int outboundOrderId, CancellationToken cancellationToken)
     {

@@ -878,11 +878,18 @@ public class DashboardService : IDashboardService
                 RiceVarietyName = x.RiceVariety != null ? x.RiceVariety.Name : null,
                 WarehouseName = x.Warehouse.Name,
                 WeightKg = x.ActualWeightKg,
+                AcceptedWeightKg = x.AcceptedWeightKg,
+                RejectedWeightKg = x.RejectedWeightKg,
                 BagCount = x.BagCount,
                 UnitPrice = x.AgreedPrice,
                 TotalAmount = x.TotalAmount,
                 PaidAmount = x.PaidAmount,
                 DebtAmount = x.DebtAmount,
+                RefundReceivableAmount = x.PaidAmount > x.TotalAmount
+                    ? x.PaidAmount - x.TotalAmount
+                    : 0m,
+                DebtDueDate = x.DebtDueDate,
+                QcFinalizedAt = x.QcFinalizedAt,
                 QualitySummary = x.QualityJson
             })
             .ToListAsync();

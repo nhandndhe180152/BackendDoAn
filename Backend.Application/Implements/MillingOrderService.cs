@@ -1274,8 +1274,10 @@ public class MillingOrderService : IMillingOrderService
                 .Sum(x => x.OutputWeightKg);
             order.LossKg = lossKg;
             order.TotalCost = totalCostToAllocate;
-            order.MachineRef = dto.MachineRef?.Trim();
-            order.OperatorId = dto.OperatorId;
+            // Persist the resolved values.  The complete request may omit fields that were
+            // already captured at Start; assigning the raw DTO values here would erase trace data.
+            order.MachineRef = finalMachineRef;
+            order.OperatorId = finalOperatorId;
             order.CompletedAt = now;
             order.UpdatedBy = completedById;
             order.LastModifiedDate = now;

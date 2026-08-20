@@ -117,12 +117,13 @@ public class SalesOrderRepository : RepositoryBase<SalesOrder, int>, ISalesOrder
 
         if (fromDate.HasValue)
         {
-            query = query.Where(x => x.CreatedDate >= fromDate.Value || x.OrderDate >= fromDate.Value);
+            query = query.Where(x => x.OrderDate >= fromDate.Value);
         }
 
         if (toDate.HasValue)
         {
-            query = query.Where(x => x.CreatedDate <= toDate.Value || x.OrderDate <= toDate.Value);
+            var to = toDate.Value.Date.AddDays(1);
+            query = query.Where(x => x.OrderDate < to);
         }
 
         return query;

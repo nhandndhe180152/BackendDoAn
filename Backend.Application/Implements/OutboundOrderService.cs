@@ -261,6 +261,9 @@ public class OutboundOrderService : IOutboundOrderService
             CancelReason         = o.CancelReason,
             PackingScaleDevice   = o.PackingScaleDevice,
             PackedDate           = o.PackedDate,
+            ReceiverName         = o.ReceiverName,
+            DeliveryNote         = o.DeliveryNote,
+            ProofImageUrl        = o.ProofImageUrl,
             CreatedDate          = o.CreatedDate,
             Items = o.OutboundOrderItems.Where(i => !i.IsDeleted).Select(i => new OutboundOrderItemDto
             {
@@ -330,6 +333,17 @@ public class OutboundOrderService : IOutboundOrderService
         var list  = await _outboundOrderRepository.GetPagedListAsync(
             query.Keyword, skip, pageSize, query.OutboundStatusId, query.SalesOrderId, query.WarehouseId, query.FromDate, query.ToDate);
 
+        var feedbackCounts = new Dictionary<int, int>();
+        if (_dbContext != null && list.Count > 0)
+        {
+            var outboundOrderIds = list.Select(x => x.Id).ToList();
+            feedbackCounts = await _dbContext.CustomerFeedbacks
+                .Where(x => !x.IsDeleted && outboundOrderIds.Contains(x.OutboundOrderId))
+                .GroupBy(x => x.OutboundOrderId)
+                .Select(group => new { OutboundOrderId = group.Key, Count = group.Count() })
+                .ToDictionaryAsync(x => x.OutboundOrderId, x => x.Count);
+        }
+
         var dtos = list.Select(o => new OutboundOrderListDto
         {
             Id                   = o.Id,
@@ -347,7 +361,8 @@ public class OutboundOrderService : IOutboundOrderService
             CompletedDate        = o.CompletedDate,
             Note                 = o.Note,
             CancelReason         = o.CancelReason,
-            CreatedDate          = o.CreatedDate
+            CreatedDate          = o.CreatedDate,
+            FeedbackCount        = feedbackCounts.TryGetValue(o.Id, out var count) ? count : 0
         }).ToList();
 
         return ApiResponse.Success(new { Total = total, Items = dtos });
@@ -389,6 +404,7 @@ public class OutboundOrderService : IOutboundOrderService
                 StackOrder        = a.StackOrderSnapshot,
                 IsFull            = a.Bag?.IsFull ?? false,
                 QrCode            = a.Bag?.QrCode,
+                BagStatus         = a.Bag?.Status,
                 Status            = a.Status
             }).ToList();
         }
@@ -462,6 +478,7 @@ public class OutboundOrderService : IOutboundOrderService
             StackOrder       = a.StackOrderSnapshot,
             IsFull           = a.Bag?.IsFull ?? false,
             QrCode           = a.Bag?.QrCode,
+            BagStatus        = a.Bag?.Status,
             Status           = a.Status
         }).ToList();
 
@@ -882,7 +899,22 @@ public class OutboundOrderService : IOutboundOrderService
                                 CreatedDate         = now
                             });
                         }
-                        await _bagAllocationRepository.SaveChangesAsync();
+                        try
+                        {
+                            // Flush ngay tại đây để unique ActiveBagId chặn hai nghiệp vụ
+                            // cùng giữ một bao trong chính transaction Allocate.
+                            await _bagAllocationRepository.SaveChangesAsync();
+                        }
+                        catch (DbUpdateException ex) when (IsActiveBagAllocationConflict(ex))
+                        {
+                            await allocationTx.RollbackAsync();
+                            var conflictedBagNo = planGroup
+                                .Select(p => p.BagId)
+                                .FirstOrDefault();
+                            return ApiResponse.Conflict(
+                                $"Bao #{conflictedBagNo} vừa được giữ bởi nghiệp vụ khác. Vui lòng tải lại.",
+                                ApiCodeConstants.OutboundOrder.ConcurrencyConflict);
+                        }
                     }
 
                     inv.QuantityReserved += totalGroupQty;
@@ -1090,6 +1122,22 @@ public class OutboundOrderService : IOutboundOrderService
             .Where(i => !i.IsDeleted)
             .ToDictionary(i => i.Id);
 
+        // Gom các BagIds để kiểm tra conflicts ngoài vòng lặp
+        var pickingBagIds = dto.Picks
+            .Where(p => activeBagAllocsDict.ContainsKey(p.BagAllocationId))
+            .Select(p => activeBagAllocsDict[p.BagAllocationId].BagId)
+            .ToList();
+
+        var heldByOtherBagIds = await _bagAllocationRepository
+            .FindByCondition(a =>
+                pickingBagIds.Contains(a.BagId) &&
+                a.Status == PaddyLotBagAllocationStatuses.Active &&
+                !a.IsDeleted &&
+                !(a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder && a.ReferenceId == order.Id))
+            .Select(a => a.BagId)
+            .ToListAsync();
+        var heldByOtherSet = heldByOtherBagIds.ToHashSet();
+
         // 2. Validate toàn bộ trước khi update (Nếu fail bất kỳ bước nào thì 4xx và KHÔNG update)
         foreach (var pickDto in dto.Picks)
         {
@@ -1178,11 +1226,7 @@ public class OutboundOrderService : IOutboundOrderService
             }
 
             // 16. Bag vẫn không bị flow khác giữ
-            var isHeldByOther = await _bagAllocationRepository.AnyAsync(a =>
-                a.BagId == bag.Id &&
-                a.Status == PaddyLotBagAllocationStatuses.Active &&
-                !a.IsDeleted &&
-                !(a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder && a.ReferenceId == order.Id));
+            var isHeldByOther = heldByOtherSet.Contains(bag.Id);
 
             if (isHeldByOther)
             {
@@ -2848,7 +2892,7 @@ public class OutboundOrderService : IOutboundOrderService
                     InspectedAt = now,
                     InspectorId = userId > 0 ? userId : null,
                     QualityResult = "ISSUE_DETECTED",
-                    Disposition = BagDispositionConstants.Quarantine,
+                    Disposition = null, // QC sẽ tự set disposition (PASS/QUARANTINE/REJECT) sau khi ra kết luận
                     Note = reason?.Trim(),
                     CreatedBy = userId > 0 ? userId : null,
                     CreatedDate = now

@@ -1480,7 +1480,8 @@ public class OutboundOrderServiceTests
             q.PaddyLotId == lot.Id)), Times.Once);
         _qiBagResultRepo.Verify(r => r.CreateAsync(It.Is<QualityInspectionBagResult>(b =>
             b.BagId == bag.Id &&
-            b.Disposition == BagDispositionConstants.Quarantine)), Times.Once);
+            b.QualityResult == BagQualityResultConstants.IssueDetected &&
+            b.Disposition == null)), Times.Once);
     }
 }
 

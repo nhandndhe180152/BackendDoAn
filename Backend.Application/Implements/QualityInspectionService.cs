@@ -1426,6 +1426,9 @@ public class QualityInspectionService : IQualityInspectionService
         PaddyLotId = x.PaddyLotId,
         LotCode = x.PaddyLot?.LotCode,
         LotStatusCode = x.PaddyLot?.Status?.Code,
+        InspectionType = x.InspectionType,
+        CompletedAt = x.CompletedAt,
+        CompletedBy = x.CompletedBy,
         InspectorId = x.InspectorId,
         InspectedAt = x.InspectedAt,
         MoisturePercent = x.MoisturePercent,
@@ -1461,10 +1464,14 @@ public class QualityInspectionService : IQualityInspectionService
             .ToListAsync();
 
         var resultBagIds = results.Select(r => r.BagId).ToList();
+        var isLotWideSession = inspection.InspectionType == InspectionTypeConstants.Receiving;
 
         var bags = await _context.PaddyLotBags
             .AsNoTracking()
-            .Where(x => (x.LotId == inspection.PaddyLotId || resultBagIds.Contains(x.Id)) && !x.IsDeleted)
+            .Where(x => !x.IsDeleted &&
+                (isLotWideSession
+                    ? x.LotId == inspection.PaddyLotId || resultBagIds.Contains(x.Id)
+                    : resultBagIds.Contains(x.Id)))
             .Include(x => x.Location)
             .OrderBy(x => x.BagNo)
             .ToListAsync();
@@ -1498,13 +1505,19 @@ public class QualityInspectionService : IQualityInspectionService
             };
         }).ToList();
 
-        int inspectedBags  = results.Count;
-        int normalBags     = results.Count(r => r.Disposition == BagDispositionConstants.AcceptNormal
+        // A placeholder row may be created to freeze membership of a targeted session
+        // (for example OUTBOUND_EXCEPTION). It is only inspected after both decisions exist.
+        var completedResults = results
+            .Where(r => !string.IsNullOrWhiteSpace(r.QualityResult)
+                     && !string.IsNullOrWhiteSpace(r.Disposition))
+            .ToList();
+        int inspectedBags  = completedResults.Count;
+        int normalBags     = completedResults.Count(r => r.Disposition == BagDispositionConstants.AcceptNormal
                                              || r.Disposition == BagDispositionConstants.KeepStored);
-        int quarantineBags = results.Count(r => r.Disposition == BagDispositionConstants.AcceptQuarantine
+        int quarantineBags = completedResults.Count(r => r.Disposition == BagDispositionConstants.AcceptQuarantine
                                              || r.Disposition == BagDispositionConstants.Quarantine);
-        int rejectedBags   = results.Count(r => r.Disposition == BagDispositionConstants.RejectReturn);
-        int releasedBags   = results.Count(r => r.Disposition == BagDispositionConstants.Release);
+        int rejectedBags   = completedResults.Count(r => r.Disposition == BagDispositionConstants.RejectReturn);
+        int releasedBags   = completedResults.Count(r => r.Disposition == BagDispositionConstants.Release);
 
         var progress = new QualityInspectionBagProgressDto
         {
@@ -1548,8 +1561,21 @@ public class QualityInspectionService : IQualityInspectionService
         if (bag.LotId != inspection.PaddyLotId)
             return ApiResponse.BadRequest(message: "Bao không thuộc lô của phiếu kiểm tra này.");
 
+        // Receiving covers the whole lot. Other inspection types are targeted sessions;
+        // their placeholder/result rows are the immutable membership snapshot.
+        if (inspection.InspectionType != InspectionTypeConstants.Receiving)
+        {
+            var belongsToSession = await _context.QualityInspectionBagResults.AnyAsync(x =>
+                x.QualityInspectionId == inspectionId && x.BagId == dto.BagId && !x.IsDeleted);
+            if (!belongsToSession)
+                return ApiResponse.BadRequest(message: "Bao không thuộc phạm vi của phiên kiểm tra này.");
+        }
+
         if (bag.Status == PaddyLotBagStatuses.Consumed || bag.Status == PaddyLotBagStatuses.Reversed)
             return ApiResponse.BadRequest(message: $"Bao #{bag.BagNo} đã bị xử lý ({bag.Status}), không thể ghi kết quả QC.");
+
+        if (dto.MoisturePercent is < 0 or > 100 || dto.ImpurityPercent is < 0 or > 100)
+            return ApiResponse.BadRequest(message: "MoisturePercent và ImpurityPercent phải trong khoảng 0–100.");
 
         var validResults = new[] { BagQualityResultConstants.Pass, BagQualityResultConstants.IssueDetected };
         if (!validResults.Contains(dto.QualityResult))
@@ -1558,6 +1584,11 @@ public class QualityInspectionService : IQualityInspectionService
         var dispositionError = ValidateDisposition(inspection.InspectionType, dto.QualityResult, dto.Disposition);
         if (dispositionError != null)
             return ApiResponse.BadRequest(message: dispositionError);
+
+        if (inspection.InspectionType == InspectionTypeConstants.Receiving
+            && dto.Disposition == BagDispositionConstants.RejectReturn
+            && string.IsNullOrWhiteSpace(dto.Note))
+            return ApiResponse.BadRequest(message: "REJECT_RETURN bắt buộc nhập lý do trả nhà cung cấp.");
 
         var now = DateTimeHelper.VietnamNow();
         var existing = await _context.QualityInspectionBagResults
@@ -1656,6 +1687,16 @@ public class QualityInspectionService : IQualityInspectionService
     /// <inheritdoc/>
     public async Task<ApiResponse> CompleteAsync(int inspectionId, CompleteInspectionDto dto)
     {
+        // Lock, validate and finalize in one transaction. This prevents concurrent
+        // Complete requests from both observing CompletedAt == null.
+        await using var tx = await _repo.BeginTransactionAsync();
+        if (_context.Database.IsRelational())
+        {
+            await _context.Database.ExecuteSqlRawAsync(
+                "SELECT `Id` FROM `QualityInspection` WHERE `Id` = {0} FOR UPDATE",
+                inspectionId);
+        }
+
         var inspection = await _context.QualityInspections
             .Include(x => x.PaddyLot)
             .FirstOrDefaultAsync(x => x.Id == inspectionId && !x.IsDeleted);
@@ -1672,14 +1713,24 @@ public class QualityInspectionService : IQualityInspectionService
             .Where(x => x.LotId == inspection.PaddyLotId && !x.IsDeleted)
             .ToListAsync();
 
-        var bagIds = bags.Select(b => b.Id).ToList();
         var bagResults = await _context.QualityInspectionBagResults
             .Where(x => x.QualityInspectionId == inspectionId && !x.IsDeleted)
             .ToListAsync();
 
+        var expectedBagIds = inspection.InspectionType == InspectionTypeConstants.Receiving
+            ? bags.Select(b => b.Id).ToList()
+            : bagResults.Select(r => r.BagId).ToList();
+
+        if (expectedBagIds.Count == 0)
+            return ApiResponse.UnprocessableEntity(message: "Phiếu kiểm tra không có bao vật lý để hoàn tất.");
+
         // ── Validate 100% bag đã kiểm tra ────────────────────────────────────
-        var inspectedIds  = bagResults.Select(r => r.BagId).ToHashSet();
-        var missingBagIds = bagIds.Where(id => !inspectedIds.Contains(id)).ToList();
+        var inspectedIds = bagResults
+            .Where(r => !string.IsNullOrWhiteSpace(r.QualityResult)
+                     && !string.IsNullOrWhiteSpace(r.Disposition))
+            .Select(r => r.BagId)
+            .ToHashSet();
+        var missingBagIds = expectedBagIds.Where(id => !inspectedIds.Contains(id)).ToList();
         if (missingBagIds.Count > 0)
         {
             var missingBags = bags.Where(b => missingBagIds.Contains(b.Id))
@@ -1692,7 +1743,6 @@ public class QualityInspectionService : IQualityInspectionService
 
         var now = DateTimeHelper.VietnamNow();
 
-        await using var tx = await _repo.BeginTransactionAsync();
         try
         {
             // ── Dispatch theo InspectionType ──────────────────────────────────
@@ -1730,15 +1780,20 @@ public class QualityInspectionService : IQualityInspectionService
                 .Join(bagResults, b => b.Id, r => r.BagId, (b, r) => new { b.WeightKg, r.MoisturePercent, r.ImpurityPercent })
                 .Where(x => x.MoisturePercent.HasValue || x.ImpurityPercent.HasValue)
                 .ToList();
-            decimal totalWeight = weightedBags.Sum(x => x.WeightKg);
-            if (totalWeight > 0)
+            var moistureBags = weightedBags.Where(x => x.MoisturePercent.HasValue).ToList();
+            var moistureWeight = moistureBags.Sum(x => x.WeightKg);
+            if (moistureWeight > 0)
             {
-                inspection.MoisturePercent = weightedBags.Where(x => x.MoisturePercent.HasValue)
-                    .Sum(x => x.MoisturePercent!.Value * x.WeightKg)
-                    / weightedBags.Where(x => x.MoisturePercent.HasValue).Sum(x => x.WeightKg);
-                inspection.ImpurityPercent = weightedBags.Where(x => x.ImpurityPercent.HasValue)
-                    .Sum(x => x.ImpurityPercent!.Value * x.WeightKg)
-                    / weightedBags.Where(x => x.ImpurityPercent.HasValue).Sum(x => x.WeightKg);
+                inspection.MoisturePercent = moistureBags
+                    .Sum(x => x.MoisturePercent!.Value * x.WeightKg) / moistureWeight;
+            }
+
+            var impurityBags = weightedBags.Where(x => x.ImpurityPercent.HasValue).ToList();
+            var impurityWeight = impurityBags.Sum(x => x.WeightKg);
+            if (impurityWeight > 0)
+            {
+                inspection.ImpurityPercent = impurityBags
+                    .Sum(x => x.ImpurityPercent!.Value * x.WeightKg) / impurityWeight;
             }
 
             // InspectorId: người kiểm tra nhiều bag nhất
@@ -1786,8 +1841,6 @@ public class QualityInspectionService : IQualityInspectionService
         int? userId,
         DateTime now)
     {
-        if (inspection.PaddyLotId == null) return;
-
         // Load receipt thông qua root lot
         var receipt = await _context.PaddyLots
             .Where(l => l.Id == inspection.PaddyLotId && !l.IsDeleted && l.SourceReceiptId != null)
@@ -1970,7 +2023,9 @@ public class QualityInspectionService : IQualityInspectionService
 
         // ── B. Tạo child Quarantine lot (nếu có quarantine bags) ─────────────
         PaddyLot? quarantineChildLot = null;
-        if (quarantineBags.Count > 0)
+        // Khi không có normal, root chính là nhóm quarantine được nhận mua.
+        // Chỉ tách child Q khi root còn phải đại diện cho nhóm normal.
+        if (quarantineBags.Count > 0 && normalBags.Count > 0)
         {
             var qStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.Quarantine && !x.IsDeleted)
                 ?? throw new InvalidOperationException("Không tìm thấy LotStatus 'QUARANTINE'.");
@@ -1989,7 +2044,8 @@ public class QualityInspectionService : IQualityInspectionService
                 ProductVariantId  = rootLot.ProductVariantId,
                 RiceVarietyId     = rootLot.RiceVarietyId,
                 StatusId          = qStatus.Id,
-                SourceReceiptId   = rootLot.SourceReceiptId,
+                // SourceReceiptId là quan hệ 1-1/unique; child truy nguồn qua ParentLotId.
+                SourceReceiptId   = null,
                 WarehouseId       = rootLot.WarehouseId,
                 InboundDate       = rootLot.InboundDate,
                 InitialWeightKg   = quarantineBags.Sum(b => b.WeightKg),
@@ -2043,7 +2099,8 @@ public class QualityInspectionService : IQualityInspectionService
 
         // ── C. Tạo child Rejected lot (nếu có rejected bags) ─────────────────
         PaddyLot? rejectedChildLot = null;
-        if (rejectedBags.Count > 0)
+        // 100% reject dùng chính root lot; chỉ tạo child R khi vẫn có nhóm accepted.
+        if (rejectedBags.Count > 0 && (normalBags.Count > 0 || quarantineBags.Count > 0))
         {
             var rStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.RejectedReturn && !x.IsDeleted)
                 ?? throw new InvalidOperationException("Không tìm thấy LotStatus 'REJECTED_RETURN'.");
@@ -2061,7 +2118,8 @@ public class QualityInspectionService : IQualityInspectionService
                 ProductVariantId  = rootLot.ProductVariantId,
                 RiceVarietyId     = rootLot.RiceVarietyId,
                 StatusId          = rStatus.Id,
-                SourceReceiptId   = rootLot.SourceReceiptId,
+                // SourceReceiptId là quan hệ 1-1/unique; child truy nguồn qua ParentLotId.
+                SourceReceiptId   = null,
                 WarehouseId       = rootLot.WarehouseId,
                 InboundDate       = rootLot.InboundDate,
                 InitialWeightKg   = rejectedBags.Sum(b => b.WeightKg),
@@ -2123,17 +2181,34 @@ public class QualityInspectionService : IQualityInspectionService
         }
         else if (quarantineBags.Count > 0)
         {
-            // Không có normal, có quarantine → root trở thành quarantine accepted group
+            // Không có normal: root trở thành accepted quarantine group, không để root rỗng.
             var qStatus = await _lotStatusRepository.FirstOrDefaultAsync(x => x.Code == LotStatusCodeConstants.Quarantine && !x.IsDeleted);
             rootLot.InitialWeightKg   = quarantineBags.Sum(b => b.WeightKg);
             rootLot.RemainingWeightKg = 0m;
             if (qStatus != null) rootLot.StatusId = qStatus.Id;
-            // Bags đã được move sang quarantineChildLot, nhưng root cần đại diện Q lot
-            // Thực ra root lot không có bags → chuyển root sang PendingInbound với weight 0 là sai
-            // → root lot giữ Q status với weight = quarantine bags (nhưng bags đã move sang child)
-            // → Tốt nhất: root lot = REJECTED hoặc DEPLETED, inbound chỉ từ child Q
-            // → Theo kế hoạch: root có thể trở thành Q accepted group
             rootLot.QualityStatus = QualityStatusConstants.Failed;
+
+            foreach (var bag in quarantineBags)
+            {
+                bag.BagKind = PaddyLotBagKinds.Quarantine;
+                bag.LastModifiedDate = now;
+                bag.UpdatedBy = userId;
+                _context.PaddyLotBagMovements.Add(new PaddyLotBagMovement
+                {
+                    BagId = bag.Id,
+                    MovementType = PaddyLotBagMovementTypes.QualityQuarantineSplit,
+                    FromLocationId = bag.LocationId,
+                    ToLocationId = null,
+                    WeightKg = bag.WeightKg,
+                    BeforeWeightKg = bag.WeightKg,
+                    AfterWeightKg = bag.WeightKg,
+                    ReferenceType = InventoryReferenceTypeConstants.QualityInspectionSplit,
+                    ReferenceId = inspection.Id,
+                    Note = $"Chuyển root lot sang cách ly sau QC nhận kho — bao #{bag.BagNo}",
+                    CreatedBy = userId,
+                    CreatedDate = now
+                });
+            }
         }
         else
         {
@@ -2142,6 +2217,28 @@ public class QualityInspectionService : IQualityInspectionService
             rootLot.InitialWeightKg   = 0m;
             rootLot.RemainingWeightKg = 0m;
             if (rStatus != null) rootLot.StatusId = rStatus.Id;
+
+            foreach (var bag in rejectedBags)
+            {
+                bag.Status = PaddyLotBagStatuses.Reversed;
+                bag.LastModifiedDate = now;
+                bag.UpdatedBy = userId;
+                _context.PaddyLotBagMovements.Add(new PaddyLotBagMovement
+                {
+                    BagId = bag.Id,
+                    MovementType = PaddyLotBagMovementTypes.QualityRejectReturn,
+                    FromLocationId = bag.LocationId,
+                    ToLocationId = null,
+                    WeightKg = bag.WeightKg,
+                    BeforeWeightKg = bag.WeightKg,
+                    AfterWeightKg = 0m,
+                    ReferenceType = InventoryReferenceTypeConstants.QualityInspectionSplit,
+                    ReferenceId = inspection.Id,
+                    Note = $"Trả lại nhà cung cấp sau QC — bao #{bag.BagNo}",
+                    CreatedBy = userId,
+                    CreatedDate = now
+                });
+            }
         }
 
         rootLot.LastModifiedDate = now;
@@ -2153,7 +2250,7 @@ public class QualityInspectionService : IQualityInspectionService
         // normalBags → root lot (nếu normalBags.Count > 0)
         // quarantineBags → quarantineChildLot (nếu tồn tại)
         // rejectedBags → KHÔNG tạo InboundOrder
-        if (normalBags.Count > 0 || quarantineChildLot != null)
+        if (normalBags.Count > 0 || quarantineBags.Count > 0)
         {
             await CreateReceiptInboundOrderAsync(
                 rootLot,
@@ -2203,10 +2300,14 @@ public class QualityInspectionService : IQualityInspectionService
         _context.InboundOrders.Add(order);
         await _context.SaveChangesAsync(); // flush để lấy order.Id
 
-        // Line 1: Normal bags (root lot) — nếu có
-        if (normalBags.Count > 0)
+        // Root line: normal; hoặc quarantine khi không có normal.
+        var rootBags = normalBags.Count > 0 ? normalBags
+            : quarantineChildLot == null ? quarantineBags
+            : new List<PaddyLotBag>();
+        if (rootBags.Count > 0)
         {
-            var normalWeightKg = normalBags.Sum(b => b.WeightKg);
+            var normalWeightKg = rootBags.Sum(b => b.WeightKg);
+            var rootLineLabel = normalBags.Count > 0 ? "Normal" : "Cách ly";
             _context.InboundOrderItems.Add(new InboundOrderItem
             {
                 InboundOrderId   = order.Id,
@@ -2217,7 +2318,7 @@ public class QualityInspectionService : IQualityInspectionService
                 UnitCostPrice    = rootLot.CostPricePerKg,
                 ExpectedWeightKg = normalWeightKg,
                 ActualWeightKg   = normalWeightKg,
-                Note             = $"Normal — {normalBags.Count} bao, {normalWeightKg:F1} kg",
+                Note             = $"{rootLineLabel} — {rootBags.Count} bao, {normalWeightKg:F1} kg",
                 CreatedBy        = userId,
                 CreatedDate      = now
             });
@@ -2415,9 +2516,9 @@ public class QualityInspectionService : IQualityInspectionService
     /// </summary>
     public async Task<ApiResponse> GetMoistureConfigAsync()
     {
-        const string KeyMin     = "ReceivingQcMoistureMinPercent";
-        const string KeyMax     = "ReceivingQcMoistureMaxPercent";
-        const string KeyWarning = "StorageQcMoistureWarningPercent";
+        const string KeyMin     = SystemConfigConstants.Keys.ReceivingQcMoistureMinPercent;
+        const string KeyMax     = SystemConfigConstants.Keys.ReceivingQcMoistureMaxPercent;
+        const string KeyWarning = SystemConfigConstants.Keys.StorageQcMoistureWarningPercent;
 
         var configs = await _context.SystemConfigs
             .Where(c => c.ConfigKey == KeyMin || c.ConfigKey == KeyMax || c.ConfigKey == KeyWarning)

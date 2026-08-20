@@ -57,8 +57,7 @@ public class CustomerFeedbackService : ICustomerFeedbackService
             return ApiResponse.UnprocessableEntity(message: "Phiếu xuất chưa có trạng thái hợp lệ.");
 
         // Chỉ cho phép feedback khi đã giao hàng xong
-        if (outbound.OutboundOrderStatus.Code != OutboundOrderStatusNames.Completed && 
-            outbound.OutboundOrderStatus.Code != OutboundOrderStatusNames.Dispatched)
+        if (outbound.OutboundOrderStatus.Code != OutboundOrderStatusNames.Completed)
         {
             return ApiResponse.UnprocessableEntity(message: "Chỉ được tạo khiếu nại sau khi giao hàng.");
         }
@@ -74,9 +73,21 @@ public class CustomerFeedbackService : ICustomerFeedbackService
                 return ApiResponse.BadRequest(message: "Sản phẩm không khớp với chi tiết xuất kho.");
         }
 
+        if (dto.ProductVariantId.HasValue && !dto.OutboundOrderItemId.HasValue)
+        {
+            var productBelongsToOutbound = await _context.OutboundOrderItems.AnyAsync(
+                x => x.OutboundOrderId == dto.OutboundOrderId
+                    && x.ProductVariantId == dto.ProductVariantId.Value
+                    && !x.IsDeleted,
+                cancellationToken);
+            if (!productBelongsToOutbound)
+                return ApiResponse.BadRequest(message: "Sản phẩm không thuộc phiếu xuất kho.");
+        }
+
         if (dto.PaddyLotBagAllocationId.HasValue)
         {
             var bagAlloc = await _context.PaddyLotBagAllocations
+                .Include(x => x.Bag)
                 .FirstOrDefaultAsync(x => x.Id == dto.PaddyLotBagAllocationId.Value && !x.IsDeleted, cancellationToken);
                 
             if (bagAlloc == null)
@@ -84,6 +95,15 @@ public class CustomerFeedbackService : ICustomerFeedbackService
                 
             if (bagAlloc.ReferenceType != PaddyLotBagAllocationReferenceTypes.OutboundOrder || bagAlloc.ReferenceId != dto.OutboundOrderId)
                 return ApiResponse.BadRequest(message: "Bao hàng truyền vào không thuộc phiếu xuất này.");
+            var bagMatchesDeliveredLine = await _context.OutboundOrderItemAllocations.AnyAsync(
+                x => x.OutboundOrderItem.OutboundOrderId == dto.OutboundOrderId
+                    && (!dto.OutboundOrderItemId.HasValue || x.OutboundOrderItemId == dto.OutboundOrderItemId.Value)
+                    && (!dto.ProductVariantId.HasValue || x.OutboundOrderItem.ProductVariantId == dto.ProductVariantId.Value)
+                    && x.PaddyLotId == bagAlloc.Bag.LotId
+                    && !x.IsDeleted,
+                cancellationToken);
+            if (!bagMatchesDeliveredLine)
+                return ApiResponse.BadRequest(message: "Bao hàng không khớp với dòng hàng/lô đã giao của phiếu xuất.");
         }
 
         var feedback = new CustomerFeedback
@@ -159,6 +179,10 @@ public class CustomerFeedbackService : ICustomerFeedbackService
 
     public async Task<ApiResponse> ResolveAsync(int id, ResolveCustomerFeedbackDto dto, CancellationToken cancellationToken = default)
     {
+        if ((dto.ResolutionStatus == CustomerFeedbackStatus.Resolved || dto.ResolutionStatus == CustomerFeedbackStatus.Rejected)
+            && string.IsNullOrWhiteSpace(dto.ResolutionNote))
+            return ApiResponse.BadRequest(message: "Ghi chú xử lý là bắt buộc khi kết thúc khiếu nại.");
+
         if (!CustomerFeedbackStatus.IsValid(dto.ResolutionStatus))
             return ApiResponse.BadRequest(message: "Trạng thái không hợp lệ.");
 
@@ -175,6 +199,12 @@ public class CustomerFeedbackService : ICustomerFeedbackService
         {
             feedback.ResolvedAt = DateTimeHelper.VietnamNow();
             feedback.ResolvedBy = GetCurrentUserId();
+        }
+
+        if (dto.ResolutionStatus != CustomerFeedbackStatus.Resolved && dto.ResolutionStatus != CustomerFeedbackStatus.Rejected)
+        {
+            feedback.ResolvedAt = null;
+            feedback.ResolvedBy = null;
         }
 
         feedback.UpdatedBy = GetCurrentUserId();

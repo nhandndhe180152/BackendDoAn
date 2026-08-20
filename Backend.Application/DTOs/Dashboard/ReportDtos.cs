@@ -156,11 +156,16 @@ public class PurchaseReportDto
     public string? RiceVarietyName { get; set; }
     public string WarehouseName { get; set; } = null!;
     public decimal WeightKg { get; set; }
+    public decimal? AcceptedWeightKg { get; set; }
+    public decimal? RejectedWeightKg { get; set; }
     public int? BagCount { get; set; }
     public decimal UnitPrice { get; set; }
     public decimal TotalAmount { get; set; }
     public decimal PaidAmount { get; set; }
     public decimal DebtAmount { get; set; }
+    public decimal RefundReceivableAmount { get; set; }
+    public DateTime? DebtDueDate { get; set; }
+    public DateTime? QcFinalizedAt { get; set; }
     public string? QualitySummary { get; set; }
 }
 

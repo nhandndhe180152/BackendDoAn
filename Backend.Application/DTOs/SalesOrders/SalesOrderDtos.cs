@@ -132,6 +132,7 @@ public class SalesOrderListDto
     public string? Note { get; set; }
     public string? CancelReason { get; set; }
     public DateTime? CreatedDate { get; set; }
+    public int FeedbackCount { get; set; }
 }
 
 public class SalesOrderDetailDto

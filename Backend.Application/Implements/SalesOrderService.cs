@@ -213,6 +213,17 @@ public class SalesOrderService : ISalesOrderService
         var list = await _salesOrderRepository.GetPagedListAsync(
             query.Keyword, skip, pageSize, query.StatusId, query.Channel, query.CustomerId, query.WarehouseId, query.FromDate, query.ToDate);
 
+        var feedbackCounts = new Dictionary<int, int>();
+        if (_dbContext != null && list.Count > 0)
+        {
+            var salesOrderIds = list.Select(x => x.Id).ToList();
+            feedbackCounts = await _dbContext.CustomerFeedbacks
+                .Where(x => !x.IsDeleted && salesOrderIds.Contains(x.SalesOrderId))
+                .GroupBy(x => x.SalesOrderId)
+                .Select(group => new { SalesOrderId = group.Key, Count = group.Count() })
+                .ToDictionaryAsync(x => x.SalesOrderId, x => x.Count);
+        }
+
         var dtos = list.Select(so =>
         {
             var riceItems = so.SalesOrderItems
@@ -274,7 +285,8 @@ public class SalesOrderService : ISalesOrderService
             DepositAmount        = so.DepositAmount,
             Note                 = so.Note,
             CancelReason         = so.CancelReason,
-            CreatedDate          = so.CreatedDate
+            CreatedDate          = so.CreatedDate,
+            FeedbackCount        = feedbackCounts.TryGetValue(so.Id, out var count) ? count : 0
             };
         }).ToList();
 

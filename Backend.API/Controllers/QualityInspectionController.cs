@@ -144,7 +144,7 @@ namespace Backend.API.Controllers
         /// Keys: ReceivingQcMoistureMinPercent, ReceivingQcMoistureMaxPercent, StorageQcMoistureWarningPercent.
         /// </summary>
         [HttpGet("config")]
-        [AllowAnonymous]
+        [Authorize]
         public async Task<IActionResult> GetMoistureConfigAsync()
         {
             var result = await _service.GetMoistureConfigAsync();

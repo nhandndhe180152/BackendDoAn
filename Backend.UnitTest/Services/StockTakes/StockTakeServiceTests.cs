@@ -610,6 +610,55 @@ public class StockTakeServiceTests
     }
 
     [Fact]
+    public async Task SaveCountsAsync_CompleteDraft_ChangesStatusToSubmitted()
+    {
+        var item = MakeItem(system: 100m, actual: null);
+        var stockTake = MakeStockTake(1, item);
+        stockTake.StockTakeStatusId = Backend.Application.Common.Lookup.StockTakeStatusId(
+            LookupCodes.StockTakeStatus.Draft);
+        SetupStockTakeFind(stockTake);
+
+        var result = await Sut().SaveCountsAsync(1, new SaveStockTakeCountsDto
+        {
+            Items = new List<SaveStockTakeCountItemDto>
+            {
+                new() { Id = item.Id, ActualQuantity = 100m }
+            }
+        }, userId: 99);
+
+        result.Status.Should().Be(200);
+        stockTake.StockTakeStatusId.Should().Be(
+            Backend.Application.Common.Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Submitted));
+        _stockTakeRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task SaveCountsAsync_IncompleteDraft_Returns422AndKeepsDraftStatus()
+    {
+        var completedItem = MakeItem(system: 100m, actual: null);
+        var incompleteItem = MakeItem(system: 50m, actual: null);
+        incompleteItem.Id = completedItem.Id + 1;
+        var stockTake = MakeStockTake(1, completedItem);
+        stockTake.StockTakeItems.Add(incompleteItem);
+        stockTake.StockTakeStatusId = Backend.Application.Common.Lookup.StockTakeStatusId(
+            LookupCodes.StockTakeStatus.Draft);
+        SetupStockTakeFind(stockTake);
+
+        var result = await Sut().SaveCountsAsync(1, new SaveStockTakeCountsDto
+        {
+            Items = new List<SaveStockTakeCountItemDto>
+            {
+                new() { Id = completedItem.Id, ActualQuantity = 100m }
+            }
+        }, userId: 99);
+
+        result.Status.Should().Be(422);
+        stockTake.StockTakeStatusId.Should().Be(
+            Backend.Application.Common.Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Draft));
+        _stockTakeRepo.Verify(r => r.SaveChangesAsync(), Times.Never);
+    }
+
+    [Fact]
     public async Task ApproveAsync_StagingVariance_ReturnsConflictWithoutAdjustingInventory()
     {
         var item = MakeItem(system: 100m, actual: 95m);

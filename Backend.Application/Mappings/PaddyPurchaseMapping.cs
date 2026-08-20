@@ -162,6 +162,8 @@ public static class PaddyPurchaseMapping
             WarehouseId = entity.WarehouseId,
             WarehouseName = entity.Warehouse?.Name,
             ActualWeightKg = entity.ActualWeightKg,
+            AcceptedWeightKg = entity.AcceptedWeightKg,
+            RejectedWeightKg = entity.RejectedWeightKg,
             BagCount = entity.BagCount,
             Bags = string.IsNullOrWhiteSpace(entity.BagDetailsJson)
                 ? new()
@@ -170,6 +172,10 @@ public static class PaddyPurchaseMapping
             TotalAmount = entity.TotalAmount,
             PaidAmount = entity.PaidAmount,
             DebtAmount = entity.DebtAmount,
+            RefundReceivableAmount = Math.Max(0m, entity.PaidAmount - entity.TotalAmount),
+            DebtDueDate = entity.DebtDueDate,
+            QcFinalizedAt = entity.QcFinalizedAt,
+            QcFinalizedBy = entity.QcFinalizedBy,
             QualityJson = entity.QualityJson,
             PriceAdjustReason = entity.PriceAdjustReason,
             ReceiptDate = entity.ReceiptDate,

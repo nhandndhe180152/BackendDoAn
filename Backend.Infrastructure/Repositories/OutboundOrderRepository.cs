@@ -118,12 +118,13 @@ public class OutboundOrderRepository : RepositoryBase<OutboundOrder, int>, IOutb
 
         if (fromDate.HasValue)
         {
-            query = query.Where(x => x.CreatedDate >= fromDate.Value || (x.CompletedDate.HasValue && x.CompletedDate.Value >= fromDate.Value));
+            query = query.Where(x => x.CreatedDate >= fromDate.Value);
         }
 
         if (toDate.HasValue)
         {
-            query = query.Where(x => x.CreatedDate <= toDate.Value || (x.CompletedDate.HasValue && x.CompletedDate.Value <= toDate.Value));
+            var to = toDate.Value.Date.AddDays(1);
+            query = query.Where(x => x.CreatedDate < to);
         }
 
         return query;
