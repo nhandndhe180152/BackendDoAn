@@ -422,6 +422,12 @@ public class StockTransferService : IStockTransferService
             await _transferRepository.RollbackTransactionAsync();
             return ApiResponse.UnprocessableEntity(ex.Message);
         }
+        catch (DbUpdateException ex)
+        {
+            await _transferRepository.RollbackTransactionAsync();
+            var detail = ex.InnerException?.Message ?? ex.Message;
+            return ApiResponse.UnprocessableEntity($"Không thể xuất chuyển do lỗi dữ liệu: {detail}");
+        }
         catch
         {
             await _transferRepository.RollbackTransactionAsync();
@@ -526,15 +532,24 @@ public class StockTransferService : IStockTransferService
                     inboundLines.Add(new DestinationInboundLine(item.ProductVariantId, targetLotId, item.WeightKg, costPrice));
             }
 
-            // Tạo phiếu nhập kho (InboundOrder) ở kho đích — SourceType=STOCK_TRANSFER, truy vết kho nguồn.
-            await CreateDestinationInboundOrderAsync(transfer, inboundLines, receivedById, now);
-
             transfer.StatusId = completedStatus.Id;
             transfer.UpdatedBy = receivedById;
             transfer.LastModifiedDate = now;
             await _transferRepository.UpdateAsync(transfer);
             await _transferRepository.SaveChangesAsync();
             await _transferRepository.EndTransactionAsync();
+
+            // Phiếu nhập kho ở kho đích chỉ là chứng từ TRUY VẾT — tạo SAU khi đã chốt nhận hàng và
+            // không được làm hỏng kết quả nhận hàng nếu gặp lỗi. Tạo ngoài transaction chính.
+            try
+            {
+                await CreateDestinationInboundOrderAsync(transfer, inboundLines, receivedById, now);
+            }
+            catch
+            {
+                // Tồn kho/lô/bao đã commit; lỗi tạo phiếu nhập truy vết không làm sai kết quả nhận hàng.
+                return ApiResponse.UnprocessableEntity($"Không thể tạo phiếu nhập do lỗi dữ liệu");
+            }
 
             try
             {
@@ -570,6 +585,12 @@ public class StockTransferService : IStockTransferService
         {
             await _transferRepository.RollbackTransactionAsync();
             return ApiResponse.UnprocessableEntity(ex.Message);
+        }
+        catch (DbUpdateException ex)
+        {
+            await _transferRepository.RollbackTransactionAsync();
+            var detail = ex.InnerException?.Message ?? ex.Message;
+            return ApiResponse.UnprocessableEntity($"Không thể nhận hàng do lỗi dữ liệu ở kho đích: {detail}");
         }
         catch
         {
