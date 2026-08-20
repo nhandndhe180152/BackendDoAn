@@ -937,9 +937,10 @@ public class StockTransferService : IStockTransferService
             var dto = dtos[i];
             if (dto.Bags.Count == 0) continue;
 
-            // Lô nguồn đại diện của mỗi bao (để truy vết) — lấy theo thành phần bao.
+            // Lô nguồn đại diện + khối lượng thực tế của mỗi bao (để truy vết + hiển thị ngay).
             var bagIds = dto.Bags.Select(b => b.BagId).ToList();
             var sourceLotByBag = new Dictionary<int, int?>();
+            var weightByBag = new Dictionary<int, decimal>();
             if (_bagRepository != null)
             {
                 var bags = await _bagRepository.FindByCondition(x => bagIds.Contains(x.Id) && !x.IsDeleted)
@@ -949,6 +950,7 @@ public class StockTransferService : IStockTransferService
                     var main = bag.Contents.Where(c => !c.IsDeleted && c.WeightKg > 0)
                         .OrderByDescending(c => c.WeightKg).FirstOrDefault();
                     sourceLotByBag[bag.Id] = main?.LotId ?? bag.LotId;
+                    weightByBag[bag.Id] = bag.WeightKg;
                 }
             }
 
@@ -959,7 +961,7 @@ public class StockTransferService : IStockTransferService
                     StockTransferItemId = entities[i].Id,
                     BagId = b.BagId,
                     SourceLotId = sourceLotByBag.TryGetValue(b.BagId, out var lotId) ? lotId : null,
-                    WeightKg = 0m, // gán chính xác khi xuất chuyển (dựa trên trọng lượng bao thực tế)
+                    WeightKg = weightByBag.TryGetValue(b.BagId, out var w) ? w : 0m,
                     MoisturePercent = b.MoisturePercent,
                     ImpurityPercent = b.ImpurityPercent,
                     MoldLevel = b.MoldLevel,
@@ -1039,16 +1041,16 @@ public class StockTransferService : IStockTransferService
     }
 
     /// <summary>
-    /// Gợi ý ô LƯU ở kho đích (giống cách kiểm kê gợi ý vị trí): ưu tiên ô đang chứa
-    /// cùng loại hàng, rồi ô còn nhiều chỗ, rồi độ ưu tiên. Bỏ khu cách ly / khu chờ xuất /
-    /// ô đang bị khóa xuất / cột một-loại đang chứa SKU khác.
+    /// Gợi ý ô LƯU (giống cách kiểm kê gợi ý vị trí): ưu tiên ô đang chứa cùng loại hàng,
+    /// rồi ô còn nhiều chỗ, rồi độ ưu tiên. Bỏ khu chờ xuất / ô đang khóa xuất / cột một-loại
+    /// đang chứa SKU khác. <paramref name="wantQuarantine"/>=true → chỉ khu cách ly; false → cột thường.
     /// </summary>
-    private async Task<List<Location>> BuildDestinationSuggestionsAsync(
-        int toWarehouseId, int productVariantId, decimal weightKg)
+    private async Task<List<Location>> BuildStorageSuggestionsAsync(
+        int warehouseId, int productVariantId, decimal weightKg, bool wantQuarantine)
     {
         var candidates = await _locationRepository.FindByCondition(x =>
-                x.WarehouseId == toWarehouseId && x.IsActive && !x.IsDeleted &&
-                !x.IsQuarantine && !x.IsOutboundStaging && x.OutboundLockOrderId == null)
+                x.WarehouseId == warehouseId && x.IsActive && !x.IsDeleted &&
+                x.IsQuarantine == wantQuarantine && !x.IsOutboundStaging && x.OutboundLockOrderId == null)
             .ToListAsync();
 
         return candidates
@@ -1063,18 +1065,28 @@ public class StockTransferService : IStockTransferService
 
     /// <summary>Vị trí đích mặc định khi người dùng chưa chọn (backend tự chọn ô tốt nhất).</summary>
     private async Task<int?> ResolveDestinationLocationAsync(int toWarehouseId, int productVariantId, decimal weightKg)
-        => (await BuildDestinationSuggestionsAsync(toWarehouseId, productVariantId, weightKg)).FirstOrDefault()?.Id;
+        => (await BuildStorageSuggestionsAsync(toWarehouseId, productVariantId, weightKg, wantQuarantine: false))
+            .FirstOrDefault()?.Id;
 
-    /// <summary>Danh sách gợi ý ô lưu ở kho đích cho picker (chỉ tên vị trí, không chấm điểm/lý do).</summary>
-    public async Task<ApiResponse> GetDestinationSuggestionsAsync(int toWarehouseId, int productVariantId, decimal weightKg)
-    {
-        var suggestions = await BuildDestinationSuggestionsAsync(toWarehouseId, productVariantId, weightKg);
-        var result = suggestions.Select(loc => new LocationSuggestionDto
+    private static List<LocationSuggestionDto> ToLocationSuggestions(IEnumerable<Location> locations)
+        => locations.Select(loc => new LocationSuggestionDto
         {
             LocationId = loc.Id,
             LocationName = FormatLocation(loc) ?? loc.SlotCode ?? $"Ô #{loc.Id}"
         }).ToList();
-        return ApiResponse.Success(result);
+
+    /// <summary>Danh sách gợi ý ô lưu ở kho đích cho picker (chỉ tên vị trí, không chấm điểm/lý do).</summary>
+    public async Task<ApiResponse> GetDestinationSuggestionsAsync(int toWarehouseId, int productVariantId, decimal weightKg)
+    {
+        var suggestions = await BuildStorageSuggestionsAsync(toWarehouseId, productVariantId, weightKg, wantQuarantine: false);
+        return ApiResponse.Success(ToLocationSuggestions(suggestions));
+    }
+
+    /// <summary>Danh sách gợi ý ô CÁCH LY ở kho nguồn cho picker (chỉ tên vị trí).</summary>
+    public async Task<ApiResponse> GetQuarantineSuggestionsAsync(int fromWarehouseId, int productVariantId, decimal weightKg)
+    {
+        var suggestions = await BuildStorageSuggestionsAsync(fromWarehouseId, productVariantId, weightKg, wantQuarantine: true);
+        return ApiResponse.Success(ToLocationSuggestions(suggestions));
     }
 
     /// <summary>Danh sách bao ở ĐỈNH cột nguồn có thể chọn để chuyển kho (picker theo BAO).</summary>
@@ -1758,6 +1770,15 @@ public class StockTransferService : IStockTransferService
     {
         var items = x.StockTransferItems.Where(i => !i.IsDeleted).ToList();
         var canInferSourceFromLot = !IsStatus(x, StockTransferStatusNames.Completed);
+
+        // Khối lượng dòng: nếu chưa lưu (phiếu cũ) thì suy ra từ tổng bao ĐẠT.
+        static decimal EffectiveItemWeight(StockTransferItem i)
+        {
+            if (i.WeightKg > 0) return i.WeightKg;
+            return i.Bags.Where(b => !b.IsDeleted && b.Disposition == StockTransferBagDispositions.Transfer)
+                .Sum(b => b.WeightKg > 0 ? b.WeightKg : (b.Bag != null ? b.Bag.WeightKg : 0m));
+        }
+
         return new StockTransferDetailDto
         {
             Id = x.Id,
@@ -1775,7 +1796,7 @@ public class StockTransferService : IStockTransferService
             TransferDate = x.TransferDate,
             Note = x.Note,
             ItemCount = items.Count,
-            TotalWeightKg = items.Sum(i => i.WeightKg),
+            TotalWeightKg = items.Sum(EffectiveItemWeight),
             Items = items.Select(i => new StockTransferItemDetailDto
             {
                 Id = i.Id,
@@ -1792,7 +1813,7 @@ public class StockTransferService : IStockTransferService
                     "Tồn cấp kho nguồn",
                 ToLocationId = i.ToLocationId,
                 ToLocationName = FormatLocation(i.ToLocation),
-                WeightKg = i.WeightKg,
+                WeightKg = EffectiveItemWeight(i),
                 Note = i.Note,
                 BagIds = string.IsNullOrWhiteSpace(i.BagIdsJson)
                     ? new List<int>()
@@ -1805,7 +1826,8 @@ public class StockTransferService : IStockTransferService
                     QrCode = b.Bag?.QrCode,
                     SourceLotId = b.SourceLotId,
                     SourceLotCode = b.SourceLot?.LotCode,
-                    WeightKg = b.WeightKg,
+                    // Phiếu tạo trước khi lưu kg bao (=0) → hiển thị theo kg bao hiện tại.
+                    WeightKg = b.WeightKg > 0 ? b.WeightKg : (b.Bag != null ? b.Bag.WeightKg : 0m),
                     MoisturePercent = b.MoisturePercent,
                     ImpurityPercent = b.ImpurityPercent,
                     MoldLevel = b.MoldLevel,

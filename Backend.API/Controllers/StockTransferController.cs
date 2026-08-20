@@ -76,6 +76,17 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        /// <summary>Gợi ý ô cách ly ở kho nguồn (cho bao không đạt chất lượng).</summary>
+        [HttpGet("quarantine-suggestions")]
+        public async Task<IActionResult> GetQuarantineSuggestionsAsync(
+            [FromQuery] int fromWarehouseId,
+            [FromQuery] int productVariantId,
+            [FromQuery] decimal weightKg = 0)
+        {
+            var result = await _service.GetQuarantineSuggestionsAsync(fromWarehouseId, productVariantId, weightKg);
+            return BaseResult(result);
+        }
+
         [HttpPost]
         public async Task<IActionResult> CreateAsync([FromBody] CreateStockTransferDto dto)
         {
