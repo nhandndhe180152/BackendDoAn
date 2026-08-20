@@ -92,6 +92,7 @@ public static class TableNames
     public const string StockTransferStatus = nameof(StockTransferStatus);
     public const string StockTransfer = nameof(StockTransfer);
     public const string StockTransferItem = nameof(StockTransferItem);
+    public const string StockTransferBag = nameof(StockTransferBag);
 
     // ── Nhóm B: Chứng từ nguồn & Multi-tenant ─────────────────────────────────
     public const string Customer = nameof(Customer);

@@ -99,6 +99,7 @@ public class BackendContext : DbContext, IApplicationDbContext
     public virtual DbSet<StockTransferStatus> StockTransferStatuses { get; set; }
     public virtual DbSet<StockTransfer> StockTransfers { get; set; }
     public virtual DbSet<StockTransferItem> StockTransferItems { get; set; }
+    public virtual DbSet<StockTransferBag> StockTransferBags { get; set; }
 
     // ── Nhóm B: Chứng từ nguồn & Multi-tenant ─────────────────────────────────
     public virtual DbSet<Customer> Customers { get; set; }

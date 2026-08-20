@@ -84,6 +84,7 @@ public interface IApplicationDbContext
     DbSet<StockTransferStatus> StockTransferStatuses { get; }
     DbSet<StockTransfer> StockTransfers { get; }
     DbSet<StockTransferItem> StockTransferItems { get; }
+    DbSet<StockTransferBag> StockTransferBags { get; }
 
     // non-paddy/PO
     DbSet<Customer> Customers { get; }

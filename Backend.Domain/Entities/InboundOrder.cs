@@ -25,8 +25,12 @@ public class InboundOrder : EntityAuditBase<int>
     /// <summary>Nguồn gốc khi nhập lúa thu mua trực tiếp</summary>
     public int? PaddyPurchaseReceiptId { get; set; }
 
-    /// <summary>Loại nguồn: RECEIPT | PO | MANUAL</summary>
+    /// <summary>Loại nguồn: RECEIPT | PO | MANUAL | STOCK_TRANSFER</summary>
     public string? SourceType { get; set; }
+
+    /// <summary>Nguồn gốc khi phiếu nhập được sinh tự động từ chuyển kho nội bộ (SourceType = STOCK_TRANSFER).
+    /// Dùng để truy vết ngược về phiếu chuyển và kho nguồn.</summary>
+    public int? StockTransferId { get; set; }
 
     /// <summary>Multi-tenant (nullable ở MVP)</summary>
     public int? OrganizationId { get; set; }
@@ -37,6 +41,7 @@ public class InboundOrder : EntityAuditBase<int>
     public virtual DeliveryNote? DeliveryNote { get; set; }
     public virtual PurchaseOrder? PurchaseOrder { get; set; }
     public virtual PaddyPurchaseReceipt? PaddyPurchaseReceipt { get; set; }
+    public virtual StockTransfer? StockTransfer { get; set; }
     public virtual Organization? Organization { get; set; }
     public virtual ICollection<InboundOrderItem> InboundOrderItems { get; set; } = new List<InboundOrderItem>();
 }

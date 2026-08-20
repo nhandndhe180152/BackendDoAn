@@ -29,6 +29,10 @@ public static class PaddyLotBagMovementTypes
     public const string ReceiptReversal = "ReceiptReversal";
     public const string TransferDispatch = "TransferDispatch";
     public const string TransferReceive = "TransferReceive";
+    /// <summary>Chuyển kho: bao không đạt chất lượng được đưa vào ô cách ly ở kho nguồn.</summary>
+    public const string TransferQuarantine = "TransferQuarantine";
+    /// <summary>Chuyển kho: bao không đạt chất lượng bị loại bỏ (bỏ nguyên bao) ở kho nguồn.</summary>
+    public const string TransferDispose = "TransferDispose";
     public const string MillingConsume = "MillingConsume";
     public const string MillingPack = "MillingPack";
     public const string OutboundConsume = "OutboundConsume";

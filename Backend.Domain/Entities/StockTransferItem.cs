@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Backend.Domain.Abstractions;
 
 namespace Backend.Domain.Entities;
@@ -22,4 +23,7 @@ public class StockTransferItem : EntityAuditBase<int>
     public virtual PaddyLot? PaddyLot { get; set; }
     public virtual Location? FromLocation { get; set; }
     public virtual Location? ToLocation { get; set; }
+
+    /// <summary>Bao được chọn theo BAO kèm chất lượng + cách xử lý (luồng mới).</summary>
+    public virtual ICollection<StockTransferBag> Bags { get; set; } = new List<StockTransferBag>();
 }

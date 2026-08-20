@@ -54,6 +54,17 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        /// <summary>Bao ở đỉnh cột nguồn có thể chọn để chuyển kho theo BAO (picker).</summary>
+        [HttpGet("source-bags")]
+        public async Task<IActionResult> GetSourceBagsAsync(
+            [FromQuery] int fromWarehouseId,
+            [FromQuery] int fromLocationId,
+            [FromQuery] int? productVariantId)
+        {
+            var result = await _service.GetSourceBagsAsync(fromWarehouseId, fromLocationId, productVariantId);
+            return BaseResult(result);
+        }
+
         [HttpPost]
         public async Task<IActionResult> CreateAsync([FromBody] CreateStockTransferDto dto)
         {

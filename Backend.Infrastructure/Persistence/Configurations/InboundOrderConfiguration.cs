@@ -44,9 +44,15 @@ public class InboundOrderConfiguration : IEntityTypeConfiguration<InboundOrder>
             .HasForeignKey(x => x.OrganizationId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        builder.HasOne(x => x.StockTransfer)
+            .WithMany()
+            .HasForeignKey(x => x.StockTransferId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasIndex(x => x.PurchaseOrderId).HasDatabaseName("IX_InboundOrder_PurchaseOrderId");
         builder.HasIndex(x => x.PaddyPurchaseReceiptId).HasDatabaseName("IX_InboundOrder_PaddyPurchaseReceiptId");
         builder.HasIndex(x => x.OrganizationId).HasDatabaseName("IX_InboundOrder_OrganizationId");
+        builder.HasIndex(x => x.StockTransferId).HasDatabaseName("IX_InboundOrder_StockTransferId");
     }
 }
 

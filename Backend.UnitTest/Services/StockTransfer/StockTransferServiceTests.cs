@@ -33,6 +33,13 @@ public class StockTransferServiceTests
     private readonly Mock<IInventoryTransactionRepository> _invTxRepo = new();
     private readonly Mock<ILocationRepository> _locationRepo = new();
     private readonly Mock<INotificationDispatcher> _dispatcher = new();
+    private readonly Mock<IRepositoryBase<PaddyLotBag, int>> _bagRepo = new();
+    private readonly Mock<IRepositoryBase<PaddyLotBagContent, int>> _bagContentRepo = new();
+    private readonly Mock<IRepositoryBase<PaddyLotBagMovement, int>> _bagMovementRepo = new();
+    private readonly Mock<IRepositoryBase<StockTransferBag, int>> _transferBagRepo = new();
+    private readonly Mock<IRepositoryBase<Backend.Domain.Entities.InboundOrder, int>> _inboundRepo = new();
+    private readonly Mock<IRepositoryBase<InboundOrderItem, int>> _inboundItemRepo = new();
+    private readonly Mock<IRepositoryBase<InboundOrderStatus, int>> _inboundStatusRepo = new();
 
     private StockTransferService Sut() => new(
         _transferRepo.Object,
@@ -46,6 +53,60 @@ public class StockTransferServiceTests
         _invTxRepo.Object,
         _locationRepo.Object,
         _dispatcher.Object);
+
+    private StockTransferService SutWithBags() => new(
+        _transferRepo.Object,
+        _itemRepo.Object,
+        _statusRepo.Object,
+        _lotStatusRepo.Object,
+        _warehouseRepo.Object,
+        _productVariantRepo.Object,
+        _paddyLotRepo.Object,
+        _invRepo.Object,
+        _invTxRepo.Object,
+        _locationRepo.Object,
+        _dispatcher.Object,
+        _bagRepo.Object,
+        _bagContentRepo.Object,
+        _bagMovementRepo.Object,
+        _transferBagRepo.Object,
+        _inboundRepo.Object,
+        _inboundItemRepo.Object,
+        _inboundStatusRepo.Object);
+
+    private void SetupActiveWarehouses()
+    {
+        _warehouseRepo.Setup(r => r.GetByIdAsync(1))
+            .ReturnsAsync(new Backend.Domain.Entities.Warehouse { Id = 1, IsActive = true, Name = "Kho nguồn", Code = "K1" });
+        _warehouseRepo.Setup(r => r.GetByIdAsync(2))
+            .ReturnsAsync(new Backend.Domain.Entities.Warehouse { Id = 2, IsActive = true, Name = "Kho đích", Code = "K2" });
+    }
+
+    private static StockTransferBagInputDto BagInput(int bagId, string quality, string disposition)
+        => new()
+        {
+            BagId = bagId,
+            QualityResult = quality,
+            Disposition = disposition,
+        };
+
+    private static CreateStockTransferDto BagTransferDto(StockTransferBagInputDto bag)
+        => new()
+        {
+            FromWarehouseId = 1,
+            ToWarehouseId = 2,
+            TransferDate = new DateTime(2026, 8, 20),
+            Items = new List<StockTransferItemDto>
+            {
+                new()
+                {
+                    ProductVariantId = 5,
+                    FromLocationId = 10,
+                    ToLocationId = 20,
+                    Bags = new List<StockTransferBagInputDto> { bag },
+                },
+            },
+        };
 
     public StockTransferServiceTests()
     {
@@ -219,6 +280,71 @@ public class StockTransferServiceTests
             .ReturnsAsync(new Backend.Domain.Entities.Inventory { Id = 1, ProductVariantId = 5, WarehouseId = 1, LocationId = 10, PaddyLotId = 500, QuantityOnHand = 50 });
 
         var result = await Sut().ReceiveAsync(1, receivedById: 1);
+
+        result.Status.Should().Be(422);
+    }
+
+    [Fact]
+    public async Task CreateAsync_BagLine_BagNotFound_ReturnsUnprocessable()
+    {
+        SetupActiveWarehouses();
+        _bagRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<PaddyLotBag, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns(new List<PaddyLotBag>().AsQueryable().BuildMock());
+
+        var dto = BagTransferDto(BagInput(900, BagQualityResultConstants.Pass, StockTransferBagDispositions.Transfer));
+
+        var result = await SutWithBags().CreateAsync(dto);
+
+        result.Status.Should().Be(422);
+    }
+
+    [Fact]
+    public async Task CreateAsync_BagLine_PassButDispose_ReturnsUnprocessable()
+    {
+        SetupActiveWarehouses();
+
+        var bag = new PaddyLotBag
+        {
+            Id = 900,
+            BagNo = 1,
+            Status = PaddyLotBagStatuses.Stored,
+            LocationId = 10,
+            WeightKg = 50m,
+            LotId = 500,
+            IsFull = true,
+            Contents = new List<PaddyLotBagContent>
+            {
+                new()
+                {
+                    IsDeleted = false,
+                    WeightKg = 50m,
+                    LotId = 500,
+                    Lot = new global::Backend.Domain.Entities.PaddyLot
+                    {
+                        Id = 500,
+                        LotCode = "LOT-500",
+                        ProductVariantId = 5,
+                        CostPricePerKg = 10m,
+                    },
+                },
+            },
+        };
+
+        _bagRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<PaddyLotBag, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns(new List<PaddyLotBag> { bag }.AsQueryable().BuildMock());
+
+        _invRepo.Setup(r => r.GetByVariantWarehouseLocationAsync(5, 1, 10, 500))
+            .ReturnsAsync(new Backend.Domain.Entities.Inventory
+            { Id = 1, ProductVariantId = 5, WarehouseId = 1, LocationId = 10, PaddyLotId = 500, QuantityOnHand = 100m });
+
+        // Bao ĐẠT chất lượng nhưng chọn BỎ → sai quy tắc, phải trả 422.
+        var dto = BagTransferDto(BagInput(900, BagQualityResultConstants.Pass, StockTransferBagDispositions.Dispose));
+
+        var result = await SutWithBags().CreateAsync(dto);
 
         result.Status.Should().Be(422);
     }
