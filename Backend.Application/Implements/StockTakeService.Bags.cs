@@ -533,6 +533,22 @@ public partial class StockTakeService
             if (locations.Count == 0) return new List<StockTakeBagTargetSuggestionDto>();
         }
 
+        // Cột thường: loại các cột đang có BAO LẺ (bao chưa đầy) — mỗi cột chỉ được tối đa 1 bao lẻ,
+        // tránh loạn khi đổ đầy nếu có 2 bao lẻ khác nhau trong cùng cột.
+        if (!wantQuarantine)
+        {
+            var candidateIds = locations.Select(x => x.Id).ToList();
+            var openBagLocationIds = (await _context.PaddyLotBags.AsNoTracking()
+                .Where(x => !x.IsDeleted && x.Status == PaddyLotBagStatuses.Stored && !x.IsFull && x.WeightKg > 0
+                            && x.LocationId.HasValue && candidateIds.Contains(x.LocationId.Value))
+                .Select(x => x.LocationId!.Value).Distinct().ToListAsync()).ToHashSet();
+            if (openBagLocationIds.Count > 0)
+            {
+                locations = locations.Where(x => !openBagLocationIds.Contains(x.Id)).ToList();
+                if (locations.Count == 0) return new List<StockTakeBagTargetSuggestionDto>();
+            }
+        }
+
         var locationIds = locations.Select(x => x.Id).ToList();
         var occupancy = await _context.Inventories.AsNoTracking()
             .Where(x => !x.IsDeleted && x.LocationId.HasValue && locationIds.Contains(x.LocationId.Value))
@@ -1201,7 +1217,12 @@ public partial class StockTakeService
                         .FirstOrDefaultAsync();
                     categoryConflict = target.AllowedCategoryId.Value != targetCategoryId;
                 }
-                if (singleTypeConflict || categoryConflict)
+                // Cột thường đang có BAO LẺ → không cất thêm vào (mỗi cột tối đa 1 bao lẻ).
+                var openBagConflict = !wantQuarantine
+                    && await _context.PaddyLotBags.AsNoTracking().AnyAsync(x =>
+                        !x.IsDeleted && x.LocationId == target.Id && x.Status == PaddyLotBagStatuses.Stored
+                        && !x.IsFull && x.WeightKg > 0);
+                if (singleTypeConflict || categoryConflict || openBagConflict)
                 {
                     var alternative = await ResolveDefaultTargetLocationAsync(
                         stockTake.WarehouseId, variantId, item.LocationId,

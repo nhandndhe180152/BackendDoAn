@@ -494,7 +494,11 @@ public class StockTransferService : IStockTransferService
                 {
                     // ── Luồng THEO BAO: chỉ nhận bao ĐẠT (đang chuyển). Bao cách ly/bỏ đã xử lý ở nguồn. ──
                     if (transferBagRows.Count > 0)
+                    {
                         await ReceiveItemBagsAsync(transfer, item, transferBagRows, receivedById, now, inboundLines);
+                        // Chốt thay đổi bao ngay để dòng sau còn "thấy" bao lẻ vừa đặt → không chọn trùng cột.
+                        await _transferRepository.SaveChangesAsync();
+                    }
                     continue;
                 }
 
@@ -548,7 +552,6 @@ public class StockTransferService : IStockTransferService
             catch
             {
                 // Tồn kho/lô/bao đã commit; lỗi tạo phiếu nhập truy vết không làm sai kết quả nhận hàng.
-                return ApiResponse.UnprocessableEntity($"Không thể tạo phiếu nhập do lỗi dữ liệu");
             }
 
             try
@@ -1062,22 +1065,52 @@ public class StockTransferService : IStockTransferService
         return variant?.Product?.ProductCategoryId;
     }
 
+    /// <summary>Cột đang chứa BAO LẺ (bao chưa đầy) — không được xếp thêm bao vào để tránh loạn khi đổ đầy.</summary>
+    private async Task<bool> LocationHasOpenBagAsync(int locationId)
+    {
+        if (_bagRepository == null) return false;
+        return await _bagRepository.AnyAsync(x =>
+            x.LocationId == locationId && x.Status == PaddyLotBagStatuses.Stored &&
+            !x.IsFull && x.WeightKg > 0 && !x.IsDeleted);
+    }
+
+    /// <summary>Tập LocationId (trong danh sách candidateIds) đang có bao lẻ — dùng để loại khỏi gợi ý.</summary>
+    private async Task<HashSet<int>> GetLocationIdsWithOpenBagAsync(List<int> candidateIds)
+    {
+        if (_bagRepository == null || candidateIds.Count == 0) return new HashSet<int>();
+        var ids = await _bagRepository.FindByCondition(x =>
+                x.LocationId != null && candidateIds.Contains(x.LocationId.Value) &&
+                x.Status == PaddyLotBagStatuses.Stored && !x.IsFull && x.WeightKg > 0 && !x.IsDeleted)
+            .Select(x => x.LocationId!.Value)
+            .Distinct()
+            .ToListAsync();
+        return ids.ToHashSet();
+    }
+
     /// <summary>
-    /// Gợi ý ô LƯU (giống cách kiểm kê gợi ý vị trí): CHỈ trả về ô thật sự dùng được (đã lọc đủ:
-    /// sức chứa + cột một-loại + danh mục), ưu tiên ô đang chứa cùng loại hàng → ô trống hẳn →
-    /// ô còn nhiều chỗ → độ ưu tiên. <paramref name="wantQuarantine"/>=true → khu cách ly; false → cột thường.
+    /// Gợi ý ô LƯU (giống cách kiểm kê gợi ý vị trí): CHỈ trả về ô thật sự dùng được (đủ chỗ + cột
+    /// một-loại + danh mục) VÀ — với cột thường — KHÔNG chứa bao lẻ (mỗi cột tối đa 1 bao lẻ), ưu tiên
+    /// ô đang chứa cùng loại hàng → ô trống hẳn → ô còn nhiều chỗ → độ ưu tiên.
     /// </summary>
     private async Task<List<Location>> BuildStorageSuggestionsAsync(
         int warehouseId, int productVariantId, decimal weightKg, bool wantQuarantine)
     {
         var categoryId = await GetProductCategoryIdAsync(productVariantId);
-        var candidates = await _locationRepository.FindByCondition(x =>
+        var candidates = (await _locationRepository.FindByCondition(x =>
                 x.WarehouseId == warehouseId && x.IsActive && !x.IsDeleted &&
                 x.IsQuarantine == wantQuarantine && !x.IsOutboundStaging && x.OutboundLockOrderId == null)
-            .ToListAsync();
+            .ToListAsync())
+            .Where(x => IsLocationUsableForStorage(x, warehouseId, productVariantId, weightKg, categoryId, wantQuarantine))
+            .ToList();
+
+        // Cột thường: loại các cột đang có bao lẻ để không tạo 2 bao lẻ cùng cột.
+        if (!wantQuarantine && candidates.Count > 0)
+        {
+            var openBagLocationIds = await GetLocationIdsWithOpenBagAsync(candidates.Select(x => x.Id).ToList());
+            candidates = candidates.Where(x => !openBagLocationIds.Contains(x.Id)).ToList();
+        }
 
         return candidates
-            .Where(x => IsLocationUsableForStorage(x, warehouseId, productVariantId, weightKg, categoryId, wantQuarantine))
             .OrderByDescending(x => x.CurrentProductVariantId == productVariantId)
             .ThenByDescending(x => x.CurrentOccupancy <= 0m)
             .ThenByDescending(x => x.MaxCapacity.HasValue ? x.MaxCapacity.Value - x.CurrentOccupancy : decimal.MaxValue / 2)
@@ -1103,7 +1136,8 @@ public class StockTransferService : IStockTransferService
             var chosen = await _locationRepository.GetByIdAsync(chosenLocationId.Value);
             var categoryId = await GetProductCategoryIdAsync(productVariantId);
             if (chosen != null &&
-                IsLocationUsableForStorage(chosen, toWarehouseId, productVariantId, weightKg, categoryId, wantQuarantine: false))
+                IsLocationUsableForStorage(chosen, toWarehouseId, productVariantId, weightKg, categoryId, wantQuarantine: false) &&
+                !await LocationHasOpenBagAsync(chosenLocationId.Value))
                 return chosenLocationId;
         }
         return await ResolveDestinationLocationAsync(toWarehouseId, productVariantId, weightKg);
@@ -1388,7 +1422,10 @@ public class StockTransferService : IStockTransferService
             bag.LocationId = item.ToLocationId;
             bag.StackOrder = nextStackOrder++;
             bag.Status = PaddyLotBagStatuses.Stored;
-            bag.OpenBagKey = bag.IsFull || !item.ToLocationId.HasValue ? null : $"{item.ProductVariantId}:{transfer.ToWarehouseId}";
+            // Bao chuyển kho được đặt vào như KIỆN NGUYÊN, không phải "bao mở" đang châm thêm.
+            // OpenBagKey có UNIQUE index (variant:kho) — gán ở đây gây trùng khi nhận nhiều bao lẻ
+            // cùng loại, hoặc khi kho đích đã có sẵn một bao mở. Vì vậy luôn để null.
+            bag.OpenBagKey = null;
             bag.UpdatedBy = userId;
             bag.LastModifiedDate = now;
             await _bagRepository.UpdateAsync(bag);
