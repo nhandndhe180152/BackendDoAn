@@ -46,6 +46,16 @@ public sealed class PaddyLotBagInvariantService : IPaddyLotBagInvariantService
 
     public async Task ValidateLotLocationAsync(int lotId, int locationId, CancellationToken cancellationToken = default)
     {
+        var partialBagCount = await _context.PaddyLotBags.AsNoTracking()
+            .CountAsync(x => x.LocationId == locationId
+                && x.Status == Constants.PaddyLotBagStatuses.Stored
+                && !x.IsDeleted
+                && !x.IsFull,
+                cancellationToken);
+        if (partialBagCount > 1)
+            throw new InvalidOperationException(
+                $"Vị trí #{locationId} có {partialBagCount} bao lẻ; mỗi vị trí chỉ được có tối đa một bao lẻ.");
+
         var tracked = await _context.PaddyLotBagContents.AsNoTracking()
             .AnyAsync(x => x.LotId == lotId && x.Bag.LocationId == locationId && x.Bag.Status == Constants.PaddyLotBagStatuses.Stored, cancellationToken);
         if (!tracked) return; // Dữ liệu cũ chưa quản lý theo bao được giữ tương thích.

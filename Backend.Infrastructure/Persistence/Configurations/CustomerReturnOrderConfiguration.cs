@@ -18,6 +18,9 @@ public class CustomerReturnOrderConfiguration : IEntityTypeConfiguration<Custome
         builder.Property(x => x.ReturnCode).HasMaxLength(50);
         builder.Property(x => x.ReturnReason).HasMaxLength(500);
         builder.Property(x => x.Note).HasMaxLength(1000);
+        builder.Property(x => x.CancellationReason).HasMaxLength(500);
+        builder.Property(x => x.RejectionReason).HasMaxLength(500);
+        builder.Property(x => x.RefundStatus).HasMaxLength(30).HasDefaultValue("NOT_APPLICABLE");
 
         builder.HasIndex(x => x.ReturnCode)
             .IsUnique()
@@ -51,6 +54,7 @@ public class CustomerReturnOrderConfiguration : IEntityTypeConfiguration<Custome
         builder.Property(x => x.ApprovedCreditAmount).HasColumnType("decimal(18,2)").HasDefaultValue(0);
         builder.Property(x => x.DebtReductionAmount).HasColumnType("decimal(18,2)").HasDefaultValue(0);
         builder.Property(x => x.RefundPendingAmount).HasColumnType("decimal(18,2)").HasDefaultValue(0);
+        builder.Property(x => x.RefundedAmount).HasColumnType("decimal(18,2)").HasDefaultValue(0);
 
         builder.HasOne(x => x.Organization)
             .WithMany()

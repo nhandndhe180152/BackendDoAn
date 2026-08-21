@@ -75,20 +75,22 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
         if (roles.Contains(LookupCodes.Role.Admin)) return true;
 
-        if (action == LookupCodes.Action.Approve || action == LookupCodes.Action.Confirm || action == LookupCodes.Action.Cancel || action == LookupCodes.Action.Preview)
+        if (action == LookupCodes.Action.Approve || action == LookupCodes.Action.Confirm || action == LookupCodes.Action.Cancel || action == LookupCodes.Action.Preview || action == "REJECT" || action == "REFUND")
         {
             return roles.Contains(LookupCodes.Role.WarehouseOwner);
         }
-        if (action == LookupCodes.Action.Inspect)
+        if (action == LookupCodes.Action.Inspect || action == "RECEIVE")
         {
             return roles.Contains(LookupCodes.Role.WarehouseStaff);
         }
-        if (action == LookupCodes.Action.Create || action == LookupCodes.Action.Update)
+        if (action == LookupCodes.Action.Create && roles.Contains(LookupCodes.Role.EndUser))
+        {
+            return true;
+        }
+        if (action == LookupCodes.Action.Create || action == LookupCodes.Action.Update || action == "SUBMIT")
         {
             return roles.Contains(LookupCodes.Role.SalesStaff) || roles.Contains(LookupCodes.Role.WarehouseOwner);
         }
-
-        if (roles.Contains(LookupCodes.Role.EndUser)) return true;
 
         return false;
     }
@@ -103,6 +105,11 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
         if (dto.Items == null || dto.Items.Count == 0)
             return ApiResponse.BadRequest(message: "Phiếu trả hàng phải có ít nhất một mặt hàng.");
+
+        if (!dto.OutboundOrderId.HasValue)
+            return ApiResponse.BadRequest(message: "Phiếu xuất gốc là bắt buộc đối với đơn trả hàng.", code: "CUSTOMER_RETURN_SOURCE_REQUIRED");
+
+        var orgId = await GetCurrentOrganizationIdAsync();
 
         var allocationKeys = dto.Items
             .SelectMany(x => x.Allocations ?? new List<CreateCustomerReturnOrderItemAllocationDto>())
@@ -119,7 +126,12 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             return ApiResponse.BadRequest(message: "Kho tiếp nhận không tồn tại hoặc đã ngừng hoạt động.");
 
         var customerExists = await _context.Customers
-            .AnyAsync(x => x.Id == dto.CustomerId && x.IsActive && !x.IsDeleted, cancellationToken);
+            // Dữ liệu cũ có Customer.OrganizationId = NULL. Quyền tenant vẫn được bảo vệ
+            // bởi phiếu xuất/đơn bán nguồn và kiểm tra CustomerId ngay bên dưới.
+            .AnyAsync(x => x.Id == dto.CustomerId
+                && (x.OrganizationId == orgId || x.OrganizationId == null)
+                && x.IsActive
+                && !x.IsDeleted, cancellationToken);
         if (!customerExists)
             return ApiResponse.BadRequest(message: "Khách hàng không tồn tại hoặc đã ngừng hoạt động.");
 
@@ -129,7 +141,9 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             outbound = await _context.OutboundOrders
                 .Include(o => o.OutboundOrderStatus)
                 .Include(o => o.SalesOrder)
-                .FirstOrDefaultAsync(o => o.Id == dto.OutboundOrderId.Value && !o.IsDeleted, cancellationToken);
+                .FirstOrDefaultAsync(o => o.Id == dto.OutboundOrderId.Value
+                    && (o.OrganizationId == orgId || (o.OrganizationId == null && o.SalesOrder.OrganizationId == orgId))
+                    && !o.IsDeleted, cancellationToken);
 
             if (outbound == null)
                 return ApiResponse.NotFound(message: "Không tìm thấy phiếu xuất gốc.");
@@ -172,7 +186,6 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         if (status == null)
             return ApiResponse.Error(message: "Hệ thống chưa cấu hình trạng thái DRAFT cho đơn trả hàng.");
 
-        var orgId = await GetCurrentOrganizationIdAsync();
         var datePart = DateTimeHelper.VietnamNow().ToString("yyyyMMdd");
         var baseCode = $"CRT-{datePart}";
         var cntToday = await _context.CustomerReturnOrders
@@ -313,6 +326,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                         ProductVariantId = itemDto.ProductVariantId,
                         OriginalLocationId = originalLocationId,
                         QuantityReturned = allocDto.QuantityReturned,
+                        QuantityReceived = 0,
+                        Disposition = CustomerReturnDisposition.PendingInspection,
                         UnitCreditPrice = netUnitSalePrice,
                         CreatedBy = GetCurrentUserId(),
                         CreatedDate = DateTimeHelper.VietnamNow()
@@ -338,11 +353,12 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         if (!await CheckPermissionAsync("UPDATE", cancellationToken))
             return ApiResponse.Forbidden(message: "Bạn không có quyền thực hiện hành động này.");
 
+        var orgId = await GetCurrentOrganizationIdAsync();
         var order = await _context.CustomerReturnOrders
             .Include(o => o.CustomerReturnOrderStatus)
             .Include(o => o.Items)
                 .ThenInclude(i => i.Allocations)
-            .FirstOrDefaultAsync(o => o.Id == dto.Id && !o.IsDeleted, cancellationToken);
+            .FirstOrDefaultAsync(o => o.Id == dto.Id && o.OrganizationId == orgId && !o.IsDeleted, cancellationToken);
 
         if (order == null)
             return ApiResponse.NotFound(message: "Không tìm thấy đơn trả hàng.");
@@ -488,6 +504,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     ProductVariantId = itemDto.ProductVariantId,
                     OriginalLocationId = originalLocationId,
                     QuantityReturned = allocDto.QuantityReturned,
+                    QuantityReceived = 0,
+                    Disposition = CustomerReturnDisposition.PendingInspection,
                     UnitCreditPrice = netUnitSalePrice,
                     CreatedBy = GetCurrentUserId(),
                     CreatedDate = DateTimeHelper.VietnamNow()
@@ -508,6 +526,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
     public async Task<ApiResponse> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
+        var orgId = await GetCurrentOrganizationIdAsync();
         var order = await _context.CustomerReturnOrders
             .Include(o => o.Warehouse)
             .Include(o => o.CustomerReturnOrderStatus)
@@ -534,7 +553,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             // (Items × Allocations × 4 nhánh Location) tránh nổ tích Descartes. Kết quả không đổi.
             .AsNoTracking()
             .AsSplitQuery()
-            .FirstOrDefaultAsync(o => o.Id == id && !o.IsDeleted, cancellationToken);
+            .FirstOrDefaultAsync(o => o.Id == id && o.OrganizationId == orgId && !o.IsDeleted, cancellationToken);
 
         if (order == null)
             return ApiResponse.NotFound(message: "Không tìm thấy đơn trả hàng.");
@@ -584,6 +603,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 ProductVariantId = item.ProductVariantId,
                 ProductVariantName = item.ProductVariant?.Name,
                 SKU = item.ProductVariant?.SKU,
+                StandardBagWeightKg = item.ProductVariant?.Weight ?? 0,
                 QuantityReturned = item.QuantityReturned,
                 QuantityGood = item.QuantityGood,
                 QuantityDamaged = item.QuantityDamaged,
@@ -605,6 +625,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     OriginalLocationId = alloc.OriginalLocationId,
                     OriginalLocationCode = alloc.OriginalLocation?.SlotCode ?? (alloc.OriginalLocation != null ? $"LOC-{alloc.OriginalLocationId}" : null),
                     QuantityReturned = alloc.QuantityReturned,
+                    QuantityReceived = alloc.QuantityReceived,
                     QuantityGood = alloc.QuantityGood,
                     QuantityDamaged = alloc.QuantityDamaged,
                     QuantityRejected = alloc.QuantityRejected,
@@ -615,6 +636,9 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     QuarantineLocationCode = alloc.QuarantineLocation?.SlotCode ?? (alloc.QuarantineLocation != null ? $"LOC-{alloc.QuarantineLocationId}" : null),
                     UnitCreditPrice = alloc.UnitCreditPrice,
                     CreditAmount = alloc.CreditAmount,
+                    Disposition = alloc.Disposition,
+                    RejectedLocationId = alloc.RejectedLocationId,
+                    RejectionReason = alloc.RejectionReason,
                     Note = alloc.Note,
                     Bags = string.IsNullOrWhiteSpace(alloc.BagDetailsJson)
                         ? new List<CustomerReturnBagDto>()
@@ -628,8 +652,197 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         return ApiResponse.Success(dto);
     }
 
+    public async Task<ApiResponse> GetReturnSourcesAsync(CustomerReturnSourceQuery query, CancellationToken cancellationToken = default)
+    {
+        if (!await CheckPermissionAsync(LookupCodes.Action.Create, cancellationToken))
+            return ApiResponse.Forbidden(message: "Bạn không có quyền tạo phiếu trả hàng.");
+
+        var orgId = await GetCurrentOrganizationIdAsync();
+        var page = Math.Max(1, query.Page);
+        var pageSize = Math.Clamp(query.PageSize, 1, 100);
+        var keyword = query.Keyword?.Trim();
+
+        var sourceQuery = _context.OutboundOrders
+            .AsNoTracking()
+            .Where(o => !o.IsDeleted
+                && (o.OrganizationId == orgId || (o.OrganizationId == null && o.SalesOrder.OrganizationId == orgId))
+                && o.OutboundOrderStatus.Code == OutboundOrderStatusNames.Completed
+                && !o.OutboundOrderStatus.IsDeleted
+                && !o.SalesOrder.IsDeleted
+                && !o.SalesOrder.Customer.IsDeleted
+                && o.SalesOrder.Customer.IsActive
+                && (o.SalesOrder.Customer.OrganizationId == orgId || o.SalesOrder.Customer.OrganizationId == null)
+                && !o.Warehouse.IsDeleted
+                && o.Warehouse.IsActive);
+
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            sourceQuery = sourceQuery.Where(o =>
+                o.SalesOrder.SOCode.Contains(keyword)
+                || o.SalesOrder.Customer.Code.Contains(keyword)
+                || o.SalesOrder.Customer.Name.Contains(keyword));
+        }
+
+        var candidates = sourceQuery
+            .OrderByDescending(o => o.CompletedDate ?? o.CreatedDate)
+            .Select(o => new
+            {
+                OutboundOrderId = o.Id,
+                o.SalesOrderId,
+                SalesOrderCode = o.SalesOrder.SOCode,
+                CustomerId = o.SalesOrder.CustomerId,
+                CustomerCode = o.SalesOrder.Customer.Code,
+                CustomerName = o.SalesOrder.Customer.Name,
+                o.WarehouseId,
+                WarehouseCode = o.Warehouse.Code,
+                WarehouseName = o.Warehouse.Name,
+                DeliveredAt = o.CompletedDate,
+                ReturnableQuantity = o.OutboundOrderItems
+                    .Where(i => !i.IsDeleted)
+                    .SelectMany(i => i.Allocations.Where(a => !a.IsDeleted && a.PaddyLotId.HasValue))
+                    .Sum(a => a.QuantityPicked - (_context.CustomerReturnOrderItemAllocations
+                        .Where(r => !r.IsDeleted
+                            && r.OutboundOrderItemAllocationId == a.Id
+                            && !r.CustomerReturnOrderItem.CustomerReturnOrder.IsDeleted
+                            && r.CustomerReturnOrderItem.CustomerReturnOrder.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Confirmed)
+                        .Select(r => (decimal?)r.QuantityReturned)
+                        .Sum() ?? 0))
+            })
+            .Where(x => x.ReturnableQuantity > 0);
+
+        var total = await candidates.CountAsync(cancellationToken);
+        var rows = await candidates
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+        var items = rows
+            .Select(x => new CustomerReturnSourceOrderDto
+            {
+                OutboundOrderId = x.OutboundOrderId,
+                OutboundOrderCode = $"OB-{x.OutboundOrderId:D5}",
+                SalesOrderId = x.SalesOrderId,
+                SalesOrderCode = x.SalesOrderCode,
+                CustomerId = x.CustomerId,
+                CustomerCode = x.CustomerCode,
+                CustomerName = x.CustomerName,
+                WarehouseId = x.WarehouseId,
+                WarehouseCode = x.WarehouseCode,
+                WarehouseName = x.WarehouseName,
+                DeliveredAt = x.DeliveredAt,
+                ReturnableQuantity = x.ReturnableQuantity
+            })
+            .ToList();
+
+        return ApiResponse.Success(new { Total = total, Page = page, PageSize = pageSize, Items = items });
+    }
+
+    public async Task<ApiResponse> GetReturnSourceByIdAsync(int outboundOrderId, CancellationToken cancellationToken = default)
+    {
+        if (!await CheckPermissionAsync(LookupCodes.Action.Create, cancellationToken))
+            return ApiResponse.Forbidden(message: "Bạn không có quyền tạo phiếu trả hàng.");
+
+        var orgId = await GetCurrentOrganizationIdAsync();
+        var order = await _context.OutboundOrders
+            .AsNoTracking()
+            .Include(o => o.OutboundOrderStatus)
+            .Include(o => o.Warehouse)
+            .Include(o => o.SalesOrder).ThenInclude(s => s.Customer)
+            .Include(o => o.OutboundOrderItems).ThenInclude(i => i.ProductVariant)
+            .Include(o => o.OutboundOrderItems).ThenInclude(i => i.Allocations).ThenInclude(a => a.PaddyLot)
+            .Include(o => o.OutboundOrderItems).ThenInclude(i => i.Allocations).ThenInclude(a => a.Location)
+            .FirstOrDefaultAsync(o => o.Id == outboundOrderId
+                && !o.IsDeleted
+                && (o.OrganizationId == orgId || (o.OrganizationId == null && o.SalesOrder.OrganizationId == orgId)), cancellationToken);
+
+        if (order == null)
+            return ApiResponse.NotFound(message: "Không tìm thấy phiếu xuất gốc trong tổ chức hiện tại.");
+        if (order.OutboundOrderStatus.Code != OutboundOrderStatusNames.Completed)
+            return ApiResponse.UnprocessableEntity(message: "Chỉ phiếu xuất đã giao thành công mới có thể tạo trả hàng.");
+
+        var allocationIds = order.OutboundOrderItems
+            .Where(i => !i.IsDeleted)
+            .SelectMany(i => i.Allocations.Where(a => !a.IsDeleted))
+            .Select(a => a.Id)
+            .ToList();
+        var returnedByAllocation = await _context.CustomerReturnOrderItemAllocations
+            .AsNoTracking()
+            .Where(r => !r.IsDeleted
+                && r.OutboundOrderItemAllocationId.HasValue
+                && allocationIds.Contains(r.OutboundOrderItemAllocationId.Value)
+                && !r.CustomerReturnOrderItem.CustomerReturnOrder.IsDeleted
+                && r.CustomerReturnOrderItem.CustomerReturnOrder.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Confirmed)
+            .GroupBy(r => r.OutboundOrderItemAllocationId!.Value)
+            .Select(g => new { AllocationId = g.Key, Quantity = g.Sum(x => x.QuantityReturned) })
+            .ToDictionaryAsync(x => x.AllocationId, x => x.Quantity, cancellationToken);
+
+        var itemDtos = order.OutboundOrderItems
+            .Where(i => !i.IsDeleted)
+            .Select(i => new CustomerReturnSourceItemDto
+            {
+                OutboundOrderItemId = i.Id,
+                ProductVariantId = i.ProductVariantId,
+                ProductVariantName = i.ProductVariant.Name,
+                SKU = i.ProductVariant.SKU,
+                QuantityDelivered = i.QuantityPicked,
+                Allocations = i.Allocations
+                    .Where(a => !a.IsDeleted && a.PaddyLotId.HasValue)
+                    .Select(a =>
+                    {
+                        var alreadyReturned = returnedByAllocation.GetValueOrDefault(a.Id);
+                        return new CustomerReturnSourceAllocationDto
+                        {
+                            OutboundOrderItemAllocationId = a.Id,
+                            PaddyLotId = a.PaddyLotId!.Value,
+                            PaddyLotCode = a.PaddyLot?.LotCode ?? string.Empty,
+                            OriginalLocationId = a.LocationId,
+                            OriginalLocationCode = FormatReturnLocation(a.Location),
+                            QuantityDelivered = a.QuantityPicked,
+                            QuantityAlreadyReturned = alreadyReturned,
+                            QuantityReturnable = Math.Max(0, a.QuantityPicked - alreadyReturned)
+                        };
+                    })
+                    .Where(a => a.QuantityReturnable > 0)
+                    .ToList()
+            })
+            .Select(i =>
+            {
+                i.QuantityReturnable = i.Allocations.Sum(a => a.QuantityReturnable);
+                return i;
+            })
+            .Where(i => i.QuantityReturnable > 0)
+            .ToList();
+
+        if (itemDtos.Count == 0)
+            return ApiResponse.Conflict(message: "Toàn bộ hàng của phiếu xuất này đã được trả, không còn số lượng có thể tạo phiếu.");
+
+        return ApiResponse.Success(new CustomerReturnSourceOrderDetailDto
+        {
+            OutboundOrderId = order.Id,
+            OutboundOrderCode = $"OB-{order.Id:D5}",
+            SalesOrderId = order.SalesOrderId,
+            SalesOrderCode = order.SalesOrder.SOCode,
+            CustomerId = order.SalesOrder.CustomerId,
+            CustomerCode = order.SalesOrder.Customer.Code,
+            CustomerName = order.SalesOrder.Customer.Name,
+            WarehouseId = order.WarehouseId,
+            WarehouseCode = order.Warehouse.Code,
+            WarehouseName = order.Warehouse.Name,
+            DeliveredAt = order.CompletedDate,
+            ReturnableQuantity = itemDtos.Sum(i => i.QuantityReturnable),
+            Items = itemDtos
+        });
+    }
+
+    private static string FormatReturnLocation(Location? location)
+    {
+        if (location == null) return string.Empty;
+        return string.Join("-", new[] { location.ZoneName, location.ShelfRow, location.ShelfLevel, location.SlotCode }
+            .Where(x => !string.IsNullOrWhiteSpace(x)));
+    }
+
     public async Task<ApiResponse> GetPagedAsync(CustomerReturnOrderPagedQuery query, CancellationToken cancellationToken = default)
     {
+        var orgId = await GetCurrentOrganizationIdAsync();
         query.Page = Math.Max(1, query.Page);
         query.PageSize = Math.Clamp(query.PageSize, 1, 1000);
 
@@ -645,7 +858,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             .Include(o => o.Items.Where(i => !i.IsDeleted))
                 .ThenInclude(i => i.Allocations.Where(a => !a.IsDeleted))
                     .ThenInclude(a => a.PaddyLot)
-            .Where(o => !o.IsDeleted);
+            .Where(o => o.OrganizationId == orgId && !o.IsDeleted);
 
         var total = await dataQuery.CountAsync(cancellationToken);
 
@@ -738,21 +951,115 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         return ApiResponse.Success(pagedData);
     }
 
+    public async Task<ApiResponse> SubmitAsync(int id, CancellationToken cancellationToken = default)
+    {
+        if (!await CheckPermissionAsync("SUBMIT", cancellationToken))
+            return ApiResponse.Forbidden(message: "Bạn không có quyền gửi duyệt đơn trả hàng.");
+        var orgId = await GetCurrentOrganizationIdAsync();
+        var order = await _context.CustomerReturnOrders
+            .Include(x => x.CustomerReturnOrderStatus)
+            .Include(x => x.Items.Where(i => !i.IsDeleted)).ThenInclude(i => i.Allocations.Where(a => !a.IsDeleted))
+            .FirstOrDefaultAsync(x => x.Id == id && x.OrganizationId == orgId && !x.IsDeleted, cancellationToken);
+        if (order == null) return ApiResponse.NotFound(message: "Không tìm thấy đơn trả hàng.");
+        if (order.CustomerReturnOrderStatus.Code != CustomerReturnOrderStatusNames.Draft)
+            return ApiResponse.UnprocessableEntity(message: "Chỉ đơn nháp mới được gửi duyệt.");
+        if (!order.Items.Any() || order.Items.Any(i => !i.Allocations.Any()))
+            return ApiResponse.BadRequest(message: "Đơn trả hàng chưa có đầy đủ dòng hàng và nguồn xuất.");
+        var status = await _context.CustomerReturnOrderStatuses.FirstOrDefaultAsync(
+            x => x.Code == CustomerReturnOrderStatusNames.PendingApproval && !x.IsDeleted, cancellationToken);
+        if (status == null) return ApiResponse.Error(message: "Thiếu trạng thái PENDING_APPROVAL.");
+        var now = DateTimeHelper.VietnamNow();
+        order.CustomerReturnOrderStatusId = status.Id;
+        order.SubmittedAt = now;
+        order.SubmittedByUserId = GetCurrentUserId();
+        order.UpdatedBy = GetCurrentUserId();
+        order.LastModifiedDate = now;
+        await _context.SaveChangesAsync(cancellationToken);
+        return ApiResponse.Success(message: "Đã gửi duyệt đơn trả hàng.");
+    }
+
+    public async Task<ApiResponse> RejectAsync(int id, string reason, CancellationToken cancellationToken = default)
+    {
+        if (!await CheckPermissionAsync("REJECT", cancellationToken))
+            return ApiResponse.Forbidden(message: "Bạn không có quyền từ chối đơn trả hàng.");
+        if (string.IsNullOrWhiteSpace(reason)) return ApiResponse.BadRequest(message: "Lý do từ chối là bắt buộc.");
+        var orgId = await GetCurrentOrganizationIdAsync();
+        var order = await _context.CustomerReturnOrders.Include(x => x.CustomerReturnOrderStatus)
+            .FirstOrDefaultAsync(x => x.Id == id && x.OrganizationId == orgId && !x.IsDeleted, cancellationToken);
+        if (order == null) return ApiResponse.NotFound(message: "Không tìm thấy đơn trả hàng.");
+        if (order.CustomerReturnOrderStatus.Code != CustomerReturnOrderStatusNames.PendingApproval)
+            return ApiResponse.UnprocessableEntity(message: "Chỉ đơn đang chờ duyệt mới được từ chối.");
+        var status = await _context.CustomerReturnOrderStatuses.FirstOrDefaultAsync(
+            x => x.Code == CustomerReturnOrderStatusNames.Rejected && !x.IsDeleted, cancellationToken);
+        if (status == null) return ApiResponse.Error(message: "Thiếu trạng thái REJECTED.");
+        var now = DateTimeHelper.VietnamNow();
+        order.CustomerReturnOrderStatusId = status.Id;
+        order.RejectionReason = reason.Trim();
+        order.RejectedAt = now;
+        order.RejectedByUserId = GetCurrentUserId();
+        order.UpdatedBy = GetCurrentUserId();
+        order.LastModifiedDate = now;
+        await _context.SaveChangesAsync(cancellationToken);
+        return ApiResponse.Success(message: "Đã từ chối đơn trả hàng.");
+    }
+
+    public async Task<ApiResponse> ReceiveAsync(ReceiveCustomerReturnOrderDto dto, CancellationToken cancellationToken = default)
+    {
+        if (!await CheckPermissionAsync("RECEIVE", cancellationToken))
+            return ApiResponse.Forbidden(message: "Bạn không có quyền nhận hàng trả.");
+        var orgId = await GetCurrentOrganizationIdAsync();
+        var order = await _context.CustomerReturnOrders
+            .Include(x => x.CustomerReturnOrderStatus)
+            .Include(x => x.Items.Where(i => !i.IsDeleted)).ThenInclude(i => i.Allocations.Where(a => !a.IsDeleted))
+            .FirstOrDefaultAsync(x => x.Id == dto.Id && x.OrganizationId == orgId && !x.IsDeleted, cancellationToken);
+        if (order == null) return ApiResponse.NotFound(message: "Không tìm thấy đơn trả hàng.");
+        if (order.CustomerReturnOrderStatus.Code != CustomerReturnOrderStatusNames.Approved)
+            return ApiResponse.UnprocessableEntity(message: "Chỉ đơn đã duyệt mới được nhận hàng.");
+        var allocations = order.Items.SelectMany(x => x.Allocations).ToList();
+        if (dto.Allocations == null || dto.Allocations.Count != allocations.Count ||
+            dto.Allocations.Select(x => x.ReturnAllocationId).Distinct().Count() != allocations.Count)
+            return ApiResponse.BadRequest(message: "Phải ghi nhận số lượng thực nhận cho đầy đủ từng lô trả.");
+        var now = DateTimeHelper.VietnamNow();
+        foreach (var input in dto.Allocations)
+        {
+            var allocation = allocations.FirstOrDefault(x => x.Id == input.ReturnAllocationId);
+            if (allocation == null) return ApiResponse.BadRequest(message: "Có phân bổ không thuộc đơn trả hàng.");
+            if (input.QuantityReceived < 0 || input.QuantityReceived > allocation.QuantityReturned)
+                return ApiResponse.BadRequest(message: "Số lượng thực nhận phải từ 0 đến số lượng được duyệt trả.");
+            allocation.QuantityReceived = input.QuantityReceived;
+            allocation.Note = string.IsNullOrWhiteSpace(input.Note) ? allocation.Note : input.Note.Trim();
+            allocation.UpdatedBy = GetCurrentUserId();
+            allocation.LastModifiedDate = now;
+        }
+        var status = await _context.CustomerReturnOrderStatuses.FirstOrDefaultAsync(
+            x => x.Code == CustomerReturnOrderStatusNames.Received && !x.IsDeleted, cancellationToken);
+        if (status == null) return ApiResponse.Error(message: "Thiếu trạng thái RECEIVED.");
+        order.CustomerReturnOrderStatusId = status.Id;
+        order.ReceivedAt = now;
+        order.ReceivedByUserId = GetCurrentUserId();
+        order.Note = string.IsNullOrWhiteSpace(dto.Note) ? order.Note : dto.Note.Trim();
+        order.UpdatedBy = GetCurrentUserId();
+        order.LastModifiedDate = now;
+        await _context.SaveChangesAsync(cancellationToken);
+        return ApiResponse.Success(message: "Đã ghi nhận hàng trả thực nhận.");
+    }
+
     public async Task<ApiResponse> ApproveAsync(int id, string? note, CancellationToken cancellationToken = default)
     {
         if (!await CheckPermissionAsync("APPROVE", cancellationToken))
             return ApiResponse.Forbidden(message: "Bạn không có quyền thực hiện hành động này.");
 
+        var orgId = await GetCurrentOrganizationIdAsync();
         var order = await _context.CustomerReturnOrders
             .Include(o => o.CustomerReturnOrderStatus)
             .Include(o => o.Items.Where(i => !i.IsDeleted))
                 .ThenInclude(i => i.Allocations.Where(a => !a.IsDeleted))
-            .FirstOrDefaultAsync(o => o.Id == id && !o.IsDeleted, cancellationToken);
+            .FirstOrDefaultAsync(o => o.Id == id && o.OrganizationId == orgId && !o.IsDeleted, cancellationToken);
 
         if (order == null)
             return ApiResponse.NotFound(message: "Không tìm thấy đơn trả hàng.");
 
-        if (order.CustomerReturnOrderStatus.Code != CustomerReturnOrderStatusNames.Draft)
+        if (order.CustomerReturnOrderStatus.Code != CustomerReturnOrderStatusNames.PendingApproval)
             return ApiResponse.UnprocessableEntity(message: "Chỉ được duyệt đơn trả hàng đang ở trạng thái DRAFT.");
 
         // Check if limits are exceeded due to other concurrent returns confirmed in the meantime
@@ -806,17 +1113,19 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         if (!await CheckPermissionAsync("INSPECT", cancellationToken))
             return ApiResponse.Forbidden(message: "Bạn không có quyền thực hiện hành động này.");
 
+        var orgId = await GetCurrentOrganizationIdAsync();
         var order = await _context.CustomerReturnOrders
             .Include(o => o.CustomerReturnOrderStatus)
             .Include(o => o.Items.Where(i => !i.IsDeleted))
                 .ThenInclude(i => i.Allocations.Where(a => !a.IsDeleted))
-            .FirstOrDefaultAsync(o => o.Id == dto.Id && !o.IsDeleted, cancellationToken);
+            .FirstOrDefaultAsync(o => o.Id == dto.Id && o.OrganizationId == orgId && !o.IsDeleted, cancellationToken);
 
         if (order == null)
             return ApiResponse.NotFound(message: "Không tìm thấy đơn trả hàng.");
 
-        if (order.CustomerReturnOrderStatus.Code != CustomerReturnOrderStatusNames.Approved)
-            return ApiResponse.UnprocessableEntity(message: "Chỉ được kiểm định đơn hàng đang ở trạng thái APPROVED.");
+        if (order.CustomerReturnOrderStatus.Code != CustomerReturnOrderStatusNames.Received
+            && order.CustomerReturnOrderStatus.Code != CustomerReturnOrderStatusNames.Inspected)
+            return ApiResponse.UnprocessableEntity(message: "Chỉ được kiểm định đơn hàng đã nhận hoặc cập nhật kết quả khi đang chờ xác nhận tồn.");
 
         if (dto.Items == null
             || dto.Items.Count != order.Items.Count
@@ -864,8 +1173,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 }
 
                 var checkSum = allocDto.QuantityGood + allocDto.QuantityDamaged + allocDto.QuantityRejected;
-                if (Math.Abs(checkSum - alloc.QuantityReturned) > 0.001m)
-                    return ApiResponse.BadRequest(message: $"Tổng số lượng phân loại ({checkSum:N3} kg) của phân bổ Id = {alloc.Id} phải bằng số lượng trả về ban đầu ({alloc.QuantityReturned:N3} kg).");
+                if (Math.Abs(checkSum - alloc.QuantityReceived) > 0.001m)
+                    return ApiResponse.BadRequest(message: $"Tổng số lượng phân loại ({checkSum:N3} kg) của phân bổ Id = {alloc.Id} phải bằng số lượng thực nhận ({alloc.QuantityReceived:N3} kg).");
 
                 if (allocDto.CreditQuantity > (allocDto.QuantityGood + allocDto.QuantityDamaged))
                     return ApiResponse.BadRequest(message: $"Số lượng hoàn tiền ({allocDto.CreditQuantity:N3} kg) không được vượt quá tổng số lượng nhận lại (Good + Damaged = {allocDto.QuantityGood + allocDto.QuantityDamaged:N3} kg).");
@@ -880,6 +1189,13 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     return ApiResponse.BadRequest(message: "Mỗi bao trả phải có cân lớn hơn 0 và Condition là GOOD hoặc DAMAGED.");
                 if (allocDto.Bags.Count > 0)
                 {
+                    var standardBagWeight = await _context.ProductVariants.AsNoTracking()
+                        .Where(x => x.Id == item.ProductVariantId && !x.IsDeleted)
+                        .Select(x => x.Weight)
+                        .FirstOrDefaultAsync(cancellationToken);
+                    if (standardBagWeight > 0 && allocDto.Bags.Any(x => x.WeightKg > standardBagWeight + 0.001m))
+                        return ApiResponse.BadRequest(message: $"Mỗi bao của sản phẩm này không được vượt quá trọng lượng chuẩn {standardBagWeight:0.###} kg.");
+
                     var goodBagWeight = allocDto.Bags.Where(x => x.Condition == "GOOD").Sum(x => x.WeightKg);
                     var damagedBagWeight = allocDto.Bags.Where(x => x.Condition == "DAMAGED").Sum(x => x.WeightKg);
                     if (Math.Abs(goodBagWeight - allocDto.QuantityGood) > 0.001m || Math.Abs(damagedBagWeight - allocDto.QuantityDamaged) > 0.001m)
@@ -909,12 +1225,30 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                         return ApiResponse.BadRequest(message: "Quarantine Location không hợp lệ hoặc không thuộc khu cách ly (IsQuarantine = true) của kho.");
                 }
 
+                if (allocDto.QuantityRejected > 0)
+                {
+                    if (!allocDto.RejectedLocationId.HasValue || string.IsNullOrWhiteSpace(allocDto.RejectionReason))
+                        return ApiResponse.BadRequest(message: "Hàng bị từ chối phải có vị trí giữ hàng và lý do từ chối.");
+                    var loc = await _context.Locations.FirstOrDefaultAsync(l => l.Id == allocDto.RejectedLocationId.Value && !l.IsDeleted && l.IsActive, cancellationToken);
+                    if (loc == null || loc.WarehouseId != order.WarehouseId || !loc.IsQuarantine || loc.IsOutboundStaging || loc.OutboundLockOrderId.HasValue)
+                        return ApiResponse.BadRequest(message: "Vị trí giữ hàng bị từ chối phải là vị trí cách ly hợp lệ của kho.");
+                }
+
                 alloc.QuantityGood = allocDto.QuantityGood;
                 alloc.QuantityDamaged = allocDto.QuantityDamaged;
                 alloc.QuantityRejected = allocDto.QuantityRejected;
                 alloc.CreditQuantity = allocDto.CreditQuantity;
                 alloc.RestockLocationId = allocDto.RestockLocationId;
                 alloc.QuarantineLocationId = allocDto.QuarantineLocationId;
+                alloc.RejectedLocationId = allocDto.RejectedLocationId;
+                alloc.RejectionReason = allocDto.RejectionReason?.Trim();
+                alloc.Disposition = allocDto.QuantityRejected == alloc.QuantityReceived
+                    ? CustomerReturnDisposition.ReturnToCustomer
+                    : allocDto.QuantityGood == alloc.QuantityReceived
+                        ? CustomerReturnDisposition.Restock
+                        : allocDto.QuantityDamaged == alloc.QuantityReceived
+                            ? CustomerReturnDisposition.Quarantine
+                            : CustomerReturnDisposition.Mixed;
                 alloc.CreditAmount = allocDto.CreditQuantity * alloc.UnitCreditPrice;
                 alloc.Note = allocDto.Note;
                 alloc.BagDetailsJson = allocDto.Bags.Count == 0 ? null : JsonSerializer.Serialize(allocDto.Bags);
@@ -927,6 +1261,9 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
             item.QuantityGood = totalGood;
             item.QuantityDamaged = totalDamaged;
+            var totalReceived = item.Allocations.Sum(a => a.QuantityReceived);
+            item.QualityStatus = totalGood == totalReceived ? "GOOD"
+                : totalDamaged == totalReceived ? "DAMAGED" : "MIXED";
         }
 
         var status = await _context.CustomerReturnOrderStatuses
@@ -935,6 +1272,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             return ApiResponse.Error(message: "Hệ thống chưa cấu hình trạng thái INSPECTED.");
 
         order.CustomerReturnOrderStatusId = status.Id;
+        order.InspectedAt = DateTimeHelper.VietnamNow();
+        order.InspectedByUserId = GetCurrentUserId();
         order.UpdatedBy = GetCurrentUserId();
         order.LastModifiedDate = DateTimeHelper.VietnamNow();
 
@@ -951,12 +1290,13 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         if (!await CheckPermissionAsync("PREVIEW", cancellationToken))
             return ApiResponse.Forbidden(message: "Bạn không có quyền thực hiện hành động này.");
 
+        var orgId = await GetCurrentOrganizationIdAsync();
         var order = await _context.CustomerReturnOrders
             .Include(o => o.CustomerReturnOrderStatus)
             .Include(o => o.Items.Where(i => !i.IsDeleted))
                 .ThenInclude(i => i.Allocations.Where(a => !a.IsDeleted))
                     .ThenInclude(a => a.PaddyLot)
-            .FirstOrDefaultAsync(o => o.Id == id && !o.IsDeleted, cancellationToken);
+            .FirstOrDefaultAsync(o => o.Id == id && o.OrganizationId == orgId && !o.IsDeleted, cancellationToken);
 
         if (order == null)
             return ApiResponse.NotFound(message: "Không tìm thấy đơn trả hàng.");
@@ -1016,6 +1356,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         if (!await CheckPermissionAsync("CONFIRM", cancellationToken))
             return ApiResponse.Forbidden(message: "Bạn không có quyền thực hiện hành động này.");
 
+        var orgId = await GetCurrentOrganizationIdAsync();
         var order = await _context.CustomerReturnOrders
             .Include(o => o.CustomerReturnOrderStatus)
             .Include(o => o.Items.Where(i => !i.IsDeleted))
@@ -1024,7 +1365,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             .Include(o => o.Items.Where(i => !i.IsDeleted))
                 .ThenInclude(i => i.Allocations.Where(a => !a.IsDeleted))
                     .ThenInclude(a => a.PaddyLot)
-            .FirstOrDefaultAsync(o => o.Id == id && !o.IsDeleted, cancellationToken);
+            .FirstOrDefaultAsync(o => o.Id == id && o.OrganizationId == orgId && !o.IsDeleted, cancellationToken);
 
         if (order == null)
             return ApiResponse.NotFound(message: "Không tìm thấy đơn trả hàng.");
@@ -1047,6 +1388,32 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             .FirstOrDefaultAsync(s => s.Code == CustomerReturnOrderStatusNames.Confirmed && !s.IsDeleted, cancellationToken);
         if (status == null)
             return ApiResponse.Error(message: "Hệ thống chưa cấu hình trạng thái CONFIRMED.");
+
+        // Fail fast before making any inventory/debt changes. A pre-existing mismatch must be
+        // reconciled by stock-taking instead of being hidden by a customer return.
+        if (_bagInvariantService != null)
+        {
+            var targetLotLocations = order.Items.SelectMany(i => i.Allocations)
+                .SelectMany(a => new[]
+                {
+                    a.QuantityGood > 0 && a.RestockLocationId.HasValue ? (a.PaddyLotId, a.RestockLocationId.Value) : ((int, int)?)null,
+                    a.QuantityDamaged > 0 && a.QuarantineLocationId.HasValue ? (a.PaddyLotId, a.QuarantineLocationId.Value) : ((int, int)?)null,
+                    a.QuantityRejected > 0 && a.RejectedLocationId.HasValue ? (a.PaddyLotId, a.RejectedLocationId.Value) : ((int, int)?)null
+                })
+                .Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToList();
+            try
+            {
+                foreach (var pair in targetLotLocations)
+                    await _bagInvariantService.ValidateLotLocationAsync(pair.Item1, pair.Item2, cancellationToken);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning(ex, "Cannot confirm customer return {OrderId}: inventory and bag stock are inconsistent", order.Id);
+                return ApiResponse.Conflict(
+                    message: $"Không thể xác nhận vì dữ liệu tồn theo bao đang lệch với tồn kho. {ex.Message} Vui lòng kiểm kê/điều chỉnh tồn trước rồi thử lại.",
+                    code: "LOT_LOCATION_INVENTORY_MISMATCH");
+            }
+        }
 
         // Perform inside database transaction
         using var dbTransaction = await _context.Database.BeginTransactionAsync(cancellationToken);
@@ -1096,7 +1463,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 // Atomic UPDATE location with capacity limit check
                 var affected = await _context.ExecuteSqlRawAsync(
                     "UPDATE Location SET CurrentOccupancy = CurrentOccupancy + {0}, CurrentProductVariantId = {1}, LastModifiedDate = {2}, UpdatedBy = {3} " +
-                    "WHERE Id = {4} AND WarehouseId = {5} AND IsActive = 1 AND IsDeleted = 0 AND IsOutboundStaging = 0 AND OutboundLockOrderId IS NULL AND (MaxCapacity IS NULL OR CurrentOccupancy + {0} <= MaxCapacity) AND IsQuarantine = 0",
+                    "WHERE Id = {4} AND WarehouseId = {5} AND IsActive = 1 AND IsDeleted = 0 AND IsOutboundStaging = 0 AND OutboundLockOrderId IS NULL AND (IsSingleTypeColumn = 0 OR CurrentProductVariantId IS NULL OR CurrentProductVariantId = {1}) AND (MaxCapacity IS NULL OR CurrentOccupancy + {0} <= MaxCapacity) AND IsQuarantine = 0",
                     new object[] { alloc.QuantityGood, alloc.ProductVariantId, now, userId, locationId, order.WarehouseId }, cancellationToken);
 
                 if (affected == 0)
@@ -1166,16 +1533,27 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             }
 
             // 2. Process Quarantine (Damaged) allocations
-            var damagedAllocations = allocations.Where(a => a.QuantityDamaged > 0).ToList();
-            foreach (var alloc in damagedAllocations)
+            var nonSellableMovements = allocations.SelectMany(a => new[]
             {
-                var locationId = alloc.QuarantineLocationId!.Value;
+                a.QuantityDamaged > 0 && a.QuarantineLocationId.HasValue
+                    ? new { Allocation = a, Quantity = a.QuantityDamaged, LocationId = a.QuarantineLocationId.Value, Type = InventoryTransactionTypeConstants.CustomerReturnQuarantine }
+                    : null,
+                a.QuantityRejected > 0 && a.RejectedLocationId.HasValue
+                    ? new { Allocation = a, Quantity = a.QuantityRejected, LocationId = a.RejectedLocationId.Value, Type = InventoryTransactionTypeConstants.CustomerReturnRejectedHold }
+                    : null
+            }).Where(x => x != null).ToList();
+            foreach (var movement in nonSellableMovements)
+            {
+                var alloc = movement!.Allocation;
+                var movementQuantity = movement.Quantity;
+                var locationId = movement.LocationId;
+                var movementType = movement.Type;
 
                 // Atomic UPDATE location with capacity limit check
                 var affected = await _context.ExecuteSqlRawAsync(
                     "UPDATE Location SET CurrentOccupancy = CurrentOccupancy + {0}, CurrentProductVariantId = {1}, LastModifiedDate = {2}, UpdatedBy = {3} " +
-                    "WHERE Id = {4} AND WarehouseId = {5} AND IsActive = 1 AND IsDeleted = 0 AND IsOutboundStaging = 0 AND OutboundLockOrderId IS NULL AND (MaxCapacity IS NULL OR CurrentOccupancy + {0} <= MaxCapacity) AND IsQuarantine = 1",
-                    new object[] { alloc.QuantityDamaged, alloc.ProductVariantId, now, userId, locationId, order.WarehouseId }, cancellationToken);
+                    "WHERE Id = {4} AND WarehouseId = {5} AND IsActive = 1 AND IsDeleted = 0 AND IsOutboundStaging = 0 AND OutboundLockOrderId IS NULL AND (IsSingleTypeColumn = 0 OR CurrentProductVariantId IS NULL OR CurrentProductVariantId = {1}) AND (MaxCapacity IS NULL OR CurrentOccupancy + {0} <= MaxCapacity) AND IsQuarantine = 1",
+                    new object[] { movementQuantity, alloc.ProductVariantId, now, userId, locationId, order.WarehouseId }, cancellationToken);
 
                 if (affected == 0)
                 {
@@ -1199,7 +1577,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                         LocationId = locationId,
                         ProductVariantId = alloc.ProductVariantId,
                         PaddyLotId = alloc.PaddyLotId,
-                        QuantityOnHand = alloc.QuantityDamaged,
+                        QuantityOnHand = movementQuantity,
                         CreatedBy = userId,
                         CreatedDate = now
                     };
@@ -1208,7 +1586,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 else
                 {
                     beforeQty = inventory.QuantityOnHand;
-                    inventory.QuantityOnHand += alloc.QuantityDamaged;
+                    inventory.QuantityOnHand += movementQuantity;
                     inventory.UpdatedBy = userId;
                     inventory.LastModifiedDate = now;
                 }
@@ -1221,10 +1599,10 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     LocationId = locationId,
                     ProductVariantId = alloc.ProductVariantId,
                     PaddyLotId = alloc.PaddyLotId,
-                    TransactionType = InventoryTransactionTypeConstants.CustomerReturnQuarantine,
+                    TransactionType = movementType,
                     BeforeQuantity = beforeQty,
-                    Quantity = alloc.QuantityDamaged,
-                    AfterQuantity = beforeQty + alloc.QuantityDamaged,
+                    Quantity = movementQuantity,
+                    AfterQuantity = beforeQty + movementQuantity,
                     ReferenceType = InventoryReferenceTypeConstants.CustomerReturnOrder,
                     ReferenceId = order.Id,
                     CreatedBy = userId,
@@ -1240,7 +1618,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     invTx.AfterQuantity += otherOnHand;
                 }
                 await _context.InventoryTransactions.AddAsync(invTx, cancellationToken);
-                await PackReturnedGoodsAsync(alloc, locationId, alloc.QuantityDamaged, true, order, userId, now, cancellationToken);
+                await PackReturnedGoodsAsync(alloc, locationId, movementQuantity, true, order, userId, now, cancellationToken);
             }
 
             // 3. Update PaddyLots remaining weights
@@ -1256,7 +1634,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
                 if (lot != null)
                 {
-                    var addedWeight = allocations.Where(a => a.PaddyLotId == lotId).Sum(a => a.QuantityGood + a.QuantityDamaged);
+                    var addedWeight = allocations.Where(a => a.PaddyLotId == lotId).Sum(a => a.QuantityGood + a.QuantityDamaged + a.QuantityRejected);
                     var newRemainingWeight = lot.RemainingWeightKg + addedWeight;
 
                     if (newRemainingWeight > lot.InitialWeightKg)
@@ -1394,6 +1772,9 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             order.ApprovedCreditAmount = approvedCredit;
             order.DebtReductionAmount = debtReduction;
             order.RefundPendingAmount = refundPending;
+            order.RefundStatus = refundPending > 0
+                ? CustomerReturnRefundStatus.Pending
+                : CustomerReturnRefundStatus.NotApplicable;
 
             order.UpdatedBy = userId;
             order.LastModifiedDate = now;
@@ -1405,7 +1786,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     .SelectMany(a => new[]
                     {
                         a.QuantityGood > 0 && a.RestockLocationId.HasValue ? (a.PaddyLotId, a.RestockLocationId.Value) : ((int, int)?)null,
-                        a.QuantityDamaged > 0 && a.QuarantineLocationId.HasValue ? (a.PaddyLotId, a.QuarantineLocationId.Value) : ((int, int)?)null
+                        a.QuantityDamaged > 0 && a.QuarantineLocationId.HasValue ? (a.PaddyLotId, a.QuarantineLocationId.Value) : ((int, int)?)null,
+                        a.QuantityRejected > 0 && a.RejectedLocationId.HasValue ? (a.PaddyLotId, a.RejectedLocationId.Value) : ((int, int)?)null
                     })
                     .Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToList();
                 foreach (var pair in affectedLotLocations)
@@ -1559,6 +1941,65 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         }
     }
 
+    public async Task<ApiResponse> RegisterRefundAsync(int id, RegisterCustomerReturnRefundDto dto, CancellationToken cancellationToken = default)
+    {
+        if (!await CheckPermissionAsync("REFUND", cancellationToken))
+            return ApiResponse.Forbidden(message: "Bạn không có quyền ghi nhận hoàn tiền.");
+        if (dto.Amount <= 0 || string.IsNullOrWhiteSpace(dto.PaymentReference))
+            return ApiResponse.BadRequest(message: "Số tiền và mã tham chiếu thanh toán là bắt buộc.");
+
+        var orgId = await GetCurrentOrganizationIdAsync();
+        var order = await _context.CustomerReturnOrders.Include(x => x.CustomerReturnOrderStatus)
+            .FirstOrDefaultAsync(x => x.Id == id && x.OrganizationId == orgId && !x.IsDeleted, cancellationToken);
+        if (order == null) return ApiResponse.NotFound(message: "Không tìm thấy đơn trả hàng.");
+        if (order.CustomerReturnOrderStatus.Code != CustomerReturnOrderStatusNames.Confirmed)
+            return ApiResponse.UnprocessableEntity(message: "Chỉ được hoàn tiền cho đơn trả hàng đã hoàn tất.");
+        if (dto.Amount > order.RefundPendingAmount)
+            return ApiResponse.BadRequest(message: "Số tiền hoàn vượt quá số tiền còn phải hoàn.");
+
+        var paymentReference = dto.PaymentReference.Trim().ToUpperInvariant();
+        var deduplicationKey = $"CRT-REFUND-{order.Id}-{paymentReference}";
+        if (await _context.DebtTransactions.AnyAsync(x => x.DeduplicationKey == deduplicationKey, cancellationToken))
+            return ApiResponse.Conflict(message: "Giao dịch hoàn tiền đã được ghi nhận trước đó.", code: "CUSTOMER_RETURN_REFUND_DUPLICATE");
+
+        var payable = await _context.PartyDebts.FirstOrDefaultAsync(x =>
+            x.OrganizationId == orgId && x.PartyType == LookupCodes.PartyType.Customer &&
+            x.PartyId == order.CustomerId && x.Direction == LookupCodes.DebtDirection.Payable &&
+            x.IsActive && !x.IsDeleted, cancellationToken);
+        if (payable == null || payable.CurrentBalance < dto.Amount)
+            return ApiResponse.Conflict(message: "Công nợ phải trả khách không đủ để ghi nhận giao dịch hoàn tiền.");
+
+        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        var now = DateTimeHelper.VietnamNow();
+        payable.CurrentBalance -= dto.Amount;
+        payable.UpdatedBy = GetCurrentUserId();
+        payable.LastModifiedDate = now;
+        order.RefundedAmount += dto.Amount;
+        order.RefundPendingAmount -= dto.Amount;
+        order.RefundStatus = order.RefundPendingAmount == 0
+            ? CustomerReturnRefundStatus.Refunded
+            : CustomerReturnRefundStatus.PartiallyRefunded;
+        order.UpdatedBy = GetCurrentUserId();
+        order.LastModifiedDate = now;
+        await _context.DebtTransactions.AddAsync(new DebtTransaction
+        {
+            PartyDebt = payable,
+            TransactionType = LookupCodes.DebtTransactionType.Payment,
+            Amount = dto.Amount,
+            BalanceAfter = payable.CurrentBalance,
+            RefType = InventoryReferenceTypeConstants.CustomerReturnOrder,
+            RefId = order.Id,
+            TransactionDate = now,
+            DeduplicationKey = deduplicationKey,
+            Note = $"Hoàn tiền đơn {order.ReturnCode}; tham chiếu {paymentReference}. {dto.Note}".Trim(),
+            CreatedBy = GetCurrentUserId(),
+            CreatedDate = now
+        }, cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return ApiResponse.Success(message: "Đã ghi nhận giao dịch hoàn tiền.");
+    }
+
     public async Task<ApiResponse> CancelAsync(int id, string reason, CancellationToken cancellationToken = default)
     {
         if (!await CheckPermissionAsync("CANCEL", cancellationToken))
@@ -1567,15 +2008,18 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         if (string.IsNullOrWhiteSpace(reason))
             return ApiResponse.BadRequest(message: "Lý do huỷ đơn hàng không được để trống.");
 
+        var orgId = await GetCurrentOrganizationIdAsync();
         var order = await _context.CustomerReturnOrders
             .Include(o => o.CustomerReturnOrderStatus)
-            .FirstOrDefaultAsync(o => o.Id == id && !o.IsDeleted, cancellationToken);
+            .FirstOrDefaultAsync(o => o.Id == id && o.OrganizationId == orgId && !o.IsDeleted, cancellationToken);
 
         if (order == null)
             return ApiResponse.NotFound(message: "Không tìm thấy đơn trả hàng.");
 
-        if (order.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Confirmed)
-            return ApiResponse.UnprocessableEntity(message: "Không thể huỷ đơn trả hàng đã xác nhận thành công.");
+        if (order.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Confirmed ||
+            order.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Received ||
+            order.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Inspected)
+            return ApiResponse.UnprocessableEntity(message: "Không thể huỷ đơn sau khi kho đã nhận hàng. Hãy xử lý disposition cho hàng thực nhận.");
 
         if (order.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Cancelled)
             return ApiResponse.BadRequest(message: "Đơn trả hàng đã ở trạng thái huỷ trước đó.");
@@ -1586,6 +2030,9 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             return ApiResponse.Error(message: "Hệ thống chưa cấu hình trạng thái CANCELLED.");
 
         order.CustomerReturnOrderStatusId = status.Id;
+        order.CancellationReason = reason.Trim();
+        order.CancelledAt = DateTimeHelper.VietnamNow();
+        order.CancelledByUserId = GetCurrentUserId();
         order.Note = (string.IsNullOrEmpty(order.Note) ? "" : order.Note + " | ") + "Huỷ đơn: " + reason.Trim();
         order.UpdatedBy = GetCurrentUserId();
         order.LastModifiedDate = DateTimeHelper.VietnamNow();

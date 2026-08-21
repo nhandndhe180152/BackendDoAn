@@ -12,6 +12,7 @@ public static class InventoryTransactionTypeConstants
     public const string ReleaseReserve = "RELEASE_RESERVE";
     public const string CustomerReturnRestock = "CUSTOMER_RETURN_RESTOCK";
     public const string CustomerReturnQuarantine = "CUSTOMER_RETURN_QUARANTINE";
+    public const string CustomerReturnRejectedHold = "CUSTOMER_RETURN_REJECTED_HOLD";
     public const string TransferOut = "TRANSFER_OUT";
     public const string TransferIn = "TRANSFER_IN";
 
@@ -25,6 +26,7 @@ public static class InventoryTransactionTypeConstants
         ReleaseReserve,
         CustomerReturnRestock,
         CustomerReturnQuarantine,
+        CustomerReturnRejectedHold,
         TransferOut,
         TransferIn
     ];

@@ -18,12 +18,26 @@ public class CustomerReturnOrder : EntityAuditBase<int>
     public string? Note { get; set; }
     public DateTime? ApprovedDate { get; set; }
     public int? ApprovedBy { get; set; }
+    public DateTime? SubmittedAt { get; set; }
+    public int? SubmittedByUserId { get; set; }
+    public DateTime? ReceivedAt { get; set; }
+    public int? ReceivedByUserId { get; set; }
+    public DateTime? InspectedAt { get; set; }
+    public int? InspectedByUserId { get; set; }
+    public DateTime? CancelledAt { get; set; }
+    public int? CancelledByUserId { get; set; }
+    public string? CancellationReason { get; set; }
+    public DateTime? RejectedAt { get; set; }
+    public int? RejectedByUserId { get; set; }
+    public string? RejectionReason { get; set; }
     public DateTime? CompletedDate { get; set; }
 
     // Financial calculations
     public decimal ApprovedCreditAmount { get; set; }
     public decimal DebtReductionAmount { get; set; }
     public decimal RefundPendingAmount { get; set; }
+    public decimal RefundedAmount { get; set; }
+    public string RefundStatus { get; set; } = "NOT_APPLICABLE";
 
     public DateTime? ConfirmedAt { get; set; }
     public int? ConfirmedByUserId { get; set; }

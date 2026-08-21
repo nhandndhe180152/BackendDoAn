@@ -14,6 +14,7 @@ public class CustomerReturnOrderItemAllocationConfiguration : IEntityTypeConfigu
         builder.Property(x => x.Id).ValueGeneratedOnAdd();
 
         builder.Property(x => x.QuantityReturned).HasColumnType("decimal(18,3)").IsRequired();
+        builder.Property(x => x.QuantityReceived).HasColumnType("decimal(18,3)").IsRequired();
         builder.Property(x => x.QuantityGood).HasColumnType("decimal(18,3)").IsRequired();
         builder.Property(x => x.QuantityDamaged).HasColumnType("decimal(18,3)").IsRequired();
         builder.Property(x => x.QuantityRejected).HasColumnType("decimal(18,3)").IsRequired();
@@ -22,6 +23,8 @@ public class CustomerReturnOrderItemAllocationConfiguration : IEntityTypeConfigu
         builder.Property(x => x.UnitCreditPrice).HasColumnType("decimal(18,2)").IsRequired();
         builder.Property(x => x.CreditAmount).HasColumnType("decimal(18,2)").IsRequired();
         builder.Property(x => x.Note).HasMaxLength(500);
+        builder.Property(x => x.Disposition).HasMaxLength(30).HasDefaultValue("PENDING_INSPECTION");
+        builder.Property(x => x.RejectionReason).HasMaxLength(500);
         builder.Property(x => x.BagDetailsJson).HasColumnType("longtext");
 
         builder.HasOne(x => x.CustomerReturnOrderItem)
@@ -58,6 +61,17 @@ public class CustomerReturnOrderItemAllocationConfiguration : IEntityTypeConfigu
             .WithMany()
             .HasForeignKey(x => x.QuarantineLocationId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(x => x.RejectedLocation)
+            .WithMany()
+            .HasForeignKey(x => x.RejectedLocationId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_CustomerReturnAllocation_Quantities", "QuantityReturned > 0 AND QuantityReceived >= 0 AND QuantityGood >= 0 AND QuantityDamaged >= 0 AND QuantityRejected >= 0 AND CreditQuantity >= 0");
+            t.HasCheckConstraint("CK_CustomerReturnAllocation_CreditAmount", "CreditAmount >= 0 AND UnitCreditPrice >= 0");
+        });
 
         builder.HasIndex(x => x.CustomerReturnOrderItemId).HasDatabaseName("IX_CustomerReturnAllocation_ReturnItem");
         builder.HasIndex(x => x.OutboundOrderItemAllocationId).HasDatabaseName("IX_CustomerReturnAllocation_OutboundAllocation");
