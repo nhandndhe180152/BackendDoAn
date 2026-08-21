@@ -16,6 +16,7 @@ public class CustomerReturnOrderItemAllocation : EntityAuditBase<int>
     public int? OriginalLocationId { get; set; }
     
     public decimal QuantityReturned { get; set; }
+    public decimal QuantityReceived { get; set; }
     public decimal QuantityGood { get; set; }
     public decimal QuantityDamaged { get; set; }
     public decimal QuantityRejected { get; set; }
@@ -26,6 +27,9 @@ public class CustomerReturnOrderItemAllocation : EntityAuditBase<int>
     
     public decimal UnitCreditPrice { get; set; }
     public decimal CreditAmount { get; set; }
+    public string Disposition { get; set; } = "PENDING_INSPECTION";
+    public string? RejectionReason { get; set; }
+    public int? RejectedLocationId { get; set; }
     public string? Note { get; set; }
     public string? BagDetailsJson { get; set; }
 
@@ -37,4 +41,5 @@ public class CustomerReturnOrderItemAllocation : EntityAuditBase<int>
     public virtual Location? OriginalLocation { get; set; }
     public virtual Location? RestockLocation { get; set; }
     public virtual Location? QuarantineLocation { get; set; }
+    public virtual Location? RejectedLocation { get; set; }
 }

@@ -109,6 +109,9 @@ public class CustomerReturnOrderServiceTests
             new CustomerReturnOrderStatus { Id = 3, Code = "INSPECTED", Name = "Inspected", Color = "#F59E0B" },
             new CustomerReturnOrderStatus { Id = 4, Code = "CONFIRMED", Name = "Confirmed", Color = "#10B981" },
             new CustomerReturnOrderStatus { Id = 5, Code = "CANCELLED", Name = "Cancelled", Color = "#EF4444" }
+            ,new CustomerReturnOrderStatus { Id = 6, Code = "PENDING_APPROVAL", Name = "Pending approval", Color = "#8B5CF6" }
+            ,new CustomerReturnOrderStatus { Id = 7, Code = "RECEIVED", Name = "Received", Color = "#06B6D4" }
+            ,new CustomerReturnOrderStatus { Id = 8, Code = "REJECTED", Name = "Rejected", Color = "#DC2626" }
         });
 
         _lotStatuses.AddRange(new[]
@@ -150,7 +153,7 @@ public class CustomerReturnOrderServiceTests
     {
         // Arrange
         var warehouse = new global::Backend.Domain.Entities.Warehouse { Id = 1, Code = "WH01", Name = "Warehouse A", IsActive = true };
-        var customer = new global::Backend.Domain.Entities.Customer { Id = 10, Code = "CUS01", Name = "Customer A", IsActive = true };
+        var customer = new global::Backend.Domain.Entities.Customer { Id = 10, OrganizationId = 1, Code = "CUS01", Name = "Customer A", IsActive = true };
         var pv = new ProductVariant { Id = 5, SKU = "PV-05", Name = "Variant 5", IsActive = true };
 
         _warehouses.Add(warehouse);
@@ -167,6 +170,7 @@ public class CustomerReturnOrderServiceTests
         var outbound = new OutboundOrder
         {
             Id = 50,
+            OrganizationId = 1,
             WarehouseId = 1,
             SalesOrderId = 100,
             OutboundOrderStatus = new OutboundOrderStatus { Name = "Đang giao hàng", Code = OutboundOrderStatusNames.Dispatched },
@@ -216,7 +220,7 @@ public class CustomerReturnOrderServiceTests
     {
         // Arrange
         _warehouses.Add(new global::Backend.Domain.Entities.Warehouse { Id = 1, Code = "WH01", Name = "Warehouse A", IsActive = true });
-        _customers.Add(new global::Backend.Domain.Entities.Customer { Id = 10, Code = "CUS01", Name = "Customer A", IsActive = true });
+        _customers.Add(new global::Backend.Domain.Entities.Customer { Id = 10, OrganizationId = 1, Code = "CUS01", Name = "Customer A", IsActive = true });
         _productVariants.Add(new ProductVariant { Id = 5, SKU = "PV-05", Name = "Variant 5", IsActive = true });
         _paddyLots.Add(new global::Backend.Domain.Entities.PaddyLot
         {
@@ -229,6 +233,7 @@ public class CustomerReturnOrderServiceTests
         var outbound = new OutboundOrder
         {
             Id = 50,
+            OrganizationId = 1,
             WarehouseId = 1,
             SalesOrderId = 100,
             OutboundOrderStatus = new OutboundOrderStatus { Name = "Hoàn thành", Code = OutboundOrderStatusNames.Completed },
@@ -278,10 +283,10 @@ public class CustomerReturnOrderServiceTests
 
     [Fact]
     [Trait("Service", "CustomerReturnOrder")]
-    public async Task ApproveAsync_ValidDraft_TransitionsToApproved()
+    public async Task ApproveAsync_ValidPendingApproval_TransitionsToApproved()
     {
         // Arrange
-        var order = new CustomerReturnOrder { Id = 1, CustomerReturnOrderStatusId = 1, CustomerReturnOrderStatus = _customerReturnOrderStatuses[0] };
+        var order = new CustomerReturnOrder { Id = 1, OrganizationId = 1, CustomerReturnOrderStatusId = 6, CustomerReturnOrderStatus = _customerReturnOrderStatuses[5] };
         _customerReturnOrders.Add(order);
 
         // Act
@@ -295,12 +300,12 @@ public class CustomerReturnOrderServiceTests
 
     [Fact]
     [Trait("Service", "CustomerReturnOrder")]
-    public async Task InspectAsync_ValidApprovedOrder_TransitionsToInspected()
+    public async Task InspectAsync_ValidReceivedOrder_TransitionsToInspected()
     {
         // Arrange
-        var order = new CustomerReturnOrder { Id = 1, WarehouseId = 1, CustomerReturnOrderStatusId = 2, CustomerReturnOrderStatus = _customerReturnOrderStatuses[1] };
+        var order = new CustomerReturnOrder { Id = 1, OrganizationId = 1, WarehouseId = 1, CustomerReturnOrderStatusId = 7, CustomerReturnOrderStatus = _customerReturnOrderStatuses[6] };
         var item = new CustomerReturnOrderItem { Id = 10, CustomerReturnOrderId = 1, ProductVariantId = 5, QuantityReturned = 10 };
-        var alloc = new CustomerReturnOrderItemAllocation { Id = 20, CustomerReturnOrderItemId = 10, CustomerReturnOrderItem = item, QuantityReturned = 10, UnitCreditPrice = 10000 };
+        var alloc = new CustomerReturnOrderItemAllocation { Id = 20, CustomerReturnOrderItemId = 10, CustomerReturnOrderItem = item, QuantityReturned = 10, QuantityReceived = 10, UnitCreditPrice = 10000 };
         order.Items.Add(item);
         item.Allocations.Add(alloc);
 
@@ -349,6 +354,7 @@ public class CustomerReturnOrderServiceTests
         var order = new CustomerReturnOrder 
         { 
             Id = 1, 
+            OrganizationId = 1,
             WarehouseId = 1, 
             CustomerId = 10,
             CustomerReturnOrderStatusId = 3, 
@@ -418,6 +424,7 @@ public class CustomerReturnOrderServiceTests
         var order = new CustomerReturnOrder 
         { 
             Id = 2, 
+            OrganizationId = 1,
             WarehouseId = 1, 
             CustomerId = 10,
             CustomerReturnOrderStatusId = 3, 
@@ -475,6 +482,7 @@ public class CustomerReturnOrderServiceTests
         var order = new CustomerReturnOrder 
         { 
             Id = 3, 
+            OrganizationId = 1,
             WarehouseId = 1, 
             CustomerId = 12, 
             CustomerReturnOrderStatusId = 3, 

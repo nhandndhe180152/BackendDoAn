@@ -63,6 +63,38 @@ public class CustomerReturnOrderController : BaseController
         return BaseResult(result);
     }
 
+    /// <summary>Danh sách phiếu xuất đã giao còn số lượng có thể trả.</summary>
+    [HttpGet("sources")]
+    public async Task<IActionResult> GetReturnSourcesAsync([FromQuery] CustomerReturnSourceQuery query)
+    {
+        return BaseResult(await _returnOrderService.GetReturnSourcesAsync(query));
+    }
+
+    /// <summary>Khách hàng, kho và chi tiết lô được tự động lấy từ phiếu xuất gốc.</summary>
+    [HttpGet("sources/{outboundOrderId:int}")]
+    public async Task<IActionResult> GetReturnSourceByIdAsync(int outboundOrderId)
+    {
+        return BaseResult(await _returnOrderService.GetReturnSourceByIdAsync(outboundOrderId));
+    }
+
+    [HttpPut("{id}/submit")]
+    public async Task<IActionResult> SubmitAsync(int id)
+    {
+        return BaseResult(await _returnOrderService.SubmitAsync(id));
+    }
+
+    [HttpPut("{id}/reject")]
+    public async Task<IActionResult> RejectAsync(int id, [FromQuery] string reason)
+    {
+        return BaseResult(await _returnOrderService.RejectAsync(id, reason));
+    }
+
+    [HttpPut("receive")]
+    public async Task<IActionResult> ReceiveAsync([FromBody] ReceiveCustomerReturnOrderDto dto)
+    {
+        return BaseResult(await _returnOrderService.ReceiveAsync(dto));
+    }
+
     [HttpPut("inspect")]
     public async Task<IActionResult> InspectAsync([FromBody] InspectCustomerReturnOrderDto dto)
     {
@@ -82,6 +114,12 @@ public class CustomerReturnOrderController : BaseController
     {
         var result = await _returnOrderService.ConfirmAsync(id);
         return BaseResult(result);
+    }
+
+    [HttpPost("{id}/refunds")]
+    public async Task<IActionResult> RegisterRefundAsync(int id, [FromBody] RegisterCustomerReturnRefundDto dto)
+    {
+        return BaseResult(await _returnOrderService.RegisterRefundAsync(id, dto));
     }
 
     [HttpPut("{id}/cancel")]

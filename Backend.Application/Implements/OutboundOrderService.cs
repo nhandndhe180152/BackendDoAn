@@ -1528,7 +1528,7 @@ public class OutboundOrderService : IOutboundOrderService
 
             if (hasActivePhysicalBagAllocs)
             {
-                await ConsumeAllocatedPhysicalBagsAsync(order.Id, userId, now);
+                await ConsumeAllocatedPhysicalBagsAsync(order.Id, stagedAllocationIds, userId, now);
             }
 
             // 4. Với từng allocation: giảm tồn + tạo giao dịch
@@ -2705,7 +2705,7 @@ public class OutboundOrderService : IOutboundOrderService
     /// Không chạy lại thuật toán chọn bao. Trừ đúng BagId và Content tương ứng của lô.
     /// </summary>
     private async Task ConsumeAllocatedPhysicalBagsAsync(
-        int outboundOrderId, int userId, DateTime now)
+        int outboundOrderId, IReadOnlySet<int> stagedAllocationIds, int userId, DateTime now)
     {
         if (_bagAllocationRepository == null || _bagRepository == null || _bagContentRepository == null)
             return;
@@ -2723,6 +2723,21 @@ public class OutboundOrderService : IOutboundOrderService
 
         foreach (var alloc in activeBagAllocs)
         {
+            // Packing already moved/split these physical bags into outbound staging.
+            // ConsumeStagedBagsAsync consumed the staged bag above; touching the original
+            // allocation bag again would remove the remainder of a partially split bag
+            // (for example, picking 8 kg from a 10 kg bag would incorrectly delete the
+            // 2 kg remainder while Inventory still contains it).
+            if (alloc.ReferenceItemId.HasValue && stagedAllocationIds.Contains(alloc.ReferenceItemId.Value))
+            {
+                alloc.ConsumedWeightKg = alloc.PickedWeightKg;
+                alloc.Status = PaddyLotBagAllocationStatuses.Consumed;
+                alloc.LastModifiedDate = now;
+                alloc.UpdatedBy = userId;
+                await _bagAllocationRepository.UpdateAsync(alloc);
+                continue;
+            }
+
             if (alloc.PickedWeightKg <= 0.0005m)
             {
                 // Bao không pick thì giải phóng

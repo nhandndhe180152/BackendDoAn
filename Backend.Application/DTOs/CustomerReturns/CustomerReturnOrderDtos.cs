@@ -44,6 +44,28 @@ public class InspectCustomerReturnOrderDto
     public List<InspectCustomerReturnOrderItemDto> Items { get; set; } = new();
 }
 
+public class ReceiveCustomerReturnOrderDto
+{
+    public int Id { get; set; }
+    public string? CarrierReference { get; set; }
+    public string? Note { get; set; }
+    public List<ReceiveCustomerReturnAllocationDto> Allocations { get; set; } = new();
+}
+
+public class RegisterCustomerReturnRefundDto
+{
+    public decimal Amount { get; set; }
+    public string PaymentReference { get; set; } = null!;
+    public string? Note { get; set; }
+}
+
+public class ReceiveCustomerReturnAllocationDto
+{
+    public int ReturnAllocationId { get; set; }
+    public decimal QuantityReceived { get; set; }
+    public string? Note { get; set; }
+}
+
 public class InspectCustomerReturnOrderItemDto
 {
     public int CustomerReturnOrderItemId { get; set; }
@@ -61,6 +83,8 @@ public class InspectCustomerReturnOrderItemAllocationDto
     public decimal CreditQuantity { get; set; }
     public int? RestockLocationId { get; set; }
     public int? QuarantineLocationId { get; set; }
+    public int? RejectedLocationId { get; set; }
+    public string? RejectionReason { get; set; }
     public string? Note { get; set; }
     public List<CustomerReturnBagDto> Bags { get; set; } = new();
 }
@@ -127,6 +151,7 @@ public class CustomerReturnOrderItemDetailDto
     public int? ProductVariantId { get; set; }
     public string? ProductVariantName { get; set; }
     public string? SKU { get; set; }
+    public decimal StandardBagWeightKg { get; set; }
     
     public decimal QuantityReturned { get; set; }
     public decimal QuantityGood { get; set; }
@@ -151,6 +176,7 @@ public class CustomerReturnOrderItemAllocationDetailDto
     public string? OriginalLocationCode { get; set; }
     
     public decimal QuantityReturned { get; set; }
+    public decimal QuantityReceived { get; set; }
     public decimal QuantityGood { get; set; }
     public decimal QuantityDamaged { get; set; }
     public decimal QuantityRejected { get; set; }
@@ -163,6 +189,9 @@ public class CustomerReturnOrderItemAllocationDetailDto
     
     public decimal UnitCreditPrice { get; set; }
     public decimal CreditAmount { get; set; }
+    public string Disposition { get; set; } = null!;
+    public int? RejectedLocationId { get; set; }
+    public string? RejectionReason { get; set; }
     public string? Note { get; set; }
     public List<CustomerReturnBagDto> Bags { get; set; } = new();
 }
@@ -201,4 +230,58 @@ public class CustomerReturnOrderPagedQuery
     public DateTime? DateTo { get; set; }
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 20;
+}
+
+/// <summary>
+/// Tham số tìm các phiếu xuất đã giao còn hàng có thể trả.
+/// </summary>
+public class CustomerReturnSourceQuery
+{
+    public string? Keyword { get; set; }
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 50;
+}
+
+public class CustomerReturnSourceOrderDto
+{
+    public int OutboundOrderId { get; set; }
+    public string OutboundOrderCode { get; set; } = null!;
+    public int SalesOrderId { get; set; }
+    public string SalesOrderCode { get; set; } = null!;
+    public int CustomerId { get; set; }
+    public string CustomerCode { get; set; } = null!;
+    public string CustomerName { get; set; } = null!;
+    public int WarehouseId { get; set; }
+    public string WarehouseCode { get; set; } = null!;
+    public string WarehouseName { get; set; } = null!;
+    public DateTime? DeliveredAt { get; set; }
+    public decimal ReturnableQuantity { get; set; }
+}
+
+public class CustomerReturnSourceOrderDetailDto : CustomerReturnSourceOrderDto
+{
+    public List<CustomerReturnSourceItemDto> Items { get; set; } = new();
+}
+
+public class CustomerReturnSourceItemDto
+{
+    public int OutboundOrderItemId { get; set; }
+    public int ProductVariantId { get; set; }
+    public string ProductVariantName { get; set; } = null!;
+    public string SKU { get; set; } = null!;
+    public decimal QuantityDelivered { get; set; }
+    public decimal QuantityReturnable { get; set; }
+    public List<CustomerReturnSourceAllocationDto> Allocations { get; set; } = new();
+}
+
+public class CustomerReturnSourceAllocationDto
+{
+    public int OutboundOrderItemAllocationId { get; set; }
+    public int PaddyLotId { get; set; }
+    public string PaddyLotCode { get; set; } = null!;
+    public int OriginalLocationId { get; set; }
+    public string OriginalLocationCode { get; set; } = null!;
+    public decimal QuantityDelivered { get; set; }
+    public decimal QuantityAlreadyReturned { get; set; }
+    public decimal QuantityReturnable { get; set; }
 }
