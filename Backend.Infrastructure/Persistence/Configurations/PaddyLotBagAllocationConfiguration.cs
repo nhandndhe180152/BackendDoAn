@@ -14,6 +14,7 @@ public class PaddyLotBagAllocationConfiguration : IEntityTypeConfiguration<Paddy
         builder.Property(x => x.Status).HasMaxLength(20).IsRequired();
         builder.Property(x => x.AllocatedWeightKg).HasPrecision(18, 3);
         builder.Property(x => x.ConsumedWeightKg).HasPrecision(18, 3);
+        builder.Property(x => x.PickedWeightKg).HasPrecision(18, 3);
         builder.Property(x => x.BagWeightSnapshotKg).HasPrecision(18, 3);
         builder.HasOne(x => x.Bag).WithMany(x => x.Allocations).HasForeignKey(x => x.BagId).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => new { x.ReferenceType, x.ReferenceId });

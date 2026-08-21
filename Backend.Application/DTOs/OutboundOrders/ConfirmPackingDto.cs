@@ -5,8 +5,7 @@ namespace Backend.Application.DTOs.OutboundOrders;
 
 public class ConfirmPackingDto
 {
-    [Required]
-    public string QrCode { get; set; } = null!;
+    public string? QrCode { get; set; }
 
     /// <summary>
     /// Tổng khối lượng thực tế. Giữ lại cho client cũ; khi <see cref="Items"/>

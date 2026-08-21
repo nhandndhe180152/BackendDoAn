@@ -56,6 +56,7 @@ public interface IApplicationDbContext
     DbSet<CustomerReturnOrderItem> CustomerReturnOrderItems { get; }
     DbSet<CustomerReturnOrderStatus> CustomerReturnOrderStatuses { get; }
     DbSet<CustomerReturnOrderItemAllocation> CustomerReturnOrderItemAllocations { get; }
+    DbSet<CustomerFeedback> CustomerFeedbacks { get; }
     DbSet<ReturnToSupplierOrder> ReturnToSupplierOrders { get; }
     DbSet<ReturnToSupplierOrderItem> ReturnToSupplierOrderItems { get; }
     DbSet<ReturnToSupplierOrderStatus> ReturnToSupplierOrderStatuses { get; }
@@ -72,6 +73,7 @@ public interface IApplicationDbContext
     DbSet<PaddyLotBag> PaddyLotBags { get; }
     DbSet<PaddyLotBagContent> PaddyLotBagContents { get; }
     DbSet<PaddyLotBagMovement> PaddyLotBagMovements { get; }
+    DbSet<PaddyLotBagAllocation> PaddyLotBagAllocations { get; }
     DbSet<QualityInspection> QualityInspections { get; }
     DbSet<QualityInspectionBagResult> QualityInspectionBagResults { get; }
     DbSet<MillingOrderStatus> MillingOrderStatuses { get; }

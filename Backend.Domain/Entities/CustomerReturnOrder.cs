@@ -28,6 +28,8 @@ public class CustomerReturnOrder : EntityAuditBase<int>
     public DateTime? ConfirmedAt { get; set; }
     public int? ConfirmedByUserId { get; set; }
 
+    public int? CustomerFeedbackId { get; set; }
+
     /// <summary>Khách hàng trả hàng — FK → Customer</summary>
     public int? CustomerId { get; set; }
 
@@ -35,6 +37,7 @@ public class CustomerReturnOrder : EntityAuditBase<int>
     public virtual Warehouse Warehouse { get; set; } = null!;
     public virtual CustomerReturnOrderStatus CustomerReturnOrderStatus { get; set; } = null!;
     public virtual OutboundOrder? OutboundOrder { get; set; }
+    public virtual CustomerFeedback? CustomerFeedback { get; set; }
     public virtual User? ApprovedByUser { get; set; }
     public virtual User? ConfirmedByUser { get; set; }
     public virtual Customer? Customer { get; set; }

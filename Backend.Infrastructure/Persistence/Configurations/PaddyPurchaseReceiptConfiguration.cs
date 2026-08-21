@@ -15,6 +15,8 @@ public class PaddyPurchaseReceiptConfiguration : IEntityTypeConfiguration<PaddyP
 
         builder.Property(x => x.ReceiptCode).HasMaxLength(50).IsRequired();
         builder.Property(x => x.ActualWeightKg).HasColumnType("decimal(18,3)").IsRequired();
+        builder.Property(x => x.AcceptedWeightKg).HasColumnType("decimal(18,3)");
+        builder.Property(x => x.RejectedWeightKg).HasColumnType("decimal(18,3)");
         builder.Property(x => x.AgreedPrice).HasColumnType("decimal(18,2)").IsRequired();
         builder.Property(x => x.TotalAmount).HasColumnType("decimal(18,2)").IsRequired();
         builder.Property(x => x.PaidAmount).HasColumnType("decimal(18,2)").IsRequired();

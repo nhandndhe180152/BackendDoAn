@@ -61,5 +61,10 @@ public class CustomerReturnOrderConfiguration : IEntityTypeConfiguration<Custome
             .WithMany()
             .HasForeignKey(x => x.ConfirmedByUserId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(x => x.CustomerFeedback)
+            .WithOne(x => x.CustomerReturnOrder)
+            .HasForeignKey<CustomerReturnOrder>(x => x.CustomerFeedbackId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

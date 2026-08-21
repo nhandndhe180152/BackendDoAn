@@ -18,6 +18,8 @@ public class PaddyLotBagConfiguration : IEntityTypeConfiguration<PaddyLotBag>
         builder.Property(x => x.StandardWeightKg).HasColumnType("decimal(18,3)");
         builder.Property(x => x.BagKind).HasMaxLength(20).IsRequired();
         builder.Property(x => x.OpenBagKey).HasMaxLength(100);
+        builder.Property(x => x.ScaleDeviceRef).HasMaxLength(255);
+        builder.Property(x => x.WeightCaptureMethod).HasMaxLength(20);
         builder.HasIndex(x => x.OpenBagKey).IsUnique();
         builder.HasIndex(x => new { x.LotId, x.BagNo }).IsUnique();
         builder.HasIndex(x => x.LocationId);

@@ -816,8 +816,15 @@ public class MillingOrderService : IMillingOrderService
             : $"Nguồn có thể lấy ngay còn thiếu {result.MissingWeightKg:N3} kg.");
     }
 
-    public async Task<ApiResponse> StartAsync(int id, int userId)
+    /// <summary>W14-J: Bắt đầu lệnh xay — lưu MachineRef (bắt buộc) và OperatorId (tùy chọn).</summary>
+    public async Task<ApiResponse> StartAsync(int id, StartMillingOrderDto dto, int userId)
     {
+        // W14-J: Validate MachineRef bắt buộc tại Start
+        if (string.IsNullOrWhiteSpace(dto.MachineRef))
+            return ApiResponse.UnprocessableEntity(
+                "Mã máy xay (MachineRef) là bắt buộc khi bắt đầu lệnh xay.",
+                "MILLING_MACHINE_REF_REQUIRED");
+
         var order = await _millingOrderRepository
             .FindByCondition(x => x.Id == id && !x.IsDeleted, false, x => x.Status)
             .FirstOrDefaultAsync();
@@ -829,10 +836,14 @@ public class MillingOrderService : IMillingOrderService
         var inProgressStatus = await _statusRepository.FirstOrDefaultAsync(x => x.Code == LookupCodes.MillingOrderStatus.InProgress && !x.IsDeleted)
             ?? throw new InvalidOperationException("Không tìm thấy trạng thái IN_PROGRESS.");
 
-        order.StatusId = inProgressStatus.Id;
-        order.StartedAt = DateTimeHelper.VietnamNow();
-        order.UpdatedBy = userId;
-        order.LastModifiedDate = DateTimeHelper.VietnamNow();
+        order.StatusId   = inProgressStatus.Id;
+        order.StartedAt  = DateTimeHelper.VietnamNow();
+        // W14-J: Lưu thông tin máy xay và người vận hành (nếu có) ngay tại Start
+        order.MachineRef = dto.MachineRef.Trim();
+        if (dto.OperatorId.HasValue)
+            order.OperatorId = dto.OperatorId.Value;
+        order.UpdatedBy         = userId;
+        order.LastModifiedDate  = DateTimeHelper.VietnamNow();
 
         await _millingOrderRepository.UpdateAsync(order);
         await _millingOrderRepository.SaveChangesAsync();
@@ -960,7 +971,7 @@ public class MillingOrderService : IMillingOrderService
             var actualRice = dto.Outputs
                 .Where(x => string.Equals(x.OutputType?.Trim(), "RICE", StringComparison.OrdinalIgnoreCase))
                 .GroupBy(x => x.ProductVariantId)
-                .ToDictionary(x => x.Key, x => x.Sum(i => i.OutputWeightKg));
+                .ToDictionary(x => x.Key, x => x.Sum(x => x.OutputWeightKg));
 
             var wrongVariant = actualRice.Keys.FirstOrDefault(x => !requiredRice.ContainsKey(x));
             if (wrongVariant > 0)
@@ -974,6 +985,21 @@ public class MillingOrderService : IMillingOrderService
                         $"SKU gạo ID {required.Key} cần tối thiểu {required.Value:N3} kg theo đơn bán, hiện khai báo {producedKg:N3} kg.");
             }
         }
+
+        // W14-J: Xác định MachineRef và OperatorId cho Complete — ưu tiên DTO, fallback về giá trị đã lưu từ Start
+        var finalMachineRef = !string.IsNullOrWhiteSpace(dto.MachineRef)
+            ? dto.MachineRef.Trim()
+            : order.MachineRef;
+        var finalOperatorId = dto.OperatorId ?? order.OperatorId;
+
+        if (string.IsNullOrWhiteSpace(finalMachineRef))
+            return ApiResponse.UnprocessableEntity(
+                "Mã máy xay (MachineRef) là bắt buộc để hoàn thành lệnh xay.",
+                "MILLING_MACHINE_REF_REQUIRED");
+        if (!finalOperatorId.HasValue)
+            return ApiResponse.UnprocessableEntity(
+                "ID người vận hành (OperatorId) là bắt buộc để hoàn thành lệnh xay.",
+                "MILLING_OPERATOR_REQUIRED");
 
         foreach (var output in dto.Outputs)
         {
@@ -1248,8 +1274,10 @@ public class MillingOrderService : IMillingOrderService
                 .Sum(x => x.OutputWeightKg);
             order.LossKg = lossKg;
             order.TotalCost = totalCostToAllocate;
-            order.MachineRef = dto.MachineRef?.Trim();
-            order.OperatorId = dto.OperatorId;
+            // Persist the resolved values.  The complete request may omit fields that were
+            // already captured at Start; assigning the raw DTO values here would erase trace data.
+            order.MachineRef = finalMachineRef;
+            order.OperatorId = finalOperatorId;
             order.CompletedAt = now;
             order.UpdatedBy = completedById;
             order.LastModifiedDate = now;

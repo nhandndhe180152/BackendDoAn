@@ -66,6 +66,23 @@ public class TraceabilityPurchaseDto
     public int? BagCount { get; set; }
     public string? QualityJson { get; set; }
     public object? InitialQuality { get; set; }
+    /// <summary>W14-J: Danh sách bão theo từng bao, kèm thông tin cân.</summary>
+    public List<TraceabilityPurchaseBagDto> Bags { get; set; } = new();
+}
+
+/// <summary>W14-J: Thông tin truy vết cân từng bao lúa thu mua.</summary>
+public class TraceabilityPurchaseBagDto
+{
+    public int BagId { get; set; }
+    public int BagNo { get; set; }
+    public decimal WeightKg { get; set; }
+    /// <summary>Mã thiết bị cân (ví dụ: "SCALE-01"). Null nếu không có.</summary>
+    public string? ScaleDeviceRef { get; set; }
+    /// <summary>Phương thức cân: "SCALE" hoặc "MANUAL".</summary>
+    public string? WeightCaptureMethod { get; set; }
+    public DateTime? WeighedAt { get; set; }
+    public int? WeighedBy { get; set; }
+    public string? WeighedByName { get; set; }
 }
 
 public class TraceabilityInspectionDto
@@ -73,7 +90,11 @@ public class TraceabilityInspectionDto
     public int InspectionId { get; set; }
     public int PaddyLotId { get; set; }
     public string? PaddyLotCode { get; set; }
+    /// <summary>W14-J: Loại kiểm định (ví dụ: Receiving, Storage, OutboundException).</summary>
+    public string? InspectionType { get; set; }
     public DateTime InspectedAt { get; set; }
+    /// <summary>W14-J: Thời điểm hoàn thành kiểm định.</summary>
+    public DateTime? CompletedAt { get; set; }
     public decimal? MoisturePercent { get; set; }
     public decimal? ImpurityPercent { get; set; }
     public string? MoldLevel { get; set; }
@@ -84,6 +105,25 @@ public class TraceabilityInspectionDto
     public string? ResultName { get; set; }
     public int? InspectorId { get; set; }
     public string? InspectorName { get; set; }
+    public string? Note { get; set; }
+    /// <summary>W14-J: Kết quả kiểm định từng bao.</summary>
+    public List<TraceabilityInspectionBagResultDto> BagResults { get; set; } = new();
+}
+
+/// <summary>W14-J: Kết quả kiểm định cấp bao trong phiếu kiểm tra chất lượng.</summary>
+public class TraceabilityInspectionBagResultDto
+{
+    public int BagResultId { get; set; }
+    public int BagId { get; set; }
+    public int BagNo { get; set; }
+    public decimal WeightKg { get; set; }
+    public decimal? MoisturePercent { get; set; }
+    public string? QualityResult { get; set; }
+    public string? Disposition { get; set; }
+    public int? InspectorId { get; set; }
+    public string? InspectorName { get; set; }
+    public DateTime? InspectedAt { get; set; }
+    public string? Handling { get; set; }
     public string? Note { get; set; }
 }
 
@@ -105,6 +145,16 @@ public class TraceabilityMillingDto
     public decimal? LossKg { get; set; }
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
+    /// <summary>W14-J: Mã máy xay đã sử dụng.</summary>
+    public string? MachineRef { get; set; }
+    /// <summary>W14-J: ID người vận hành máy xay.</summary>
+    public int? OperatorId { get; set; }
+    /// <summary>W14-J: Tên người vận hành máy xay.</summary>
+    public string? OperatorName { get; set; }
+    /// <summary>W14-J: Khối lượng lúa đầu vào thực tế (kg).</summary>
+    public decimal? ActualPaddyInputKg { get; set; }
+    /// <summary>W14-J: Tỷ lệ xuất gạo thực tế (actual rice / actual paddy input).</summary>
+    public decimal? ActualYieldRate { get; set; }
     public List<TraceabilityMillingInputDto> Inputs { get; set; } = new();
     public List<TraceabilityMillingOutputDto> Outputs { get; set; } = new();
 }

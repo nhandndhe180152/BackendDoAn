@@ -10,6 +10,10 @@ public static class PaddyLotBagStatuses
     public const string Reversed = "Reversed";
     /// <summary>Bao bị trả lại sau kiểm định chất lượng (Disposition = REJECT_RETURN).</summary>
     public const string RejectedReturn = "RejectedReturn";
+    /// <summary>Bao đang bị tạm giữ để kiểm định sự cố chất lượng (W14-I).</summary>
+    public const string QualityHold = "QualityHold";
+    /// <summary>Bao bị cách ly do không đạt kiểm định chất lượng (W14-I).</summary>
+    public const string Quarantined = "Quarantined";
     /// <summary>Bao hỏng, bị loại bỏ khỏi kho khi kiểm kê (bỏ nguyên bao).</summary>
     public const string Disposed = "Disposed";
 }

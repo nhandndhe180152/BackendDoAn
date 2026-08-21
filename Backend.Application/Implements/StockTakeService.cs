@@ -517,6 +517,7 @@ public partial class StockTakeService : IStockTakeService
     public async Task<ApiResponse> SaveCountsAsync(int id, SaveStockTakeCountsDto dto, int userId)
     {
         var draftId = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Draft);
+        var submittedId = Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Submitted);
         var stockTake = await _stockTakeRepository
             .FindByCondition(x => !x.IsDeleted && x.Id == id)
             .Include(x => x.StockTakeItems)
@@ -630,15 +631,24 @@ public partial class StockTakeService : IStockTakeService
         }
 
         // Tự điền vị trí đích cho bao chuyển cách ly / rút cách ly nếu người dùng chưa chọn.
-        // Lúc lưu nháp chỉ GỢI Ý, không chặn — ràng buộc chặt để dành cho bước gửi duyệt/duyệt.
         await FillMissingBagTargetsAsync(stockTake, userId, now);
 
+        var unfinished = stockTake.StockTakeItems
+            .Where(x => !x.IsDeleted &&
+                        (x.Bags.Any(b => !b.IsDeleted) ? !x.CountedBagCount.HasValue : !x.ActualQuantity.HasValue))
+            .ToList();
+        if (unfinished.Any())
+            return ApiResponse.UnprocessableEntity(
+                $"Phiếu còn {unfinished.Count} dòng chưa kiểm đếm bao nào.",
+                ApiCodeConstants.Common.UnprocessableEntity);
+
         stockTake.Note = dto.Note?.Trim() ?? stockTake.Note;
+        stockTake.StockTakeStatusId = submittedId;
         stockTake.LastModifiedDate = now;
         stockTake.UpdatedBy = userId;
         await _stockTakeRepository.UpdateAsync(stockTake);
         await _stockTakeRepository.SaveChangesAsync();
-        return ApiResponse.Success(message: "Đã lưu kết quả kiểm đếm.");
+        return ApiResponse.Success(message: "Đã lưu và gửi phiếu kiểm kê để Chủ kho duyệt.");
     }
 
     public async Task<ApiResponse> SubmitAsync(int id, SubmitStockTakeDto dto, int userId)

@@ -8,6 +8,7 @@ public class CreateCustomerReturnOrderDto
     public int WarehouseId { get; set; }
     public int CustomerId { get; set; }
     public int? OutboundOrderId { get; set; }
+    public int? CustomerFeedbackId { get; set; }
     public string? ReturnReason { get; set; }
     public string? Note { get; set; }
     public List<CreateCustomerReturnOrderItemDto> Items { get; set; } = new();
@@ -84,6 +85,8 @@ public class CustomerReturnOrderListDto
     public int? OutboundOrderId { get; set; }
     public string? OutboundOrderCode { get; set; }
     public string? SalesOrderCode { get; set; }
+    
+    public int? CustomerFeedbackId { get; set; }
     
     public int? CustomerId { get; set; }
     public string? CustomerCode { get; set; }

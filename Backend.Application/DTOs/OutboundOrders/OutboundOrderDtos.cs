@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using Backend.Application.DTOs.CustomerFeedbacks;
 
 namespace Backend.Application.DTOs.OutboundOrders;
 
@@ -24,6 +25,7 @@ public class OutboundOrderListDto
     public string? Note { get; set; }
     public string? CancelReason { get; set; }
     public DateTime? CreatedDate { get; set; }
+    public int FeedbackCount { get; set; }
 }
 
 public class OutboundOrderDetailDto
@@ -49,8 +51,19 @@ public class OutboundOrderDetailDto
     public string? PackingScaleDevice { get; set; }
 
     public DateTime? PackedDate { get; set; }
+    public string? ReceiverName { get; set; }
+    public string? DeliveryNote { get; set; }
+    public string? ProofImageUrl { get; set; }
     public DateTime? CreatedDate { get; set; }
     public List<OutboundOrderItemDto> Items { get; set; } = new();
+
+    /// <summary>
+    /// W14-H: Danh sách phân bổ bao vật lý cụ thể của phiếu xuất (dành cho FE / Mobile).
+    /// </summary>
+    public List<BagAllocationDetailDto> BagAllocations { get; set; } = new();
+
+    public int FeedbackCount { get; set; }
+    public List<CustomerFeedbackSummaryDto> Feedbacks { get; set; } = new();
 }
 
 public class OutboundOrderItemDto
@@ -172,22 +185,28 @@ public class AllocateItemLotDto
 }
 
 /// <summary>
-/// Cập nhật số lượng thực tế đã lấy cho từng allocation (bước PICK).
+/// Cập nhật số lượng thực tế đã lấy cho từng bao vật lý (bước PICK - W14-I).
 /// </summary>
 public class PickOutboundDto
 {
     [Required]
     [MinLength(1)]
-    public List<PickAllocationDto> Picks { get; set; } = new();
+    public List<PickPhysicalBagDto> Picks { get; set; } = new();
 }
 
-public class PickAllocationDto
+public class PickPhysicalBagDto
 {
     [Required]
-    public int AllocationId { get; set; }
+    public int BagAllocationId { get; set; }
 
     [Range(0, double.MaxValue)]
     public decimal QuantityPicked { get; set; }
+}
+
+public class OutboundQualityHoldDto
+{
+    [MaxLength(500)]
+    public string? Reason { get; set; }
 }
 
 /// <summary>
@@ -208,6 +227,10 @@ public class OutboundOrderPagedQuery
     
     /// <summary>Lọc theo trạng thái phiếu xuất (null/0 = tất cả).</summary>
     public int? OutboundStatusId { get; set; }
+    public int? SalesOrderId { get; set; }
+    public int? WarehouseId { get; set; }
+    public DateTime? FromDate { get; set; }
+    public DateTime? ToDate { get; set; }
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 20;
 }
@@ -250,3 +273,25 @@ public class FailDeliveryDto
     public string Reason { get; set; } = null!;
 }
 
+// ═══════════════════════════════ W14-H: Physical Bag Allocation ═══════════════════════════════
+
+/// <summary>
+/// Phân bổ vật lý bao cụ thể trả cho FE/Mobile sau Allocate.
+/// </summary>
+public class BagAllocationDetailDto
+{
+    public int BagAllocationId { get; set; }
+    public int BagId { get; set; }
+    public int BagNo { get; set; }
+    public decimal AllocatedWeightKg { get; set; }
+    public decimal PickedWeightKg { get; set; }
+    public int LotId { get; set; }
+    public string? LotCode { get; set; }
+    public int? LocationId { get; set; }
+    public string? LocationCode { get; set; }
+    public int StackOrder { get; set; }
+    public bool IsFull { get; set; }
+    public string? QrCode { get; set; }
+    public string? BagStatus { get; set; }
+    public string Status { get; set; } = null!;
+}

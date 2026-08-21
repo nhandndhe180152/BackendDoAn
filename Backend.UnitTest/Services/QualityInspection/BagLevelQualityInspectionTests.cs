@@ -42,7 +42,13 @@ public class BagLevelQualityInspectionTests
         var lotRepo = new PaddyLotRepository(context, uow);
         var inventoryRepo = Mock.Of<IInventoryRepository>();
         var inventoryTxRepo = Mock.Of<IInventoryTransactionRepository>();
-        var lotStatusRepo = Mock.Of<IRepositoryBase<LotStatus, int>>();
+        var lotStatusMock = new Mock<IRepositoryBase<LotStatus, int>>();
+        lotStatusMock.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<System.Linq.Expressions.Expression<Func<LotStatus, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<System.Linq.Expressions.Expression<Func<LotStatus, object>>[]>()))
+            .ReturnsAsync(new LotStatus { Id = 2, Code = LotStatusCodeConstants.Quarantine, Name = "Cách ly", Color = "#FFAA00", IsSellable = false });
+        var lotStatusRepo = lotStatusMock.Object;
         var notificationDispatcher = Mock.Of<INotificationDispatcher>();
 
         var sut = new QualityInspectionService(
@@ -61,6 +67,16 @@ public class BagLevelQualityInspectionTests
     {
         int lotId = 150;
         int inspectionId = 64;
+
+        context.LotStatuses.AddRange(
+            new LotStatus { Id = 1, Code = "AVAILABLE", Name = "Available", Color = "#00AA00", IsSellable = true },
+            new LotStatus { Id = 2, Code = LotStatusCodeConstants.Quarantine, Name = "Cách ly", Color = "#FFAA00", IsSellable = false }
+        );
+
+        context.InboundOrderStatuses.AddRange(
+            new InboundOrderStatus { Id = 1, Code = InboundOrderStatusNames.Receiving, Name = "Đang nhận", Color = "#00AA00" },
+            new InboundOrderStatus { Id = 2, Code = InboundOrderStatusNames.Draft, Name = "Nháp", Color = "#888888" }
+        );
 
         var lot = new PaddyLotEntity
         {
@@ -272,6 +288,57 @@ public class BagLevelQualityInspectionTests
         res.Message.Should().Contain("Bao không thuộc lô của phiếu kiểm tra này");
     }
 
+    [Fact(DisplayName = "D-15: Session targeted chỉ trả và cho lưu các bao thuộc phạm vi")]
+    public async Task D15_TargetedSession_ShouldUsePlaceholderRowsAsMembership()
+    {
+        var (sut, context) = CreateService();
+        var (inspectionId, _, bagIds) = await SetupBaselineReceivingLotWith3BagsAsync(context);
+        var inspection = await context.QualityInspections.FirstAsync(x => x.Id == inspectionId);
+        inspection.InspectionType = InspectionTypeConstants.OutboundException;
+        context.QualityInspectionBagResults.Add(new QualityInspectionBagResult
+        {
+            QualityInspectionId = inspectionId,
+            BagId = bagIds[0],
+            InspectedAt = DateTime.UtcNow,
+            QualityResult = BagQualityResultConstants.IssueDetected,
+            Disposition = null,
+            CreatedDate = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var progress = (await sut.GetBagProgressAsync(inspectionId)).Resources as QualityInspectionBagProgressDto;
+        progress!.TotalBags.Should().Be(1);
+        progress.InspectedBags.Should().Be(0);
+        progress.RemainingBags.Should().Be(1);
+
+        var outsideResult = await sut.SaveBagResultAsync(inspectionId, new SaveBagInspectionResultDto
+        {
+            BagId = bagIds[1],
+            QualityResult = BagQualityResultConstants.Pass,
+            Disposition = BagDispositionConstants.Release
+        });
+        outsideResult.Status.Should().Be(400);
+        outsideResult.Message.Should().Contain("không thuộc phạm vi");
+    }
+
+    [Fact(DisplayName = "D-16: Service tự chặn moisture/impurity ngoài 0-100")]
+    public async Task D16_PercentOutsideRange_ShouldReturn400()
+    {
+        var (sut, context) = CreateService();
+        var (inspectionId, _, bagIds) = await SetupBaselineReceivingLotWith3BagsAsync(context);
+
+        var result = await sut.SaveBagResultAsync(inspectionId, new SaveBagInspectionResultDto
+        {
+            BagId = bagIds[0],
+            MoisturePercent = 100.01m,
+            QualityResult = BagQualityResultConstants.Pass,
+            Disposition = BagDispositionConstants.AcceptNormal
+        });
+
+        result.Status.Should().Be(400);
+        context.QualityInspectionBagResults.Should().BeEmpty();
+    }
+
     [Fact(DisplayName = "Full End-to-End: E-03 đến E-09 — Complete 100%, Aggregation, Side-effects, Lock và Idempotency")]
     public async Task FullE2E_CompleteReceivingWorkflow_AllCasesVerified()
     {
@@ -305,7 +372,8 @@ public class BagLevelQualityInspectionTests
             MoisturePercent = 16.0m,
             ImpurityPercent = 3.0m,
             QualityResult = BagQualityResultConstants.IssueDetected,
-            Disposition = BagDispositionConstants.RejectReturn
+            Disposition = BagDispositionConstants.RejectReturn,
+            Note = "Độ ẩm vượt chuẩn, trả nhà cung cấp"
         });
 
         // D-13: Kiểm tra progress 3/3
@@ -372,4 +440,30 @@ public class BagLevelQualityInspectionTests
         modifyAfterCompleteRes.Status.Should().Be(400);
         modifyAfterCompleteRes.Message.Should().Contain("Phiếu kiểm tra đã hoàn thành, không thể chỉnh sửa");
     }
+
+    // ── W14-J: Moisture Config Tests ──────────────────────────────────────────
+
+    [Fact]
+    public async Task GetMoistureConfigAsync_ReturnsValuesFromSystemConfig()
+    {
+        var (sut, context) = CreateService();
+        context.SystemConfigs.AddRange(
+            new SystemConfig { ConfigKey = "ReceivingQcMoistureMinPercent", ConfigValue = "10.5", Name = "Min" },
+            new SystemConfig { ConfigKey = "ReceivingQcMoistureMaxPercent", ConfigValue = "28.0", Name = "Max" },
+            new SystemConfig { ConfigKey = "StorageQcMoistureWarningPercent", ConfigValue = "14.5", Name = "Warn" }
+        );
+        await context.SaveChangesAsync();
+
+        var result = await sut.GetMoistureConfigAsync();
+
+        result.Status.Should().Be(200);
+        result.Resources.Should().NotBeNull();
+
+        var data = result.Resources as MoistureConfigDto;
+        data.Should().NotBeNull();
+        data!.ReceivingMoistureMinPercent.Should().Be(10.5m);
+        data.ReceivingMoistureMaxPercent.Should().Be(28.0m);
+        data.StorageQcMoistureWarningPercent.Should().Be(14.5m);
+    }
 }
+

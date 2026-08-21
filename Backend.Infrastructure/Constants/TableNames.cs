@@ -65,6 +65,7 @@ public static class TableNames
     public const string CustomerReturnOrder = nameof(CustomerReturnOrder);
     public const string CustomerReturnOrderItem = nameof(CustomerReturnOrderItem);
     public const string CustomerReturnOrderStatus = nameof(CustomerReturnOrderStatus);
+    public const string CustomerFeedback = nameof(CustomerFeedback);
     public const string ReturnToSupplierOrder = nameof(ReturnToSupplierOrder);
     public const string ReturnToSupplierOrderItem = nameof(ReturnToSupplierOrderItem);
     public const string ReturnToSupplierOrderStatus = nameof(ReturnToSupplierOrderStatus);

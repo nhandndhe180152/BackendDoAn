@@ -21,12 +21,18 @@ public class PaddyPurchaseReceiptDetailDto
     public int WarehouseId { get; set; }
     public string? WarehouseName { get; set; }
     public decimal ActualWeightKg { get; set; }
+    public decimal? AcceptedWeightKg { get; set; }
+    public decimal? RejectedWeightKg { get; set; }
     public int? BagCount { get; set; }
     public List<CreateBagDto> Bags { get; set; } = new();
     public decimal AgreedPrice { get; set; }
     public decimal TotalAmount { get; set; }
     public decimal PaidAmount { get; set; }
     public decimal DebtAmount { get; set; }
+    public decimal RefundReceivableAmount { get; set; }
+    public DateTime? DebtDueDate { get; set; }
+    public DateTime? QcFinalizedAt { get; set; }
+    public int? QcFinalizedBy { get; set; }
     public string? QualityJson { get; set; }
     public string? PriceAdjustReason { get; set; }
     public DateTime ReceiptDate { get; set; }

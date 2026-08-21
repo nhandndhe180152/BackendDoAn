@@ -93,6 +93,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
     public async Task<ApiResponse> CreateAsync(CreatePaddyPurchaseReceiptDto obj)
     {
+        NormalizeBagTrace(obj.Bags, GetCurrentUserId());
         NormalizeReceiptAmounts(obj);
         if (obj.PaidAmount < 0 || obj.PaidAmount > obj.TotalAmount)
             return ApiResponse.UnprocessableEntity("Số tiền đã trả phải nằm trong khoảng từ 0 đến tổng tiền.");
@@ -169,6 +170,7 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
 
     public async Task<ApiResponse> UpdateAsync(UpdatePaddyPurchaseReceiptDto obj)
     {
+        NormalizeBagTrace(obj.Bags, GetCurrentUserId());
         NormalizeReceiptAmounts(obj);
         if (obj.PaidAmount < 0 || obj.PaidAmount > obj.TotalAmount)
             return ApiResponse.UnprocessableEntity("Số tiền đã trả phải nằm trong khoảng từ 0 đến tổng tiền.");
@@ -261,6 +263,15 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                 return ApiResponse.UnprocessableEntity("Hạn thanh toán không được trước ngày hiện tại.");
         }
 
+        // W14-G: Lưu DebtDueDate tạm — công nợ chính thức chỉ được ghi sau khi Receiving QC hoàn tất
+        // để tính đúng trên trọng lượng thực nhận (không bao gồm bao bị trả về).
+        if (dto.DueDate.HasValue)
+        {
+            receipt.DebtDueDate = dto.DueDate.Value.Date;
+            await _receiptRepository.UpdateAsync(receipt);
+            await _receiptRepository.SaveChangesAsync();
+        }
+
         // 2. Tự động sinh mã lô hàng (LotCode): LOT-PADDY-YYYYMMDD-XXXX
         var datePart = now.ToString("yyyyMMdd");
         var baseCode = $"LOT-PADDY-{datePart}";
@@ -330,6 +341,11 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
                         LotId = lot.Id, BagNo = bag.BagNo, WeightKg = bag.WeightKg,
                         Status = "Pending", QrCode = $"PLB-{Guid.NewGuid():N}".ToUpperInvariant(),
                         BagKind = "Purchase", IsFull = true,
+                        // W14-J: Copy thông tin truy vết cân từ CreateBagDto
+                        ScaleDeviceRef      = bag.ScaleDeviceRef?.Trim(),
+                        WeightCaptureMethod = bag.WeightCaptureMethod?.Trim(),
+                        WeighedAt           = bag.WeighedAt,
+                        WeighedBy           = bag.WeighedBy,
                         Contents = new List<PaddyLotBagContent>
                         {
                             new() { LotId = lot.Id, WeightKg = bag.WeightKg, CreatedBy = confirmedById, CreatedDate = now }
@@ -345,22 +361,23 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
             //    kiểm định (Duyệt đạt / Cách ly) tại màn Chất lượng & cách ly.
             var draftInspection = new QualityInspection
             {
-                PaddyLotId = lot.Id,
-                InspectorId = null,
-                InspectedAt = now,
+                PaddyLotId     = lot.Id,
+                InspectorId    = null,
+                InspectionType = InspectionTypeConstants.Receiving,
+                InspectedAt    = now,
                 PassedInspection = false, // chưa quyết định — phân biệt bằng trạng thái lô AWAITING_QC
                 Note = $"Phiếu kiểm định (chờ nhập kết quả) — lô {lot.LotCode} từ phiếu mua {receipt.ReceiptCode}",
-                CreatedBy = confirmedById,
-                CreatedDate = now
+                CreatedBy      = confirmedById,
+                CreatedDate    = now
             };
             await _qualityInspectionRepository.CreateAsync(draftInspection);
             await _qualityInspectionRepository.SaveChangesAsync();
 
-            // 6. GHI NHẬN CÔNG NỢ (Record Debt) nếu số tiền nợ (DebtAmount) > 0
-            if (receipt.DebtAmount > 0)
-            {
-                await RecordDebtAsync(receipt, dto.DueDate!.Value.Date, confirmedById, now);
-            }
+
+            // 6. CÔNG NỢ — W14-G: KHÔNG ghi công nợ tại đây.
+            //    Debt sẽ được tính và post sau khi Receiving QC hoàn tất (FinalizeFinanceAfterQcAsync),
+            //    dựa trên trọng lượng thực nhận (loại trừ bao bị REJECT_RETURN).
+            //    DebtDueDate đã được lưu ở bước validate ở trên.
 
             // 7. Lịch chỉ chuyển sang WEIGHED; STOCKED chỉ sau khi Inbound xác nhận đủ.
             if (receipt.ScheduleId.HasValue)
@@ -521,6 +538,12 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         if (bags == null || bags.Count == 0) return null;
         if (bags.Any(x => x.BagNo <= 0 || x.WeightKg <= 0))
             return "Số thứ tự bao và khối lượng từng bao phải lớn hơn 0.";
+        if (bags.Any(x => x.ScaleDeviceRef?.Trim().Length > 255))
+            return "Mã thiết bị cân không được vượt quá 255 ký tự.";
+        if (bags.Any(x => x.WeightCaptureMethod != null &&
+            !string.Equals(x.WeightCaptureMethod.Trim(), "SCALE", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(x.WeightCaptureMethod.Trim(), "MANUAL", StringComparison.OrdinalIgnoreCase)))
+            return "Phương thức ghi nhận cân chỉ được là SCALE hoặc MANUAL.";
         if (bags.Select(x => x.BagNo).Distinct().Count() != bags.Count)
             return "Số thứ tự bao không được trùng trong cùng phiếu.";
         var orderedNumbers = bags.Select(x => x.BagNo).OrderBy(x => x).ToArray();
@@ -530,6 +553,20 @@ public class PaddyPurchaseReceiptService : IPaddyPurchaseReceiptService
         if (declaredWeight > 0 && Math.Abs(sum - declaredWeight) > 0.001m)
             return $"Tổng khối lượng các bao ({sum:0.###} kg) không khớp ActualWeightKg ({declaredWeight:0.###} kg).";
         return null;
+    }
+
+    private static void NormalizeBagTrace(IEnumerable<DTOs.InboundOrders.CreateBagDto>? bags, int currentUserId)
+    {
+        if (bags == null) return;
+        foreach (var bag in bags)
+        {
+            bag.ScaleDeviceRef = string.IsNullOrWhiteSpace(bag.ScaleDeviceRef) ? null : bag.ScaleDeviceRef.Trim();
+            bag.WeightCaptureMethod = string.IsNullOrWhiteSpace(bag.WeightCaptureMethod)
+                ? "MANUAL" : bag.WeightCaptureMethod.Trim().ToUpperInvariant();
+            bag.WeighedAt ??= DateTimeHelper.VietnamNow();
+            // The actor is security-sensitive trace data; never trust a client-supplied user id.
+            bag.WeighedBy = currentUserId;
+        }
     }
 
     private static void NormalizeReceiptAmounts(CreatePaddyPurchaseReceiptDto dto)

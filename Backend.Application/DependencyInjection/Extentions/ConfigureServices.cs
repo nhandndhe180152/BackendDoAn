@@ -92,6 +92,7 @@ public static class ConfigureServices
             .AddScoped<IInventoryStateAggregationService, InventoryStateAggregationService>()
             .AddScoped<IAlertService, AlertService>()
             .AddScoped<ICustomerReturnOrderService, CustomerReturnOrderService>()
+            .AddScoped<ICustomerFeedbackService, CustomerFeedbackService>()
             // ── Trả hàng nhà cung cấp (FE-16) ─────────────────────────────────────────
             .AddScoped<IReturnToSupplierOrderService, ReturnToSupplierOrderService>()
             // ── Intake Bottleneck evaluation (JOB-02) ─────────────────────────────────
