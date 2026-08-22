@@ -36,22 +36,50 @@ public sealed class PaddyLotBagInvariantService : IPaddyLotBagInvariantService
             throw new InvalidOperationException($"Bao #{bagId} đang lưu kho nhưng chưa có vị trí.");
         if (bag.Status == Constants.PaddyLotBagStatuses.Stored && !bag.IsFull && bag.LocationId.HasValue)
         {
-            var topOrder = await _context.PaddyLotBags.AsNoTracking()
-                .Where(x => x.LocationId == bag.LocationId && x.Status == Constants.PaddyLotBagStatuses.Stored && !x.IsDeleted)
-                .MaxAsync(x => (int?)x.StackOrder, cancellationToken) ?? 0;
-            if (bag.StackOrder != topOrder)
+            if (bag.StackOrder != 0)
                 throw new InvalidOperationException($"Bao mở #{bagId} không nằm trên đỉnh cột.");
+
+            var variantId = bag.Lot?.ProductVariantId ?? activeContents.FirstOrDefault()?.Lot?.ProductVariantId;
+            var expectedOpenBagKey = variantId.HasValue
+                ? $"{variantId}:{bag.Lot?.WarehouseId}:{bag.LocationId}"
+                : null;
+            if (expectedOpenBagKey != null && bag.OpenBagKey != expectedOpenBagKey)
+                throw new InvalidOperationException($"Bao mở #{bagId} có OpenBagKey không khớp variant/kho/vị trí.");
+
+            var duplicateOpenBag = await _context.PaddyLotBags.AsNoTracking()
+                .Where(x => x.Id != bag.Id && x.LocationId == bag.LocationId &&
+                            x.Status == Constants.PaddyLotBagStatuses.Stored && !x.IsDeleted &&
+                            !x.IsFull && x.BagKind == Constants.PaddyLotBagKinds.Finished &&
+                            x.Lot.ProductVariantId == variantId)
+                .AnyAsync(cancellationToken);
+            if (duplicateOpenBag)
+                throw new InvalidOperationException($"Vị trí #{bag.LocationId} đã có bao mở cùng variant.");
         }
     }
 
     public async Task ValidateLotLocationAsync(int lotId, int locationId, CancellationToken cancellationToken = default)
     {
-        var partialBagCount = await _context.PaddyLotBags.AsNoTracking()
-            .CountAsync(x => x.LocationId == locationId
-                && x.Status == Constants.PaddyLotBagStatuses.Stored
-                && !x.IsDeleted
-                && !x.IsFull,
-                cancellationToken);
+        int? productVariantId = null;
+        if (_context.PaddyLots != null)
+        {
+            productVariantId = await _context.PaddyLots.AsNoTracking()
+                .Where(x => x.Id == lotId)
+                .Select(x => (int?)x.ProductVariantId)
+                .SingleOrDefaultAsync(cancellationToken);
+        }
+
+        var partialBagCount = 0;
+        if (productVariantId.HasValue && _context.PaddyLotBags != null)
+        {
+            partialBagCount = await _context.PaddyLotBags.AsNoTracking()
+                .CountAsync(x => x.LocationId == locationId
+                    && x.Status == Constants.PaddyLotBagStatuses.Stored
+                    && !x.IsDeleted
+                    && !x.IsFull
+                    && x.BagKind == Constants.PaddyLotBagKinds.Finished
+                    && x.Lot.ProductVariantId == productVariantId,
+                    cancellationToken);
+        }
         if (partialBagCount > 1)
             throw new InvalidOperationException(
                 $"Vị trí #{locationId} có {partialBagCount} bao lẻ; mỗi vị trí chỉ được có tối đa một bao lẻ.");
