@@ -57,6 +57,55 @@ public class PaddyLotBagInvariantServiceTests
     }
 
     [Fact]
+    public async Task ValidateBagAsync_WhenOpenBagUsesLegacyTopStackOrder_Passes()
+    {
+        var fullBag = new PaddyLotBag
+        {
+            Id = 1, WeightKg = 50m, IsFull = true, StackOrder = 1,
+            LocationId = 3, Status = PaddyLotBagStatuses.Stored
+        };
+        var openBag = new PaddyLotBag
+        {
+            Id = 2, WeightKg = 10m, IsFull = false, StackOrder = 2,
+            LocationId = 3, Status = PaddyLotBagStatuses.Stored
+        };
+        var contents = new[]
+        {
+            new PaddyLotBagContent { BagId = 1, WeightKg = 50m },
+            new PaddyLotBagContent { BagId = 2, WeightKg = 10m }
+        };
+
+        Func<Task> action = () => CreateSut(new[] { fullBag, openBag }, contents).ValidateBagAsync(2);
+
+        await action.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task ValidateBagAsync_WhenOpenBagIsActuallyBuried_Throws()
+    {
+        var openBag = new PaddyLotBag
+        {
+            Id = 1, WeightKg = 10m, IsFull = false, StackOrder = 1,
+            LocationId = 3, Status = PaddyLotBagStatuses.Stored
+        };
+        var fullBag = new PaddyLotBag
+        {
+            Id = 2, WeightKg = 50m, IsFull = true, StackOrder = 2,
+            LocationId = 3, Status = PaddyLotBagStatuses.Stored
+        };
+        var contents = new[]
+        {
+            new PaddyLotBagContent { BagId = 1, WeightKg = 10m },
+            new PaddyLotBagContent { BagId = 2, WeightKg = 50m }
+        };
+
+        Func<Task> action = () => CreateSut(new[] { openBag, fullBag }, contents).ValidateBagAsync(1);
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*không nằm trên đỉnh cột*");
+    }
+
+    [Fact]
     public async Task ValidateLotLocationAsync_WhenContentMatchesInventory_Passes()
     {
         var bag = new PaddyLotBag { Id = 1, LotId = 10, WeightKg = 50m, LocationId = 3, Status = PaddyLotBagStatuses.Stored };

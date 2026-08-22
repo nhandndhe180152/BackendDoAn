@@ -1877,7 +1877,11 @@ public class OutboundOrderService : IOutboundOrderService
         foreach (var group in bags.GroupBy(x => x.LocationId))
         {
             var topOrder = group.Max(x => x.StackOrder);
-            if (group.Any(x => !x.IsFull && x.BagKind == PaddyLotBagKinds.Finished && x.StackOrder != 0))
+            // Dữ liệu chuẩn dùng StackOrder = 0 cho bao mở (detached khỏi stack bao nguyên).
+            // Một số dữ liệu được cất lại bởi luồng kiểm kê cũ dùng max(StackOrder) để biểu
+            // diễn cùng trạng thái vật lý "ở đỉnh". Chấp nhận cả hai để không báo sai.
+            if (group.Any(x => !x.IsFull && x.BagKind == PaddyLotBagKinds.Finished &&
+                    x.StackOrder != 0 && x.StackOrder != topOrder))
                 throw new InvalidOperationException($"Bao mở tại vị trí {group.Key} không nằm trên đỉnh cột.");
             if (group.Where(x => !x.IsFull && x.BagKind == PaddyLotBagKinds.Finished)
                 .GroupBy(x => x.Lot.ProductVariantId).Any(g => g.Count() > 1))
@@ -2694,14 +2698,16 @@ public class OutboundOrderService : IOutboundOrderService
             .Include(x => x.Contents).ThenInclude(x => x.Lot).ThenInclude(x => x.Status)
             // Phải lấy đúng thứ tự vật lý từ đỉnh cột xuống. Bao mở chỉ được ưu tiên
             // khi chính nó đang nằm trên đỉnh, không được lấy xuyên qua bao phía trên.
-            .OrderByDescending(x => x.StackOrder)
+            .OrderByDescending(x => !x.IsFull && x.BagKind == PaddyLotBagKinds.Finished)
+            .ThenByDescending(x => x.StackOrder)
             .ThenByDescending(x => x.Id).ToListAsync();
 
         var locationName = bags.FirstOrDefault()?.Location != null
             ? FormatLocationCode(bags.First().Location) ?? $"vị trí #{locationId}"
             : $"vị trí #{locationId}";
 
-        if (bags.Count > 0 && bags.Any(x => !x.IsFull && x.StackOrder != bags.Max(b => b.StackOrder)))
+        var topStackOrder = bags.Count > 0 ? bags.Max(b => b.StackOrder) : 0;
+        if (bags.Any(x => !x.IsFull && x.StackOrder != 0 && x.StackOrder != topStackOrder))
             throw new InvalidOperationException(
                 $"Bao mở tại vị trí '{locationName}' đang bị bao khác chặn phía trên. Vui lòng chuyển các bao cản hoặc chuyển bao mở sang cột hàng lẻ trước.");
         if (bags.SelectMany(x => x.Contents).Any(x => x.WeightKg > 0 && !x.IsDeleted &&
@@ -3453,7 +3459,7 @@ public class OutboundOrderService : IOutboundOrderService
             {
                 var topOrder = await _bagRepository.FindByCondition(x => x.LocationId == locationId && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted)
                     .MaxAsync(x => (int?)x.StackOrder) ?? 0;
-                if (open.StackOrder != topOrder)
+                if (open.StackOrder != 0 && open.StackOrder != topOrder)
                     throw new InvalidOperationException($"Bao mở #{open.BagNo} đang bị chặn nên không thể hoàn hàng vào bao.");
                 var topUp = Math.Min(remaining, standard.Value - open.WeightKg);
                 if (topUp > 0)

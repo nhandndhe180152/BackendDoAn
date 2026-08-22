@@ -1389,31 +1389,14 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         if (status == null)
             return ApiResponse.Error(message: "Hệ thống chưa cấu hình trạng thái CONFIRMED.");
 
-        // Fail fast before making any inventory/debt changes. A pre-existing mismatch must be
-        // reconciled by stock-taking instead of being hidden by a customer return.
-        if (_bagInvariantService != null)
-        {
-            var targetLotLocations = order.Items.SelectMany(i => i.Allocations)
-                .SelectMany(a => new[]
-                {
-                    a.QuantityGood > 0 && a.RestockLocationId.HasValue ? (a.PaddyLotId, a.RestockLocationId.Value) : ((int, int)?)null,
-                    a.QuantityDamaged > 0 && a.QuarantineLocationId.HasValue ? (a.PaddyLotId, a.QuarantineLocationId.Value) : ((int, int)?)null,
-                    a.QuantityRejected > 0 && a.RejectedLocationId.HasValue ? (a.PaddyLotId, a.RejectedLocationId.Value) : ((int, int)?)null
-                })
-                .Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToList();
-            try
+        var targetLotLocations = order.Items.SelectMany(i => i.Allocations)
+            .SelectMany(a => new[]
             {
-                foreach (var pair in targetLotLocations)
-                    await _bagInvariantService.ValidateLotLocationAsync(pair.Item1, pair.Item2, cancellationToken);
-            }
-            catch (InvalidOperationException ex)
-            {
-                _logger.LogWarning(ex, "Cannot confirm customer return {OrderId}: inventory and bag stock are inconsistent", order.Id);
-                return ApiResponse.Conflict(
-                    message: $"Không thể xác nhận vì dữ liệu tồn theo bao đang lệch với tồn kho. {ex.Message} Vui lòng kiểm kê/điều chỉnh tồn trước rồi thử lại.",
-                    code: "LOT_LOCATION_INVENTORY_MISMATCH");
-            }
-        }
+                a.QuantityGood > 0 && a.RestockLocationId.HasValue ? (PaddyLotId: a.PaddyLotId, ProductVariantId: a.ProductVariantId, LocationId: a.RestockLocationId.Value) : ((int PaddyLotId, int ProductVariantId, int LocationId)?)null,
+                a.QuantityDamaged > 0 && a.QuarantineLocationId.HasValue ? (PaddyLotId: a.PaddyLotId, ProductVariantId: a.ProductVariantId, LocationId: a.QuarantineLocationId.Value) : ((int PaddyLotId, int ProductVariantId, int LocationId)?)null,
+                a.QuantityRejected > 0 && a.RejectedLocationId.HasValue ? (PaddyLotId: a.PaddyLotId, ProductVariantId: a.ProductVariantId, LocationId: a.RejectedLocationId.Value) : ((int PaddyLotId, int ProductVariantId, int LocationId)?)null
+            })
+            .Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToList();
 
         // Perform inside database transaction
         using var dbTransaction = await _context.Database.BeginTransactionAsync(cancellationToken);
@@ -1421,6 +1404,15 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         {
             var userId = GetCurrentUserId();
             var now = DateTimeHelper.VietnamNow();
+
+            // Bao vật lý là nguồn sự thật. Dữ liệu cũ có thể đã cập nhật Inventory nhưng
+            // chưa đồng bộ PaddyLotBagContent (thường lệch đúng lượng của một lần xuất).
+            // Ghi nhận điều chỉnh có audit trong cùng transaction trước khi nhập hàng trả,
+            // thay vì chặn người dùng hoặc âm thầm giữ sai lệch vĩnh viễn.
+            foreach (var target in targetLotLocations)
+                await ReconcileInventoryWithPhysicalBagsAsync(
+                    order, target.PaddyLotId, target.ProductVariantId, target.LocationId,
+                    userId, now, cancellationToken);
 
             // Set bypass for automatic interceptor
             if (_httpContextAccessor.HttpContext != null)
@@ -1843,6 +1835,69 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         }
     }
 
+    private async Task ReconcileInventoryWithPhysicalBagsAsync(
+        CustomerReturnOrder order, int lotId, int productVariantId, int locationId,
+        int userId, DateTime now, CancellationToken cancellationToken)
+    {
+        if (_context.PaddyLotBags == null || _context.PaddyLotBagContents == null) return;
+
+        var hasTrackedBags = await _context.PaddyLotBags.AsNoTracking().AnyAsync(x =>
+            x.LocationId == locationId && x.Status == PaddyLotBagStatuses.Stored &&
+            !x.IsDeleted && x.Contents.Any(c => c.LotId == lotId && !c.IsDeleted), cancellationToken);
+        if (!hasTrackedBags) return; // Tồn cũ chưa quản lý theo bao: giữ tương thích hiện tại.
+
+        var bagWeight = await _context.PaddyLotBagContents.AsNoTracking()
+            .Where(x => x.LotId == lotId && !x.IsDeleted && x.Bag.LocationId == locationId &&
+                        x.Bag.Status == PaddyLotBagStatuses.Stored && !x.Bag.IsDeleted)
+            .SumAsync(x => x.WeightKg, cancellationToken);
+        var inventory = await _context.Inventories.FirstOrDefaultAsync(x =>
+            x.WarehouseId == order.WarehouseId && x.LocationId == locationId &&
+            x.ProductVariantId == productVariantId && x.PaddyLotId == lotId && !x.IsDeleted,
+            cancellationToken);
+        if (inventory == null || Math.Abs(inventory.QuantityOnHand - bagWeight) <= 0.001m) return;
+        if (bagWeight + 0.001m < inventory.QuantityReserved)
+            throw new InvalidOperationException(
+                $"Không thể đồng bộ lô #{lotId} tại vị trí #{locationId} về {bagWeight:0.###} kg vì đang giữ {inventory.QuantityReserved:0.###} kg.");
+
+        var before = inventory.QuantityOnHand;
+        var delta = bagWeight - before;
+        inventory.QuantityOnHand = bagWeight;
+        inventory.UpdatedBy = userId;
+        inventory.LastModifiedDate = now;
+
+        var location = await _context.Locations.FirstOrDefaultAsync(x => x.Id == locationId && !x.IsDeleted, cancellationToken);
+        if (location != null)
+        {
+            location.CurrentOccupancy = Math.Max(0, location.CurrentOccupancy + delta);
+            if (location.CurrentOccupancy <= 0.001m) location.CurrentProductVariantId = null;
+            location.UpdatedBy = userId;
+            location.LastModifiedDate = now;
+        }
+
+        await _context.InventoryTransactions.AddAsync(new InventoryTransaction
+        {
+            Inventory = inventory,
+            WarehouseId = order.WarehouseId,
+            LocationId = locationId,
+            ProductVariantId = productVariantId,
+            PaddyLotId = lotId,
+            TransactionType = InventoryTransactionTypeConstants.ManualAdjust,
+            BeforeQuantity = before,
+            Quantity = delta,
+            AfterQuantity = bagWeight,
+            WeightKg = delta,
+            ReferenceType = InventoryReferenceTypeConstants.CustomerReturnOrder,
+            ReferenceId = order.Id,
+            Note = $"Đối soát tồn theo bao trước khi xác nhận phiếu trả {order.ReturnCode}",
+            CreatedBy = userId,
+            CreatedDate = now
+        }, cancellationToken);
+
+        _logger.LogWarning(
+            "Reconciled inventory with physical bags before customer return {OrderId}: lot {LotId}, location {LocationId}, {BeforeKg} -> {BagKg} kg",
+            order.Id, lotId, locationId, before, bagWeight);
+    }
+
     private async Task PackReturnedGoodsAsync(CustomerReturnOrderItemAllocation allocation, int locationId,
         decimal quantity, bool quarantined, CustomerReturnOrder order, int userId, DateTime now, CancellationToken cancellationToken)
     {
@@ -1881,7 +1936,10 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 .FirstOrDefaultAsync(x => x.OpenBagKey == openKey && x.LocationId == locationId && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted, cancellationToken);
             if (open != null && remaining > 0)
             {
-                if (open.StackOrder != 0)
+                var topStackOrder = await _context.PaddyLotBags.AsNoTracking()
+                    .Where(x => x.LocationId == locationId && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted)
+                    .MaxAsync(x => (int?)x.StackOrder, cancellationToken) ?? 0;
+                if (open.StackOrder != 0 && open.StackOrder != topStackOrder)
                     throw new InvalidOperationException(
                         $"Bao mở #{open.BagNo} đang bị bao khác chặn phía trên nên không thể bổ sung hàng trả.");
                 var before = open.WeightKg;

@@ -68,6 +68,8 @@ public static class LocationMapping
             OutboundLockOrderCode = entity.OutboundLockOrder?.SalesOrder?.SOCode,
             OutboundLockedAt = entity.OutboundLockedAt,
             CurrentProductVariantId = entity.CurrentProductVariantId,
+            CurrentProductVariantName = entity.CurrentProductVariant?.Name,
+            CurrentProductVariantSku = entity.CurrentProductVariant?.SKU,
             CreatedDate = entity.CreatedDate
         };
     }
@@ -96,6 +98,8 @@ public static class LocationMapping
             OutboundLockOrderCode = entity.OutboundLockOrder?.SalesOrder?.SOCode,
             OutboundLockedAt = entity.OutboundLockedAt,
             CurrentProductVariantId = entity.CurrentProductVariantId,
+            CurrentProductVariantName = entity.CurrentProductVariant?.Name,
+            CurrentProductVariantSku = entity.CurrentProductVariant?.SKU,
             CreatedDate = entity.CreatedDate
         };
     }

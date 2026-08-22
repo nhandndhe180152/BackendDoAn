@@ -36,7 +36,11 @@ public sealed class PaddyLotBagInvariantService : IPaddyLotBagInvariantService
             throw new InvalidOperationException($"Bao #{bagId} đang lưu kho nhưng chưa có vị trí.");
         if (bag.Status == Constants.PaddyLotBagStatuses.Stored && !bag.IsFull && bag.LocationId.HasValue)
         {
-            if (bag.StackOrder != 0)
+            var topStackOrder = await _context.PaddyLotBags.AsNoTracking()
+                .Where(x => x.LocationId == bag.LocationId &&
+                            x.Status == Constants.PaddyLotBagStatuses.Stored && !x.IsDeleted)
+                .MaxAsync(x => (int?)x.StackOrder, cancellationToken) ?? 0;
+            if (bag.StackOrder != 0 && bag.StackOrder != topStackOrder)
                 throw new InvalidOperationException($"Bao mở #{bagId} không nằm trên đỉnh cột.");
 
             var variantId = bag.Lot?.ProductVariantId ?? activeContents.FirstOrDefault()?.Lot?.ProductVariantId;

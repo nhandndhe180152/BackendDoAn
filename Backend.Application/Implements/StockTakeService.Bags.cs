@@ -888,8 +888,8 @@ public partial class StockTakeService
             if (bags.Count == 0) continue;
 
             var ordered = bags
-                .OrderBy(x => x.IsFull ? 0 : 1)   // bao mở lên đỉnh
-                .ThenBy(x => x.StackOrder)
+                .Where(x => x.IsFull || x.BagKind != PaddyLotBagKinds.Finished)
+                .OrderBy(x => x.StackOrder)
                 .ThenBy(x => x.Id)
                 .ToList();
 
@@ -907,6 +907,21 @@ public partial class StockTakeService
                     ordered[i].WeightKg, ordered[i].WeightKg, stockTakeId, null,
                     $"Kiểm kê {stCode}: cất lại bao #{ordered[i].BagNo} — vị trí xếp {oldOrder} → {newOrder}",
                     userId, now);
+            }
+
+            // Bao mở là lớp trên cùng nhưng được tách khỏi stack LIFO của bao nguyên.
+            // StackOrder = 0 là quy ước thống nhất của các luồng nhập/chuyển/xuất kho.
+            foreach (var openBag in bags.Where(x => !x.IsFull && x.BagKind == PaddyLotBagKinds.Finished))
+            {
+                if (openBag.StackOrder == 0) continue;
+
+                var oldOrder = openBag.StackOrder;
+                openBag.StackOrder = 0;
+                openBag.LastModifiedDate = now;
+                openBag.UpdatedBy = userId;
+                AddBagMovement(openBag, PaddyLotBagMovementTypes.StockTakeRestow, locationId, locationId,
+                    openBag.WeightKg, openBag.WeightKg, stockTakeId, null,
+                    $"Kiểm kê {stCode}: đưa bao mở #{openBag.BagNo} lên đỉnh cột — vị trí xếp {oldOrder} → 0", userId, now);
             }
         }
 
