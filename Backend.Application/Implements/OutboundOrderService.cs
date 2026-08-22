@@ -399,6 +399,7 @@ public class OutboundOrderService : IOutboundOrderService
                 BagId             = a.BagId,
                 BagNo             = a.Bag?.BagNo ?? 0,
                 AllocatedWeightKg = a.AllocatedWeightKg,
+                BagWeightSnapshotKg = a.BagWeightSnapshotKg,
                 PickedWeightKg    = a.PickedWeightKg,
                 LotId             = a.Bag?.LotId ?? 0,
                 LotCode           = a.Bag?.Lot?.LotCode,
@@ -473,6 +474,7 @@ public class OutboundOrderService : IOutboundOrderService
             BagId            = a.BagId,
             BagNo            = a.Bag?.BagNo ?? 0,
             AllocatedWeightKg = a.AllocatedWeightKg,
+            BagWeightSnapshotKg = a.BagWeightSnapshotKg,
             PickedWeightKg   = a.PickedWeightKg,
             LotId            = a.Bag?.LotId ?? 0,
             LotCode          = a.Bag?.Lot?.LotCode,
@@ -499,13 +501,32 @@ public class OutboundOrderService : IOutboundOrderService
         if (!isInitialAllocation && !isQcReplacement)
             return ApiResponse.Conflict("Chỉ có thể xem nguồn phân bổ khi phiếu xuất đang ở trạng thái Nháp.", ApiCodeConstants.OutboundOrder.InvalidState);
 
-        var variantIds = order.OutboundOrderItems.Where(x => !x.IsDeleted).Select(x => x.ProductVariantId).Distinct().ToList();
+        var itemShortfalls = order.OutboundOrderItems
+            .Where(x => !x.IsDeleted)
+            .Select(x => new
+            {
+                Item = x,
+                ActiveAllocated = ActiveAllocations(x).Sum(a => a.QuantityAllocated)
+            })
+            .ToList();
+
+        if (isQcReplacement && !itemShortfalls.Any(x => x.ActiveAllocated + 0.001m < x.Item.QuantityOrdered))
+            return ApiResponse.Conflict(
+                "Phiếu xuất hiện không có phần thiếu do QC để phân bổ thay thế.",
+                ApiCodeConstants.OutboundOrder.InvalidState);
+
+        var variantIds = itemShortfalls
+            .Where(x => !isQcReplacement || x.ActiveAllocated + 0.001m < x.Item.QuantityOrdered)
+            .Select(x => x.Item.ProductVariantId)
+            .Distinct()
+            .ToList();
         var inventories = await _inventoryRepository.FindByCondition(x =>
                 !x.IsDeleted && x.WarehouseId == order.WarehouseId && variantIds.Contains(x.ProductVariantId) &&
                 x.LocationId.HasValue && x.QuantityOnHand > 0 &&
                 x.Location != null && !x.Location.IsDeleted && x.Location.IsActive &&
                 !x.Location.IsQuarantine && !x.Location.IsOutboundStaging &&
-                !x.Location.OutboundLockOrderId.HasValue,
+                (!x.Location.OutboundLockOrderId.HasValue ||
+                 x.Location.OutboundLockOrderId == order.Id),
                 false, x => x.Location, x => x.PaddyLot, x => x.PaddyLot.Status)
             .ToListAsync();
 
@@ -574,8 +595,9 @@ public class OutboundOrderService : IOutboundOrderService
                         .Where(x => x.LotWeightKg > 0.0005m &&
                             !x.Bag.Allocations.Any(a => !a.IsDeleted &&
                                 a.Status == PaddyLotBagAllocationStatuses.Active &&
-                                !(a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder &&
-                                  a.ReferenceId == order.Id)))
+                                (isQcReplacement ||
+                                 !(a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder &&
+                                   a.ReferenceId == order.Id))))
                         .ToList();
                     if (locationBags.Count > 0)
                         selectableQuantity = Math.Min(selectableQuantity, lotBags.Sum(x => x.LotWeightKg));
@@ -697,12 +719,20 @@ public class OutboundOrderService : IOutboundOrderService
             .ToDictionary(g => g.Key, g => g.Sum(x => x.Lots.Sum(l => l.QuantityAllocated)));
         foreach (var item in order.OutboundOrderItems.Where(i => !i.IsDeleted))
         {
-            var total = ActiveAllocations(item).Sum(a => a.QuantityAllocated)
-                        + requestedByItem.GetValueOrDefault(item.Id);
-            if ((isInitialAllocation && Math.Abs(total - item.QuantityOrdered) > 0.001m) ||
-                (isQcReplacement && (requestedByItem.GetValueOrDefault(item.Id) <= 0.0005m || total > item.QuantityOrdered + 0.001m)))
+            var alreadyAllocated = ActiveAllocations(item).Sum(a => a.QuantityAllocated);
+            var requested = requestedByItem.GetValueOrDefault(item.Id);
+            var total = alreadyAllocated + requested;
+            var shortfall = Math.Max(0m, item.QuantityOrdered - alreadyAllocated);
+
+            var invalidInitial = isInitialAllocation && Math.Abs(total - item.QuantityOrdered) > 0.001m;
+            var invalidReplacement = isQcReplacement &&
+                ((shortfall <= 0.001m && requested > 0.001m) || requested > shortfall + 0.001m);
+
+            if (invalidInitial || invalidReplacement)
                 return ApiResponse.UnprocessableEntity(
-                    $"Sản phẩm '{item.ProductVariant?.Name}' phải được phân bổ đủ {item.QuantityOrdered:0.###} kg trước khi bắt đầu lấy hàng. Hiện đã phân bổ {total:0.###} kg.",
+                    isQcReplacement
+                        ? $"Sản phẩm '{item.ProductVariant?.Name}' chỉ được phân bổ thay thế tối đa {shortfall:0.###} kg đang thiếu."
+                        : $"Sản phẩm '{item.ProductVariant?.Name}' phải được phân bổ đủ {item.QuantityOrdered:0.###} kg trước khi bắt đầu lấy hàng. Hiện đã phân bổ {total:0.###} kg.",
                     ApiCodeConstants.OutboundOrder.InvalidRequest);
         }
 
@@ -1111,6 +1141,15 @@ public class OutboundOrderService : IOutboundOrderService
             .ToListAsync();
 
         var activeBagAllocsDict = activeBagAllocs.ToDictionary(a => a.Id);
+        var requestedBagAllocationIds = dto.Picks.Select(p => p.BagAllocationId).ToList();
+        if (requestedBagAllocationIds.Count != requestedBagAllocationIds.Distinct().Count() ||
+            requestedBagAllocationIds.Count != activeBagAllocs.Count ||
+            !requestedBagAllocationIds.ToHashSet().SetEquals(activeBagAllocsDict.Keys))
+        {
+            return ApiResponse.BadRequest(
+                "Phải xác nhận đúng toàn bộ các bao đang được phân bổ ACTIVE của phiếu xuất.",
+                ApiCodeConstants.OutboundOrder.InvalidRequest);
+        }
         if (!await ValidateFullBagPrefixAsync(order.Id))
             return ApiResponse.Conflict(
                 "Stack LIFO Ä‘Ã£ thay Ä‘á»•i sau khi phÃ¢n bá»•. Vui lÃ²ng phÃ¢n bá»• láº¡i.",
@@ -1221,10 +1260,10 @@ public class OutboundOrderService : IOutboundOrderService
             }
 
             // 15. QuantityPicked <= AllocatedWeightKg
-            if (pickDto.QuantityPicked > bagAlloc.AllocatedWeightKg + 0.0005m)
+            if (Math.Abs(pickDto.QuantityPicked - bagAlloc.AllocatedWeightKg) > 0.0005m)
             {
                 return ApiResponse.UnprocessableEntity(
-                    $"Số lượng lấy ({pickDto.QuantityPicked:0.###} kg) của bao #{bag.BagNo} vượt quá số lượng đã phân bổ ({bagAlloc.AllocatedWeightKg:0.###} kg).",
+                    $"Số lượng xác nhận lấy của bao #{bag.BagNo} phải đúng bằng số lượng đã phân bổ ({bagAlloc.AllocatedWeightKg:0.###} kg). Nếu bao có vấn đề, hãy báo sự cố chất lượng để tạo phần thiếu thay thế.",
                     ApiCodeConstants.OutboundOrder.InvalidRequest);
             }
 
@@ -1295,11 +1334,13 @@ public class OutboundOrderService : IOutboundOrderService
         // Validate mỗi item đã pick ít nhất bằng qty ordered
         foreach (var item in order.OutboundOrderItems.Where(i => !i.IsDeleted))
         {
+            var allocated = ActiveAllocations(item).Sum(a => a.QuantityAllocated);
             var picked = ActiveAllocations(item).Sum(a => a.QuantityPicked);
-            if (Math.Abs(picked - item.QuantityOrdered) > 0.001m)
+            if (Math.Abs(allocated - item.QuantityOrdered) > 0.001m ||
+                Math.Abs(picked - item.QuantityOrdered) > 0.001m)
                 return ApiResponse.UnprocessableEntity(
-                    $"Sản phẩm '{item.ProductVariant?.Name}' chưa pick đủ. " +
-                    $"Cần: {item.QuantityOrdered}, Đã lấy: {picked}.",
+                    $"Sản phẩm '{item.ProductVariant?.Name}' chưa đủ allocation hoặc chưa pick đủ. " +
+                    $"Cần: {item.QuantityOrdered}, Đã phân bổ: {allocated}, Đã lấy: {picked}.",
                     ApiCodeConstants.OutboundOrder.PickedQuantityMismatch);
         }
 

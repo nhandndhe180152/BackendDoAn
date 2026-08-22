@@ -155,6 +155,59 @@ public class OutboundOrderServiceTests
     }
 
     [Fact]
+    public async Task GetAllocationCandidatesAsync_PickingAllowsLocationLockedBySameOutbound()
+    {
+        var order = new OutboundOrder
+        {
+            Id = 1,
+            WarehouseId = 2,
+            SalesOrderId = 3,
+            OutboundOrderStatus = new OutboundOrderStatus { Code = OutboundOrderStatusNames.Picking },
+            OutboundOrderItems = new List<OutboundOrderItem>
+            {
+                new() { Id = 10, ProductVariantId = 100, QuantityOrdered = 10 }
+            }
+        };
+        var lot = CreateLot(5);
+        var inventories = new List<Backend.Domain.Entities.Inventory>
+        {
+            CreateCandidateInventory(1, lot, new Location
+            {
+                Id = 11,
+                IsActive = true,
+                SlotCode = "A-01",
+                OutboundLockOrderId = 1
+            })
+        };
+
+        _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
+        _invRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<Backend.Domain.Entities.Inventory, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<Backend.Domain.Entities.Inventory, object>>[]>()!))
+            .Returns((Expression<Func<Backend.Domain.Entities.Inventory, bool>> predicate, bool _,
+                    Expression<Func<Backend.Domain.Entities.Inventory, object>>[] __) =>
+                inventories.AsQueryable().Where(predicate.Compile()).AsQueryable().BuildMock());
+        _invTxRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<InventoryTransaction, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns(new List<InventoryTransaction>().AsQueryable().BuildMock());
+        _bagRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<PaddyLotBag, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns(new List<PaddyLotBag>().AsQueryable().BuildMock());
+
+        var result = await Sut().GetAllocationCandidatesAsync(1);
+
+        result.Status.Should().Be(200);
+        var candidates = result.Resources.Should()
+            .BeAssignableTo<IEnumerable<OutboundAllocationCandidateDto>>()
+            .Subject.ToList();
+        candidates.Should().ContainSingle();
+        candidates[0].InventoryId.Should().Be(1);
+    }
+
+    [Fact]
     public async Task ForceUnlockAsync_RejectsReasonLongerThan500Characters()
     {
         var result = await Sut(withLocationRepository: true)
@@ -1338,6 +1391,65 @@ public class OutboundOrderServiceTests
         });
 
         result.Status.Should().Be(422);
+    }
+
+    [Fact]
+    public async Task PickAsync_RejectsQuantityBelowAllocation_InsteadOfCreatingShortfall()
+    {
+        var lot = CreateLot(5);
+        var bag = CreateBag(1, 101, lot, 7, 1, 50);
+        var itemAlloc = new OutboundOrderItemAllocation
+        {
+            Id = 11,
+            OutboundOrderItemId = 1,
+            QuantityAllocated = 50,
+            QuantityPicked = 0
+        };
+        var orderItem = new OutboundOrderItem
+        {
+            Id = 1,
+            ProductVariantId = 100,
+            QuantityOrdered = 50,
+            QuantityPicked = 0,
+            Allocations = new List<OutboundOrderItemAllocation> { itemAlloc }
+        };
+        var order = new OutboundOrder
+        {
+            Id = 1,
+            WarehouseId = 2,
+            OutboundOrderStatus = new OutboundOrderStatus { Code = OutboundOrderStatusNames.Picking },
+            OutboundOrderItems = new List<OutboundOrderItem> { orderItem }
+        };
+        var bagAlloc = new PaddyLotBagAllocation
+        {
+            Id = 21,
+            BagId = bag.Id,
+            Bag = bag,
+            ReferenceType = PaddyLotBagAllocationReferenceTypes.OutboundOrder,
+            ReferenceId = 1,
+            ReferenceItemId = itemAlloc.Id,
+            AllocatedWeightKg = 50,
+            Status = PaddyLotBagAllocationStatuses.Active
+        };
+
+        _obRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(order);
+        _bagAllocRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<PaddyLotBagAllocation, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<PaddyLotBagAllocation, object>>[]>()))
+            .Returns(new List<PaddyLotBagAllocation> { bagAlloc }.AsQueryable().BuildMock());
+
+        var result = await Sut().PickAsync(1, new Backend.Application.DTOs.OutboundOrders.PickOutboundDto
+        {
+            Picks = new List<Backend.Application.DTOs.OutboundOrders.PickPhysicalBagDto>
+            {
+                new() { BagAllocationId = 21, QuantityPicked = 49 }
+            }
+        });
+
+        result.Status.Should().Be(422);
+        bagAlloc.PickedWeightKg.Should().Be(0);
+        itemAlloc.QuantityPicked.Should().Be(0);
     }
 
     [Fact]
