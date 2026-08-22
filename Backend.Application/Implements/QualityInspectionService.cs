@@ -488,6 +488,7 @@ public class QualityInspectionService : IQualityInspectionService
         var entities = await _repo
             .FindByCondition(x => !x.IsDeleted, false, x => x.PaddyLot)
             .Include(x => x.PaddyLot).ThenInclude(p => p.Status)
+            .Include(x => x.BagResults).ThenInclude(r => r.Bag)
             .OrderByDescending(x => x.InspectedAt)
             .ToListAsync();
 
@@ -499,6 +500,7 @@ public class QualityInspectionService : IQualityInspectionService
         var entity = await _repo
             .FindByCondition(x => x.Id == id && !x.IsDeleted, false, x => x.PaddyLot)
             .Include(x => x.PaddyLot).ThenInclude(p => p.Status)
+            .Include(x => x.BagResults).ThenInclude(r => r.Bag)
             .FirstOrDefaultAsync();
 
         if (entity == null) return ApiResponse.NotFound();
@@ -510,6 +512,7 @@ public class QualityInspectionService : IQualityInspectionService
         var entities = await _repo
             .FindByCondition(x => x.PaddyLotId == paddyLotId && !x.IsDeleted, false, x => x.PaddyLot)
             .Include(x => x.PaddyLot).ThenInclude(p => p.Status)
+            .Include(x => x.BagResults).ThenInclude(r => r.Bag)
             .OrderByDescending(x => x.InspectedAt)
             .ToListAsync();
 
@@ -1440,6 +1443,12 @@ public class QualityInspectionService : IQualityInspectionService
         Handling = x.Handling,
         Note = x.Note,
         AffectedWeightKg = x.AffectedWeightKg,
+        TargetedBagCount = x.InspectionType == InspectionTypeConstants.OutboundException
+            ? x.BagResults.Count(r => !r.IsDeleted)
+            : null,
+        TargetedWeightKg = x.InspectionType == InspectionTypeConstants.OutboundException
+            ? x.BagResults.Where(r => !r.IsDeleted).Sum(r => r.Bag.WeightKg)
+            : null,
         CreatedDate = x.CreatedDate,
         LastModifiedDate = x.LastModifiedDate
     };

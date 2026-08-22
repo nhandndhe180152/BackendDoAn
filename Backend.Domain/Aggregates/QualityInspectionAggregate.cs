@@ -23,7 +23,12 @@ public class QualityInspectionAggregate
     public bool PassedInspection { get; set; }
     public string? Handling { get; set; }
     public string? Note { get; set; }
-    /// <summary>Khối lượng thực tế bị ảnh hưởng/cần cách ly; null nghĩa là toàn bộ lô.</summary>
+    /// <summary>
+    /// Actual weight affected after completion. For OUTBOUND_EXCEPTION, null does not
+    /// mean whole-lot scope; use TargetedBagCount and TargetedWeightKg instead.
+    /// </summary>
     public decimal? AffectedWeightKg { get; set; }
+    public int? TargetedBagCount { get; set; }
+    public decimal? TargetedWeightKg { get; set; }
     public DateTime CreatedDate { get; set; }
 }

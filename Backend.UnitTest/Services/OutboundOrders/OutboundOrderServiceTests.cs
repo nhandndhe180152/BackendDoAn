@@ -208,6 +208,131 @@ public class OutboundOrderServiceTests
     }
 
     [Fact]
+    public async Task GetAllocationCandidatesAsync_QcReplacementExcludesCurrentActiveBagWeight()
+    {
+        var lot = CreateLot(5);
+        var location = new Location
+        {
+            Id = 11,
+            IsActive = true,
+            SlotCode = "A-01",
+            OutboundLockOrderId = 1
+        };
+        var activeItemAllocation = new OutboundOrderItemAllocation
+        {
+            Id = 31,
+            QuantityAllocated = 50
+        };
+        var order = new OutboundOrder
+        {
+            Id = 1,
+            WarehouseId = 2,
+            SalesOrderId = 3,
+            OutboundOrderStatus = new OutboundOrderStatus { Code = OutboundOrderStatusNames.Picking },
+            OutboundOrderItems = new List<OutboundOrderItem>
+            {
+                new()
+                {
+                    Id = 10,
+                    ProductVariantId = 100,
+                    QuantityOrdered = 100,
+                    Allocations = new List<OutboundOrderItemAllocation> { activeItemAllocation }
+                }
+            }
+        };
+        var inventory = CreateCandidateInventory(1, lot, location);
+        inventory.QuantityReserved = 50;
+        var activeBag = CreateBag(1, 101, lot, location.Id, stackOrder: 2, weightKg: 50);
+        activeBag.Allocations.Add(new PaddyLotBagAllocation
+        {
+            BagId = activeBag.Id,
+            ReferenceType = PaddyLotBagAllocationReferenceTypes.OutboundOrder,
+            ReferenceId = order.Id,
+            Status = PaddyLotBagAllocationStatuses.Active
+        });
+        var replacementBag = CreateBag(2, 102, lot, location.Id, stackOrder: 1, weightKg: 50);
+
+        _obRepo.Setup(r => r.GetByIdDetailAsync(order.Id)).ReturnsAsync(order);
+        _invRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<Backend.Domain.Entities.Inventory, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<Backend.Domain.Entities.Inventory, object>>[]>()!))
+            .Returns(new List<Backend.Domain.Entities.Inventory> { inventory }.AsQueryable().BuildMock());
+        _invTxRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<InventoryTransaction, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns(new List<InventoryTransaction>
+            {
+                new()
+                {
+                    InventoryId = inventory.Id,
+                    ReferenceType = InventoryReferenceTypeConstants.SalesOrder,
+                    ReferenceId = order.SalesOrderId,
+                    TransactionType = InventoryTransactionTypeConstants.Reserve,
+                    Quantity = 50
+                }
+            }.AsQueryable().BuildMock());
+        _bagRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<PaddyLotBag, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns(new List<PaddyLotBag> { activeBag, replacementBag }.AsQueryable().BuildMock());
+
+        var result = await Sut().GetAllocationCandidatesAsync(order.Id);
+
+        result.Status.Should().Be(200);
+        var candidates = result.Resources.Should()
+            .BeAssignableTo<IEnumerable<OutboundAllocationCandidateDto>>()
+            .Subject.ToList();
+        candidates.Should().ContainSingle();
+        var candidate = candidates[0];
+        candidate.SelectableQuantity.Should().Be(50);
+        candidate.FullBagCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task AllocateAsync_QcReplacementCannotExceedCurrentShortfall()
+    {
+        var order = new OutboundOrder
+        {
+            Id = 1,
+            WarehouseId = 2,
+            OutboundOrderStatus = new OutboundOrderStatus { Code = OutboundOrderStatusNames.Picking },
+            OutboundOrderItems = new List<OutboundOrderItem>
+            {
+                new()
+                {
+                    Id = 10,
+                    ProductVariantId = 100,
+                    QuantityOrdered = 150,
+                    Allocations = new List<OutboundOrderItemAllocation>
+                    {
+                        new() { QuantityAllocated = 100 }
+                    }
+                }
+            }
+        };
+        _obRepo.Setup(r => r.GetByIdDetailAsync(order.Id)).ReturnsAsync(order);
+
+        var result = await Sut().AllocateAsync(order.Id, new AllocateOutboundDto
+        {
+            Allocations = new List<AllocateItemDto>
+            {
+                new()
+                {
+                    OutboundOrderItemId = 10,
+                    Lots = new List<AllocateItemLotDto>
+                    {
+                        new() { InventoryId = 1, QuantityAllocated = 60 }
+                    }
+                }
+            }
+        });
+
+        result.Status.Should().Be(422);
+        result.Message.Should().Contain("50");
+    }
+
+    [Fact]
     public async Task ForceUnlockAsync_RejectsReasonLongerThan500Characters()
     {
         var result = await Sut(withLocationRepository: true)
@@ -574,6 +699,108 @@ public class OutboundOrderServiceTests
         result.Should().ContainSingle();
         result[0].InventoryId.Should().Be(inventory.Id);
         result[0].QuantityAllocated.Should().Be(20);
+    }
+
+    [Fact]
+    public async Task BuildRequestedBagAllocationsAsync_CurrentOutboundBagIsTransparentButNotSelected()
+    {
+        var lot = CreateLot(5);
+        var inventory = CreateInventory(id: 9, lotId: lot.Id, locationId: 7);
+        var currentBag = CreateBag(id: 1, bagNo: 11, lot, locationId: 7, stackOrder: 2, weightKg: 50);
+        currentBag.Allocations.Add(new PaddyLotBagAllocation
+        {
+            BagId = currentBag.Id,
+            ReferenceType = PaddyLotBagAllocationReferenceTypes.OutboundOrder,
+            ReferenceId = 1,
+            Status = PaddyLotBagAllocationStatuses.Active
+        });
+        var replacementBag = CreateBag(id: 2, bagNo: 12, lot, locationId: 7, stackOrder: 1, weightKg: 50);
+        SetupBagAllocationSources(new[] { inventory }, new[] { currentBag, replacementBag });
+
+        var result = await InvokeBuildRequestedBagPlansAsync(
+            productVariantId: 100,
+            warehouseId: 2,
+            new[] { new AllocateItemLotDto { InventoryId = inventory.Id, QuantityAllocated = 20 } });
+
+        result.Should().ContainSingle();
+        result[0].BagId.Should().Be(replacementBag.Id);
+        result[0].QuantityAllocated.Should().Be(20);
+    }
+
+    [Fact]
+    public async Task BuildRequestedBagAllocationsAsync_ExplicitFullBagDoesNotDuplicateCurrentOutboundBag()
+    {
+        var lot = CreateLot(5);
+        var inventory = CreateInventory(id: 9, lotId: lot.Id, locationId: 7);
+        var currentBag = CreateBag(id: 1, bagNo: 11, lot, locationId: 7, stackOrder: 2, weightKg: 50);
+        currentBag.Allocations.Add(new PaddyLotBagAllocation
+        {
+            BagId = currentBag.Id,
+            ReferenceType = PaddyLotBagAllocationReferenceTypes.OutboundOrder,
+            ReferenceId = 1,
+            Status = PaddyLotBagAllocationStatuses.Active
+        });
+        var replacementBag = CreateBag(id: 2, bagNo: 12, lot, locationId: 7, stackOrder: 1, weightKg: 50);
+        SetupBagAllocationSources(new[] { inventory }, new[] { currentBag, replacementBag });
+
+        var result = await InvokeBuildRequestedBagPlansAsync(
+            productVariantId: 100,
+            warehouseId: 2,
+            new[] { new AllocateItemLotDto { InventoryId = inventory.Id, QuantityAllocated = 50 } });
+
+        result.Should().ContainSingle();
+        result[0].BagId.Should().Be(replacementBag.Id);
+    }
+
+    [Fact]
+    public async Task BuildRequestedBagAllocationsAsync_OtherOutboundBagRemainsLifoBlocker()
+    {
+        var lot = CreateLot(5);
+        var inventory = CreateInventory(id: 9, lotId: lot.Id, locationId: 7);
+        var blockingBag = CreateBag(id: 1, bagNo: 11, lot, locationId: 7, stackOrder: 2, weightKg: 50);
+        blockingBag.Allocations.Add(new PaddyLotBagAllocation
+        {
+            BagId = blockingBag.Id,
+            ReferenceType = PaddyLotBagAllocationReferenceTypes.OutboundOrder,
+            ReferenceId = 99,
+            Status = PaddyLotBagAllocationStatuses.Active
+        });
+        var replacementBag = CreateBag(id: 2, bagNo: 12, lot, locationId: 7, stackOrder: 1, weightKg: 50);
+        SetupBagAllocationSources(new[] { inventory }, new[] { blockingBag, replacementBag });
+
+        var act = () => InvokeBuildRequestedBagPlansAsync(
+            productVariantId: 100,
+            warehouseId: 2,
+            new[] { new AllocateItemLotDto { InventoryId = inventory.Id, QuantityAllocated = 20 } });
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*bao #11*");
+    }
+
+    [Fact]
+    public async Task BuildRequestedBagAllocationsAsync_CurrentOutboundOpenBagIsNotAllocatedAgain()
+    {
+        var lot = CreateLot(5);
+        var inventory = CreateInventory(id: 9, lotId: lot.Id, locationId: 7);
+        var openBag = CreateBag(id: 1, bagNo: 11, lot, locationId: 7, stackOrder: 0, weightKg: 10);
+        openBag.BagKind = PaddyLotBagKinds.Finished;
+        openBag.Allocations.Add(new PaddyLotBagAllocation
+        {
+            BagId = openBag.Id,
+            ReferenceType = PaddyLotBagAllocationReferenceTypes.OutboundOrder,
+            ReferenceId = 1,
+            Status = PaddyLotBagAllocationStatuses.Active
+        });
+        var replacementBag = CreateBag(id: 2, bagNo: 12, lot, locationId: 7, stackOrder: 1, weightKg: 50);
+        SetupBagAllocationSources(new[] { inventory }, new[] { openBag, replacementBag });
+
+        var result = await InvokeBuildRequestedBagPlansAsync(
+            productVariantId: 100,
+            warehouseId: 2,
+            new[] { new AllocateItemLotDto { InventoryId = inventory.Id, QuantityAllocated = 10 } });
+
+        result.Should().ContainSingle();
+        result[0].BagId.Should().Be(replacementBag.Id);
     }
 
     [Fact]
@@ -1042,6 +1269,44 @@ public class OutboundOrderServiceTests
         });
 
         result.Status.Should().Be(422);
+    }
+
+    private sealed record PhysicalBagPlanSnapshot(int BagId, int InventoryId, decimal QuantityAllocated);
+
+    private async Task<List<PhysicalBagPlanSnapshot>> InvokeBuildRequestedBagPlansAsync(
+        int productVariantId,
+        int warehouseId,
+        IReadOnlyCollection<AllocateItemLotDto> requestedLots)
+    {
+        var method = typeof(OutboundOrderService).GetMethod(
+            "BuildRequestedBagAllocationsAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        method.Should().NotBeNull();
+
+        try
+        {
+            var taskObj = method!.Invoke(
+                Sut(),
+                new object[] { 1, productVariantId, warehouseId, requestedLots });
+            var task = (Task)taskObj!;
+            await task.ConfigureAwait(false);
+
+            var result = (System.Collections.IEnumerable)taskObj!.GetType()
+                .GetProperty("Result")!.GetValue(taskObj)!;
+            return result.Cast<object>().Select(item =>
+            {
+                var type = item.GetType();
+                return new PhysicalBagPlanSnapshot(
+                    (int)type.GetProperty("BagId")!.GetValue(item)!,
+                    (int)type.GetProperty("InventoryId")!.GetValue(item)!,
+                    (decimal)type.GetProperty("QuantityAllocated")!.GetValue(item)!);
+            }).ToList();
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException != null)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+            throw;
+        }
     }
 
     [Fact]

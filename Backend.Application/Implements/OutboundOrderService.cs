@@ -569,67 +569,77 @@ public class OutboundOrderService : IOutboundOrderService
 
                 if (inv.LocationId.HasValue && bagsByLocation.TryGetValue(inv.LocationId.Value, out var locationBags))
                 {
-                    var lotBags = locationBags
+                    bool IsActiveByCurrentOutbound(PaddyLotBag bag) =>
+                        bag.Allocations.Any(a => !a.IsDeleted &&
+                            a.Status == PaddyLotBagAllocationStatuses.Active &&
+                            a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder &&
+                            a.ReferenceId == order.Id);
+                    bool IsActiveByOther(PaddyLotBag bag) =>
+                        bag.Allocations.Any(a => !a.IsDeleted &&
+                            a.Status == PaddyLotBagAllocationStatuses.Active &&
+                            !(a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder &&
+                              a.ReferenceId == order.Id));
+                    bool HasAnyActiveAllocation(PaddyLotBag bag) =>
+                        bag.Allocations.Any(a => !a.IsDeleted &&
+                            a.Status == PaddyLotBagAllocationStatuses.Active);
+
+                    var openBag = locationBags
+                        .Where(b => !b.IsFull && b.BagKind == PaddyLotBagKinds.Finished &&
+                            !HasAnyActiveAllocation(b))
                         .Select(b => new
                         {
                             Bag = b,
                             LotWeightKg = b.Contents
                                 .Where(c => c.LotId == inv.PaddyLotId && !c.IsDeleted)
-                                .Sum(c => c.WeightKg),
-                            ActiveWeightKg = b.Contents
-                                .Where(c => !c.IsDeleted)
                                 .Sum(c => c.WeightKg)
                         })
-                        .Where(x => x.LotWeightKg > 0.0005m &&
-                            !x.Bag.Allocations.Any(a => !a.IsDeleted &&
-                                a.Status == PaddyLotBagAllocationStatuses.Active &&
-                                (isQcReplacement ||
-                                 !(a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder &&
-                                   a.ReferenceId == order.Id))))
-                        .ToList();
-                    if (locationBags.Count > 0)
-                        selectableQuantity = Math.Min(selectableQuantity, lotBags.Sum(x => x.LotWeightKg));
-                    if (lotBags.Count > 0)
+                        .FirstOrDefault(x => x.LotWeightKg > 0.0005m);
+
+                    var accessibleFullBags = new List<(PaddyLotBag Bag, decimal LotWeightKg)>();
+                    foreach (var stackBag in locationBags
+                        .Where(x => x.IsFull || x.BagKind != PaddyLotBagKinds.Finished)
+                        .OrderByDescending(x => x.StackOrder)
+                        .ThenByDescending(x => x.Id))
                     {
-                        standardWeightKg = lotBags.FirstOrDefault(x => x.Bag.StandardWeightKg.HasValue)?.Bag.StandardWeightKg;
-                        fullBagCount = 0;
+                        if (IsActiveByOther(stackBag)) break;
+                        if (isQcReplacement && IsActiveByCurrentOutbound(stackBag)) continue;
+                        if (HasAnyActiveAllocation(stackBag)) break;
 
-                        var openBag = lotBags.FirstOrDefault(x => !x.Bag.IsFull && x.Bag.BagKind == PaddyLotBagKinds.Finished);
-                        if (openBag != null)
-                        {
-                            hasOpenBag = true;
-                            openBagWeightKg = Math.Min(openBag.LotWeightKg, selectableQuantity);
-                            openBagId = openBag.Bag.Id;
+                        var lotWeightKg = stackBag.Contents
+                            .Where(c => c.LotId == inv.PaddyLotId && !c.IsDeleted)
+                            .Sum(c => c.WeightKg);
+                        var activeWeightKg = stackBag.Contents
+                            .Where(c => !c.IsDeleted)
+                            .Sum(c => c.WeightKg);
+                        if (lotWeightKg <= 0.0005m || Math.Abs(lotWeightKg - activeWeightKg) > 0.0005m)
+                            break;
 
-                            isOpenBagBlocked = false;
-                        }
+                        accessibleFullBags.Add((stackBag, lotWeightKg));
+                    }
 
-                        foreach (var stackBag in locationBags
-                            .Where(x => x.IsFull || x.BagKind != PaddyLotBagKinds.Finished)
-                            .OrderByDescending(x => x.StackOrder))
-                        {
-                            var lotWeightKg = stackBag.Contents
-                                .Where(c => c.LotId == inv.PaddyLotId && !c.IsDeleted)
-                                .Sum(c => c.WeightKg);
-                            if (lotWeightKg <= 0.0005m)
-                                break;
+                    var physicalSelectableQuantity = (openBag?.LotWeightKg ?? 0m) +
+                        accessibleFullBags.Sum(x => x.LotWeightKg);
+                    selectableQuantity = Math.Min(selectableQuantity, physicalSelectableQuantity);
 
-                            var activeWeightKg = stackBag.Contents
-                                .Where(c => !c.IsDeleted)
-                                .Sum(c => c.WeightKg);
-                            if (Math.Abs(lotWeightKg - activeWeightKg) > 0.0005m)
-                                break;
+                    standardWeightKg = accessibleFullBags
+                        .Select(x => x.Bag.StandardWeightKg)
+                        .FirstOrDefault(x => x.HasValue);
+                    if (!standardWeightKg.HasValue)
+                        standardWeightKg = openBag?.Bag.StandardWeightKg;
 
-                            if (stackBag.IsFull)
-                                fullBagCount++;
-                        }
+                    if (openBag != null)
+                    {
+                        hasOpenBag = true;
+                        openBagWeightKg = Math.Min(openBag.LotWeightKg, selectableQuantity);
+                        openBagId = openBag.Bag.Id;
+                    }
 
-                        if (standardWeightKg.HasValue && standardWeightKg.Value > 0)
-                        {
-                            var selectableForFullBags = Math.Max(0m, selectableQuantity - (hasOpenBag && !isOpenBagBlocked ? openBagWeightKg : 0m));
-                            var maxFullBagsBySelectable = (int)Math.Floor(selectableForFullBags / standardWeightKg.Value);
-                            fullBagCount = Math.Min(fullBagCount, maxFullBagsBySelectable);
-                        }
+                    fullBagCount = accessibleFullBags.Count(x => x.Bag.IsFull);
+                    if (standardWeightKg.HasValue && standardWeightKg.Value > 0)
+                    {
+                        var selectableForFullBags = Math.Max(0m, selectableQuantity - openBagWeightKg);
+                        var maxFullBagsBySelectable = (int)Math.Floor(selectableForFullBags / standardWeightKg.Value);
+                        fullBagCount = Math.Min(fullBagCount, maxFullBagsBySelectable);
                     }
                 }
 
@@ -1852,9 +1862,14 @@ public class OutboundOrderService : IOutboundOrderService
             .ToListAsync();
         if (bags.Count == 0) return new();
 
+        bool IsHeldByCurrentOutbound(PaddyLotBag b) =>
+            b.Allocations.Any(a => !a.IsDeleted && a.Status == PaddyLotBagAllocationStatuses.Active &&
+                a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder && a.ReferenceId == outboundOrderId);
         bool IsHeldByOther(PaddyLotBag b) =>
             b.Allocations.Any(a => !a.IsDeleted && a.Status == PaddyLotBagAllocationStatuses.Active &&
                 !(a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder && a.ReferenceId == outboundOrderId));
+        bool HasAnyActiveAllocation(PaddyLotBag b) =>
+            b.Allocations.Any(a => !a.IsDeleted && a.Status == PaddyLotBagAllocationStatuses.Active);
 
         foreach (var group in bags.GroupBy(x => x.LocationId))
         {
@@ -1904,7 +1919,7 @@ public class OutboundOrderService : IOutboundOrderService
                     Math.Abs(request.QuantityAllocated - candidate.WeightKg) > 0.0005m)
                     return false;
 
-                if (IsHeldByOther(candidate))
+                if (HasAnyActiveAllocation(candidate))
                     return false;
 
                 var activeContents = candidate.Contents
@@ -1944,6 +1959,8 @@ public class OutboundOrderService : IOutboundOrderService
             // Open bags are detached from the full-bag stack and can be selected independently.
             foreach (var openBag in locationGroup.Where(x => !x.IsFull && x.BagKind == PaddyLotBagKinds.Finished))
             {
+                if (HasAnyActiveAllocation(openBag)) continue;
+
                 foreach (var content in openBag.Contents.Where(x => x.WeightKg > 0 && !x.IsDeleted))
                 {
                     if (!inventoryByLotLocation.TryGetValue((content.LotId, locationGroup.Key), out var inventory) ||
@@ -1976,6 +1993,7 @@ public class OutboundOrderService : IOutboundOrderService
                     throw new InvalidOperationException(
                         $"Không thể lấy hàng tại vị trí #{locationGroup.Key}: bao #{bag.BagNo} đang được giữ bởi chứng từ khác. Vui lòng chọn cột khác hoặc tải lại.");
                 }
+                if (IsHeldByCurrentOutbound(bag)) continue;
 
                 var activeContents = bag.Contents.Where(x => x.WeightKg > 0 && !x.IsDeleted).OrderByDescending(x => x.Id).ToList();
                 foreach (var content in activeContents)

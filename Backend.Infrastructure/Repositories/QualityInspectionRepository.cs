@@ -57,6 +57,12 @@ public class QualityInspectionRepository : RepositoryBase<QualityInspection, int
                 Handling = x.Handling,
                 Note = x.Note,
                 AffectedWeightKg = x.AffectedWeightKg,
+                TargetedBagCount = x.InspectionType == "OUTBOUND_EXCEPTION"
+                    ? (int?)x.BagResults.Count(r => !r.IsDeleted)
+                    : null,
+                TargetedWeightKg = x.InspectionType == "OUTBOUND_EXCEPTION"
+                    ? (decimal?)x.BagResults.Where(r => !r.IsDeleted).Sum(r => r.Bag.WeightKg)
+                    : null,
                 CreatedDate = x.CreatedDate
             });
 
