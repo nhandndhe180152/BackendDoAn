@@ -1427,6 +1427,14 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         if (status == null)
             return ApiResponse.Error(message: "Hệ thống chưa cấu hình trạng thái CONFIRMED.");
 
+        var openBagConflict = await ValidateReturnedGoodsOpenBagConflictAsync(order, cancellationToken);
+        if (openBagConflict)
+        {
+            return ApiResponse.Conflict(
+                message: "Không thể nhập hàng trả lẻ vào vị trí đã có bao thành phẩm lẻ cùng biến thể. Vui lòng chọn vị trí khác hoặc xử lý bao lẻ hiện tại.",
+                code: "CUSTOMER_RETURN_OPEN_BAG_CONFLICT");
+        }
+
         var targetLotLocations = order.Items.SelectMany(i => i.Allocations)
             .SelectMany(a => new[]
             {
@@ -1846,6 +1854,14 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             _logger.LogWarning(ex, "Concurrent customer return confirmation for order {OrderId}", order.Id);
             return ApiResponse.Conflict(message: "Số lượng đã trả vừa thay đổi bởi yêu cầu khác. Vui lòng tải lại dữ liệu.", code: "CUSTOMER_RETURN_CONCURRENCY_CONFLICT");
         }
+        catch (DbUpdateException ex) when (IsOpenBagKeyConflict(ex))
+        {
+            await dbTransaction.RollbackAsync(cancellationToken);
+            _logger.LogWarning(ex, "Open bag conflict while confirming customer return {OrderId}", order.Id);
+            return ApiResponse.Conflict(
+                message: "Không thể nhập hàng trả lẻ vào vị trí đã có bao thành phẩm lẻ cùng biến thể. Vui lòng tải lại dữ liệu và chọn vị trí khác.",
+                code: "CUSTOMER_RETURN_OPEN_BAG_CONFLICT");
+        }
         catch (Exception ex)
         {
             await dbTransaction.RollbackAsync(cancellationToken);
@@ -1871,6 +1887,68 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             // Remove bypass header
             _httpContextAccessor.HttpContext?.Items.Remove("BypassLocationOccupancyInterceptor");
         }
+    }
+
+    private async Task<bool> ValidateReturnedGoodsOpenBagConflictAsync(
+        CustomerReturnOrder order,
+        CancellationToken cancellationToken)
+    {
+        var goodAllocations = order.Items
+            .Where(i => !i.IsDeleted)
+            .SelectMany(i => i.Allocations)
+            .Where(a => !a.IsDeleted && a.QuantityGood > 0 && a.RestockLocationId.HasValue)
+            .ToList();
+        if (goodAllocations.Count == 0 || _context.PaddyLotBags == null || _context.ProductVariants == null)
+            return false;
+
+        var variantIds = goodAllocations.Select(a => a.ProductVariantId).Distinct().ToList();
+        var standardWeights = await _context.ProductVariants.AsNoTracking()
+            .Where(x => variantIds.Contains(x.Id) && !x.IsDeleted && x.Weight > 0)
+            .Select(x => new { x.Id, x.Weight })
+            .ToDictionaryAsync(x => x.Id, x => x.Weight, cancellationToken);
+
+        var plannedPartialKeys = goodAllocations
+            .Where(a => standardWeights.TryGetValue(a.ProductVariantId, out var standardWeight)
+                && CreatesPartialBag(a.QuantityGood, standardWeight))
+            .Select(a => $"{a.ProductVariantId}:{order.WarehouseId}:{a.RestockLocationId!.Value}")
+            .ToList();
+        if (plannedPartialKeys.Count == 0)
+            return false;
+
+        // Two allocations in one confirmation must not independently create two
+        // partial Finished bags with the same invariant key.
+        if (plannedPartialKeys.GroupBy(x => x).Any(g => g.Count() > 1))
+            return true;
+
+        var distinctKeys = plannedPartialKeys.Distinct().ToList();
+        return await _context.PaddyLotBags.AsNoTracking().AnyAsync(x =>
+            x.OpenBagKey != null && distinctKeys.Contains(x.OpenBagKey) &&
+            x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted && !x.IsFull &&
+            x.BagKind == PaddyLotBagKinds.Finished,
+            cancellationToken);
+    }
+
+    private static bool CreatesPartialBag(decimal quantity, decimal standardWeight)
+    {
+        if (quantity <= 0.001m || standardWeight <= 0)
+            return false;
+
+        var remainder = quantity % standardWeight;
+        return remainder > 0.001m && remainder < standardWeight - 0.001m;
+    }
+
+    private static bool IsOpenBagKeyConflict(DbUpdateException exception)
+    {
+        for (Exception? current = exception; current != null; current = current.InnerException)
+        {
+            if (current.Message.Contains("OpenBagKey", StringComparison.OrdinalIgnoreCase) ||
+                current.Message.Contains("IX_PaddyLotBag_OpenBagKey", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private async Task ReconcileInventoryWithPhysicalBagsAsync(

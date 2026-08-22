@@ -48,6 +48,8 @@ using CustomerReturnAllocationEntity = Backend.Domain.Entities.CustomerReturnOrd
 using CustomerReturnStatusEntity = Backend.Domain.Entities.CustomerReturnOrderStatus;
 using PaddyLotBagEntity = Backend.Domain.Entities.PaddyLotBag;
 using PaddyLotBagAllocationEntity = Backend.Domain.Entities.PaddyLotBagAllocation;
+using PartyDebtEntity = Backend.Domain.Entities.PartyDebt;
+using DebtTransactionEntity = Backend.Domain.Entities.DebtTransaction;
 
 namespace Backend.UnitTest.Services.PaddyLotTraceabilityTests;
 
@@ -488,6 +490,10 @@ public class PaddyLotTraceabilityServiceTests
             Name = "Đã hoàn tất",
             Color = "#10B981"
         });
+        var firstRefundAt = DateTime.UtcNow.AddHours(-10);
+        var secondRefundAt = DateTime.UtcNow.AddHours(-8);
+        var debtReductionAt = DateTime.UtcNow.AddHours(-11);
+        var returnLastModifiedAt = DateTime.UtcNow.AddHours(-6);
         var customerReturn = new CustomerReturnOrderEntity
         {
             Id = 800,
@@ -503,11 +509,11 @@ public class PaddyLotTraceabilityServiceTests
             ReceivedAt = DateTime.UtcNow.AddDays(-1.5),
             InspectedAt = DateTime.UtcNow.AddDays(-1),
             ConfirmedAt = DateTime.UtcNow.AddHours(-12),
-            ApprovedCreditAmount = 500000m,
+            ApprovedCreditAmount = 800000m,
             DebtReductionAmount = 300000m,
-            RefundedAmount = 200000m,
+            RefundedAmount = 500000m,
             RefundStatus = "REFUNDED",
-            LastModifiedDate = DateTime.UtcNow.AddHours(-6)
+            LastModifiedDate = returnLastModifiedAt
         };
         db.CustomerReturnOrders.Add(customerReturn);
         db.CustomerReturnOrderItems.Add(new CustomerReturnOrderItemEntity
@@ -536,8 +542,57 @@ public class PaddyLotTraceabilityServiceTests
             RestockLocationId = 1,
             QuarantineLocationId = 2,
             Disposition = "MIXED",
-            CreditAmount = 500000m
+            CreditAmount = 800000m
         });
+
+        var refundDebt = new PartyDebtEntity
+        {
+            Id = 850,
+            OrganizationId = 1,
+            PartyType = LookupCodes.PartyType.Customer,
+            PartyId = 1,
+            Direction = LookupCodes.DebtDirection.Payable,
+            CurrentBalance = 0,
+            IsActive = true
+        };
+        db.PartyDebts.Add(refundDebt);
+        db.DebtTransactions.AddRange(
+            new DebtTransactionEntity
+            {
+                Id = 851,
+                PartyDebtId = 850,
+                TransactionType = LookupCodes.DebtTransactionType.Payment,
+                Amount = 200000m,
+                BalanceAfter = 300000m,
+                RefType = InventoryReferenceTypeConstants.CustomerReturnOrder,
+                RefId = 800,
+                TransactionDate = firstRefundAt,
+                DeduplicationKey = "CRT-REFUND-800-BANK-001"
+            },
+            new DebtTransactionEntity
+            {
+                Id = 852,
+                PartyDebtId = 850,
+                TransactionType = LookupCodes.DebtTransactionType.Payment,
+                Amount = 300000m,
+                BalanceAfter = 0,
+                RefType = InventoryReferenceTypeConstants.CustomerReturnOrder,
+                RefId = 800,
+                TransactionDate = secondRefundAt,
+                DeduplicationKey = "CRT-REFUND-800-BANK-002"
+            },
+            new DebtTransactionEntity
+            {
+                Id = 853,
+                PartyDebtId = 850,
+                TransactionType = LookupCodes.DebtTransactionType.ReturnCredit,
+                Amount = 300000m,
+                BalanceAfter = 0,
+                RefType = InventoryReferenceTypeConstants.CustomerReturnOrder,
+                RefId = 800,
+                TransactionDate = debtReductionAt,
+                DeduplicationKey = "CRT-CONFIRM-800"
+            });
 
         await db.SaveChangesAsync();
 
@@ -579,6 +634,9 @@ public class PaddyLotTraceabilityServiceTests
         data.CustomerReturns.Should().ContainSingle();
         data.CustomerReturns[0].ReturnCode.Should().Be("CR-001");
         data.CustomerReturns[0].Items.Single().Allocations.Single().Disposition.Should().Be("MIXED");
+        data.CustomerReturns[0].RefundedAmount.Should().Be(500000m);
+        data.CustomerReturns[0].RefundedAt.Should().Be(secondRefundAt);
+        data.CustomerReturns[0].RefundedAt.Should().NotBe(returnLastModifiedAt);
 
         data.Timeline.Should().NotBeEmpty();
         data.Timeline.Select(e => e.EventType).Should().Contain(new[]
@@ -587,6 +645,12 @@ public class PaddyLotTraceabilityServiceTests
             "CUSTOMER_FEEDBACK_CREATED", "CUSTOMER_FEEDBACK_RESOLVED", "CUSTOMER_RETURN_CREATED",
             "CUSTOMER_RETURN_RECEIVED", "CUSTOMER_RETURN_INSPECTED", "CUSTOMER_RETURN_CONFIRMED", "CUSTOMER_RETURN_REFUND"
         });
+        var refundEvents = data.Timeline.Where(e => e.EventType == "CUSTOMER_RETURN_REFUND").ToList();
+        refundEvents.Should().HaveCount(2);
+        refundEvents.Select(e => e.EventAt).Should().Equal(firstRefundAt, secondRefundAt);
+        refundEvents.Select(e => e.Description).Should().Contain(x => x.Contains("200000"));
+        refundEvents.Select(e => e.Description).Should().Contain(x => x.Contains("300000"));
+        refundEvents.Should().NotContain(e => e.EventAt == debtReductionAt);
 
         // Summary calculations verification
         data.Summary.RelatedLotCount.Should().Be(3);
@@ -604,7 +668,7 @@ public class PaddyLotTraceabilityServiceTests
         data.Summary.RestockedReturnWeightKg.Should().Be(30m);
         data.Summary.QuarantinedReturnWeightKg.Should().Be(15m);
         data.Summary.RejectedReturnWeightKg.Should().Be(5m);
-        data.Summary.RefundAmount.Should().Be(200000m);
+        data.Summary.RefundAmount.Should().Be(500000m);
     }
 
     [Fact]
