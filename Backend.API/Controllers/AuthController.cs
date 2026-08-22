@@ -45,7 +45,7 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
-        [AllowAnonymous]
+        [Authorize]
         [HttpPost("admin/register")]
         public async Task<IActionResult> AdminRegisterAsync([FromBody] AdminRegisterDto obj)
         {
@@ -116,6 +116,7 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        [Authorize]
         [HttpPost("admin/create-end-user")]
         public async Task<IActionResult> CreateEndUser([FromBody] CreateEndUserDto obj)
         {
