@@ -1816,6 +1816,11 @@ public class QualityInspectionService : IQualityInspectionService
             await _context.SaveChangesAsync();
             await tx.CommitAsync();
         }
+        catch (InvalidOperationException ex) when (ex.Message.StartsWith("409_CONFLICT:", StringComparison.Ordinal))
+        {
+            await tx.RollbackAsync();
+            return ApiResponse.Conflict(ex.Message["409_CONFLICT:".Length..].Trim());
+        }
         catch
         {
             await tx.RollbackAsync();
@@ -2448,7 +2453,19 @@ public class QualityInspectionService : IQualityInspectionService
                 // PASS: Khôi phục trạng thái Stored nếu đang ở QualityHold
                 if (bag.Status == PaddyLotBagStatuses.QualityHold)
                 {
+                    if (!bag.LocationId.HasValue || inspection.PaddyLot == null)
+                        throw new InvalidOperationException($"Bao #{bag.BagNo} khÃ´ng cÃ³ Ä‘á»§ thÃ´ng tin vá»‹ trÃ­ Ä‘á»ƒ release.");
+
+                    var openKey = $"{inspection.PaddyLot.ProductVariantId}:{inspection.PaddyLot.WarehouseId}:{bag.LocationId.Value}";
+                    var openConflict = !bag.IsFull && await _context.PaddyLotBags.AnyAsync(x =>
+                        x.Id != bag.Id && x.OpenBagKey == openKey && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted);
+                    if (openConflict)
+                        throw new InvalidOperationException(
+                            $"409_CONFLICT: Vá»‹ trÃ­ #{bag.LocationId.Value} Ä‘Ã£ cÃ³ bao má»Ÿ cÃ¹ng variant; cáº§n xá»­ lÃ½ bao hiá»‡n táº¡i trÆ°á»›c khi release.");
+
                     bag.Status = PaddyLotBagStatuses.Stored;
+                    bag.StackOrder = bag.IsFull ? bag.StackOrder : 0;
+                    bag.OpenBagKey = bag.IsFull ? null : openKey;
                 }
                 bag.LastModifiedDate = now;
                 bag.UpdatedBy        = userId;

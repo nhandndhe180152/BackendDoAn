@@ -284,6 +284,7 @@ public class BagAllocationDetailDto
     public int BagId { get; set; }
     public int BagNo { get; set; }
     public decimal AllocatedWeightKg { get; set; }
+    public decimal BagWeightSnapshotKg { get; set; }
     public decimal PickedWeightKg { get; set; }
     public int LotId { get; set; }
     public string? LotCode { get; set; }

@@ -1420,12 +1420,13 @@ public class StockTransferService : IStockTransferService
                 RefreshRepresentativeLot(bag);
 
             bag.LocationId = item.ToLocationId;
-            bag.StackOrder = nextStackOrder++;
             bag.Status = PaddyLotBagStatuses.Stored;
-            // Bao chuyển kho được đặt vào như KIỆN NGUYÊN, không phải "bao mở" đang châm thêm.
-            // OpenBagKey có UNIQUE index (variant:kho) — gán ở đây gây trùng khi nhận nhiều bao lẻ
-            // cùng loại, hoặc khi kho đích đã có sẵn một bao mở. Vì vậy luôn để null.
-            bag.OpenBagKey = null;
+            // Bao mở là detached theo từng location; full bag mới tham gia stack LIFO.
+            var isDetachedOpenBag = !bag.IsFull && bag.BagKind == PaddyLotBagKinds.Finished && item.ToLocationId.HasValue;
+            bag.StackOrder = isDetachedOpenBag ? 0 : nextStackOrder++;
+            bag.OpenBagKey = isDetachedOpenBag
+                ? $"{bag.Lot.ProductVariantId}:{transfer.ToWarehouseId}:{item.ToLocationId!.Value}"
+                : null;
             bag.UpdatedBy = userId;
             bag.LastModifiedDate = now;
             await _bagRepository.UpdateAsync(bag);

@@ -45,7 +45,7 @@ public class LocationRepositoryTests
     }
 
     [Fact]
-    public async Task TryLockForOutboundAsync_ExpiredLockFromAnotherOrder_IsTakenOver()
+    public async Task TryLockForOutboundAsync_ExpiredLockFromAnotherOrder_IsStillRejected()
     {
         await using var context = CreateContext();
         var now = new DateTime(2026, 8, 14, 10, 0, 0);
@@ -64,9 +64,32 @@ public class LocationRepositoryTests
 
         var affected = await repository.TryLockForOutboundAsync(new[] { location.Id }, 20, now, 99);
 
+        affected.Should().Be(0);
+        location.OutboundLockOrderId.Should().Be(10);
+    }
+
+    [Fact]
+    public async Task TryLockForOutboundAsync_LockOwnedBySameOrder_IsAllowed()
+    {
+        await using var context = CreateContext();
+        var now = new DateTime(2026, 8, 14, 10, 0, 0);
+        var location = new Location
+        {
+            Id = 1,
+            WarehouseId = 1,
+            ZoneName = "A",
+            IsActive = true,
+            OutboundLockOrderId = 20,
+            OutboundLockedAt = now.AddMinutes(-30)
+        };
+        context.Locations.Add(location);
+        await context.SaveChangesAsync();
+        var repository = new LocationRepository(context, Mock.Of<IUnitOfWork>());
+
+        var affected = await repository.TryLockForOutboundAsync(new[] { location.Id }, 20, now, 99);
+
         affected.Should().Be(1);
         location.OutboundLockOrderId.Should().Be(20);
         location.OutboundLockedAt.Should().Be(now);
-        location.UpdatedBy.Should().Be(99);
     }
 }

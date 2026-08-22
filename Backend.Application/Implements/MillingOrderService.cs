@@ -1352,7 +1352,7 @@ public class MillingOrderService : IMillingOrderService
                 $"Biến thể '{lotWithVariant?.ProductVariant.SKU ?? lot.ProductVariantId.ToString()}' chưa cấu hình khối lượng bao chuẩn hoặc giá trị không hợp lệ.");
 
         var remaining = quantityKg;
-        var openBags = await _bagRepository.FindByCondition(x => x.BagKind == "Finished" && !x.IsFull && x.StandardWeightKg == standardKg && x.Status == "Stored" && !x.IsDeleted)
+        var openBags = await _bagRepository.FindByCondition(x => x.BagKind == "Finished" && !x.IsFull && x.StandardWeightKg == standardKg && x.Status == "Stored" && !x.IsDeleted && x.LocationId == locationId)
             .Include(x => x.Lot)
             .Include(x => x.Contents).ThenInclude(x => x.Lot).ThenInclude(x => x.Status)
             .Where(x => x.Lot.ProductVariantId == lot.ProductVariantId && x.Lot.WarehouseId == lot.WarehouseId)
@@ -1362,11 +1362,7 @@ public class MillingOrderService : IMillingOrderService
         if (openBags.Count == 1 && remaining > 0)
         {
             var open = openBags[0];
-            if (open.LocationId != locationId)
-                throw new InvalidOperationException($"SKU đang có bao lẻ tại vị trí #{open.LocationId}. Vui lòng chọn đúng vị trí này để bổ sung trước.");
-            var topOrder = await _bagRepository.FindByCondition(x => x.LocationId == locationId && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted)
-                .MaxAsync(x => (int?)x.StackOrder) ?? 0;
-            if (open.StackOrder != topOrder)
+            if (open.StackOrder != 0)
                 throw new InvalidOperationException($"Bao mở #{open.BagNo} đang bị bao khác chặn phía trên nên không thể bổ sung sản lượng xay.");
             if (open.Contents.Any(x => !x.IsDeleted && x.WeightKg > 0 &&
                     (x.Lot.Status?.Code == LotStatusCodeConstants.Quarantine || x.Lot.Status?.IsSellable == false)))
@@ -1377,7 +1373,7 @@ public class MillingOrderService : IMillingOrderService
                 var beforeWeight = open.WeightKg;
                 await _bagContentRepository.CreateAsync(new PaddyLotBagContent { BagId = open.Id, LotId = lot.Id, WeightKg = topUp, CreatedBy = userId, CreatedDate = now });
                 affectedBagIds.Add(open.Id);
-                open.WeightKg += topUp; open.IsFull = open.WeightKg >= standardKg; open.OpenBagKey = open.IsFull ? null : BuildOpenBagKey(lot.ProductVariantId, lot.WarehouseId); open.UpdatedBy = userId; open.LastModifiedDate = now;
+                open.WeightKg += topUp; open.IsFull = open.WeightKg >= standardKg; open.OpenBagKey = open.IsFull ? null : BuildOpenBagKey(lot.ProductVariantId, lot.WarehouseId, locationId); open.UpdatedBy = userId; open.LastModifiedDate = now;
                 await _bagRepository.UpdateAsync(open); remaining -= topUp;
                 if (_bagMovementRepository != null && lot.SourceMillingOrderId.HasValue)
                     await _bagMovementRepository.CreateAsync(new PaddyLotBagMovement
@@ -1394,16 +1390,17 @@ public class MillingOrderService : IMillingOrderService
         }
 
         var nextBagNo = (await _bagRepository.FindByCondition(x => x.LotId == lot.Id && !x.IsDeleted).MaxAsync(x => (int?)x.BagNo) ?? 0) + 1;
-        var nextStack = (await _bagRepository.FindByCondition(x => x.LocationId == locationId && x.Status == "Stored" && !x.IsDeleted).MaxAsync(x => (int?)x.StackOrder) ?? 0) + 1;
+        var nextStack = (await _bagRepository.FindByCondition(x => x.LocationId == locationId && x.Status == "Stored" && !x.IsDeleted &&
+            (x.IsFull || x.BagKind != PaddyLotBagKinds.Finished)).MaxAsync(x => (int?)x.StackOrder) ?? 0) + 1;
         while (remaining > 0.0005m)
         {
             var weight = Math.Min(remaining, standardKg);
             var bag = new PaddyLotBag
             {
                 LotId = lot.Id, BagNo = nextBagNo++, WeightKg = weight, LocationId = locationId,
-                StackOrder = nextStack++, StandardWeightKg = standardKg, IsFull = weight >= standardKg,
+                StackOrder = weight < standardKg ? 0 : nextStack++, StandardWeightKg = standardKg, IsFull = weight >= standardKg,
                 BagKind = "Finished", Status = "Stored", QrCode = $"PLB-{Guid.NewGuid():N}".ToUpperInvariant(),
-                OpenBagKey = weight < standardKg ? BuildOpenBagKey(lot.ProductVariantId, lot.WarehouseId) : null,
+                OpenBagKey = weight < standardKg ? BuildOpenBagKey(lot.ProductVariantId, lot.WarehouseId, locationId) : null,
                 CreatedBy = userId, CreatedDate = now
             };
             await _bagRepository.CreateAsync(bag);
@@ -1427,8 +1424,8 @@ public class MillingOrderService : IMillingOrderService
         return affectedBagIds.Count;
     }
 
-    private static string BuildOpenBagKey(int variantId, int warehouseId)
-        => $"{variantId}:{warehouseId}";
+    private static string BuildOpenBagKey(int variantId, int warehouseId, int locationId)
+        => $"{variantId}:{warehouseId}:{locationId}";
 
     private async Task ConsumeMillingInputBagsAsync(int lotId, int locationId, decimal requestedKg, int orderId, int inputId, int userId, DateTime now)
     {
@@ -1475,7 +1472,7 @@ public class MillingOrderService : IMillingOrderService
                 bag.IsFull = bag.WeightKg >= bag.StandardWeightKg.Value;
                 bag.OpenBagKey = bag.IsFull
                     ? null
-                    : BuildOpenBagKey(targetLot.ProductVariantId, targetLot.WarehouseId);
+                    : BuildOpenBagKey(targetLot.ProductVariantId, targetLot.WarehouseId, locationId);
             }
             else
             {
