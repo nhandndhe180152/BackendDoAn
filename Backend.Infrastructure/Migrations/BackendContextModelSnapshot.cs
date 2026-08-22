@@ -4761,6 +4761,10 @@ namespace Backend.Infrastructure.Migrations
                     b.Property<int>("BagId")
                         .HasColumnType("int");
 
+                    b.Property<decimal?>("BagWeightSnapshotKg")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("decimal(18,3)");
+
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
 

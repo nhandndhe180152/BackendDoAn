@@ -299,6 +299,7 @@ public class BagLevelQualityInspectionTests
         {
             QualityInspectionId = inspectionId,
             BagId = bagIds[0],
+            BagWeightSnapshotKg = 49.8m,
             InspectedAt = DateTime.UtcNow,
             QualityResult = BagQualityResultConstants.IssueDetected,
             Disposition = null,
@@ -345,6 +346,14 @@ public class BagLevelQualityInspectionTests
         (await context.PaddyLotBags.FirstAsync(x => x.Id == bagIds[1])).Status
             .Should().Be(PaddyLotBagStatuses.Pending);
         inspection.AffectedWeightKg.Should().Be(0);
+
+        targetedBag.WeightKg = 0;
+        targetedBag.Status = PaddyLotBagStatuses.Consumed;
+        await context.SaveChangesAsync();
+
+        var historicalDetail = (await sut.GetByIdAsync(inspectionId)).Resources as QualityInspectionDetailDto;
+        historicalDetail!.TargetedBagCount.Should().Be(1);
+        historicalDetail.TargetedWeightKg.Should().Be(49.8m);
     }
 
     [Fact(DisplayName = "OUTBOUND_EXCEPTION fail chỉ quarantine bao targeted")]

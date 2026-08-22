@@ -13,6 +13,12 @@ public class QualityInspectionBagResult : EntityAuditBase<int>
     public int QualityInspectionId { get; set; }
     public int BagId { get; set; }
 
+    /// <summary>
+    /// Historical bag weight captured when the bag joins this inspection.
+    /// Nullable only for rows created before the snapshot column existed.
+    /// </summary>
+    public decimal? BagWeightSnapshotKg { get; set; }
+
     public DateTime InspectedAt { get; set; }
 
     /// <summary>Inspector nullable — có thể do hệ thống ghi khi nhập hàng loạt.</summary>

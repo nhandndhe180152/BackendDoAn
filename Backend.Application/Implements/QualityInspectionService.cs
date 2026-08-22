@@ -1447,7 +1447,8 @@ public class QualityInspectionService : IQualityInspectionService
             ? x.BagResults.Count(r => !r.IsDeleted)
             : null,
         TargetedWeightKg = x.InspectionType == InspectionTypeConstants.OutboundException
-            ? x.BagResults.Where(r => !r.IsDeleted).Sum(r => r.Bag.WeightKg)
+            ? x.BagResults.Where(r => !r.IsDeleted)
+                .Sum(r => r.BagWeightSnapshotKg ?? r.Bag.WeightKg)
             : null,
         CreatedDate = x.CreatedDate,
         LastModifiedDate = x.LastModifiedDate
@@ -1494,7 +1495,7 @@ public class QualityInspectionService : IQualityInspectionService
             {
                 BagId           = b.Id,
                 BagNo           = b.BagNo,
-                WeightKg        = b.WeightKg,
+                WeightKg        = r?.BagWeightSnapshotKg ?? b.WeightKg,
                 Status          = b.Status,
                 LocationId      = b.LocationId,
                 LocationCode    = b.Location?.SlotCode,
@@ -1607,6 +1608,7 @@ public class QualityInspectionService : IQualityInspectionService
 
         if (existing != null)
         {
+            existing.BagWeightSnapshotKg ??= bag.WeightKg;
             existing.MoisturePercent  = dto.MoisturePercent;
             existing.ImpurityPercent  = dto.ImpurityPercent;
             existing.MoldLevel        = dto.MoldLevel?.Trim();
@@ -1627,6 +1629,7 @@ public class QualityInspectionService : IQualityInspectionService
             {
                 QualityInspectionId = inspectionId,
                 BagId               = dto.BagId,
+                BagWeightSnapshotKg = bag.WeightKg,
                 InspectedAt         = now,
                 InspectorId         = dto.InspectorId,
                 MoisturePercent     = dto.MoisturePercent,

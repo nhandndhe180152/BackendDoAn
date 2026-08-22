@@ -2421,6 +2421,7 @@ public class OutboundOrderService : IOutboundOrderService
                 {
                     QualityInspectionId = inspection.Id,
                     BagId = bag.Id,
+                    BagWeightSnapshotKg = bag.WeightKg,
                     InspectedAt = now,
                     InspectorId = userId > 0 ? userId : null,
                     QualityResult = "ISSUE_DETECTED",
