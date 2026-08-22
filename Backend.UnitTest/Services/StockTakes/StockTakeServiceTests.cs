@@ -660,7 +660,7 @@ public class StockTakeServiceTests
     }
 
     [Fact]
-    public async Task SaveCountsAsync_CompleteDraft_ChangesStatusToSubmitted()
+    public async Task SaveCountsAsync_CompleteDraft_KeepsDraftStatus()
     {
         var item = MakeItem(system: 100m, actual: null);
         var stockTake = MakeStockTake(1, item);
@@ -678,12 +678,12 @@ public class StockTakeServiceTests
 
         result.Status.Should().Be(200);
         stockTake.StockTakeStatusId.Should().Be(
-            Backend.Application.Common.Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Submitted));
+            Backend.Application.Common.Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Draft));
         _stockTakeRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
     }
 
     [Fact]
-    public async Task SaveCountsAsync_IncompleteDraft_Returns422AndKeepsDraftStatus()
+    public async Task SaveCountsAsync_IncompleteDraft_SavesAvailableCountsAndKeepsDraftStatus()
     {
         var completedItem = MakeItem(system: 100m, actual: null);
         var incompleteItem = MakeItem(system: 50m, actual: null);
@@ -702,10 +702,27 @@ public class StockTakeServiceTests
             }
         }, userId: 99);
 
-        result.Status.Should().Be(422);
+        result.Status.Should().Be(200);
+        completedItem.ActualQuantity.Should().Be(100m);
         stockTake.StockTakeStatusId.Should().Be(
             Backend.Application.Common.Lookup.StockTakeStatusId(LookupCodes.StockTakeStatus.Draft));
+        _stockTakeRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_AlreadySubmitted_ReturnsSuccessWithoutWritingAgain()
+    {
+        var stockTake = MakeStockTake(1, MakeItem(system: 100m, actual: 100m));
+        stockTake.StockTakeStatusId = Backend.Application.Common.Lookup.StockTakeStatusId(
+            LookupCodes.StockTakeStatus.Submitted);
+        SetupStockTakeFind(stockTake);
+
+        var result = await Sut().SubmitAsync(1, new SubmitStockTakeDto(), userId: 99);
+
+        result.Status.Should().Be(200);
+        result.Message.Should().Contain("đã được gửi duyệt");
         _stockTakeRepo.Verify(r => r.SaveChangesAsync(), Times.Never);
+        _stockTakeRepo.Verify(r => r.BeginTransactionAsync(), Times.Never);
     }
 
     [Fact]

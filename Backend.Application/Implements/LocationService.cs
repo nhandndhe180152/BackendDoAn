@@ -91,7 +91,8 @@ public class LocationService : ILocationService
     {
         var data = await _locationRepository
             .FindByCondition(x => !x.IsDeleted, false, x => x.Warehouse, x => x.AllowedCategory,
-                x => x.OutboundLockOrder, x => x.OutboundLockOrder!.SalesOrder)
+                x => x.OutboundLockOrder, x => x.OutboundLockOrder!.SalesOrder,
+                x => x.CurrentProductVariant)
             .Select(x => x.ToDto())
             .ToListAsync();
 
@@ -101,7 +102,8 @@ public class LocationService : ILocationService
     public async Task<ApiResponse> GetByIdAsync(int id)
     {
         var data = await _locationRepository.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, false,
-            x => x.Warehouse, x => x.AllowedCategory, x => x.OutboundLockOrder, x => x.OutboundLockOrder!.SalesOrder);
+            x => x.Warehouse, x => x.AllowedCategory, x => x.OutboundLockOrder,
+            x => x.OutboundLockOrder!.SalesOrder, x => x.CurrentProductVariant);
         if (data == null)
             return ApiResponse.NotFound();
 

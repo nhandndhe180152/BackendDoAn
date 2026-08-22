@@ -25,5 +25,7 @@ public class LocationDetailDto
     public string? OutboundLockOrderCode { get; set; }
     public DateTime? OutboundLockedAt { get; set; }
     public int? CurrentProductVariantId { get; set; }
+    public string? CurrentProductVariantName { get; set; }
+    public string? CurrentProductVariantSku { get; set; }
     public DateTime CreatedDate { get; set; }
 }
