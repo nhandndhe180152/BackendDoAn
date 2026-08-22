@@ -107,6 +107,50 @@ public class SalesOrderServiceTests
     }
 
     [Fact]
+    public async Task ReserveAsync_InsufficientStock_ReturnsProductNameAndFormattedKg()
+    {
+        var so = new global::Backend.Domain.Entities.SalesOrder
+        {
+            Id = 1,
+            CustomerId = 2,
+            WarehouseId = 3,
+            Status = new SalesOrderStatus
+            {
+                Name = "Chờ xác nhận",
+                Code = SalesOrderStatusNames.PendingConfirm
+            },
+            SalesOrderItems = new List<SalesOrderItem>
+            {
+                new()
+                {
+                    ProductVariantId = 132,
+                    ProductVariant = new ProductVariant { Name = "Gạo BC15 đóng bao 10kg" },
+                    QuantityOrdered = 20.000m
+                }
+            }
+        };
+
+        _soRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(so);
+        _custRepo.Setup(r => r.GetByIdAsync(2)).ReturnsAsync(new global::Backend.Domain.Entities.Customer
+        {
+            Id = 2,
+            IsActive = true
+        });
+        _invRepo.Setup(r => r.GetAvailableForSalesAsync(132, 3))
+            .ReturnsAsync(new List<global::Backend.Domain.Entities.Inventory>());
+        _soRepo.Setup(r => r.BeginTransactionAsync())
+            .ReturnsAsync(new Mock<IDbContextTransaction>().Object);
+
+        var result = await Sut().ReserveAsync(1);
+
+        result.Status.Should().Be(422);
+        result.Code.Should().Be(ApiCodeConstants.SalesOrder.InsufficientStock);
+        result.Message.Should().Be(
+            "Tồn khả dụng không đủ cho sản phẩm Gạo BC15 đóng bao 10kg. Cần: 20 kg, Khả dụng: 0 kg.");
+        result.Message.Should().NotContain("ID 132");
+    }
+
+    [Fact]
     public async Task CreateAsync_DuplicateItems_ReturnsBadRequest()
     {
         var dto = new CreateSalesOrderDto
