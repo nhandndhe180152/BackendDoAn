@@ -38,6 +38,7 @@ public class MillingOrderService : IMillingOrderService
     private readonly IRepositoryBase<PaddyLotBagMovement, int>? _bagMovementRepository;
     private readonly ISystemConfigRepository? _systemConfigRepository;
     private readonly ISalesOrderRepository _salesOrderRepository;
+    private readonly IUserRepository _userRepository;
 
     public MillingOrderService(
         IMillingOrderRepository millingOrderRepository,
@@ -53,6 +54,7 @@ public class MillingOrderService : IMillingOrderService
         IRepositoryBase<Alert, int> alertRepository,
         INotificationDispatcher notificationDispatcher,
         ISalesOrderRepository salesOrderRepository,
+        IUserRepository userRepository,
         IRepositoryBase<PaddyLotBag, int>? bagRepository = null,
         IRepositoryBase<PaddyLotBagContent, int>? bagContentRepository = null,
         ISystemConfigRepository? systemConfigRepository = null,
@@ -72,6 +74,7 @@ public class MillingOrderService : IMillingOrderService
         _alertRepository = alertRepository;
         _notificationDispatcher = notificationDispatcher;
         _salesOrderRepository = salesOrderRepository;
+        _userRepository = userRepository;
         _bagRepository = bagRepository;
         _bagContentRepository = bagContentRepository;
         _systemConfigRepository = systemConfigRepository;
@@ -89,6 +92,20 @@ public class MillingOrderService : IMillingOrderService
         var status = await _lotStatusRepository.GetByIdAsync(statusId);
         return status != null && status.Code == LotStatusCodeConstants.Quarantine;
     }
+
+    private IQueryable<User> EligibleMillingOperators()
+        => _userRepository.GetAll()
+            .AsNoTracking()
+            .Where(user =>
+                !user.IsDeleted &&
+                user.UserStatus.Code == LookupCodes.UserStatus.Active &&
+                user.UserRoles.Any(userRole =>
+                    !userRole.IsDeleted &&
+                    !userRole.Role.IsDeleted &&
+                    userRole.Role.Code == LookupCodes.Role.Milling));
+
+    private Task<bool> IsEligibleMillingOperatorAsync(int operatorId)
+        => EligibleMillingOperators().AnyAsync(user => user.Id == operatorId);
 
     public async Task<ApiResponse> CreateAsync(CreateMillingOrderDto obj)
     {
@@ -208,6 +225,26 @@ public class MillingOrderService : IMillingOrderService
             .ToListAsync();
 
         return ApiResponse.Success(entities.Select(x => ToDetailDto(x)).ToList());
+    }
+
+    public async Task<ApiResponse> GetOperatorsAsync()
+    {
+        var operators = await EligibleMillingOperators()
+            .OrderBy(x => x.LastName)
+            .ThenBy(x => x.FirstName)
+            .Select(x => new
+            {
+                x.Id,
+                x.FirstName,
+                x.LastName
+            })
+            .ToListAsync();
+
+        return ApiResponse.Success(operators.Select(x => new DataItem<int>
+        {
+            Id = x.Id,
+            Name = $"{x.LastName} {x.FirstName}".Trim()
+        }).ToList());
     }
 
     public async Task<ApiResponse> GetByIdAsync(int id)
@@ -824,6 +861,10 @@ public class MillingOrderService : IMillingOrderService
             return ApiResponse.UnprocessableEntity(
                 "Mã máy xay (MachineRef) là bắt buộc khi bắt đầu lệnh xay.",
                 "MILLING_MACHINE_REF_REQUIRED");
+        if (dto.OperatorId.HasValue && !await IsEligibleMillingOperatorAsync(dto.OperatorId.Value))
+            return ApiResponse.UnprocessableEntity(
+                "Người vận hành phải là tài khoản đang hoạt động có vai trò Nhân viên xay xát.",
+                "MILLING_OPERATOR_INVALID");
 
         var order = await _millingOrderRepository
             .FindByCondition(x => x.Id == id && !x.IsDeleted, false, x => x.Status)
@@ -1000,6 +1041,10 @@ public class MillingOrderService : IMillingOrderService
             return ApiResponse.UnprocessableEntity(
                 "ID người vận hành (OperatorId) là bắt buộc để hoàn thành lệnh xay.",
                 "MILLING_OPERATOR_REQUIRED");
+        if (!await IsEligibleMillingOperatorAsync(finalOperatorId.Value))
+            return ApiResponse.UnprocessableEntity(
+                "Người vận hành phải là tài khoản đang hoạt động có vai trò Nhân viên xay xát.",
+                "MILLING_OPERATOR_INVALID");
 
         foreach (var output in dto.Outputs)
         {
