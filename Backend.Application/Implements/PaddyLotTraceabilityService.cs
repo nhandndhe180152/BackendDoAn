@@ -556,6 +556,153 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
             }
         }
 
+        // Customer feedbacks connected to the traced outbound graph.
+        var feedbacksList = new List<TraceabilityCustomerFeedbackDto>();
+        var outboundIds = outboundList.Select(x => x.OutboundOrderId).Distinct().ToList();
+        var tracedOutboundItemIds = outboundList
+            .SelectMany(x => x.Allocations)
+            .Select(x => x.OutboundOrderItemId)
+            .Distinct()
+            .ToHashSet();
+        if (outboundIds.Count > 0)
+        {
+            var feedbacks = await _context.CustomerFeedbacks
+                .AsNoTracking()
+                .Include(f => f.PaddyLotBagAllocation).ThenInclude(a => a.Bag).ThenInclude(b => b.Lot)
+                .Include(f => f.CustomerReturnOrder)
+                .Where(f => outboundIds.Contains(f.OutboundOrderId) && !f.IsDeleted)
+                .OrderBy(f => f.CreatedDate)
+                .ToListAsync(cancellationToken);
+
+            feedbacksList = feedbacks
+                .Where(f =>
+                    (f.PaddyLotBagAllocationId.HasValue
+                        && f.PaddyLotBagAllocation?.Bag != null
+                        && allLotIds.Contains(f.PaddyLotBagAllocation.Bag.LotId))
+                    || (f.OutboundOrderItemId.HasValue
+                        && tracedOutboundItemIds.Contains(f.OutboundOrderItemId.Value))
+                    || (!f.PaddyLotBagAllocationId.HasValue && !f.OutboundOrderItemId.HasValue))
+                .Select(f => new TraceabilityCustomerFeedbackDto
+                {
+                    FeedbackId = f.Id,
+                    SalesOrderId = f.SalesOrderId,
+                    OutboundOrderId = f.OutboundOrderId,
+                    OutboundOrderItemId = f.OutboundOrderItemId,
+                    PaddyLotBagAllocationId = f.PaddyLotBagAllocationId,
+                    BagId = f.PaddyLotBagAllocation?.BagId,
+                    BagNo = f.PaddyLotBagAllocation?.Bag?.BagNo,
+                    PaddyLotId = f.PaddyLotBagAllocation?.Bag?.LotId,
+                    PaddyLotCode = f.PaddyLotBagAllocation?.Bag?.Lot?.LotCode,
+                    FeedbackType = f.FeedbackType,
+                    Severity = f.Severity,
+                    Description = f.Description,
+                    ResolutionStatus = f.ResolutionStatus,
+                    ResolutionNote = f.ResolutionNote,
+                    CreatedDate = f.CreatedDate,
+                    ResolvedAt = f.ResolvedAt,
+                    CustomerReturnOrderId = f.CustomerReturnOrder?.Id,
+                    CustomerReturnOrderCode = f.CustomerReturnOrder?.ReturnCode
+                })
+                .ToList();
+        }
+
+        // Customer returns preserve the original outbound allocation and lot lineage.
+        var returnsList = new List<TraceabilityCustomerReturnDto>();
+        var refundTransactions = new List<DebtTransaction>();
+        if (outboundIds.Count > 0 && allLotIds.Count > 0)
+        {
+            var returns = await _context.CustomerReturnOrders
+                .AsNoTracking()
+                .Include(r => r.CustomerReturnOrderStatus)
+                .Include(r => r.OutboundOrder).ThenInclude(o => o!.SalesOrder)
+                .Include(r => r.Items.Where(i => !i.IsDeleted)).ThenInclude(i => i.ProductVariant)
+                .Include(r => r.Items.Where(i => !i.IsDeleted))
+                    .ThenInclude(i => i.Allocations.Where(a => !a.IsDeleted)).ThenInclude(a => a.PaddyLot)
+                .Where(r => !r.IsDeleted
+                    && r.OutboundOrderId.HasValue
+                    && outboundIds.Contains(r.OutboundOrderId.Value)
+                    && r.Items.Any(i => !i.IsDeleted
+                        && i.Allocations.Any(a => !a.IsDeleted && allLotIds.Contains(a.PaddyLotId))))
+                .AsSplitQuery()
+                .OrderBy(r => r.CreatedDate)
+                .ToListAsync(cancellationToken);
+
+            var returnOrderIds = returns.Select(r => r.Id).ToList();
+            refundTransactions = await _context.DebtTransactions
+                .AsNoTracking()
+                .Where(x => !x.IsDeleted
+                    && x.TransactionType == LookupCodes.DebtTransactionType.Payment
+                    && x.RefType == InventoryReferenceTypeConstants.CustomerReturnOrder
+                    && x.RefId.HasValue
+                    && returnOrderIds.Contains(x.RefId.Value))
+                .OrderBy(x => x.TransactionDate)
+                .ThenBy(x => x.Id)
+                .ToListAsync(cancellationToken);
+            var refundsByReturnId = refundTransactions
+                .GroupBy(x => x.RefId!.Value)
+                .ToDictionary(x => x.Key, x => x.ToList());
+
+            returnsList = returns.Select(r =>
+            {
+                refundsByReturnId.TryGetValue(r.Id, out var actualRefunds);
+                var refundedAmount = actualRefunds?.Sum(x => x.Amount) ?? 0m;
+                var latestRefundAt = actualRefunds?.Max(x => (DateTime?)x.TransactionDate);
+
+                return new TraceabilityCustomerReturnDto
+                {
+                    CustomerReturnOrderId = r.Id,
+                    ReturnCode = r.ReturnCode,
+                    OutboundOrderId = r.OutboundOrderId ?? 0,
+                    SalesOrderId = r.OutboundOrder?.SalesOrderId ?? 0,
+                    CustomerFeedbackId = r.CustomerFeedbackId,
+                    CustomerId = r.CustomerId,
+                    WarehouseId = r.WarehouseId,
+                    StatusCode = r.CustomerReturnOrderStatus?.Code ?? string.Empty,
+                    ReturnReason = r.ReturnReason,
+                    CreatedDate = r.CreatedDate,
+                    ReceivedAt = r.ReceivedAt,
+                    InspectedAt = r.InspectedAt,
+                    ConfirmedAt = r.ConfirmedAt,
+                    ApprovedCreditAmount = r.ApprovedCreditAmount,
+                    DebtReductionAmount = r.DebtReductionAmount,
+                    RefundPendingAmount = r.RefundPendingAmount,
+                    RefundedAmount = refundedAmount,
+                    RefundStatus = r.RefundStatus,
+                    RefundedAt = latestRefundAt,
+                    Items = r.Items.Where(i => !i.IsDeleted)
+                        .Select(i => new TraceabilityCustomerReturnItemDto
+                        {
+                            CustomerReturnOrderItemId = i.Id,
+                            ProductVariantId = i.ProductVariantId,
+                            ProductVariantName = i.ProductVariant?.Name,
+                            Sku = i.ProductVariant?.SKU,
+                            Allocations = i.Allocations
+                                .Where(a => !a.IsDeleted && allLotIds.Contains(a.PaddyLotId))
+                                .Select(a => new TraceabilityCustomerReturnAllocationDto
+                                {
+                                    ReturnAllocationId = a.Id,
+                                    OutboundOrderItemAllocationId = a.OutboundOrderItemAllocationId,
+                                    PaddyLotId = a.PaddyLotId,
+                                    PaddyLotCode = a.PaddyLot?.LotCode,
+                                    ProductVariantId = a.ProductVariantId,
+                                    QuantityReturned = a.QuantityReturned,
+                                    QuantityReceived = a.QuantityReceived,
+                                    QuantityGood = a.QuantityGood,
+                                    QuantityDamaged = a.QuantityDamaged,
+                                    QuantityRejected = a.QuantityRejected,
+                                    Disposition = a.Disposition,
+                                    RestockLocationId = a.RestockLocationId,
+                                    QuarantineLocationId = a.QuarantineLocationId,
+                                    RejectedLocationId = a.RejectedLocationId,
+                                    CreditAmount = a.CreditAmount
+                                }).ToList()
+                        })
+                        .Where(i => i.Allocations.Count > 0)
+                        .ToList()
+                };
+            }).ToList();
+        }
+
         // Batch query active inventories for location mapping
         var activeInvs = await _context.Inventories
             .AsNoTracking()
@@ -753,6 +900,146 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
                 }
             }
 
+            foreach (var feedback in feedbacksList)
+            {
+                var lotIds = feedback.PaddyLotId.HasValue
+                    ? new List<int> { feedback.PaddyLotId.Value }
+                    : outboundList
+                        .Where(o => o.OutboundOrderId == feedback.OutboundOrderId)
+                        .SelectMany(o => o.Allocations)
+                        .Where(a => !feedback.OutboundOrderItemId.HasValue
+                            || a.OutboundOrderItemId == feedback.OutboundOrderItemId.Value)
+                        .Where(a => a.PaddyLotId.HasValue)
+                        .Select(a => a.PaddyLotId!.Value)
+                        .Distinct()
+                        .ToList();
+
+                timeline.Add(new TraceabilityEventDto
+                {
+                    EventAt = feedback.CreatedDate,
+                    EventType = "CUSTOMER_FEEDBACK_CREATED",
+                    ReferenceType = "CUSTOMER_FEEDBACK",
+                    ReferenceId = feedback.FeedbackId,
+                    ReferenceCode = $"FB-{feedback.FeedbackId:D5}",
+                    PaddyLotIds = lotIds,
+                    Title = "Ghi nhận phản hồi khách hàng",
+                    Description = $"{feedback.FeedbackType} · {feedback.Description}",
+                    Status = feedback.ResolutionStatus,
+                    Sequence = 7
+                });
+
+                if (feedback.ResolvedAt.HasValue)
+                {
+                    timeline.Add(new TraceabilityEventDto
+                    {
+                        EventAt = feedback.ResolvedAt.Value,
+                        EventType = "CUSTOMER_FEEDBACK_RESOLVED",
+                        ReferenceType = "CUSTOMER_FEEDBACK",
+                        ReferenceId = feedback.FeedbackId,
+                        ReferenceCode = $"FB-{feedback.FeedbackId:D5}",
+                        PaddyLotIds = lotIds,
+                        Title = "Hoàn tất xử lý phản hồi",
+                        Description = feedback.ResolutionNote ?? feedback.Description,
+                        Status = feedback.ResolutionStatus,
+                        Sequence = 8
+                    });
+                }
+            }
+
+            foreach (var customerReturn in returnsList)
+            {
+                var allocations = customerReturn.Items.SelectMany(i => i.Allocations).ToList();
+                var lotIds = allocations.Select(a => a.PaddyLotId).Distinct().ToList();
+                var returnedKg = allocations.Sum(a => a.QuantityReturned);
+
+                timeline.Add(new TraceabilityEventDto
+                {
+                    EventAt = customerReturn.CreatedDate,
+                    EventType = "CUSTOMER_RETURN_CREATED",
+                    ReferenceType = "CUSTOMER_RETURN_ORDER",
+                    ReferenceId = customerReturn.CustomerReturnOrderId,
+                    ReferenceCode = customerReturn.ReturnCode,
+                    PaddyLotIds = lotIds,
+                    Title = "Tạo phiếu trả hàng khách",
+                    Description = customerReturn.ReturnReason ?? $"Khách trả {returnedKg:0.##} kg hàng",
+                    QuantityKg = returnedKg,
+                    Status = customerReturn.StatusCode,
+                    Sequence = 9
+                });
+
+                if (customerReturn.ReceivedAt.HasValue)
+                {
+                    timeline.Add(new TraceabilityEventDto
+                    {
+                        EventAt = customerReturn.ReceivedAt.Value,
+                        EventType = "CUSTOMER_RETURN_RECEIVED",
+                        ReferenceType = "CUSTOMER_RETURN_ORDER",
+                        ReferenceId = customerReturn.CustomerReturnOrderId,
+                        ReferenceCode = customerReturn.ReturnCode,
+                        PaddyLotIds = lotIds,
+                        Title = "Tiếp nhận hàng khách trả",
+                        Description = $"Đã nhận {allocations.Sum(a => a.QuantityReceived):0.##} kg hàng trả",
+                        QuantityKg = allocations.Sum(a => a.QuantityReceived),
+                        Status = customerReturn.StatusCode,
+                        Sequence = 10
+                    });
+                }
+
+                if (customerReturn.InspectedAt.HasValue)
+                {
+                    timeline.Add(new TraceabilityEventDto
+                    {
+                        EventAt = customerReturn.InspectedAt.Value,
+                        EventType = "CUSTOMER_RETURN_INSPECTED",
+                        ReferenceType = "CUSTOMER_RETURN_ORDER",
+                        ReferenceId = customerReturn.CustomerReturnOrderId,
+                        ReferenceCode = customerReturn.ReturnCode,
+                        PaddyLotIds = lotIds,
+                        Title = "Kiểm định hàng khách trả",
+                        Description = $"Đạt {allocations.Sum(a => a.QuantityGood):0.##} kg · Cách ly {allocations.Sum(a => a.QuantityDamaged):0.##} kg · Từ chối {allocations.Sum(a => a.QuantityRejected):0.##} kg",
+                        QuantityKg = allocations.Sum(a => a.QuantityReceived),
+                        Status = customerReturn.StatusCode,
+                        Sequence = 11
+                    });
+                }
+
+                if (customerReturn.ConfirmedAt.HasValue)
+                {
+                    timeline.Add(new TraceabilityEventDto
+                    {
+                        EventAt = customerReturn.ConfirmedAt.Value,
+                        EventType = "CUSTOMER_RETURN_CONFIRMED",
+                        ReferenceType = "CUSTOMER_RETURN_ORDER",
+                        ReferenceId = customerReturn.CustomerReturnOrderId,
+                        ReferenceCode = customerReturn.ReturnCode,
+                        PaddyLotIds = lotIds,
+                        Title = "Xác nhận xử lý hàng trả",
+                        Description = $"Nhập lại {allocations.Sum(a => a.QuantityGood):0.##} kg · Cách ly {allocations.Sum(a => a.QuantityDamaged):0.##} kg · Từ chối {allocations.Sum(a => a.QuantityRejected):0.##} kg",
+                        QuantityKg = returnedKg,
+                        Status = customerReturn.StatusCode,
+                        Sequence = 12
+                    });
+                }
+
+                foreach (var refund in refundTransactions.Where(x =>
+                    x.RefId == customerReturn.CustomerReturnOrderId))
+                {
+                    timeline.Add(new TraceabilityEventDto
+                    {
+                        EventAt = refund.TransactionDate,
+                        EventType = "CUSTOMER_RETURN_REFUND",
+                        ReferenceType = "CUSTOMER_RETURN_ORDER",
+                        ReferenceId = customerReturn.CustomerReturnOrderId,
+                        ReferenceCode = customerReturn.ReturnCode,
+                        PaddyLotIds = lotIds,
+                        Title = "Hoàn tiền khách hàng",
+                        Description = $"Đã hoàn {refund.Amount:0.##} đồng",
+                        Status = customerReturn.RefundStatus,
+                        Sequence = 13
+                    });
+                }
+            }
+
             timeline = timeline
                 .OrderBy(e => e.EventAt)
                 .ThenBy(e => e.Sequence)
@@ -768,6 +1055,8 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
             InspectionCount = inspectionsList.Select(x => x.InspectionId).Distinct().Count(),
             MillingOrderCount = millingList.Select(x => x.MillingOrderId).Distinct().Count(),
             OutboundOrderCount = outboundList.Select(x => x.OutboundOrderId).Distinct().Count(),
+            FeedbackCount = feedbacksList.Select(x => x.FeedbackId).Distinct().Count(),
+            CustomerReturnCount = returnsList.Select(x => x.CustomerReturnOrderId).Distinct().Count(),
             PurchasedWeightKg = purchasesList.Sum(x => x.ActualWeightKg),
             MillingInputWeightKg = millingList.SelectMany(m => m.Inputs).Sum(i => i.ConsumedWeightKg),
             MillingRiceOutputWeightKg = millingList.SelectMany(m => m.Outputs).Where(o => !o.IsByproduct && o.OutputType == "RICE").Sum(o => o.OutputWeightKg),
@@ -775,6 +1064,11 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
             MillingLossWeightKg = millingList.Sum(m => m.LossKg ?? 0m),
             AllocatedOutboundWeightKg = outboundList.SelectMany(o => o.Allocations).Sum(a => a.QuantityAllocatedKg),
             DispatchedWeightKg = outboundList.SelectMany(o => o.Allocations).Sum(a => a.QuantityPickedKg),
+            ReturnedWeightKg = returnsList.SelectMany(r => r.Items).SelectMany(i => i.Allocations).Sum(a => a.QuantityReturned),
+            RestockedReturnWeightKg = returnsList.SelectMany(r => r.Items).SelectMany(i => i.Allocations).Sum(a => a.QuantityGood),
+            QuarantinedReturnWeightKg = returnsList.SelectMany(r => r.Items).SelectMany(i => i.Allocations).Sum(a => a.QuantityDamaged),
+            RejectedReturnWeightKg = returnsList.SelectMany(r => r.Items).SelectMany(i => i.Allocations).Sum(a => a.QuantityRejected),
+            RefundAmount = returnsList.Sum(r => r.RefundedAmount),
             CurrentRemainingWeightKg = relatedLotsList.Sum(l => l.RemainingWeightKg)
         };
 
@@ -788,6 +1082,8 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
             QualityInspections = inspectionsList,
             MillingOrders = millingList,
             OutboundSales = outboundList,
+            CustomerFeedbacks = feedbacksList,
+            CustomerReturns = returnsList,
             Timeline = timeline,
             Summary = summary
         };

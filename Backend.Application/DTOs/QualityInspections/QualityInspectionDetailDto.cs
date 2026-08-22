@@ -24,6 +24,8 @@ public class QualityInspectionDetailDto
     public string? Handling { get; set; }
     public string? Note { get; set; }
     public decimal? AffectedWeightKg { get; set; }
+    public int? TargetedBagCount { get; set; }
+    public decimal? TargetedWeightKg { get; set; }
     public DateTime CreatedDate { get; set; }
     public DateTime? LastModifiedDate { get; set; }
 }

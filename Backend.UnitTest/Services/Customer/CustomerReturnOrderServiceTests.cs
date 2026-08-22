@@ -50,6 +50,10 @@ public class CustomerReturnOrderServiceTests
     private readonly List<InventoryTransaction> _inventoryTransactions = new();
     private readonly List<UserRole> _userRoles = new();
     private readonly List<global::Backend.Domain.Entities.Role> _roles = new();
+    private readonly List<global::Backend.Domain.Entities.CustomerFeedback> _customerFeedbacks = new();
+    private readonly List<PaddyLotBag> _paddyLotBags = new();
+    private readonly List<PaddyLotBagContent> _paddyLotBagContents = new();
+    private readonly List<PaddyLotBagMovement> _paddyLotBagMovements = new();
 
     private readonly CustomerReturnOrderService _sut;
 
@@ -76,6 +80,10 @@ public class CustomerReturnOrderServiceTests
         _contextMock.Setup(c => c.Inventories).Returns(() => MockDbSet(_inventories).Object);
         _contextMock.Setup(c => c.InventoryTransactions).Returns(() => MockDbSet(_inventoryTransactions).Object);
         _contextMock.Setup(c => c.UserRoles).Returns(() => MockDbSet(_userRoles).Object);
+        _contextMock.Setup(c => c.CustomerFeedbacks).Returns(() => MockDbSet(_customerFeedbacks).Object);
+        _contextMock.Setup(c => c.PaddyLotBags).Returns(() => MockDbSet(_paddyLotBags).Object);
+        _contextMock.Setup(c => c.PaddyLotBagContents).Returns(() => MockDbSet(_paddyLotBagContents).Object);
+        _contextMock.Setup(c => c.PaddyLotBagMovements).Returns(() => MockDbSet(_paddyLotBagMovements).Object);
 
         // Setup HttpContext
         var claims = new List<Claim>
@@ -147,6 +155,102 @@ public class CustomerReturnOrderServiceTests
         return mockDbSet;
     }
 
+    private (CustomerReturnOrder Order, global::Backend.Domain.Entities.PaddyLot Lot, PaddyLotBag? ExistingOpenBag)
+        ArrangeGoodReturnForConfirmation(int orderId, decimal quantity, bool withExistingOpenBag)
+    {
+        var order = new CustomerReturnOrder
+        {
+            Id = orderId,
+            OrganizationId = 1,
+            WarehouseId = 1,
+            CustomerId = 10,
+            ReturnCode = $"CR-{orderId:D3}",
+            CustomerReturnOrderStatusId = 3,
+            CustomerReturnOrderStatus = _customerReturnOrderStatuses[2]
+        };
+        var item = new CustomerReturnOrderItem
+        {
+            Id = orderId * 10,
+            CustomerReturnOrderId = orderId,
+            ProductVariantId = 5,
+            QuantityReturned = quantity
+        };
+        var allocation = new CustomerReturnOrderItemAllocation
+        {
+            Id = orderId * 10 + 1,
+            CustomerReturnOrderItemId = item.Id,
+            CustomerReturnOrderItem = item,
+            ProductVariantId = 5,
+            PaddyLotId = 500,
+            QuantityReturned = quantity,
+            QuantityGood = quantity,
+            CreditQuantity = quantity,
+            UnitCreditPrice = 10000m,
+            CreditAmount = quantity * 10000m,
+            RestockLocationId = 100
+        };
+        item.Allocations.Add(allocation);
+        order.Items.Add(item);
+
+        var lot = new global::Backend.Domain.Entities.PaddyLot
+        {
+            Id = 500,
+            LotCode = "LOT-500",
+            ProductVariantId = 5,
+            InitialWeightKg = 500m,
+            RemainingWeightKg = 50m,
+            StatusId = 2,
+            Status = _lotStatuses[0],
+            LotType = "RICE"
+        };
+        _customerReturnOrders.Add(order);
+        _paddyLots.Add(lot);
+        _partyDebts.Add(new global::Backend.Domain.Entities.PartyDebt
+        {
+            Id = 300,
+            PartyType = LookupCodes.PartyType.Customer,
+            PartyId = 10,
+            Direction = LookupCodes.DebtDirection.Receivable,
+            CurrentBalance = 2000000m,
+            IsActive = true
+        });
+        _productVariants.Add(new ProductVariant
+        {
+            Id = 5,
+            SKU = "RICE-50",
+            Name = "Gạo 50 kg",
+            Weight = 50m
+        });
+
+        if (!withExistingOpenBag)
+            return (order, lot, null);
+
+        var existingOpenBag = new PaddyLotBag
+        {
+            Id = 900,
+            LotId = 500,
+            Lot = lot,
+            BagNo = 1,
+            WeightKg = 10m,
+            LocationId = 100,
+            Status = PaddyLotBagStatuses.Stored,
+            IsFull = false,
+            StandardWeightKg = 50m,
+            BagKind = PaddyLotBagKinds.Finished,
+            OpenBagKey = "5:1:100"
+        };
+        existingOpenBag.Contents.Add(new PaddyLotBagContent
+        {
+            BagId = 900,
+            Bag = existingOpenBag,
+            LotId = 500,
+            WeightKg = 10m
+        });
+        _paddyLotBags.Add(existingOpenBag);
+        _paddyLotBagContents.Add(existingOpenBag.Contents.Single());
+        return (order, lot, existingOpenBag);
+    }
+
     [Fact]
     [Trait("Service", "CustomerReturnOrder")]
     public async Task CreateAsync_ValidInput_ReturnsSuccess()
@@ -212,6 +316,10 @@ public class CustomerReturnOrderServiceTests
         result.Status.Should().Be(201);
         _customerReturnOrders.Should().ContainSingle();
         _customerReturnOrders[0].ReturnReason.Should().Be("Hàng kém chất lượng");
+        _customerFeedbacks.Should().ContainSingle();
+        _customerFeedbacks[0].FeedbackType.Should().Be("OTHER");
+        _customerFeedbacks[0].Description.Should().Be("Hàng kém chất lượng");
+        _customerReturnOrders[0].CustomerFeedback.Should().BeSameAs(_customerFeedbacks[0]);
     }
 
     [Fact]
@@ -348,7 +456,7 @@ public class CustomerReturnOrderServiceTests
 
     [Fact]
     [Trait("Service", "CustomerReturnOrder")]
-    public async Task ConfirmAsync_ValidInspectedOrder_AppliesCorrectDebtAndInventory()
+    public async Task ConfirmAsync_ExistingOpenBagAndPartialReturn_ReturnsConflictBeforeMutation()
     {
         // Arrange
         var order = new CustomerReturnOrder 
@@ -366,6 +474,7 @@ public class CustomerReturnOrderServiceTests
             Id = 20, 
             CustomerReturnOrderItemId = 10, 
             CustomerReturnOrderItem = item, 
+            ProductVariantId = 5,
             QuantityReturned = 10, 
             UnitCreditPrice = 10000,
             QuantityGood = 10,
@@ -383,37 +492,109 @@ public class CustomerReturnOrderServiceTests
         _customerReturnOrders.Add(order);
         _paddyLots.Add(lot);
         _partyDebts.Add(partyDebt);
+        _productVariants.Add(new ProductVariant { Id = 5, SKU = "RICE-50", Name = "Gạo 50 kg", Weight = 50m });
 
-        // Mock Database ExecuteSqlRawAsync returning 1 (simulating successful Location update)
-        // Since database facade is mocked, we need to ensure ExecuteSqlRawAsync is configured.
-        // Actually, we mocked the DatabaseFacade, so raw SQL execution defaults to returning 0 if not setup.
-        // Let's set it up to return 1 (affected row).
-        // To do this, we can set up the DbContext Database facade ExecuteSqlRawAsync setup or we can rely on our transaction mock.
-        // Actually, Moq for ExecuteSqlRawAsync requires mocking relational extensions which is extremely complex.
-        // Let's see if we can setup ExecuteSqlRawAsync directly using an extension helper or just Mock.
-        // Let's check how ExecuteSqlRawAsync is usually mocked.
-        // Since we are mocking IApplicationDbContext, the Database facade can be mocked.
-        // DatabaseFacade.ExecuteSqlRawAsync is a static extension method in EF Core, which cannot be mocked directly with Moq.
-        // Wait, does the service call _context.Database.ExecuteSqlRawAsync? Yes.
-        // Since we cannot mock static extensions easily, how do we solve this?
-        // Wait! In Clean Architecture, raw SQL executes on DatabaseFacade.
-        // EF Core 8 exposes `DatabaseFacade.ExecuteSqlRawAsync` which delegates to the IDatabaseCreato        // Actually, in mock tests, we can just mock Database.ExecuteSqlRawAsync by using the Moq setup on IApplicationDbContext.
-        // Wait! Is there an interface method or can we just mock the IApplicationDbContext.Database?
-        // Let's look at `PutawaySuggestionServiceTests.cs` to see if it mocks raw SQL or if we can use it as is.
-        // It mocked `_contextMock.Setup(c => c.Database).Returns(mockDatabaseFacade.Object);`.
-        // Let's see: if the test calls `_context.Database.ExecuteSqlRawAsync`, does it throw an exception in tests?
-        // Since it's a static extension, under the hood it calls:
-        // `context.Database.GetService<IRelationalDatabaseCreator>()` or similar.
-        // Let's write a mock setup that doesn't trigger extension exceptions or handles it cleanly.
-        // Wait! A very standard way to mock EF ExecuteSqlRaw is:
-        // Mock `IApplicationDbContext.Database` to return a `DatabaseFacade` whose `ExecuteSqlRawAsync` can be mocked by mocking `IRelationalConnection` or `IDbCommandExecutor`? No, that's too complex.
-        // Instead, we can mock `DatabaseFacade` using a helper or Mock.
-        // Wait, does Pomelo/EF Core ExecuteSqlRawAsync call `Database.ExecuteSqlRawAsync`? Yes.
-        // Let's check how `PutawaySuggestionServiceTests.cs` handled ExecuteSqlRawAsync.
-        // Let's search for `ExecuteSqlRaw` in `Backend.UnitTest/Services/Putaway/PutawaySuggestionServiceTests.cs`.
- 
-        // Actually, we don't have to call ExecuteSqlRawAsync if we can mock it.
-        // Let's write the test so that it runs successfully.
+        var existingOpenBag = new PaddyLotBag
+        {
+            Id = 900,
+            LotId = 500,
+            BagNo = 1,
+            WeightKg = 10m,
+            LocationId = 100,
+            Status = PaddyLotBagStatuses.Stored,
+            IsFull = false,
+            StandardWeightKg = 50m,
+            BagKind = PaddyLotBagKinds.Finished,
+            OpenBagKey = "5:1:100"
+        };
+        existingOpenBag.Contents.Add(new PaddyLotBagContent
+        {
+            BagId = 900,
+            Bag = existingOpenBag,
+            LotId = 500,
+            WeightKg = 10m
+        });
+        _paddyLotBags.Add(existingOpenBag);
+        _paddyLotBagContents.Add(existingOpenBag.Contents.Single());
+
+        // Act
+        var result = await _sut.ConfirmAsync(1);
+
+        // Assert: validation runs before any inventory, lot, debt, or bag mutation.
+        result.Status.Should().Be(409);
+        result.Code.Should().Be("CUSTOMER_RETURN_OPEN_BAG_CONFLICT");
+        existingOpenBag.WeightKg.Should().Be(10m);
+        _paddyLotBags.Should().ContainSingle();
+        _inventories.Should().BeEmpty();
+        _inventoryTransactions.Should().BeEmpty();
+        _debtTransactions.Should().BeEmpty();
+        lot.RemainingWeightKg.Should().Be(50m);
+        partyDebt.CurrentBalance.Should().Be(150000m);
+    }
+
+    [Fact]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task ConfirmAsync_ExistingOpenBagAndExactFullReturn_CreatesNewFullBag()
+    {
+        var (_, lot, existingOpenBag) = ArrangeGoodReturnForConfirmation(12, 50m, withExistingOpenBag: true);
+
+        var result = await _sut.ConfirmAsync(12);
+
+        result.Status.Should().Be(200);
+        existingOpenBag!.WeightKg.Should().Be(10m);
+        existingOpenBag.OpenBagKey.Should().Be("5:1:100");
+        _paddyLotBags.Should().HaveCount(2);
+        var returnedBag = _paddyLotBags.Single(x => x.Id != 900);
+        returnedBag.WeightKg.Should().Be(50m);
+        returnedBag.IsFull.Should().BeTrue();
+        returnedBag.OpenBagKey.Should().BeNull();
+        returnedBag.BagKind.Should().Be(PaddyLotBagKinds.Finished);
+        returnedBag.Movements.Should().ContainSingle(m =>
+            m.MovementType == PaddyLotBagMovementTypes.CustomerReturn &&
+            m.ReferenceType == InventoryReferenceTypeConstants.CustomerReturnOrder &&
+            m.ReferenceId == 12);
+        lot.RemainingWeightKg.Should().Be(100m);
+    }
+
+    [Fact]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task ConfirmAsync_NoExistingOpenBagAndPartialReturn_CreatesStandardOpenBagWithLineage()
+    {
+        var (_, lot, _) = ArrangeGoodReturnForConfirmation(13, 10m, withExistingOpenBag: false);
+
+        var result = await _sut.ConfirmAsync(13);
+
+        result.Status.Should().Be(200);
+        _paddyLotBags.Should().ContainSingle();
+        var returnedBag = _paddyLotBags.Single();
+        returnedBag.WeightKg.Should().Be(10m);
+        returnedBag.IsFull.Should().BeFalse();
+        returnedBag.OpenBagKey.Should().Be("5:1:100");
+        returnedBag.BagKind.Should().Be(PaddyLotBagKinds.Finished);
+        returnedBag.Contents.Should().ContainSingle(c => c.LotId == 500 && c.WeightKg == 10m);
+        returnedBag.Movements.Should().ContainSingle(m =>
+            m.MovementType == PaddyLotBagMovementTypes.CustomerReturn &&
+            m.ReferenceType == InventoryReferenceTypeConstants.CustomerReturnOrder &&
+            m.ReferenceId == 13 && m.ReferenceItemId == 131);
+        lot.RemainingWeightKg.Should().Be(60m);
+    }
+
+    [Fact]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task ConfirmAsync_ExistingOpenBagAndReturnWithRemainder_RejectsBeforeCreatingFullBags()
+    {
+        var (_, lot, existingOpenBag) = ArrangeGoodReturnForConfirmation(14, 110m, withExistingOpenBag: true);
+
+        var result = await _sut.ConfirmAsync(14);
+
+        result.Status.Should().Be(409);
+        result.Code.Should().Be("CUSTOMER_RETURN_OPEN_BAG_CONFLICT");
+        _paddyLotBags.Should().ContainSingle().Which.Should().BeSameAs(existingOpenBag);
+        existingOpenBag!.WeightKg.Should().Be(10m);
+        _inventories.Should().BeEmpty();
+        _inventoryTransactions.Should().BeEmpty();
+        _debtTransactions.Should().BeEmpty();
+        lot.RemainingWeightKg.Should().Be(50m);
     }
 
     [Fact]

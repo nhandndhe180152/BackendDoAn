@@ -197,18 +197,6 @@ public class OutboundOrderService : IOutboundOrderService
         return $"{original}{separator}{boundedEntry}";
     }
 
-    private async Task<Location> GetOutboundStagingLocationAsync(int warehouseId)
-    {
-        if (_locationRepository == null)
-            throw new InvalidOperationException("Chưa cấu hình kho chờ xuất cho nghiệp vụ đóng gói.");
-
-        var staging = await _locationRepository.FirstOrDefaultAsync(x =>
-            x.WarehouseId == warehouseId && x.IsOutboundStaging && x.IsActive && !x.IsDeleted, true);
-        if (staging != null) return staging;
-        throw new InvalidOperationException(
-            $"Kho #{warehouseId} chưa được cấu hình khu chờ xuất. Vui lòng liên hệ quản trị viên.");
-    }
-
     private async Task ReleaseOutboundColumnLocksAsync(
         OutboundOrder order, DateTime now, int userId, IReadOnlyCollection<int>? excludedLocationIds = null)
     {
@@ -396,6 +384,7 @@ public class OutboundOrderService : IOutboundOrderService
             dto.BagAllocations = bagAllocs.Select(a => new BagAllocationDetailDto
             {
                 BagAllocationId   = a.Id,
+                OutboundOrderItemId = a.ReferenceItemId,
                 BagId             = a.BagId,
                 BagNo             = a.Bag?.BagNo ?? 0,
                 AllocatedWeightKg = a.AllocatedWeightKg,
@@ -417,6 +406,10 @@ public class OutboundOrderService : IOutboundOrderService
         {
             var feedbacks = await _dbContext.CustomerFeedbacks
                 .Include(f => f.ProductVariant)
+                .Include(f => f.PaddyLotBagAllocation)
+                    .ThenInclude(a => a.Bag)
+                        .ThenInclude(b => b.Lot)
+                .Include(f => f.CustomerReturnOrder)
                 .Where(f => !f.IsDeleted && f.OutboundOrderId == id)
                 .OrderByDescending(f => f.CreatedDate)
                 .ToListAsync();
@@ -430,13 +423,20 @@ public class OutboundOrderService : IOutboundOrderService
                 OutboundOrderItemId = f.OutboundOrderItemId,
                 ProductVariantId = f.ProductVariantId,
                 ProductVariantName = f.ProductVariant?.Name,
+                PaddyLotBagAllocationId = f.PaddyLotBagAllocationId,
+                BagId = f.PaddyLotBagAllocation?.BagId,
+                BagNo = f.PaddyLotBagAllocation?.Bag?.BagNo,
+                PaddyLotId = f.PaddyLotBagAllocation?.Bag?.LotId,
+                PaddyLotCode = f.PaddyLotBagAllocation?.Bag?.Lot?.LotCode,
                 FeedbackType = f.FeedbackType,
                 Description = f.Description,
                 Severity = f.Severity,
                 ResolutionStatus = f.ResolutionStatus,
                 CreatedDate = f.CreatedDate,
                 ResolvedAt = f.ResolvedAt,
-                ResolutionNote = f.ResolutionNote
+                ResolutionNote = f.ResolutionNote,
+                CustomerReturnOrderId = f.CustomerReturnOrder?.Id,
+                CustomerReturnOrderCode = f.CustomerReturnOrder?.ReturnCode
             }).ToList();
         }
 
@@ -471,6 +471,7 @@ public class OutboundOrderService : IOutboundOrderService
         var result = bagAllocs.Select(a => new BagAllocationDetailDto
         {
             BagAllocationId  = a.Id,
+            OutboundOrderItemId = a.ReferenceItemId,
             BagId            = a.BagId,
             BagNo            = a.Bag?.BagNo ?? 0,
             AllocatedWeightKg = a.AllocatedWeightKg,
@@ -581,67 +582,77 @@ public class OutboundOrderService : IOutboundOrderService
 
                 if (inv.LocationId.HasValue && bagsByLocation.TryGetValue(inv.LocationId.Value, out var locationBags))
                 {
-                    var lotBags = locationBags
+                    bool IsActiveByCurrentOutbound(PaddyLotBag bag) =>
+                        bag.Allocations.Any(a => !a.IsDeleted &&
+                            a.Status == PaddyLotBagAllocationStatuses.Active &&
+                            a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder &&
+                            a.ReferenceId == order.Id);
+                    bool IsActiveByOther(PaddyLotBag bag) =>
+                        bag.Allocations.Any(a => !a.IsDeleted &&
+                            a.Status == PaddyLotBagAllocationStatuses.Active &&
+                            !(a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder &&
+                              a.ReferenceId == order.Id));
+                    bool HasAnyActiveAllocation(PaddyLotBag bag) =>
+                        bag.Allocations.Any(a => !a.IsDeleted &&
+                            a.Status == PaddyLotBagAllocationStatuses.Active);
+
+                    var openBag = locationBags
+                        .Where(b => !b.IsFull && b.BagKind == PaddyLotBagKinds.Finished &&
+                            !HasAnyActiveAllocation(b))
                         .Select(b => new
                         {
                             Bag = b,
                             LotWeightKg = b.Contents
                                 .Where(c => c.LotId == inv.PaddyLotId && !c.IsDeleted)
-                                .Sum(c => c.WeightKg),
-                            ActiveWeightKg = b.Contents
-                                .Where(c => !c.IsDeleted)
                                 .Sum(c => c.WeightKg)
                         })
-                        .Where(x => x.LotWeightKg > 0.0005m &&
-                            !x.Bag.Allocations.Any(a => !a.IsDeleted &&
-                                a.Status == PaddyLotBagAllocationStatuses.Active &&
-                                (isQcReplacement ||
-                                 !(a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder &&
-                                   a.ReferenceId == order.Id))))
-                        .ToList();
-                    if (locationBags.Count > 0)
-                        selectableQuantity = Math.Min(selectableQuantity, lotBags.Sum(x => x.LotWeightKg));
-                    if (lotBags.Count > 0)
+                        .FirstOrDefault(x => x.LotWeightKg > 0.0005m);
+
+                    var accessibleFullBags = new List<(PaddyLotBag Bag, decimal LotWeightKg)>();
+                    foreach (var stackBag in locationBags
+                        .Where(x => x.IsFull || x.BagKind != PaddyLotBagKinds.Finished)
+                        .OrderByDescending(x => x.StackOrder)
+                        .ThenByDescending(x => x.Id))
                     {
-                        standardWeightKg = lotBags.FirstOrDefault(x => x.Bag.StandardWeightKg.HasValue)?.Bag.StandardWeightKg;
-                        fullBagCount = 0;
+                        if (IsActiveByOther(stackBag)) break;
+                        if (isQcReplacement && IsActiveByCurrentOutbound(stackBag)) continue;
+                        if (HasAnyActiveAllocation(stackBag)) break;
 
-                        var openBag = lotBags.FirstOrDefault(x => !x.Bag.IsFull && x.Bag.BagKind == PaddyLotBagKinds.Finished);
-                        if (openBag != null)
-                        {
-                            hasOpenBag = true;
-                            openBagWeightKg = Math.Min(openBag.LotWeightKg, selectableQuantity);
-                            openBagId = openBag.Bag.Id;
+                        var lotWeightKg = stackBag.Contents
+                            .Where(c => c.LotId == inv.PaddyLotId && !c.IsDeleted)
+                            .Sum(c => c.WeightKg);
+                        var activeWeightKg = stackBag.Contents
+                            .Where(c => !c.IsDeleted)
+                            .Sum(c => c.WeightKg);
+                        if (lotWeightKg <= 0.0005m || Math.Abs(lotWeightKg - activeWeightKg) > 0.0005m)
+                            break;
 
-                            isOpenBagBlocked = false;
-                        }
+                        accessibleFullBags.Add((stackBag, lotWeightKg));
+                    }
 
-                        foreach (var stackBag in locationBags
-                            .Where(x => x.IsFull || x.BagKind != PaddyLotBagKinds.Finished)
-                            .OrderByDescending(x => x.StackOrder))
-                        {
-                            var lotWeightKg = stackBag.Contents
-                                .Where(c => c.LotId == inv.PaddyLotId && !c.IsDeleted)
-                                .Sum(c => c.WeightKg);
-                            if (lotWeightKg <= 0.0005m)
-                                break;
+                    var physicalSelectableQuantity = (openBag?.LotWeightKg ?? 0m) +
+                        accessibleFullBags.Sum(x => x.LotWeightKg);
+                    selectableQuantity = Math.Min(selectableQuantity, physicalSelectableQuantity);
 
-                            var activeWeightKg = stackBag.Contents
-                                .Where(c => !c.IsDeleted)
-                                .Sum(c => c.WeightKg);
-                            if (Math.Abs(lotWeightKg - activeWeightKg) > 0.0005m)
-                                break;
+                    standardWeightKg = accessibleFullBags
+                        .Select(x => x.Bag.StandardWeightKg)
+                        .FirstOrDefault(x => x.HasValue);
+                    if (!standardWeightKg.HasValue)
+                        standardWeightKg = openBag?.Bag.StandardWeightKg;
 
-                            if (stackBag.IsFull)
-                                fullBagCount++;
-                        }
+                    if (openBag != null)
+                    {
+                        hasOpenBag = true;
+                        openBagWeightKg = Math.Min(openBag.LotWeightKg, selectableQuantity);
+                        openBagId = openBag.Bag.Id;
+                    }
 
-                        if (standardWeightKg.HasValue && standardWeightKg.Value > 0)
-                        {
-                            var selectableForFullBags = Math.Max(0m, selectableQuantity - (hasOpenBag && !isOpenBagBlocked ? openBagWeightKg : 0m));
-                            var maxFullBagsBySelectable = (int)Math.Floor(selectableForFullBags / standardWeightKg.Value);
-                            fullBagCount = Math.Min(fullBagCount, maxFullBagsBySelectable);
-                        }
+                    fullBagCount = accessibleFullBags.Count(x => x.Bag.IsFull);
+                    if (standardWeightKg.HasValue && standardWeightKg.Value > 0)
+                    {
+                        var selectableForFullBags = Math.Max(0m, selectableQuantity - openBagWeightKg);
+                        var maxFullBagsBySelectable = (int)Math.Floor(selectableForFullBags / standardWeightKg.Value);
+                        fullBagCount = Math.Min(fullBagCount, maxFullBagsBySelectable);
                     }
                 }
 
@@ -1411,10 +1422,6 @@ public class OutboundOrderService : IOutboundOrderService
                 item.UpdatedBy = userId;
             }
 
-            // Đóng gói chỉ chuyển hàng sang staging.
-            // Tổng tồn vật lý toàn kho chỉ giảm khi dispatch.
-            // Cột còn bao nguồn bị tách tiếp tục bị khóa.
-            // Các cột đã chuyển hết hàng sang staging được mở khóa.
             order.PackingScaleDevice =
                 string.IsNullOrWhiteSpace(dto.ScaleDevice)
                     ? null
@@ -1527,8 +1534,6 @@ public class OutboundOrderService : IOutboundOrderService
         try
         {
             // PACKED giữ nguyên allocation tại source location; không có staging leg mới.
-            var stagedAllocationIds = new HashSet<int>();
-
             var consumedLegacyAllocationIds = _bagMovementRepository == null
                 ? new HashSet<int>()
                 : (await _bagMovementRepository.FindByCondition(x =>
@@ -1549,7 +1554,7 @@ public class OutboundOrderService : IOutboundOrderService
 
             if (hasActivePhysicalBagAllocs)
             {
-                await ConsumeAllocatedPhysicalBagsAsync(order.Id, stagedAllocationIds, userId, now);
+                await ConsumeAllocatedPhysicalBagsAsync(order.Id, userId, now);
             }
 
             // 4. Với từng allocation: giảm tồn + tạo giao dịch
@@ -1870,9 +1875,14 @@ public class OutboundOrderService : IOutboundOrderService
             .ToListAsync();
         if (bags.Count == 0) return new();
 
+        bool IsHeldByCurrentOutbound(PaddyLotBag b) =>
+            b.Allocations.Any(a => !a.IsDeleted && a.Status == PaddyLotBagAllocationStatuses.Active &&
+                a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder && a.ReferenceId == outboundOrderId);
         bool IsHeldByOther(PaddyLotBag b) =>
             b.Allocations.Any(a => !a.IsDeleted && a.Status == PaddyLotBagAllocationStatuses.Active &&
                 !(a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder && a.ReferenceId == outboundOrderId));
+        bool HasAnyActiveAllocation(PaddyLotBag b) =>
+            b.Allocations.Any(a => !a.IsDeleted && a.Status == PaddyLotBagAllocationStatuses.Active);
 
         foreach (var group in bags.GroupBy(x => x.LocationId))
         {
@@ -1922,7 +1932,7 @@ public class OutboundOrderService : IOutboundOrderService
                     Math.Abs(request.QuantityAllocated - candidate.WeightKg) > 0.0005m)
                     return false;
 
-                if (IsHeldByOther(candidate))
+                if (HasAnyActiveAllocation(candidate))
                     return false;
 
                 var activeContents = candidate.Contents
@@ -1962,6 +1972,8 @@ public class OutboundOrderService : IOutboundOrderService
             // Open bags are detached from the full-bag stack and can be selected independently.
             foreach (var openBag in locationGroup.Where(x => !x.IsFull && x.BagKind == PaddyLotBagKinds.Finished))
             {
+                if (HasAnyActiveAllocation(openBag)) continue;
+
                 foreach (var content in openBag.Contents.Where(x => x.WeightKg > 0 && !x.IsDeleted))
                 {
                     if (!inventoryByLotLocation.TryGetValue((content.LotId, locationGroup.Key), out var inventory) ||
@@ -1994,6 +2006,7 @@ public class OutboundOrderService : IOutboundOrderService
                     throw new InvalidOperationException(
                         $"Không thể lấy hàng tại vị trí #{locationGroup.Key}: bao #{bag.BagNo} đang được giữ bởi chứng từ khác. Vui lòng chọn cột khác hoặc tải lại.");
                 }
+                if (IsHeldByCurrentOutbound(bag)) continue;
 
                 var activeContents = bag.Contents.Where(x => x.WeightKg > 0 && !x.IsDeleted).OrderByDescending(x => x.Id).ToList();
                 foreach (var content in activeContents)
@@ -2074,613 +2087,6 @@ public class OutboundOrderService : IOutboundOrderService
                 return false;
         }
 
-        return true;
-    }
-
-    private async Task<HashSet<int>> StagePhysicalBagsAsync(
-        OutboundOrder order, Location staging, int userId, DateTime now)
-    {
-        if (_bagRepository == null || _bagContentRepository == null || _bagMovementRepository == null)
-            throw new InvalidOperationException("Chưa cấu hình đầy đủ lớp bao vật lý cho nghiệp vụ đóng gói.");
-
-        var allocations = order.OutboundOrderItems
-            .Where(i => !i.IsDeleted)
-            .SelectMany(ActiveAllocations)
-            .Where(a => a.PaddyLotId.HasValue && a.QuantityPicked > 0.0005m)
-            .OrderBy(a => a.Id)
-            .ToList();
-        var partiallySplitLocationIds = new HashSet<int>();
-        var stagingStack = await _bagRepository.FindByCondition(x =>
-                x.LocationId == staging.Id && x.Status == PaddyLotBagStatuses.OutboundStaging && !x.IsDeleted)
-            .MaxAsync(x => (int?)x.StackOrder) ?? 0;
-
-        foreach (var locationGroup in allocations.GroupBy(a => a.LocationId))
-        {
-            var remaining = locationGroup.ToDictionary(a => a.Id, a => a.QuantityPicked);
-            var allocationsById = locationGroup.ToDictionary(a => a.Id);
-            var bags = await _bagRepository.FindByCondition(x =>
-                    x.LocationId == locationGroup.Key && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted, true)
-                .Include(x => x.Location)
-                .Include(x => x.Lot)
-                .Include(x => x.Contents).ThenInclude(x => x.Lot)
-                .OrderByDescending(x => x.StackOrder)
-                .ThenByDescending(x => x.Id)
-                .ToListAsync();
-
-            var preferredFullBagByAllocationId = new Dictionary<int, PaddyLotBag>();
-            var claimedFullBagIds = new HashSet<int>();
-            foreach (var allocation in locationGroup.OrderBy(x => x.Id))
-            {
-                var fullBag = bags.FirstOrDefault(candidate =>
-                    !claimedFullBagIds.Contains(candidate.Id) &&
-                    candidate.IsFull &&
-                    candidate.StandardWeightKg.HasValue &&
-                    Math.Abs(allocation.QuantityPicked - candidate.StandardWeightKg.Value) <= 0.0005m &&
-                    Math.Abs(allocation.QuantityPicked - candidate.WeightKg) <= 0.0005m &&
-                    candidate.Contents.Any(x => !x.IsDeleted && x.WeightKg > 0.0005m) &&
-                    candidate.Contents
-                        .Where(x => !x.IsDeleted && x.WeightKg > 0.0005m)
-                        .All(x => x.LotId == allocation.PaddyLotId) &&
-                    bags
-                        .Where(x => x.StackOrder > candidate.StackOrder && !claimedFullBagIds.Contains(x.Id))
-                        .All(x => x.Contents
-                            .Where(c => !c.IsDeleted && c.WeightKg > 0.0005m)
-                            .All(c => c.LotId == allocation.PaddyLotId)));
-                if (fullBag == null) continue;
-
-                preferredFullBagByAllocationId[allocation.Id] = fullBag;
-                claimedFullBagIds.Add(fullBag.Id);
-            }
-
-            var preferredAllocationByBagId = preferredFullBagByAllocationId
-                .ToDictionary(x => x.Value.Id, x => x.Key);
-            var preferredBagIds = preferredAllocationByBagId.Keys.ToHashSet();
-            var bagsToProcess = locationGroup
-                .OrderBy(x => x.Id)
-                .Where(x => preferredFullBagByAllocationId.ContainsKey(x.Id))
-                .Select(x => preferredFullBagByAllocationId[x.Id])
-                .Concat(bags.Where(x => !preferredBagIds.Contains(x.Id)))
-                .ToList();
-
-            foreach (var bag in bagsToProcess)
-            {
-                if (remaining.Values.All(x => x <= 0.0005m)) break;
-
-                var selections = new List<(OutboundOrderItemAllocation Allocation, PaddyLotBagContent Content, decimal Weight)>();
-                foreach (var content in bag.Contents.Where(x => !x.IsDeleted && x.WeightKg > 0.0005m).OrderBy(x => x.Id))
-                {
-                    var contentRemaining = content.WeightKg;
-                    foreach (var allocation in locationGroup.Where(a =>
-                                 a.PaddyLotId == content.LotId && remaining[a.Id] > 0.0005m &&
-                                 (preferredAllocationByBagId.TryGetValue(bag.Id, out var preferredAllocationId)
-                                     ? a.Id == preferredAllocationId
-                                     : !preferredFullBagByAllocationId.ContainsKey(a.Id)))
-                             .OrderBy(a => a.Id))
-                    {
-                        var take = Math.Min(contentRemaining, remaining[allocation.Id]);
-                        if (take <= 0.0005m) continue;
-                        selections.Add((allocation, content, take));
-                        remaining[allocation.Id] -= take;
-                        contentRemaining -= take;
-                        if (contentRemaining <= 0.0005m) break;
-                    }
-                }
-
-                var selectedWeight = selections.Sum(x => x.Weight);
-                if (selectedWeight <= 0.0005m)
-                {
-                    var wantedLots = remaining.Where(x => x.Value > 0.0005m)
-                        .Select(x => allocationsById[x.Key].PaddyLot?.LotCode ?? $"#{allocationsById[x.Key].PaddyLotId}");
-                    throw new InvalidOperationException(
-                        $"Bao #{bag.BagNo} đang chặn các lô cần lấy ({string.Join(", ", wantedLots.Distinct())}) tại cột {FormatLocationCode(bag.Location)}.");
-                }
-
-                PaddyLotBag stagedBag;
-                if (Math.Abs(selectedWeight - bag.WeightKg) <= 0.0005m)
-                {
-                    stagedBag = bag;
-                    stagedBag.LocationId = staging.Id;
-                    stagedBag.Status = PaddyLotBagStatuses.OutboundStaging;
-                    stagedBag.StackOrder = ++stagingStack;
-                    stagedBag.OpenBagKey = null;
-                    stagedBag.LastModifiedDate = now;
-                    stagedBag.UpdatedBy = userId;
-                    await _bagRepository.UpdateAsync(stagedBag);
-                }
-                else
-                {
-                    var representativeLotId = selections
-                        .GroupBy(x => x.Content.LotId)
-                        .OrderByDescending(x => x.Sum(y => y.Weight))
-                        .ThenBy(x => x.Key)
-                        .First().Key;
-                    var nextBagNo = (await _bagRepository.FindByCondition(x =>
-                            x.LotId == representativeLotId && !x.IsDeleted)
-                        .MaxAsync(x => (int?)x.BagNo) ?? 0) + 1;
-                    stagedBag = new PaddyLotBag
-                    {
-                        LotId = representativeLotId,
-                        BagNo = nextBagNo,
-                        WeightKg = selectedWeight,
-                        LocationId = staging.Id,
-                        Status = PaddyLotBagStatuses.OutboundStaging,
-                        StackOrder = ++stagingStack,
-                        StandardWeightKg = bag.StandardWeightKg,
-                        IsFull = bag.StandardWeightKg.HasValue && selectedWeight + 0.0005m >= bag.StandardWeightKg.Value,
-                        BagKind = bag.BagKind,
-                        SourceBagId = bag.Id,
-                        QrCode = $"PLB-{Guid.NewGuid():N}".ToUpperInvariant(),
-                        CreatedBy = userId,
-                        CreatedDate = now
-                    };
-                    await _bagRepository.CreateAsync(stagedBag);
-                    await _bagRepository.SaveChangesAsync();
-
-                    foreach (var lotSelection in selections.GroupBy(x => x.Content.LotId))
-                    {
-                        await _bagContentRepository.CreateAsync(new PaddyLotBagContent
-                        {
-                            BagId = stagedBag.Id,
-                            LotId = lotSelection.Key,
-                            WeightKg = lotSelection.Sum(x => x.Weight),
-                            CreatedBy = userId,
-                            CreatedDate = now
-                        });
-                    }
-
-                    foreach (var contentSelection in selections.GroupBy(x => x.Content))
-                    {
-                        var content = contentSelection.Key;
-                        content.WeightKg -= contentSelection.Sum(x => x.Weight);
-                        content.LastModifiedDate = now;
-                        content.UpdatedBy = userId;
-                        await _bagContentRepository.UpdateAsync(content);
-                    }
-                    bag.WeightKg -= selectedWeight;
-                    if (bag.StandardWeightKg.HasValue)
-                    {
-                        bag.IsFull = bag.WeightKg + 0.0005m >= bag.StandardWeightKg.Value;
-                        bag.OpenBagKey = bag.IsFull || bag.LocationId == null ? null : BuildOpenBagKey(bag.Lot.ProductVariantId, bag.Lot.WarehouseId, bag.LocationId.Value);
-                    }
-                    RefreshRepresentativeLot(bag);
-                    bag.LastModifiedDate = now;
-                    bag.UpdatedBy = userId;
-                    await _bagRepository.UpdateAsync(bag);
-                    partiallySplitLocationIds.Add(locationGroup.Key);
-                }
-
-                decimal stagedSoFar = 0;
-                foreach (var allocationSelection in selections.GroupBy(x => x.Allocation))
-                {
-                    var moved = allocationSelection.Sum(x => x.Weight);
-                    await _bagMovementRepository.CreateAsync(new PaddyLotBagMovement
-                    {
-                        BagId = stagedBag.Id,
-                        MovementType = PaddyLotBagMovementTypes.OutboundStage,
-                        FromLocationId = locationGroup.Key,
-                        ToLocationId = staging.Id,
-                        WeightKg = moved,
-                        BeforeWeightKg = stagedSoFar,
-                        AfterWeightKg = stagedSoFar + moved,
-                        ReferenceType = InventoryReferenceTypeConstants.OutboundOrder,
-                        ReferenceId = order.Id,
-                        ReferenceItemId = allocationSelection.Key.Id,
-                        Note = $"Chuyển {moved:0.###} kg sang khu chờ xuất",
-                        CreatedBy = userId,
-                        CreatedDate = now
-                    });
-                    stagedSoFar += moved;
-                }
-            }
-
-            var missing = remaining.Where(x => x.Value > 0.0005m).Sum(x => x.Value);
-            if (missing > 0.0005m)
-                throw new InvalidOperationException(
-                    $"Không thể chuyển đủ {missing:0.###} kg từ cột #{locationGroup.Key} sang khu chờ xuất.");
-        }
-
-        await _bagContentRepository.SaveChangesAsync();
-        return partiallySplitLocationIds;
-    }
-
-    private async Task TransferPackedInventoryToStagingAsync(
-        OutboundOrder order, Location staging, int userId, DateTime now)
-    {
-        foreach (var item in order.OutboundOrderItems.Where(i => !i.IsDeleted))
-        {
-            foreach (var allocation in ActiveAllocations(item))
-            {
-                if (allocation.QuantityPicked <= 0.0005m) continue;
-                var source = allocation.Inventory;
-                if (source == null || source.IsDeleted || !allocation.PaddyLotId.HasValue)
-                    throw new InvalidOperationException($"Không tìm thấy tồn nguồn cho allocation #{allocation.Id}.");
-
-                var stagingInventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
-                    source.ProductVariantId, source.WarehouseId, staging.Id, allocation.PaddyLotId);
-                if (stagingInventory == null)
-                {
-                    stagingInventory = new Inventory
-                    {
-                        WarehouseId = source.WarehouseId,
-                        LocationId = staging.Id,
-                        ProductVariantId = source.ProductVariantId,
-                        PaddyLotId = allocation.PaddyLotId,
-                        CostPrice = source.CostPrice,
-                        QuantityOnHand = 0,
-                        QuantityReserved = 0,
-                        CreatedBy = userId,
-                        CreatedDate = now
-                    };
-                    await _inventoryRepository.CreateAsync(stagingInventory);
-                    await _inventoryRepository.SaveChangesAsync();
-                }
-
-                var sourceBefore = source.QuantityOnHand;
-                source.QuantityOnHand -= allocation.QuantityPicked;
-                source.QuantityReserved -= allocation.QuantityAllocated;
-                if (source.QuantityOnHand < -0.0005m || source.QuantityReserved < -0.0005m)
-                    throw new InvalidOperationException($"Tồn nguồn của allocation #{allocation.Id} không đủ để chuyển sang khu chờ xuất.");
-                source.QuantityOnHand = Math.Max(0, source.QuantityOnHand);
-                source.QuantityReserved = Math.Max(0, source.QuantityReserved);
-                source.LastModifiedDate = now;
-                source.UpdatedBy = userId;
-                await _inventoryRepository.UpdateAsync(source);
-
-                var stagingBefore = stagingInventory.QuantityOnHand;
-                if (stagingBefore > 0)
-                    stagingInventory.CostPrice = Math.Round(
-                        ((stagingBefore * stagingInventory.CostPrice) + (allocation.QuantityPicked * source.CostPrice)) /
-                        (stagingBefore + allocation.QuantityPicked), 2);
-                else
-                    stagingInventory.CostPrice = source.CostPrice;
-                stagingInventory.QuantityOnHand += allocation.QuantityPicked;
-                stagingInventory.QuantityReserved += allocation.QuantityAllocated;
-                stagingInventory.LastModifiedDate = now;
-                stagingInventory.UpdatedBy = userId;
-                await _inventoryRepository.UpdateAsync(stagingInventory);
-
-                await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(new InventoryTransaction
-                {
-                    InventoryId = source.Id,
-                    WarehouseId = source.WarehouseId,
-                    LocationId = source.LocationId,
-                    ProductVariantId = source.ProductVariantId,
-                    PaddyLotId = source.PaddyLotId,
-                    TransactionType = InventoryTransactionTypeConstants.TransferOut,
-                    ReferenceType = InventoryReferenceTypeConstants.OutboundOrder,
-                    ReferenceId = order.Id,
-                    ReferenceItemId = allocation.Id,
-                    Quantity = -allocation.QuantityPicked,
-                    BeforeQuantity = sourceBefore,
-                    AfterQuantity = source.QuantityOnHand,
-                    WeightKg = -allocation.QuantityPicked,
-                    Note = "Chuyển hàng đã đóng gói sang khu chờ xuất",
-                    CreatedBy = userId,
-                    CreatedDate = now
-                });
-                await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(new InventoryTransaction
-                {
-                    InventoryId = stagingInventory.Id,
-                    WarehouseId = stagingInventory.WarehouseId,
-                    LocationId = staging.Id,
-                    ProductVariantId = stagingInventory.ProductVariantId,
-                    PaddyLotId = stagingInventory.PaddyLotId,
-                    TransactionType = InventoryTransactionTypeConstants.TransferIn,
-                    ReferenceType = InventoryReferenceTypeConstants.OutboundOrder,
-                    ReferenceId = order.Id,
-                    ReferenceItemId = allocation.Id,
-                    Quantity = allocation.QuantityPicked,
-                    BeforeQuantity = stagingBefore,
-                    AfterQuantity = stagingInventory.QuantityOnHand,
-                    WeightKg = allocation.QuantityPicked,
-                    Note = "Nhập hàng đã đóng gói vào khu chờ xuất",
-                    CreatedBy = userId,
-                    CreatedDate = now
-                });
-
-                if (allocation.Location != null)
-                {
-                    allocation.Location.CurrentOccupancy = Math.Max(0, allocation.Location.CurrentOccupancy - allocation.QuantityPicked);
-                    if (allocation.Location.CurrentOccupancy <= 0.0005m)
-                        allocation.Location.CurrentProductVariantId = null;
-                    allocation.Location.LastModifiedDate = now;
-                    allocation.Location.UpdatedBy = userId;
-                    if (_locationRepository != null)
-                        await _locationRepository.UpdateAsync(allocation.Location);
-                }
-                staging.CurrentOccupancy += allocation.QuantityPicked;
-            }
-        }
-
-        staging.LastModifiedDate = now;
-        staging.UpdatedBy = userId;
-        if (_locationRepository != null)
-            await _locationRepository.UpdateAsync(staging);
-    }
-
-    private async Task<HashSet<int>> ConsumeStagedBagsAsync(
-        int outboundOrderId, int userId, DateTime now)
-    {
-        if (_bagRepository == null || _bagContentRepository == null || _bagMovementRepository == null)
-            return new HashSet<int>();
-
-        var stagedMovements = await _bagMovementRepository.FindByCondition(x =>
-                x.ReferenceType == InventoryReferenceTypeConstants.OutboundOrder &&
-                x.ReferenceId == outboundOrderId &&
-                x.MovementType == PaddyLotBagMovementTypes.OutboundStage &&
-                x.ReferenceItemId.HasValue && !x.IsDeleted, true)
-            .ToListAsync();
-        if (stagedMovements.Count == 0) return new HashSet<int>();
-
-        var bagIds = stagedMovements.Select(x => x.BagId).Distinct().ToList();
-        var bags = await _bagRepository.FindByCondition(x =>
-                bagIds.Contains(x.Id) && x.Status == PaddyLotBagStatuses.OutboundStaging && !x.IsDeleted, true)
-            .Include(x => x.Contents)
-            .ToListAsync();
-        if (bags.Count != bagIds.Count)
-            throw new InvalidOperationException("Một hoặc nhiều bao ở khu chờ xuất không còn đúng trạng thái để dispatch.");
-
-        foreach (var bag in bags)
-        {
-            var before = bag.WeightKg;
-            var fromLocationId = bag.LocationId;
-            foreach (var content in bag.Contents.Where(x => !x.IsDeleted && x.WeightKg > 0))
-            {
-                content.WeightKg = 0;
-                content.LastModifiedDate = now;
-                content.UpdatedBy = userId;
-                await _bagContentRepository.UpdateAsync(content);
-            }
-            bag.WeightKg = 0;
-            bag.Status = PaddyLotBagStatuses.Consumed;
-            bag.LocationId = null;
-            bag.StackOrder = 0;
-            bag.IsFull = false;
-            bag.OpenBagKey = null;
-            bag.LastModifiedDate = now;
-            bag.UpdatedBy = userId;
-            await _bagRepository.UpdateAsync(bag);
-
-            decimal consumedSoFar = 0;
-            foreach (var stagedMovement in stagedMovements.Where(x => x.BagId == bag.Id).OrderBy(x => x.Id))
-            {
-                var moved = Math.Min(stagedMovement.WeightKg, before - consumedSoFar);
-                if (moved <= 0.0005m) continue;
-                await _bagMovementRepository.CreateAsync(new PaddyLotBagMovement
-                {
-                    BagId = bag.Id,
-                    MovementType = PaddyLotBagMovementTypes.OutboundConsume,
-                    FromLocationId = fromLocationId,
-                    ToLocationId = null,
-                    WeightKg = moved,
-                    BeforeWeightKg = before - consumedSoFar,
-                    AfterWeightKg = Math.Max(0, before - consumedSoFar - moved),
-                    ReferenceType = InventoryReferenceTypeConstants.OutboundOrder,
-                    ReferenceId = outboundOrderId,
-                    ReferenceItemId = stagedMovement.ReferenceItemId,
-                    Note = "Xuất hàng từ khu chờ xuất",
-                    CreatedBy = userId,
-                    CreatedDate = now
-                });
-                consumedSoFar += moved;
-            }
-        }
-        await _bagContentRepository.SaveChangesAsync();
-        return stagedMovements.Select(x => x.ReferenceItemId!.Value).ToHashSet();
-    }
-
-    private async Task<bool> ReturnStagedBagsAsync(
-        OutboundOrder order, int userId, DateTime now)
-    {
-        if (_bagRepository == null || _bagMovementRepository == null || _locationRepository == null)
-            return false;
-
-        var movements = await _bagMovementRepository.FindByCondition(x =>
-                x.ReferenceType == InventoryReferenceTypeConstants.OutboundOrder &&
-                x.ReferenceId == order.Id &&
-                x.MovementType == PaddyLotBagMovementTypes.OutboundStage &&
-                x.ReferenceItemId.HasValue && !x.IsDeleted, true)
-            .ToListAsync();
-        if (movements.Count == 0) return false;
-
-        var bagIds = movements.Select(x => x.BagId).Distinct().ToList();
-        var bags = await _bagRepository.FindByCondition(x =>
-                bagIds.Contains(x.Id) && x.Status == PaddyLotBagStatuses.OutboundStaging && !x.IsDeleted, true)
-            .Include(x => x.Lot)
-            .Include(x => x.Contents)
-            .ToListAsync();
-        if (bags.Count != bagIds.Count)
-            throw new InvalidOperationException("Một hoặc nhiều bao chờ xuất không còn nguyên trạng để hoàn phiếu.");
-
-        var sourceLocationIds = movements.Where(m => m.FromLocationId.HasValue)
-            .Select(m => m.FromLocationId!.Value).Distinct().ToList();
-        var locations = await _locationRepository.FindByCondition(x =>
-                sourceLocationIds.Contains(x.Id) && !x.IsDeleted, true)
-            .ToDictionaryAsync(x => x.Id);
-        var stagingId = movements.Select(x => x.ToLocationId).FirstOrDefault(x => x.HasValue);
-        var staging = stagingId.HasValue
-            ? await _locationRepository.GetByIdAsync(stagingId.Value)
-            : null;
-
-        foreach (var bag in bags.OrderBy(x => x.Id))
-        {
-            var fromIds = movements.Where(x => x.BagId == bag.Id && x.FromLocationId.HasValue)
-                .Select(x => x.FromLocationId!.Value).Distinct().ToList();
-            if (fromIds.Count != 1 || !locations.TryGetValue(fromIds[0], out var destination))
-                throw new InvalidOperationException($"Không xác định được cột hoàn về cho bao #{bag.BagNo}.");
-            if (!destination.IsActive || destination.IsQuarantine || destination.IsOutboundStaging ||
-                (destination.OutboundLockOrderId.HasValue && destination.OutboundLockOrderId != order.Id))
-                throw new InvalidOperationException($"Cột '{FormatLocationCode(destination)}' hiện không thể nhận lại bao #{bag.BagNo}.");
-            if (destination.MaxCapacity.HasValue && destination.CurrentOccupancy + bag.WeightKg > destination.MaxCapacity.Value + 0.0005m)
-                throw new InvalidOperationException($"Cột '{FormatLocationCode(destination)}' không đủ sức chứa để hoàn bao #{bag.BagNo}.");
-            if (destination.CurrentProductVariantId.HasValue && destination.CurrentProductVariantId != bag.Lot.ProductVariantId)
-                throw new InvalidOperationException($"Cột '{FormatLocationCode(destination)}' đang chứa sản phẩm khác, không thể hoàn bao #{bag.BagNo}.");
-
-            if (bag.SourceBagId.HasValue && _bagContentRepository != null)
-            {
-                var sourceBag = await _bagRepository.FirstOrDefaultAsync(x =>
-                    x.Id == bag.SourceBagId.Value && x.LocationId == destination.Id &&
-                    x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted, true,
-                    x => x.Lot, x => x.Contents);
-                if (sourceBag == null)
-                    throw new InvalidOperationException($"Không tìm thấy bao nguồn của bao tách #{bag.BagNo} để hoàn phiếu.");
-                var returnedWeight = bag.WeightKg;
-                var sourceBefore = sourceBag.WeightKg;
-                foreach (var content in bag.Contents.Where(x => !x.IsDeleted && x.WeightKg > 0))
-                {
-                    var sourceContent = sourceBag.Contents.FirstOrDefault(x =>
-                        !x.IsDeleted && x.LotId == content.LotId);
-                    if (sourceContent == null)
-                    {
-                        sourceContent = new PaddyLotBagContent
-                        {
-                            BagId = sourceBag.Id, LotId = content.LotId, WeightKg = 0,
-                            CreatedBy = userId, CreatedDate = now
-                        };
-                        sourceBag.Contents.Add(sourceContent);
-                        await _bagContentRepository.CreateAsync(sourceContent);
-                    }
-                    sourceContent.WeightKg += content.WeightKg;
-                    sourceContent.LastModifiedDate = now;
-                    sourceContent.UpdatedBy = userId;
-                    await _bagContentRepository.UpdateAsync(sourceContent);
-                    content.WeightKg = 0;
-                    content.LastModifiedDate = now;
-                    content.UpdatedBy = userId;
-                    await _bagContentRepository.UpdateAsync(content);
-                }
-                sourceBag.WeightKg += returnedWeight;
-                sourceBag.IsFull = !sourceBag.StandardWeightKg.HasValue ||
-                    sourceBag.WeightKg + 0.0005m >= sourceBag.StandardWeightKg.Value;
-                sourceBag.OpenBagKey = sourceBag.IsFull || sourceBag.LocationId == null ? null : BuildOpenBagKey(sourceBag.Lot.ProductVariantId, sourceBag.Lot.WarehouseId, sourceBag.LocationId.Value);
-                RefreshRepresentativeLot(sourceBag);
-                sourceBag.LastModifiedDate = now;
-                sourceBag.UpdatedBy = userId;
-                await _bagRepository.UpdateAsync(sourceBag);
-                bag.WeightKg = 0;
-                bag.LocationId = null;
-                bag.Status = PaddyLotBagStatuses.Reversed;
-                bag.StackOrder = 0;
-                bag.IsFull = false;
-                bag.OpenBagKey = null;
-                bag.LastModifiedDate = now;
-                bag.UpdatedBy = userId;
-                await _bagRepository.UpdateAsync(bag);
-                destination.CurrentOccupancy += returnedWeight;
-                destination.CurrentProductVariantId ??= sourceBag.Lot.ProductVariantId;
-                await _locationRepository.UpdateAsync(destination);
-                if (staging != null) staging.CurrentOccupancy = Math.Max(0, staging.CurrentOccupancy - returnedWeight);
-                await _bagMovementRepository.CreateAsync(new PaddyLotBagMovement
-                {
-                    BagId = sourceBag.Id, MovementType = PaddyLotBagMovementTypes.OutboundStageReturn,
-                    FromLocationId = stagingId, ToLocationId = destination.Id, WeightKg = returnedWeight,
-                    BeforeWeightKg = sourceBefore, AfterWeightKg = sourceBag.WeightKg,
-                    ReferenceType = InventoryReferenceTypeConstants.OutboundOrder, ReferenceId = order.Id,
-                    ReferenceItemId = movements.First(x => x.BagId == bag.Id).ReferenceItemId,
-                    Note = $"Ghép lại vào bao nguồn #{sourceBag.BagNo} do hủy phiếu",
-                    CreatedBy = userId, CreatedDate = now
-                });
-                continue;
-            }
-
-            var stack = await _bagRepository.FindByCondition(x =>
-                    x.LocationId == destination.Id && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted)
-                .MaxAsync(x => (int?)x.StackOrder) ?? 0;
-            bag.LocationId = destination.Id;
-            bag.Status = PaddyLotBagStatuses.Stored;
-            bag.StackOrder = stack + 1;
-            bag.OpenBagKey = bag.IsFull || bag.LocationId == null ? null : BuildOpenBagKey(bag.Lot.ProductVariantId, bag.Lot.WarehouseId, bag.LocationId.Value);
-            bag.LastModifiedDate = now;
-            bag.UpdatedBy = userId;
-            await _bagRepository.UpdateAsync(bag);
-
-            destination.CurrentOccupancy += bag.WeightKg;
-            destination.CurrentProductVariantId ??= bag.Lot.ProductVariantId;
-            destination.LastModifiedDate = now;
-            destination.UpdatedBy = userId;
-            await _locationRepository.UpdateAsync(destination);
-            if (staging != null)
-                staging.CurrentOccupancy = Math.Max(0, staging.CurrentOccupancy - bag.WeightKg);
-
-            await _bagMovementRepository.CreateAsync(new PaddyLotBagMovement
-            {
-                BagId = bag.Id,
-                MovementType = PaddyLotBagMovementTypes.OutboundStageReturn,
-                FromLocationId = stagingId,
-                ToLocationId = destination.Id,
-                WeightKg = bag.WeightKg,
-                BeforeWeightKg = bag.WeightKg,
-                AfterWeightKg = bag.WeightKg,
-                ReferenceType = InventoryReferenceTypeConstants.OutboundOrder,
-                ReferenceId = order.Id,
-                ReferenceItemId = movements.First(x => x.BagId == bag.Id).ReferenceItemId,
-                Note = "Hoàn nguyên bao từ khu chờ xuất do hủy phiếu",
-                CreatedBy = userId,
-                CreatedDate = now
-            });
-        }
-
-        foreach (var item in order.OutboundOrderItems.Where(i => !i.IsDeleted))
-        {
-            foreach (var allocation in ActiveAllocations(item))
-            {
-                if (allocation.QuantityPicked <= 0.0005m || !allocation.PaddyLotId.HasValue) continue;
-                var source = allocation.Inventory;
-                if (source == null || source.IsDeleted)
-                    throw new InvalidOperationException($"Không tìm thấy tồn nguồn cho allocation #{allocation.Id}.");
-                var stagingInventory = await _inventoryRepository.GetByVariantWarehouseLocationAsync(
-                    source.ProductVariantId, source.WarehouseId, stagingId, allocation.PaddyLotId)
-                    ?? throw new InvalidOperationException($"Không tìm thấy tồn staging cho allocation #{allocation.Id}.");
-
-                var stagingBefore = stagingInventory.QuantityOnHand;
-                stagingInventory.QuantityOnHand -= allocation.QuantityPicked;
-                stagingInventory.QuantityReserved -= allocation.QuantityAllocated;
-                if (stagingInventory.QuantityOnHand < -0.0005m || stagingInventory.QuantityReserved < -0.0005m)
-                    throw new InvalidOperationException($"Tồn staging của allocation #{allocation.Id} không đủ để hoàn phiếu.");
-                stagingInventory.QuantityOnHand = Math.Max(0, stagingInventory.QuantityOnHand);
-                stagingInventory.QuantityReserved = Math.Max(0, stagingInventory.QuantityReserved);
-                stagingInventory.LastModifiedDate = now;
-                stagingInventory.UpdatedBy = userId;
-                await _inventoryRepository.UpdateAsync(stagingInventory);
-
-                var sourceBefore = source.QuantityOnHand;
-                source.QuantityOnHand += allocation.QuantityPicked;
-                source.LastModifiedDate = now;
-                source.UpdatedBy = userId;
-                await _inventoryRepository.UpdateAsync(source);
-
-                await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(new InventoryTransaction
-                {
-                    InventoryId = stagingInventory.Id, WarehouseId = stagingInventory.WarehouseId,
-                    LocationId = stagingInventory.LocationId, ProductVariantId = stagingInventory.ProductVariantId,
-                    PaddyLotId = stagingInventory.PaddyLotId, TransactionType = InventoryTransactionTypeConstants.TransferOut,
-                    ReferenceType = InventoryReferenceTypeConstants.OutboundOrder, ReferenceId = order.Id,
-                    ReferenceItemId = allocation.Id, Quantity = -allocation.QuantityPicked,
-                    BeforeQuantity = stagingBefore, AfterQuantity = stagingInventory.QuantityOnHand,
-                    WeightKg = -allocation.QuantityPicked, Note = "Hoàn hàng khỏi khu chờ xuất do hủy phiếu",
-                    CreatedBy = userId, CreatedDate = now
-                });
-                await _inventoryTransactionRepository.CreateWithColumnTotalsAsync(new InventoryTransaction
-                {
-                    InventoryId = source.Id, WarehouseId = source.WarehouseId, LocationId = source.LocationId,
-                    ProductVariantId = source.ProductVariantId, PaddyLotId = source.PaddyLotId,
-                    TransactionType = InventoryTransactionTypeConstants.TransferIn,
-                    ReferenceType = InventoryReferenceTypeConstants.OutboundOrder, ReferenceId = order.Id,
-                    ReferenceItemId = allocation.Id, Quantity = allocation.QuantityPicked,
-                    BeforeQuantity = sourceBefore, AfterQuantity = source.QuantityOnHand,
-                    WeightKg = allocation.QuantityPicked, Note = "Nhập lại hàng do hủy phiếu xuất",
-                    CreatedBy = userId, CreatedDate = now
-                });
-            }
-        }
-
-        if (staging != null)
-        {
-            staging.LastModifiedDate = now;
-            staging.UpdatedBy = userId;
-            await _locationRepository.UpdateAsync(staging);
-        }
-        await _bagRepository.SaveChangesAsync();
         return true;
     }
 
@@ -2784,7 +2190,7 @@ public class OutboundOrderService : IOutboundOrderService
     /// Không chạy lại thuật toán chọn bao. Trừ đúng BagId và Content tương ứng của lô.
     /// </summary>
     private async Task ConsumeAllocatedPhysicalBagsAsync(
-        int outboundOrderId, IReadOnlySet<int> stagedAllocationIds, int userId, DateTime now)
+        int outboundOrderId, int userId, DateTime now)
     {
         if (_bagAllocationRepository == null || _bagRepository == null || _bagContentRepository == null)
             return;
@@ -2802,21 +2208,6 @@ public class OutboundOrderService : IOutboundOrderService
 
         foreach (var alloc in activeBagAllocs)
         {
-            // Packing already moved/split these physical bags into outbound staging.
-            // ConsumeStagedBagsAsync consumed the staged bag above; touching the original
-            // allocation bag again would remove the remainder of a partially split bag
-            // (for example, picking 8 kg from a 10 kg bag would incorrectly delete the
-            // 2 kg remainder while Inventory still contains it).
-            if (alloc.ReferenceItemId.HasValue && stagedAllocationIds.Contains(alloc.ReferenceItemId.Value))
-            {
-                alloc.ConsumedWeightKg = alloc.PickedWeightKg;
-                alloc.Status = PaddyLotBagAllocationStatuses.Consumed;
-                alloc.LastModifiedDate = now;
-                alloc.UpdatedBy = userId;
-                await _bagAllocationRepository.UpdateAsync(alloc);
-                continue;
-            }
-
             if (alloc.PickedWeightKg <= 0.0005m)
             {
                 // Bao không pick thì giải phóng
@@ -3043,6 +2434,7 @@ public class OutboundOrderService : IOutboundOrderService
                 {
                     QualityInspectionId = inspection.Id,
                     BagId = bag.Id,
+                    BagWeightSnapshotKg = bag.WeightKg,
                     InspectedAt = now,
                     InspectorId = userId > 0 ? userId : null,
                     QualityResult = "ISSUE_DETECTED",
@@ -3533,7 +2925,6 @@ public class OutboundOrderService : IOutboundOrderService
         await using var tx = await _outboundOrderRepository.BeginTransactionAsync();
         try
         {
-            // PICKING còn giữ tồn tại cột nguồn. PACKED mới chỉ trừ trực tiếp nếu là dữ liệu cũ chưa staging.
             if (order.OutboundOrderStatus?.Code is OutboundOrderStatusNames.Picking or OutboundOrderStatusNames.Packed)
             {
                 foreach (var item in order.OutboundOrderItems.Where(i => !i.IsDeleted))

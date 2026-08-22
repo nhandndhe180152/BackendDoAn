@@ -41,6 +41,15 @@ using OutboundOrderEntity = Backend.Domain.Entities.OutboundOrder;
 using OutboundOrderItemEntity = Backend.Domain.Entities.OutboundOrderItem;
 using OutboundOrderItemAllocationEntity = Backend.Domain.Entities.OutboundOrderItemAllocation;
 using InventoryEntity = Backend.Domain.Entities.Inventory;
+using CustomerFeedbackEntity = Backend.Domain.Entities.CustomerFeedback;
+using CustomerReturnOrderEntity = Backend.Domain.Entities.CustomerReturnOrder;
+using CustomerReturnOrderItemEntity = Backend.Domain.Entities.CustomerReturnOrderItem;
+using CustomerReturnAllocationEntity = Backend.Domain.Entities.CustomerReturnOrderItemAllocation;
+using CustomerReturnStatusEntity = Backend.Domain.Entities.CustomerReturnOrderStatus;
+using PaddyLotBagEntity = Backend.Domain.Entities.PaddyLotBag;
+using PaddyLotBagAllocationEntity = Backend.Domain.Entities.PaddyLotBagAllocation;
+using PartyDebtEntity = Backend.Domain.Entities.PartyDebt;
+using DebtTransactionEntity = Backend.Domain.Entities.DebtTransaction;
 
 namespace Backend.UnitTest.Services.PaddyLotTraceabilityTests;
 
@@ -311,6 +320,10 @@ public class PaddyLotTraceabilityServiceTests
             TotalRiceOutputKg = 3500m,
             ByproductKg = 1000m,
             LossKg = 500m,
+            MachineRef = "MILL-01",
+            OperatorId = 10,
+            ActualPaddyInputKg = 5000m,
+            ActualYieldRate = 0.70m,
             StartedAt = DateTime.UtcNow.AddDays(-8),
             CompletedAt = DateTime.UtcNow.AddDays(-7)
         };
@@ -428,6 +441,159 @@ public class PaddyLotTraceabilityServiceTests
         };
         db.OutboundOrderItemAllocations.Add(alloc);
 
+        var deliveredBag = new PaddyLotBagEntity
+        {
+            Id = 650,
+            LotId = 102,
+            BagNo = 18,
+            WeightKg = 50m,
+            LocationId = 1,
+            Status = "Dispatched",
+            BagKind = "Finished"
+        };
+        db.PaddyLotBags.Add(deliveredBag);
+        db.PaddyLotBagAllocations.Add(new PaddyLotBagAllocationEntity
+        {
+            Id = 651,
+            BagId = 650,
+            ReferenceType = "OUTBOUND_ORDER",
+            ReferenceId = 500,
+            ReferenceItemId = 501,
+            AllocatedWeightKg = 50m,
+            PickedWeightKg = 50m,
+            BagWeightSnapshotKg = 50m,
+            Status = "CONSUMED"
+        });
+
+        var feedback = new CustomerFeedbackEntity
+        {
+            Id = 700,
+            SalesOrderId = 400,
+            OutboundOrderId = 500,
+            OutboundOrderItemId = 501,
+            ProductVariantId = 2,
+            PaddyLotBagAllocationId = 651,
+            FeedbackType = "QUALITY",
+            Severity = "HIGH",
+            Description = "Bao gạo có mùi ẩm",
+            ResolutionStatus = "RESOLVED",
+            ResolutionNote = "Đã duyệt nhận lại hàng",
+            CreatedDate = DateTime.UtcNow.AddDays(-3),
+            ResolvedAt = DateTime.UtcNow.AddDays(-2)
+        };
+        db.CustomerFeedbacks.Add(feedback);
+
+        db.CustomerReturnOrderStatuses.Add(new CustomerReturnStatusEntity
+        {
+            Id = 20,
+            Code = "CONFIRMED",
+            Name = "Đã hoàn tất",
+            Color = "#10B981"
+        });
+        var firstRefundAt = DateTime.UtcNow.AddHours(-10);
+        var secondRefundAt = DateTime.UtcNow.AddHours(-8);
+        var debtReductionAt = DateTime.UtcNow.AddHours(-11);
+        var returnLastModifiedAt = DateTime.UtcNow.AddHours(-6);
+        var customerReturn = new CustomerReturnOrderEntity
+        {
+            Id = 800,
+            OrganizationId = 1,
+            WarehouseId = 1,
+            CustomerReturnOrderStatusId = 20,
+            OutboundOrderId = 500,
+            CustomerFeedbackId = 700,
+            CustomerId = 1,
+            ReturnCode = "CR-001",
+            ReturnReason = "Gạo có mùi ẩm",
+            CreatedDate = DateTime.UtcNow.AddDays(-2),
+            ReceivedAt = DateTime.UtcNow.AddDays(-1.5),
+            InspectedAt = DateTime.UtcNow.AddDays(-1),
+            ConfirmedAt = DateTime.UtcNow.AddHours(-12),
+            ApprovedCreditAmount = 800000m,
+            DebtReductionAmount = 300000m,
+            RefundedAmount = 500000m,
+            RefundStatus = "REFUNDED",
+            LastModifiedDate = returnLastModifiedAt
+        };
+        db.CustomerReturnOrders.Add(customerReturn);
+        db.CustomerReturnOrderItems.Add(new CustomerReturnOrderItemEntity
+        {
+            Id = 801,
+            CustomerReturnOrderId = 800,
+            ProductVariantId = 2,
+            QuantityReturned = 50m,
+            QuantityGood = 30m,
+            QuantityDamaged = 15m,
+            QualityStatus = "MIXED"
+        });
+        db.CustomerReturnOrderItemAllocations.Add(new CustomerReturnAllocationEntity
+        {
+            Id = 802,
+            CustomerReturnOrderItemId = 801,
+            OutboundOrderItemAllocationId = 601,
+            PaddyLotId = 102,
+            ProductVariantId = 2,
+            OriginalLocationId = 1,
+            QuantityReturned = 50m,
+            QuantityReceived = 50m,
+            QuantityGood = 30m,
+            QuantityDamaged = 15m,
+            QuantityRejected = 5m,
+            RestockLocationId = 1,
+            QuarantineLocationId = 2,
+            Disposition = "MIXED",
+            CreditAmount = 800000m
+        });
+
+        var refundDebt = new PartyDebtEntity
+        {
+            Id = 850,
+            OrganizationId = 1,
+            PartyType = LookupCodes.PartyType.Customer,
+            PartyId = 1,
+            Direction = LookupCodes.DebtDirection.Payable,
+            CurrentBalance = 0,
+            IsActive = true
+        };
+        db.PartyDebts.Add(refundDebt);
+        db.DebtTransactions.AddRange(
+            new DebtTransactionEntity
+            {
+                Id = 851,
+                PartyDebtId = 850,
+                TransactionType = LookupCodes.DebtTransactionType.Payment,
+                Amount = 200000m,
+                BalanceAfter = 300000m,
+                RefType = InventoryReferenceTypeConstants.CustomerReturnOrder,
+                RefId = 800,
+                TransactionDate = firstRefundAt,
+                DeduplicationKey = "CRT-REFUND-800-BANK-001"
+            },
+            new DebtTransactionEntity
+            {
+                Id = 852,
+                PartyDebtId = 850,
+                TransactionType = LookupCodes.DebtTransactionType.Payment,
+                Amount = 300000m,
+                BalanceAfter = 0,
+                RefType = InventoryReferenceTypeConstants.CustomerReturnOrder,
+                RefId = 800,
+                TransactionDate = secondRefundAt,
+                DeduplicationKey = "CRT-REFUND-800-BANK-002"
+            },
+            new DebtTransactionEntity
+            {
+                Id = 853,
+                PartyDebtId = 850,
+                TransactionType = LookupCodes.DebtTransactionType.ReturnCredit,
+                Amount = 300000m,
+                BalanceAfter = 0,
+                RefType = InventoryReferenceTypeConstants.CustomerReturnOrder,
+                RefId = 800,
+                TransactionDate = debtReductionAt,
+                DeduplicationKey = "CRT-CONFIRM-800"
+            });
+
         await db.SaveChangesAsync();
 
         // Act: Trace from Paddy Lot 101
@@ -456,13 +622,35 @@ public class PaddyLotTraceabilityServiceTests
         data.MillingOrders[0].MillingCode.Should().Be("MO-001");
         data.MillingOrders[0].Inputs.Should().HaveCount(1);
         data.MillingOrders[0].Outputs.Should().HaveCount(2);
+        data.MillingOrders[0].MachineRef.Should().Be("MILL-01");
+        data.MillingOrders[0].OperatorName.Should().Be("Trần Văn B");
 
         data.OutboundSales.Should().HaveCount(1);
         data.OutboundSales[0].SalesOrderCode.Should().Be("SO-001");
         data.OutboundSales[0].CustomerName.Should().Be("Công ty Đại Nam");
 
+        data.CustomerFeedbacks.Should().ContainSingle();
+        data.CustomerFeedbacks[0].BagNo.Should().Be(18);
+        data.CustomerReturns.Should().ContainSingle();
+        data.CustomerReturns[0].ReturnCode.Should().Be("CR-001");
+        data.CustomerReturns[0].Items.Single().Allocations.Single().Disposition.Should().Be("MIXED");
+        data.CustomerReturns[0].RefundedAmount.Should().Be(500000m);
+        data.CustomerReturns[0].RefundedAt.Should().Be(secondRefundAt);
+        data.CustomerReturns[0].RefundedAt.Should().NotBe(returnLastModifiedAt);
+
         data.Timeline.Should().NotBeEmpty();
-        data.Timeline.Select(e => e.EventType).Should().Contain(new[] { "PROCUREMENT", "QUALITY_INSPECTION", "MILLING_STARTED", "MILLING_COMPLETED", "OUTBOUND_COMPLETED" });
+        data.Timeline.Select(e => e.EventType).Should().Contain(new[]
+        {
+            "PROCUREMENT", "QUALITY_INSPECTION", "MILLING_STARTED", "MILLING_COMPLETED", "OUTBOUND_COMPLETED",
+            "CUSTOMER_FEEDBACK_CREATED", "CUSTOMER_FEEDBACK_RESOLVED", "CUSTOMER_RETURN_CREATED",
+            "CUSTOMER_RETURN_RECEIVED", "CUSTOMER_RETURN_INSPECTED", "CUSTOMER_RETURN_CONFIRMED", "CUSTOMER_RETURN_REFUND"
+        });
+        var refundEvents = data.Timeline.Where(e => e.EventType == "CUSTOMER_RETURN_REFUND").ToList();
+        refundEvents.Should().HaveCount(2);
+        refundEvents.Select(e => e.EventAt).Should().Equal(firstRefundAt, secondRefundAt);
+        refundEvents.Select(e => e.Description).Should().Contain(x => x.Contains("200000"));
+        refundEvents.Select(e => e.Description).Should().Contain(x => x.Contains("300000"));
+        refundEvents.Should().NotContain(e => e.EventAt == debtReductionAt);
 
         // Summary calculations verification
         data.Summary.RelatedLotCount.Should().Be(3);
@@ -474,6 +662,13 @@ public class PaddyLotTraceabilityServiceTests
         data.Summary.MillingLossWeightKg.Should().Be(500m);
         data.Summary.AllocatedOutboundWeightKg.Should().Be(2000m);
         data.Summary.DispatchedWeightKg.Should().Be(2000m);
+        data.Summary.FeedbackCount.Should().Be(1);
+        data.Summary.CustomerReturnCount.Should().Be(1);
+        data.Summary.ReturnedWeightKg.Should().Be(50m);
+        data.Summary.RestockedReturnWeightKg.Should().Be(30m);
+        data.Summary.QuarantinedReturnWeightKg.Should().Be(15m);
+        data.Summary.RejectedReturnWeightKg.Should().Be(5m);
+        data.Summary.RefundAmount.Should().Be(500000m);
     }
 
     [Fact]

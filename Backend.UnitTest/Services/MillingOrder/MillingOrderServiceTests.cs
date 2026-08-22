@@ -33,23 +33,58 @@ public class MillingOrderServiceTests
     private readonly Mock<IRepositoryBase<Alert, int>>           _alertRepo    = new();
     private readonly Mock<INotificationDispatcher>              _dispatcher   = new();
     private readonly Mock<ISalesOrderRepository>                _salesOrderRepo = new();
+    private readonly Mock<IUserRepository>                      _userRepo = new();
     private readonly Mock<IRepositoryBase<PaddyLotBagAllocation, int>> _bagAllocationRepo = new();
 
-    private MillingOrderService Sut() => new(
-        _orderRepo.Object,
-        _paddyLotRepo.Object,
-        _inputRepo.Object,
-        _outputRepo.Object,
-        _statusRepo.Object,
-        _lotStatusRepo.Object,
-        _invRepo.Object,
-        _invTxRepo.Object,
-        _locationRepo.Object,
-        _yieldRepo.Object,
-        _alertRepo.Object,
-        _dispatcher.Object,
-        _salesOrderRepo.Object,
-        bagAllocationRepository: _bagAllocationRepo.Object);
+    private MillingOrderService Sut()
+    {
+        var millingRole = new Backend.Domain.Entities.Role { Code = LookupCodes.Role.Milling };
+        var operatorUser = new Backend.Domain.Entities.User
+        {
+            Id = 1,
+            FirstName = "Operator",
+            LastName = "Test",
+            UserStatus = new UserStatus { Code = LookupCodes.UserStatus.Active },
+            UserRoles = new List<UserRole>()
+        };
+        operatorUser.UserRoles.Add(new UserRole
+        {
+            User = operatorUser,
+            Role = millingRole
+        });
+        var secondOperator = new Backend.Domain.Entities.User
+        {
+            Id = 5,
+            FirstName = "Operator 2",
+            LastName = "Test",
+            UserStatus = new UserStatus { Code = LookupCodes.UserStatus.Active },
+            UserRoles = new List<UserRole>()
+        };
+        secondOperator.UserRoles.Add(new UserRole
+        {
+            User = secondOperator,
+            Role = millingRole
+        });
+        _userRepo.Setup(r => r.GetAll(It.IsAny<bool>()))
+            .Returns(new List<Backend.Domain.Entities.User> { operatorUser, secondOperator }.AsQueryable().BuildMock());
+
+        return new MillingOrderService(
+            _orderRepo.Object,
+            _paddyLotRepo.Object,
+            _inputRepo.Object,
+            _outputRepo.Object,
+            _statusRepo.Object,
+            _lotStatusRepo.Object,
+            _invRepo.Object,
+            _invTxRepo.Object,
+            _locationRepo.Object,
+            _yieldRepo.Object,
+            _alertRepo.Object,
+            _dispatcher.Object,
+            _salesOrderRepo.Object,
+            _userRepo.Object,
+            bagAllocationRepository: _bagAllocationRepo.Object);
+    }
 
     private void SetupPhysicalAllocation(decimal weightKg)
     {
@@ -254,6 +289,17 @@ public class MillingOrderServiceTests
         var result = await Sut().StartAsync(1, dto, 1);
         result.Status.Should().Be(422);
         result.Message.Should().Contain("MachineRef");
+    }
+
+    [Fact]
+    public async Task StartAsync_Returns422_WhenOperatorDoesNotHaveMillingRole()
+    {
+        var dto = new StartMillingOrderDto { MachineRef = "MILL-A1", OperatorId = 999 };
+
+        var result = await Sut().StartAsync(1, dto, 1);
+
+        result.Status.Should().Be(422);
+        result.Code.Should().Be("MILLING_OPERATOR_INVALID");
     }
 
     [Fact]

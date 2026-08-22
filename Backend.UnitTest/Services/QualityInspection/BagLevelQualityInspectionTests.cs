@@ -299,6 +299,7 @@ public class BagLevelQualityInspectionTests
         {
             QualityInspectionId = inspectionId,
             BagId = bagIds[0],
+            BagWeightSnapshotKg = 49.8m,
             InspectedAt = DateTime.UtcNow,
             QualityResult = BagQualityResultConstants.IssueDetected,
             Disposition = null,
@@ -311,6 +312,11 @@ public class BagLevelQualityInspectionTests
         progress.InspectedBags.Should().Be(0);
         progress.RemainingBags.Should().Be(1);
 
+        var detail = (await sut.GetByIdAsync(inspectionId)).Resources as QualityInspectionDetailDto;
+        detail.Should().NotBeNull();
+        detail!.TargetedBagCount.Should().Be(1);
+        detail.TargetedWeightKg.Should().Be(49.8m);
+
         var outsideResult = await sut.SaveBagResultAsync(inspectionId, new SaveBagInspectionResultDto
         {
             BagId = bagIds[1],
@@ -319,6 +325,73 @@ public class BagLevelQualityInspectionTests
         });
         outsideResult.Status.Should().Be(400);
         outsideResult.Message.Should().Contain("không thuộc phạm vi");
+
+        var targetedBag = await context.PaddyLotBags.FirstAsync(x => x.Id == bagIds[0]);
+        targetedBag.Status = PaddyLotBagStatuses.QualityHold;
+        targetedBag.LocationId = 10;
+        targetedBag.IsFull = true;
+        await context.SaveChangesAsync();
+
+        var saveTargeted = await sut.SaveBagResultAsync(inspectionId, new SaveBagInspectionResultDto
+        {
+            BagId = bagIds[0],
+            QualityResult = BagQualityResultConstants.Pass,
+            Disposition = BagDispositionConstants.Release
+        });
+        saveTargeted.Status.Should().Be(200);
+
+        var complete = await sut.CompleteAsync(inspectionId, new CompleteInspectionDto { CompletedBy = 1001 });
+        complete.Status.Should().Be(200);
+        targetedBag.Status.Should().Be(PaddyLotBagStatuses.Stored);
+        (await context.PaddyLotBags.FirstAsync(x => x.Id == bagIds[1])).Status
+            .Should().Be(PaddyLotBagStatuses.Pending);
+        inspection.AffectedWeightKg.Should().Be(0);
+
+        targetedBag.WeightKg = 0;
+        targetedBag.Status = PaddyLotBagStatuses.Consumed;
+        await context.SaveChangesAsync();
+
+        var historicalDetail = (await sut.GetByIdAsync(inspectionId)).Resources as QualityInspectionDetailDto;
+        historicalDetail!.TargetedBagCount.Should().Be(1);
+        historicalDetail.TargetedWeightKg.Should().Be(49.8m);
+    }
+
+    [Fact(DisplayName = "OUTBOUND_EXCEPTION fail chỉ quarantine bao targeted")]
+    public async Task OutboundExceptionFail_ShouldOnlyQuarantineTargetedBag()
+    {
+        var (sut, context) = CreateService();
+        var (inspectionId, _, bagIds) = await SetupBaselineReceivingLotWith3BagsAsync(context);
+        var inspection = await context.QualityInspections.FirstAsync(x => x.Id == inspectionId);
+        inspection.InspectionType = InspectionTypeConstants.OutboundException;
+        var targetedBag = await context.PaddyLotBags.FirstAsync(x => x.Id == bagIds[0]);
+        targetedBag.Status = PaddyLotBagStatuses.QualityHold;
+        targetedBag.LocationId = 10;
+        context.QualityInspectionBagResults.Add(new QualityInspectionBagResult
+        {
+            QualityInspectionId = inspectionId,
+            BagId = targetedBag.Id,
+            InspectedAt = DateTime.UtcNow,
+            QualityResult = BagQualityResultConstants.IssueDetected,
+            CreatedDate = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var save = await sut.SaveBagResultAsync(inspectionId, new SaveBagInspectionResultDto
+        {
+            BagId = targetedBag.Id,
+            QualityResult = BagQualityResultConstants.IssueDetected,
+            Disposition = BagDispositionConstants.Quarantine
+        });
+        save.Status.Should().Be(200);
+
+        var complete = await sut.CompleteAsync(inspectionId, new CompleteInspectionDto { CompletedBy = 1001 });
+
+        complete.Status.Should().Be(200);
+        targetedBag.Status.Should().Be(PaddyLotBagStatuses.Quarantined);
+        targetedBag.BagKind.Should().Be(PaddyLotBagKinds.Quarantine);
+        (await context.PaddyLotBags.Where(x => x.Id != targetedBag.Id).ToListAsync())
+            .Should().OnlyContain(x => x.Status == PaddyLotBagStatuses.Pending);
+        inspection.AffectedWeightKg.Should().Be(49.8m);
     }
 
     [Fact(DisplayName = "D-16: Service tự chặn moisture/impurity ngoài 0-100")]

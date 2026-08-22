@@ -281,6 +281,7 @@ public class FailDeliveryDto
 public class BagAllocationDetailDto
 {
     public int BagAllocationId { get; set; }
+    public int? OutboundOrderItemId { get; set; }
     public int BagId { get; set; }
     public int BagNo { get; set; }
     public decimal AllocatedWeightKg { get; set; }

@@ -36,6 +36,15 @@ namespace Backend.API.Controllers
             return BaseResult(result);
         }
 
+        /// <summary>Danh sách tài khoản đang hoạt động có role MILLING.</summary>
+        [HttpGet("operators")]
+        [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.READ)]
+        public async Task<IActionResult> GetOperatorsAsync()
+        {
+            var result = await _millingOrderService.GetOperatorsAsync();
+            return BaseResult(result);
+        }
+
         /// <summary>Gap 2: Danh sách lệnh xay gắn với một đơn bán (điều phối xay-theo-đơn).</summary>
         [HttpGet("by-sales-order/{salesOrderId}")]
         [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.READ)]

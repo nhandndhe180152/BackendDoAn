@@ -6,6 +6,8 @@ namespace Backend.Application.Interfaces;
 
 public interface IMillingOrderService : IServiceBase<int, CreateMillingOrderDto, UpdateMillingOrderDto, DTParameter>
 {
+    /// <summary>Lấy tài khoản đang hoạt động có role code MILLING để chọn người vận hành.</summary>
+    Task<ApiResponse> GetOperatorsAsync();
     Task<ApiResponse> ReserveAsync(int id, ReserveMillingOrderDto dto, int userId);
     Task<ApiResponse> SuggestSourcesAsync(int id);
     /// <summary>W14-J: Bắt đầu lệnh xay với MachineRef bắt buộc và OperatorId tùy chọn.</summary>

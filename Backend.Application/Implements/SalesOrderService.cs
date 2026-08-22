@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Backend.Application.Constants;
@@ -79,6 +80,9 @@ public class SalesOrderService : ISalesOrderService
 
     private int GetCurrentUserId()
         => _httpContextAccessor.HttpContext?.GetCurrentUserId() ?? 0;
+
+    private static string FormatKg(decimal value)
+        => value.ToString("0.##", CultureInfo.InvariantCulture);
 
     private async Task<int> GetCurrentOrganizationIdAsync()
     {
@@ -561,10 +565,16 @@ public class SalesOrderService : ISalesOrderService
                 var totalAvail = availableRows.Sum(x => x.QuantityOnHand - x.QuantityReserved);
 
                 if (totalAvail < item.QuantityOrdered)
+                {
+                    var productName = string.IsNullOrWhiteSpace(item.ProductVariant?.Name)
+                        ? "không xác định"
+                        : item.ProductVariant.Name.Trim();
+
                     return ApiResponse.Error(
-                        $"Tồn khả dụng không đủ cho sản phẩm ID {item.ProductVariantId}. " +
-                        $"Cần: {item.QuantityOrdered}, Khả dụng: {totalAvail}.",
+                        $"Tồn khả dụng không đủ cho sản phẩm {productName}. " +
+                        $"Cần: {FormatKg(item.QuantityOrdered)} kg, Khả dụng: {FormatKg(totalAvail)} kg.",
                         422, ApiCodeConstants.SalesOrder.InsufficientStock);
+                }
 
                 decimal remainingToReserve = item.QuantityOrdered;
 

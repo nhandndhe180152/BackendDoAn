@@ -15,6 +15,7 @@ public class QualityInspectionBagResultConfiguration : IEntityTypeConfiguration<
 
         builder.Property(x => x.MoisturePercent).HasColumnType("decimal(5,2)");
         builder.Property(x => x.ImpurityPercent).HasColumnType("decimal(5,2)");
+        builder.Property(x => x.BagWeightSnapshotKg).HasPrecision(18, 3);
         builder.Property(x => x.MoldLevel).HasMaxLength(50);
         builder.Property(x => x.PestLevel).HasMaxLength(50);
         builder.Property(x => x.PackagingStatus).HasMaxLength(50);

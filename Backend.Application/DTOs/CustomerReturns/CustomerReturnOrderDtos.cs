@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Backend.Application.DTOs.CustomerFeedbacks;
 
 namespace Backend.Application.DTOs.CustomerReturns;
 
@@ -108,6 +109,7 @@ public class CustomerReturnOrderListDto
     
     public int? OutboundOrderId { get; set; }
     public string? OutboundOrderCode { get; set; }
+    public int? SalesOrderId { get; set; }
     public string? SalesOrderCode { get; set; }
     
     public int? CustomerFeedbackId { get; set; }
@@ -142,6 +144,7 @@ public class CustomerReturnOrderListDto
 
 public class CustomerReturnOrderDetailDto : CustomerReturnOrderListDto
 {
+    public CustomerFeedbackSummaryDto? Feedback { get; set; }
     public List<CustomerReturnOrderItemDetailDto> Items { get; set; } = new();
 }
 
