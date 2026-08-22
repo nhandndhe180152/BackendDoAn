@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Text.Json;
+using Backend.Application.DTOs.CustomerFeedbacks;
 using Backend.Application.DTOs.CustomerReturns;
 using Backend.Application.Interfaces;
 using Backend.Application.Constants;
@@ -11,6 +12,7 @@ using Backend.Domain.Abstractions;
 using Backend.Share.Services;
 using Backend.Application.BackgroundJobs.DebtDueOverdue;
 using Backend.Domain.Entities;
+using Backend.Domain.Enums;
 using Backend.Share.Constants;
 using Backend.Share.Entities;
 using Backend.Share.Extensions;
@@ -165,20 +167,35 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 return ApiResponse.BadRequest(message: "Kho tiếp nhận phải khớp với kho xuất hàng gốc.");
         }
 
+        CustomerFeedback? linkedFeedback = null;
         if (dto.CustomerFeedbackId.HasValue)
         {
             if (outbound == null)
                 return ApiResponse.BadRequest(message: "Phiếu xuất gốc là bắt buộc khi tạo trả hàng từ khiếu nại.");
 
-            var feedback = await _context.CustomerFeedbacks
+            linkedFeedback = await _context.CustomerFeedbacks
                 .Include(x => x.CustomerReturnOrder)
                 .FirstOrDefaultAsync(x => x.Id == dto.CustomerFeedbackId.Value && !x.IsDeleted, cancellationToken);
-            if (feedback == null)
+            if (linkedFeedback == null)
                 return ApiResponse.NotFound(message: "Không tìm thấy khiếu nại gốc.");
-            if (feedback.OutboundOrderId != outbound.Id || feedback.SalesOrderId != outbound.SalesOrderId)
+            if (linkedFeedback.OutboundOrderId != outbound.Id || linkedFeedback.SalesOrderId != outbound.SalesOrderId)
                 return ApiResponse.BadRequest(message: "Khiếu nại không thuộc phiếu xuất/đơn bán đã chọn.");
-            if (feedback.CustomerReturnOrder != null)
+            if (linkedFeedback.CustomerReturnOrder != null)
                 return ApiResponse.Conflict(message: "Khiếu nại này đã có phiếu trả hàng.");
+        }
+        else if (outbound != null && !string.IsNullOrWhiteSpace(dto.ReturnReason))
+        {
+            linkedFeedback = new CustomerFeedback
+            {
+                SalesOrderId = outbound.SalesOrderId,
+                OutboundOrderId = outbound.Id,
+                FeedbackType = CustomerFeedbackType.Other,
+                Description = dto.ReturnReason.Trim(),
+                ResolutionStatus = CustomerFeedbackStatus.Open,
+                CreatedBy = GetCurrentUserId(),
+                CreatedDate = DateTimeHelper.VietnamNow()
+            };
+            await _context.CustomerFeedbacks.AddAsync(linkedFeedback, cancellationToken);
         }
 
         var status = await _context.CustomerReturnOrderStatuses
@@ -207,6 +224,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 CustomerId = dto.CustomerId,
                 OutboundOrderId = dto.OutboundOrderId,
                 CustomerFeedbackId = dto.CustomerFeedbackId,
+                CustomerFeedback = linkedFeedback,
                 ReturnCode = returnCode,
                 ReturnReason = dto.ReturnReason,
                 Note = dto.Note,
@@ -532,6 +550,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             .Include(o => o.CustomerReturnOrderStatus)
             .Include(o => o.OutboundOrder)
                 .ThenInclude(o => o.SalesOrder)
+            .Include(o => o.CustomerFeedback)
             .Include(o => o.Customer)
             .Include(o => o.ApprovedByUser)
             .Include(o => o.ConfirmedByUser)
@@ -569,6 +588,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             StatusName = order.CustomerReturnOrderStatus.Name,
             OutboundOrderId = order.OutboundOrderId,
             OutboundOrderCode = order.OutboundOrderId.HasValue ? $"OB-{order.OutboundOrderId.Value:D5}" : null,
+            SalesOrderId = order.OutboundOrder?.SalesOrderId,
             SalesOrderCode = order.OutboundOrder?.SalesOrder?.SOCode,
             CustomerFeedbackId = order.CustomerFeedbackId,
             CustomerId = order.CustomerId,
@@ -592,7 +612,24 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             TotalQuantityRejected = order.Items.SelectMany(i => i.Allocations).Sum(a => a.QuantityRejected),
             PrimaryProductVariantName = order.Items.OrderBy(i => i.Id).Select(i => i.ProductVariant != null ? i.ProductVariant.Name : null).FirstOrDefault(),
             PrimarySKU = order.Items.OrderBy(i => i.Id).Select(i => i.ProductVariant != null ? i.ProductVariant.SKU : null).FirstOrDefault(),
-            PrimaryLotCode = order.Items.SelectMany(i => i.Allocations).OrderBy(a => a.Id).Select(a => a.PaddyLot.LotCode).FirstOrDefault()
+            PrimaryLotCode = order.Items.SelectMany(i => i.Allocations).OrderBy(a => a.Id).Select(a => a.PaddyLot.LotCode).FirstOrDefault(),
+            Feedback = order.CustomerFeedback == null ? null : new CustomerFeedbackSummaryDto
+            {
+                Id = order.CustomerFeedback.Id,
+                SalesOrderId = order.CustomerFeedback.SalesOrderId,
+                OutboundOrderId = order.CustomerFeedback.OutboundOrderId,
+                OutboundOrderItemId = order.CustomerFeedback.OutboundOrderItemId,
+                ProductVariantId = order.CustomerFeedback.ProductVariantId,
+                FeedbackType = order.CustomerFeedback.FeedbackType,
+                Description = order.CustomerFeedback.Description,
+                Severity = order.CustomerFeedback.Severity,
+                ResolutionStatus = order.CustomerFeedback.ResolutionStatus,
+                CreatedDate = order.CustomerFeedback.CreatedDate,
+                ResolvedAt = order.CustomerFeedback.ResolvedAt,
+                ResolutionNote = order.CustomerFeedback.ResolutionNote,
+                CustomerReturnOrderId = order.Id,
+                CustomerReturnOrderCode = order.ReturnCode
+            }
         };
 
         foreach (var item in order.Items)
@@ -916,6 +953,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             StatusName = order.CustomerReturnOrderStatus.Name,
             OutboundOrderId = order.OutboundOrderId,
             OutboundOrderCode = order.OutboundOrderId.HasValue ? $"OB-{order.OutboundOrderId.Value:D5}" : null,
+            SalesOrderId = order.OutboundOrder?.SalesOrderId,
             SalesOrderCode = order.OutboundOrder?.SalesOrder?.SOCode,
             CustomerFeedbackId = order.CustomerFeedbackId,
             CustomerId = order.CustomerId,
@@ -1929,41 +1967,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         var nextBagNo = (await _context.PaddyLotBags.Where(x => x.LotId == allocation.PaddyLotId && !x.IsDeleted)
             .MaxAsync(x => (int?)x.BagNo, cancellationToken) ?? 0) + 1;
 
-        if (!quarantined)
-        {
-            var openKey = $"{allocation.ProductVariantId}:{order.WarehouseId}:{locationId}";
-            var open = await _context.PaddyLotBags.Include(x => x.Contents)
-                .FirstOrDefaultAsync(x => x.OpenBagKey == openKey && x.LocationId == locationId && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted, cancellationToken);
-            if (open != null && remaining > 0)
-            {
-                var topStackOrder = await _context.PaddyLotBags.AsNoTracking()
-                    .Where(x => x.LocationId == locationId && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted)
-                    .MaxAsync(x => (int?)x.StackOrder, cancellationToken) ?? 0;
-                if (open.StackOrder != 0 && open.StackOrder != topStackOrder)
-                    throw new InvalidOperationException(
-                        $"Bao mở #{open.BagNo} đang bị bao khác chặn phía trên nên không thể bổ sung hàng trả.");
-                var before = open.WeightKg;
-                var topUp = Math.Min(remaining, standardWeight - open.WeightKg);
-                if (topUp > 0)
-                {
-                    open.Contents.Add(new PaddyLotBagContent { LotId = allocation.PaddyLotId, WeightKg = topUp, CreatedBy = userId, CreatedDate = now });
-                    open.WeightKg += topUp;
-                    open.IsFull = open.WeightKg >= standardWeight - 0.001m;
-                    open.OpenBagKey = open.IsFull ? null : openKey;
-                    open.UpdatedBy = userId; open.LastModifiedDate = now;
-                    await _context.PaddyLotBagMovements.AddAsync(new PaddyLotBagMovement
-                    {
-                        BagId = open.Id, MovementType = PaddyLotBagMovementTypes.CustomerReturn,
-                        FromLocationId = locationId, ToLocationId = locationId, WeightKg = topUp,
-                        BeforeWeightKg = before, AfterWeightKg = open.WeightKg,
-                        ReferenceType = InventoryReferenceTypeConstants.CustomerReturnOrder, ReferenceId = order.Id,
-                        ReferenceItemId = allocation.Id, CreatedBy = userId, CreatedDate = now
-                    }, cancellationToken);
-                    remaining -= topUp;
-                }
-            }
-        }
-
+        // Returned goods always receive a new physical identity. They must not be
+        // topped up into an unrelated open bag, even when product/location match.
         while (remaining > 0.001m)
         {
             var weight = Math.Min(standardWeight, remaining);

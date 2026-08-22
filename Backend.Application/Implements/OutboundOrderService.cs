@@ -384,6 +384,7 @@ public class OutboundOrderService : IOutboundOrderService
             dto.BagAllocations = bagAllocs.Select(a => new BagAllocationDetailDto
             {
                 BagAllocationId   = a.Id,
+                OutboundOrderItemId = a.ReferenceItemId,
                 BagId             = a.BagId,
                 BagNo             = a.Bag?.BagNo ?? 0,
                 AllocatedWeightKg = a.AllocatedWeightKg,
@@ -405,6 +406,10 @@ public class OutboundOrderService : IOutboundOrderService
         {
             var feedbacks = await _dbContext.CustomerFeedbacks
                 .Include(f => f.ProductVariant)
+                .Include(f => f.PaddyLotBagAllocation)
+                    .ThenInclude(a => a.Bag)
+                        .ThenInclude(b => b.Lot)
+                .Include(f => f.CustomerReturnOrder)
                 .Where(f => !f.IsDeleted && f.OutboundOrderId == id)
                 .OrderByDescending(f => f.CreatedDate)
                 .ToListAsync();
@@ -418,13 +423,20 @@ public class OutboundOrderService : IOutboundOrderService
                 OutboundOrderItemId = f.OutboundOrderItemId,
                 ProductVariantId = f.ProductVariantId,
                 ProductVariantName = f.ProductVariant?.Name,
+                PaddyLotBagAllocationId = f.PaddyLotBagAllocationId,
+                BagId = f.PaddyLotBagAllocation?.BagId,
+                BagNo = f.PaddyLotBagAllocation?.Bag?.BagNo,
+                PaddyLotId = f.PaddyLotBagAllocation?.Bag?.LotId,
+                PaddyLotCode = f.PaddyLotBagAllocation?.Bag?.Lot?.LotCode,
                 FeedbackType = f.FeedbackType,
                 Description = f.Description,
                 Severity = f.Severity,
                 ResolutionStatus = f.ResolutionStatus,
                 CreatedDate = f.CreatedDate,
                 ResolvedAt = f.ResolvedAt,
-                ResolutionNote = f.ResolutionNote
+                ResolutionNote = f.ResolutionNote,
+                CustomerReturnOrderId = f.CustomerReturnOrder?.Id,
+                CustomerReturnOrderCode = f.CustomerReturnOrder?.ReturnCode
             }).ToList();
         }
 
@@ -459,6 +471,7 @@ public class OutboundOrderService : IOutboundOrderService
         var result = bagAllocs.Select(a => new BagAllocationDetailDto
         {
             BagAllocationId  = a.Id,
+            OutboundOrderItemId = a.ReferenceItemId,
             BagId            = a.BagId,
             BagNo            = a.Bag?.BagNo ?? 0,
             AllocatedWeightKg = a.AllocatedWeightKg,

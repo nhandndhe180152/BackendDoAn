@@ -43,6 +43,11 @@ public class CustomerFeedbackSummaryDto
     public int? OutboundOrderItemId { get; set; }
     public int? ProductVariantId { get; set; }
     public string? ProductVariantName { get; set; }
+    public int? PaddyLotBagAllocationId { get; set; }
+    public int? BagId { get; set; }
+    public int? BagNo { get; set; }
+    public int? PaddyLotId { get; set; }
+    public string? PaddyLotCode { get; set; }
     public string FeedbackType { get; set; } = null!;
     public string Description { get; set; } = null!;
     public string? Severity { get; set; }
@@ -50,4 +55,6 @@ public class CustomerFeedbackSummaryDto
     public DateTime CreatedDate { get; set; }
     public DateTime? ResolvedAt { get; set; }
     public string? ResolutionNote { get; set; }
+    public int? CustomerReturnOrderId { get; set; }
+    public string? CustomerReturnOrderCode { get; set; }
 }

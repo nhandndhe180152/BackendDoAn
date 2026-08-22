@@ -13,6 +13,8 @@ public class PaddyLotTraceabilityDto
     public List<TraceabilityInspectionDto> QualityInspections { get; set; } = new();
     public List<TraceabilityMillingDto> MillingOrders { get; set; } = new();
     public List<TraceabilityOutboundDto> OutboundSales { get; set; } = new();
+    public List<TraceabilityCustomerFeedbackDto> CustomerFeedbacks { get; set; } = new();
+    public List<TraceabilityCustomerReturnDto> CustomerReturns { get; set; } = new();
     public List<TraceabilityEventDto> Timeline { get; set; } = new();
     public TraceabilitySummaryDto Summary { get; set; } = new();
 }
@@ -228,6 +230,80 @@ public class TraceabilityOutboundAllocationDto
     public decimal QuantityPickedKg { get; set; }
 }
 
+public class TraceabilityCustomerFeedbackDto
+{
+    public int FeedbackId { get; set; }
+    public int SalesOrderId { get; set; }
+    public int OutboundOrderId { get; set; }
+    public int? OutboundOrderItemId { get; set; }
+    public int? PaddyLotBagAllocationId { get; set; }
+    public int? BagId { get; set; }
+    public int? BagNo { get; set; }
+    public int? PaddyLotId { get; set; }
+    public string? PaddyLotCode { get; set; }
+    public string FeedbackType { get; set; } = string.Empty;
+    public string? Severity { get; set; }
+    public string Description { get; set; } = string.Empty;
+    public string ResolutionStatus { get; set; } = string.Empty;
+    public string? ResolutionNote { get; set; }
+    public DateTime CreatedDate { get; set; }
+    public DateTime? ResolvedAt { get; set; }
+    public int? CustomerReturnOrderId { get; set; }
+    public string? CustomerReturnOrderCode { get; set; }
+}
+
+public class TraceabilityCustomerReturnDto
+{
+    public int CustomerReturnOrderId { get; set; }
+    public string ReturnCode { get; set; } = string.Empty;
+    public int OutboundOrderId { get; set; }
+    public int SalesOrderId { get; set; }
+    public int? CustomerFeedbackId { get; set; }
+    public int? CustomerId { get; set; }
+    public int WarehouseId { get; set; }
+    public string StatusCode { get; set; } = string.Empty;
+    public string? ReturnReason { get; set; }
+    public DateTime CreatedDate { get; set; }
+    public DateTime? ReceivedAt { get; set; }
+    public DateTime? InspectedAt { get; set; }
+    public DateTime? ConfirmedAt { get; set; }
+    public decimal ApprovedCreditAmount { get; set; }
+    public decimal DebtReductionAmount { get; set; }
+    public decimal RefundPendingAmount { get; set; }
+    public decimal RefundedAmount { get; set; }
+    public string RefundStatus { get; set; } = string.Empty;
+    public DateTime? RefundedAt { get; set; }
+    public List<TraceabilityCustomerReturnItemDto> Items { get; set; } = new();
+}
+
+public class TraceabilityCustomerReturnItemDto
+{
+    public int CustomerReturnOrderItemId { get; set; }
+    public int? ProductVariantId { get; set; }
+    public string? ProductVariantName { get; set; }
+    public string? Sku { get; set; }
+    public List<TraceabilityCustomerReturnAllocationDto> Allocations { get; set; } = new();
+}
+
+public class TraceabilityCustomerReturnAllocationDto
+{
+    public int ReturnAllocationId { get; set; }
+    public int? OutboundOrderItemAllocationId { get; set; }
+    public int PaddyLotId { get; set; }
+    public string? PaddyLotCode { get; set; }
+    public int ProductVariantId { get; set; }
+    public decimal QuantityReturned { get; set; }
+    public decimal QuantityReceived { get; set; }
+    public decimal QuantityGood { get; set; }
+    public decimal QuantityDamaged { get; set; }
+    public decimal QuantityRejected { get; set; }
+    public string Disposition { get; set; } = string.Empty;
+    public int? RestockLocationId { get; set; }
+    public int? QuarantineLocationId { get; set; }
+    public int? RejectedLocationId { get; set; }
+    public decimal CreditAmount { get; set; }
+}
+
 public class TraceabilityEventDto
 {
     public DateTime EventAt { get; set; }
@@ -250,6 +326,8 @@ public class TraceabilitySummaryDto
     public int InspectionCount { get; set; }
     public int MillingOrderCount { get; set; }
     public int OutboundOrderCount { get; set; }
+    public int FeedbackCount { get; set; }
+    public int CustomerReturnCount { get; set; }
     public decimal PurchasedWeightKg { get; set; }
     public decimal MillingInputWeightKg { get; set; }
     public decimal MillingRiceOutputWeightKg { get; set; }
@@ -257,5 +335,10 @@ public class TraceabilitySummaryDto
     public decimal MillingLossWeightKg { get; set; }
     public decimal AllocatedOutboundWeightKg { get; set; }
     public decimal DispatchedWeightKg { get; set; }
+    public decimal ReturnedWeightKg { get; set; }
+    public decimal RestockedReturnWeightKg { get; set; }
+    public decimal QuarantinedReturnWeightKg { get; set; }
+    public decimal RejectedReturnWeightKg { get; set; }
+    public decimal RefundAmount { get; set; }
     public decimal CurrentRemainingWeightKg { get; set; }
 }
