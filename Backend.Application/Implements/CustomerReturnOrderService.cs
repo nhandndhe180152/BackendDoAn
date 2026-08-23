@@ -2039,11 +2039,28 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         }
 
         var remaining = quantity;
-        var nextStack = (await _context.PaddyLotBags
+        var persistedMaxStack = await _context.PaddyLotBags
             .Where(x => x.LocationId == locationId && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted)
-            .MaxAsync(x => (int?)x.StackOrder, cancellationToken) ?? 0) + 1;
-        var nextBagNo = (await _context.PaddyLotBags.Where(x => x.LotId == allocation.PaddyLotId && !x.IsDeleted)
-            .MaxAsync(x => (int?)x.BagNo, cancellationToken) ?? 0) + 1;
+            .MaxAsync(x => (int?)x.StackOrder, cancellationToken) ?? 0;
+        var pendingMaxStack = _context.PaddyLotBags.Local?
+            .Where(x => x.LocationId == locationId && x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted)
+            .Select(x => x.StackOrder)
+            .DefaultIfEmpty(0)
+            .Max() ?? 0;
+        var nextStack = Math.Max(persistedMaxStack, pendingMaxStack) + 1;
+
+        var persistedMaxBagNo = await _context.PaddyLotBags
+            .Where(x => x.LotId == allocation.PaddyLotId && !x.IsDeleted)
+            .MaxAsync(x => (int?)x.BagNo, cancellationToken) ?? 0;
+        // Confirm can pack the good and quarantine portions of the same allocation
+        // before SaveChanges. Database queries do not include those Added bags, so
+        // include Local to avoid reusing (LotId, BagNo) on the second portion.
+        var pendingMaxBagNo = _context.PaddyLotBags.Local?
+            .Where(x => x.LotId == allocation.PaddyLotId && !x.IsDeleted)
+            .Select(x => x.BagNo)
+            .DefaultIfEmpty(0)
+            .Max() ?? 0;
+        var nextBagNo = Math.Max(persistedMaxBagNo, pendingMaxBagNo) + 1;
 
         // Returned goods always receive a new physical identity. They must not be
         // topped up into an unrelated open bag, even when product/location match.
