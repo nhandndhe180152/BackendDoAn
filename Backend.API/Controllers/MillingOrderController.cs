@@ -107,10 +107,10 @@ namespace Backend.API.Controllers
 
         [HttpPost("{id}/start")]
         [CustomAuthorize(Enums.Menu.MILLING_ORDERS, Enums.Action.UPDATE)]
-        public async Task<IActionResult> StartAsync(int id, [FromBody] StartMillingOrderDto dto)
+        public async Task<IActionResult> StartAsync(int id)
         {
             var userId = this.GetLoggedInUserId();
-            var result = await _millingOrderService.StartAsync(id, dto, userId);
+            var result = await _millingOrderService.StartAsync(id, userId);
             return BaseResult(result);
         }
 

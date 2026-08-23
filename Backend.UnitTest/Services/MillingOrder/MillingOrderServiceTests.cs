@@ -283,27 +283,7 @@ public class MillingOrderServiceTests
     // ── W14-J Tests ──────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task StartAsync_Returns422_WhenMachineRefIsEmpty()
-    {
-        var dto = new StartMillingOrderDto { MachineRef = "   ", OperatorId = 1 };
-        var result = await Sut().StartAsync(1, dto, 1);
-        result.Status.Should().Be(422);
-        result.Message.Should().Contain("MachineRef");
-    }
-
-    [Fact]
-    public async Task StartAsync_Returns422_WhenOperatorDoesNotHaveMillingRole()
-    {
-        var dto = new StartMillingOrderDto { MachineRef = "MILL-A1", OperatorId = 999 };
-
-        var result = await Sut().StartAsync(1, dto, 1);
-
-        result.Status.Should().Be(422);
-        result.Code.Should().Be("MILLING_OPERATOR_INVALID");
-    }
-
-    [Fact]
-    public async Task StartAsync_Succeeds_AndSetsMachineRefAndOperatorId()
+    public async Task StartAsync_Succeeds_AndOnlyStartsOrder()
     {
         var order = new Backend.Domain.Entities.MillingOrder
         {
@@ -326,13 +306,14 @@ public class MillingOrderServiceTests
         _orderRepo.Setup(r => r.UpdateAsync(It.IsAny<Backend.Domain.Entities.MillingOrder>())).Returns(Task.CompletedTask);
         _orderRepo.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
 
-        var dto = new StartMillingOrderDto { MachineRef = "MILL-A1", OperatorId = 5 };
-        var result = await Sut().StartAsync(1, dto, 99);
+        var result = await Sut().StartAsync(1, 99);
 
         result.Status.Should().Be(200);
-        order.MachineRef.Should().Be("MILL-A1");
-        order.OperatorId.Should().Be(5);
+        order.MachineRef.Should().BeNull();
+        order.OperatorId.Should().BeNull();
         order.StatusId.Should().Be(2);
+        order.StartedAt.Should().NotBeNull();
+        order.UpdatedBy.Should().Be(99);
     }
 
     [Fact]
