@@ -853,19 +853,9 @@ public class MillingOrderService : IMillingOrderService
             : $"Nguồn có thể lấy ngay còn thiếu {result.MissingWeightKg:N3} kg.");
     }
 
-    /// <summary>W14-J: Bắt đầu lệnh xay — lưu MachineRef (bắt buộc) và OperatorId (tùy chọn).</summary>
-    public async Task<ApiResponse> StartAsync(int id, StartMillingOrderDto dto, int userId)
+    /// <summary>Bắt đầu lệnh xay; máy xay và người vận hành được ghi nhận khi hoàn thành.</summary>
+    public async Task<ApiResponse> StartAsync(int id, int userId)
     {
-        // W14-J: Validate MachineRef bắt buộc tại Start
-        if (string.IsNullOrWhiteSpace(dto.MachineRef))
-            return ApiResponse.UnprocessableEntity(
-                "Mã máy xay (MachineRef) là bắt buộc khi bắt đầu lệnh xay.",
-                "MILLING_MACHINE_REF_REQUIRED");
-        if (dto.OperatorId.HasValue && !await IsEligibleMillingOperatorAsync(dto.OperatorId.Value))
-            return ApiResponse.UnprocessableEntity(
-                "Người vận hành phải là tài khoản đang hoạt động có vai trò Nhân viên xay xát.",
-                "MILLING_OPERATOR_INVALID");
-
         var order = await _millingOrderRepository
             .FindByCondition(x => x.Id == id && !x.IsDeleted, false, x => x.Status)
             .FirstOrDefaultAsync();
@@ -879,10 +869,6 @@ public class MillingOrderService : IMillingOrderService
 
         order.StatusId   = inProgressStatus.Id;
         order.StartedAt  = DateTimeHelper.VietnamNow();
-        // W14-J: Lưu thông tin máy xay và người vận hành (nếu có) ngay tại Start
-        order.MachineRef = dto.MachineRef.Trim();
-        if (dto.OperatorId.HasValue)
-            order.OperatorId = dto.OperatorId.Value;
         order.UpdatedBy         = userId;
         order.LastModifiedDate  = DateTimeHelper.VietnamNow();
 
@@ -1027,7 +1013,8 @@ public class MillingOrderService : IMillingOrderService
             }
         }
 
-        // W14-J: Xác định MachineRef và OperatorId cho Complete — ưu tiên DTO, fallback về giá trị đã lưu từ Start
+        // W14-J: Xác định MachineRef và OperatorId khi Complete — ưu tiên DTO,
+        // fallback về giá trị hiện có trên lệnh để tương thích dữ liệu cũ.
         var finalMachineRef = !string.IsNullOrWhiteSpace(dto.MachineRef)
             ? dto.MachineRef.Trim()
             : order.MachineRef;
@@ -1319,8 +1306,8 @@ public class MillingOrderService : IMillingOrderService
                 .Sum(x => x.OutputWeightKg);
             order.LossKg = lossKg;
             order.TotalCost = totalCostToAllocate;
-            // Persist the resolved values.  The complete request may omit fields that were
-            // already captured at Start; assigning the raw DTO values here would erase trace data.
+            // Persist the resolved values; preserving existing values when the Complete request
+            // omits them keeps legacy trace data intact.
             order.MachineRef = finalMachineRef;
             order.OperatorId = finalOperatorId;
             order.CompletedAt = now;
