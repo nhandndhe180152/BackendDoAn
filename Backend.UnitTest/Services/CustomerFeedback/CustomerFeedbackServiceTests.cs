@@ -60,7 +60,7 @@ namespace Backend.UnitTest.Services.CustomerFeedback
         {
             var dto = new CreateCustomerFeedbackDto
             {
-                FeedbackType = CustomerFeedbackType.Quality,
+                FeedbackType = CustomerFeedbackType.Delivery,
                 OutboundOrderId = 99
             };
 
@@ -78,11 +78,10 @@ namespace Backend.UnitTest.Services.CustomerFeedback
         {
             var dto = new CreateCustomerFeedbackDto
             {
-                FeedbackType = CustomerFeedbackType.Quality,
+                FeedbackType = CustomerFeedbackType.Delivery,
                 SalesOrderId = 1,
                 OutboundOrderId = 1,
-                Description = "Gạo mốc",
-                Severity = "High"
+                Description = "Giao hàng trễ"
             };
 
             var outbound = new OutboundOrder
@@ -96,13 +95,63 @@ namespace Backend.UnitTest.Services.CustomerFeedback
                 .Returns(new List<OutboundOrder> { outbound }.AsQueryable().BuildMockDbSet().Object);
 
             var mockDbSet = new Mock<DbSet<Backend.Domain.Entities.CustomerFeedback>>();
+            Backend.Domain.Entities.CustomerFeedback? createdFeedback = null;
+            mockDbSet
+                .Setup(m => m.AddAsync(It.IsAny<Backend.Domain.Entities.CustomerFeedback>(), It.IsAny<CancellationToken>()))
+                .Callback<Backend.Domain.Entities.CustomerFeedback, CancellationToken>((feedback, _) => createdFeedback = feedback);
             _contextMock.Setup(c => c.CustomerFeedbacks).Returns(mockDbSet.Object);
 
             var result = await _service.CreateAsync(dto);
 
             Assert.Equal((int)System.Net.HttpStatusCode.Created, result.Status);
             mockDbSet.Verify(m => m.AddAsync(It.IsAny<Backend.Domain.Entities.CustomerFeedback>(), It.IsAny<CancellationToken>()), Times.Once());
+            Assert.NotNull(createdFeedback);
+            Assert.Equal(CustomerFeedbackStatus.Open, createdFeedback!.ResolutionStatus);
+            Assert.Null(createdFeedback.Severity);
             _contextMock.Verify(c => c.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once());
+        }
+
+        [Fact]
+        public async Task CreateAsync_ItemRelatedTypeWithoutItem_ReturnsBadRequest()
+        {
+            var dto = new CreateCustomerFeedbackDto
+            {
+                FeedbackType = CustomerFeedbackType.Quality,
+                SalesOrderId = 1,
+                OutboundOrderId = 1,
+                Description = "Gạo bị ẩm"
+            };
+
+            var result = await _service.CreateAsync(dto);
+
+            Assert.Equal((int)System.Net.HttpStatusCode.BadRequest, result.Status);
+            Assert.Contains("phải gắn với một dòng hàng", result.Message);
+        }
+
+        [Fact]
+        public async Task CreateAsync_OutboundNotCompleted_ReturnsUnprocessableEntity()
+        {
+            var dto = new CreateCustomerFeedbackDto
+            {
+                FeedbackType = CustomerFeedbackType.Delivery,
+                SalesOrderId = 1,
+                OutboundOrderId = 1,
+                Description = "Giao hàng trễ"
+            };
+
+            var outbound = new OutboundOrder
+            {
+                Id = 1,
+                SalesOrderId = 1,
+                OutboundOrderStatus = new OutboundOrderStatus { Code = OutboundOrderStatusNames.Dispatched }
+            };
+
+            _contextMock.Setup(c => c.OutboundOrders)
+                .Returns(new List<OutboundOrder> { outbound }.AsQueryable().BuildMockDbSet().Object);
+
+            var result = await _service.CreateAsync(dto);
+
+            Assert.Equal((int)System.Net.HttpStatusCode.UnprocessableEntity, result.Status);
         }
 
         [Fact]

@@ -431,6 +431,49 @@ public class OutboundOrderServiceTests
     }
 
     [Fact]
+    public async Task GetByIdAsync_MapsBagAllocationToOutboundItem()
+    {
+        var itemAllocation = new OutboundOrderItemAllocation { Id = 101 };
+        var order = new OutboundOrder
+        {
+            Id = 1,
+            OutboundOrderItems = new List<OutboundOrderItem>
+            {
+                new()
+                {
+                    Id = 20,
+                    Allocations = new List<OutboundOrderItemAllocation> { itemAllocation }
+                }
+            }
+        };
+        var bagAllocation = new PaddyLotBagAllocation
+        {
+            Id = 301,
+            ReferenceType = PaddyLotBagAllocationReferenceTypes.OutboundOrder,
+            ReferenceId = order.Id,
+            ReferenceItemId = itemAllocation.Id,
+            BagId = 401,
+            Bag = new PaddyLotBag { Id = 401, BagNo = 7 },
+            Status = PaddyLotBagAllocationStatuses.Active
+        };
+
+        _obRepo.Setup(r => r.GetByIdDetailAsync(order.Id)).ReturnsAsync(order);
+        _bagAllocRepo
+            .Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<PaddyLotBagAllocation, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns(new List<PaddyLotBagAllocation> { bagAllocation }.AsQueryable().BuildMock());
+
+        var result = await Sut().GetByIdAsync(order.Id);
+
+        var dto = result.Resources.Should()
+            .BeOfType<Backend.Application.DTOs.OutboundOrders.OutboundOrderDetailDto>()
+            .Subject;
+        dto.BagAllocations.Should().ContainSingle();
+        dto.BagAllocations[0].OutboundOrderItemId.Should().Be(20);
+    }
+
+    [Fact]
     public async Task CancelAsync_NonCancellableState_ReturnsConflict()
     {
         var order = new OutboundOrder

@@ -183,20 +183,6 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             if (linkedFeedback.CustomerReturnOrder != null)
                 return ApiResponse.Conflict(message: "Khiếu nại này đã có phiếu trả hàng.");
         }
-        else if (outbound != null && !string.IsNullOrWhiteSpace(dto.ReturnReason))
-        {
-            linkedFeedback = new CustomerFeedback
-            {
-                SalesOrderId = outbound.SalesOrderId,
-                OutboundOrderId = outbound.Id,
-                FeedbackType = CustomerFeedbackType.Other,
-                Description = dto.ReturnReason.Trim(),
-                ResolutionStatus = CustomerFeedbackStatus.Open,
-                CreatedBy = GetCurrentUserId(),
-                CreatedDate = DateTimeHelper.VietnamNow()
-            };
-            await _context.CustomerFeedbacks.AddAsync(linkedFeedback, cancellationToken);
-        }
 
         var status = await _context.CustomerReturnOrderStatuses
             .FirstOrDefaultAsync(s => s.Code == CustomerReturnOrderStatusNames.Draft && !s.IsDeleted, cancellationToken);

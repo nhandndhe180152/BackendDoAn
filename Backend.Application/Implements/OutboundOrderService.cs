@@ -368,6 +368,12 @@ public class OutboundOrderService : IOutboundOrderService
         var dto = MapDetail(o);
         if (_bagAllocationRepository != null)
         {
+            var itemIdByAllocationId = o.OutboundOrderItems
+                .Where(item => !item.IsDeleted)
+                .SelectMany(item => item.Allocations
+                    .Where(allocation => !allocation.IsDeleted)
+                    .Select(allocation => new { AllocationId = allocation.Id, ItemId = item.Id }))
+                .ToDictionary(x => x.AllocationId, x => x.ItemId);
             var bagAllocs = await _bagAllocationRepository
                 .FindByCondition(
                     a => a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder
@@ -384,7 +390,10 @@ public class OutboundOrderService : IOutboundOrderService
             dto.BagAllocations = bagAllocs.Select(a => new BagAllocationDetailDto
             {
                 BagAllocationId   = a.Id,
-                OutboundOrderItemId = a.ReferenceItemId,
+                OutboundOrderItemId = a.ReferenceItemId.HasValue
+                    && itemIdByAllocationId.TryGetValue(a.ReferenceItemId.Value, out var itemId)
+                        ? itemId
+                        : null,
                 BagId             = a.BagId,
                 BagNo             = a.Bag?.BagNo ?? 0,
                 AllocatedWeightKg = a.AllocatedWeightKg,
@@ -455,6 +464,12 @@ public class OutboundOrderService : IOutboundOrderService
         if (_bagAllocationRepository == null)
             return ApiResponse.Success(new List<BagAllocationDetailDto>());
 
+        var itemIdByAllocationId = order.OutboundOrderItems
+            .Where(item => !item.IsDeleted)
+            .SelectMany(item => item.Allocations
+                .Where(allocation => !allocation.IsDeleted)
+                .Select(allocation => new { AllocationId = allocation.Id, ItemId = item.Id }))
+            .ToDictionary(x => x.AllocationId, x => x.ItemId);
         var bagAllocs = await _bagAllocationRepository
             .FindByCondition(
                 a => a.ReferenceType == PaddyLotBagAllocationReferenceTypes.OutboundOrder
@@ -471,7 +486,10 @@ public class OutboundOrderService : IOutboundOrderService
         var result = bagAllocs.Select(a => new BagAllocationDetailDto
         {
             BagAllocationId  = a.Id,
-            OutboundOrderItemId = a.ReferenceItemId,
+            OutboundOrderItemId = a.ReferenceItemId.HasValue
+                && itemIdByAllocationId.TryGetValue(a.ReferenceItemId.Value, out var itemId)
+                    ? itemId
+                    : null,
             BagId            = a.BagId,
             BagNo            = a.Bag?.BagNo ?? 0,
             AllocatedWeightKg = a.AllocatedWeightKg,
