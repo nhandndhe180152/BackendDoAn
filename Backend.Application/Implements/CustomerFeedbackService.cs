@@ -102,6 +102,9 @@ public class CustomerFeedbackService : ICustomerFeedbackService
                 
             if (bagAlloc == null)
                 return ApiResponse.BadRequest(message: "Bao lúa/gạo không tồn tại.");
+
+            if (bagAlloc.Status != PaddyLotBagAllocationStatuses.Consumed)
+                return ApiResponse.BadRequest(message: "Bao hàng này không phải bao đã giao cho khách.");
                 
             if (bagAlloc.ReferenceType != PaddyLotBagAllocationReferenceTypes.OutboundOrder || bagAlloc.ReferenceId != dto.OutboundOrderId)
                 return ApiResponse.BadRequest(message: "Bao hàng truyền vào không thuộc phiếu xuất này.");

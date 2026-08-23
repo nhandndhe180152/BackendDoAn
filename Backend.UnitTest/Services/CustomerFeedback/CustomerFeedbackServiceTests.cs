@@ -155,6 +155,44 @@ namespace Backend.UnitTest.Services.CustomerFeedback
         }
 
         [Fact]
+        public async Task CreateAsync_ReleasedBag_ReturnsBadRequestWithoutSaving()
+        {
+            var dto = CreateBagFeedbackDto();
+            SetupValidBagFeedbackContext(PaddyLotBagAllocationStatuses.Released);
+            var feedbacks = new Mock<DbSet<Backend.Domain.Entities.CustomerFeedback>>();
+            _contextMock.Setup(c => c.CustomerFeedbacks).Returns(feedbacks.Object);
+
+            var result = await _service.CreateAsync(dto);
+
+            Assert.Equal((int)System.Net.HttpStatusCode.BadRequest, result.Status);
+            Assert.Contains("không phải bao đã giao cho khách", result.Message);
+            feedbacks.Verify(
+                x => x.AddAsync(It.IsAny<Backend.Domain.Entities.CustomerFeedback>(), It.IsAny<CancellationToken>()),
+                Times.Never());
+            _contextMock.Verify(c => c.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never());
+        }
+
+        [Fact]
+        public async Task CreateAsync_ConsumedBag_ReturnsCreatedAndStoresAllocation()
+        {
+            var dto = CreateBagFeedbackDto();
+            SetupValidBagFeedbackContext(PaddyLotBagAllocationStatuses.Consumed);
+            Backend.Domain.Entities.CustomerFeedback? createdFeedback = null;
+            var feedbacks = new Mock<DbSet<Backend.Domain.Entities.CustomerFeedback>>();
+            feedbacks
+                .Setup(x => x.AddAsync(It.IsAny<Backend.Domain.Entities.CustomerFeedback>(), It.IsAny<CancellationToken>()))
+                .Callback<Backend.Domain.Entities.CustomerFeedback, CancellationToken>((feedback, _) => createdFeedback = feedback);
+            _contextMock.Setup(c => c.CustomerFeedbacks).Returns(feedbacks.Object);
+
+            var result = await _service.CreateAsync(dto);
+
+            Assert.Equal((int)System.Net.HttpStatusCode.Created, result.Status);
+            Assert.NotNull(createdFeedback);
+            Assert.Equal(dto.PaddyLotBagAllocationId, createdFeedback!.PaddyLotBagAllocationId);
+            _contextMock.Verify(c => c.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once());
+        }
+
+        [Fact]
         public async Task ResolveAsync_FeedbackNotFound_ReturnsNotFound()
         {
             var dto = new ResolveCustomerFeedbackDto
@@ -274,6 +312,62 @@ namespace Backend.UnitTest.Services.CustomerFeedback
 
             Assert.Equal((int)System.Net.HttpStatusCode.OK, result.Status);
             _traceabilityServiceMock.Verify(x => x.GetByLotIdAsync(500, true, true, true, true, 10, It.IsAny<CancellationToken>()), Times.Once());
+        }
+
+        private static CreateCustomerFeedbackDto CreateBagFeedbackDto()
+        {
+            return new CreateCustomerFeedbackDto
+            {
+                FeedbackType = CustomerFeedbackType.Quality,
+                SalesOrderId = 1,
+                OutboundOrderId = 1,
+                OutboundOrderItemId = 10,
+                ProductVariantId = 20,
+                PaddyLotBagAllocationId = 100,
+                Description = "Gạo bị ẩm"
+            };
+        }
+
+        private void SetupValidBagFeedbackContext(string bagStatus)
+        {
+            var outbound = new OutboundOrder
+            {
+                Id = 1,
+                SalesOrderId = 1,
+                OutboundOrderStatus = new OutboundOrderStatus { Code = OutboundOrderStatusNames.Completed }
+            };
+            var outboundItem = new OutboundOrderItem
+            {
+                Id = 10,
+                OutboundOrderId = 1,
+                ProductVariantId = 20
+            };
+            var itemAllocation = new OutboundOrderItemAllocation
+            {
+                Id = 30,
+                OutboundOrderItemId = outboundItem.Id,
+                OutboundOrderItem = outboundItem,
+                PaddyLotId = 40
+            };
+            var bagAllocation = new PaddyLotBagAllocation
+            {
+                Id = 100,
+                ReferenceType = PaddyLotBagAllocationReferenceTypes.OutboundOrder,
+                ReferenceId = outbound.Id,
+                ReferenceItemId = itemAllocation.Id,
+                Status = bagStatus,
+                PickedWeightKg = 25,
+                Bag = new PaddyLotBag { Id = 50, LotId = 40 }
+            };
+
+            _contextMock.Setup(c => c.OutboundOrders)
+                .Returns(new List<OutboundOrder> { outbound }.AsQueryable().BuildMockDbSet().Object);
+            _contextMock.Setup(c => c.OutboundOrderItems)
+                .Returns(new List<OutboundOrderItem> { outboundItem }.AsQueryable().BuildMockDbSet().Object);
+            _contextMock.Setup(c => c.OutboundOrderItemAllocations)
+                .Returns(new List<OutboundOrderItemAllocation> { itemAllocation }.AsQueryable().BuildMockDbSet().Object);
+            _contextMock.Setup(c => c.PaddyLotBagAllocations)
+                .Returns(new List<PaddyLotBagAllocation> { bagAllocation }.AsQueryable().BuildMockDbSet().Object);
         }
     }
 }
