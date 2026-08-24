@@ -672,6 +672,115 @@ public class PaddyLotTraceabilityServiceTests
     }
 
     [Fact]
+    public async Task GetByLotIdAsync_PurchaseBags_UseHistoricalSnapshotWeights()
+    {
+        using var db = CreateContext();
+        await SeedBaseEntitiesAsync(db);
+
+        var weighedAt = new DateTime(2026, 8, 20, 8, 30, 0, DateTimeKind.Utc);
+        var receipt = new PaddyPurchaseReceiptEntity
+        {
+            Id = 100,
+            ReceiptCode = "REC-BAGS",
+            FarmerId = 1,
+            WarehouseId = 1,
+            ActualWeightKg = 171m,
+            BagCount = 3,
+            ReceiptDate = weighedAt,
+            BagDetailsJson = System.Text.Json.JsonSerializer.Serialize(new[]
+            {
+                new Backend.Application.DTOs.InboundOrders.CreateBagDto { BagNo = 1, WeightKg = 56m, WeightCaptureMethod = "MANUAL", WeighedAt = weighedAt, WeighedBy = 10 },
+                new Backend.Application.DTOs.InboundOrders.CreateBagDto { BagNo = 2, WeightKg = 57m, ScaleDeviceRef = "SCALE-01", WeightCaptureMethod = "SCALE", WeighedAt = weighedAt, WeighedBy = 10 },
+                new Backend.Application.DTOs.InboundOrders.CreateBagDto { BagNo = 3, WeightKg = 58m, WeightCaptureMethod = "MANUAL", WeighedAt = weighedAt, WeighedBy = 10 }
+            })
+        };
+        var paddyLot = new PaddyLotEntity
+        {
+            Id = 101,
+            LotCode = "PADDY-BAGS",
+            LotType = LotTypeConstants.Paddy,
+            ProductVariantId = 1,
+            StatusId = 1,
+            WarehouseId = 1,
+            SourceReceiptId = receipt.Id
+        };
+        db.PaddyPurchaseReceipts.Add(receipt);
+        db.PaddyLots.Add(paddyLot);
+        db.PaddyLotBags.AddRange(
+            new PaddyLotBagEntity { Id = 11, LotId = 101, BagNo = 1, WeightKg = 56m, BagKind = "Purchase", Status = "Available" },
+            new PaddyLotBagEntity { Id = 12, LotId = 101, BagNo = 2, WeightKg = 20m, BagKind = "Purchase", Status = "Available" },
+            new PaddyLotBagEntity { Id = 13, LotId = 101, BagNo = 3, WeightKg = 0m, BagKind = "Purchase", Status = "Consumed" });
+        await db.SaveChangesAsync();
+
+        var res = await Sut(db).GetByLotIdAsync(paddyLot.Id);
+
+        res.Status.Should().Be(200);
+        var bags = ((PaddyLotTraceabilityDto)res.Resources!).Purchases.Single().Bags;
+        bags.Should().HaveCount(3);
+        bags.Select(x => x.BagId).Should().Equal(11, 12, 13);
+        bags.Select(x => x.BagNo).Should().Equal(1, 2, 3);
+        bags.Select(x => x.WeightKg).Should().Equal(56m, 57m, 58m);
+        bags[1].ScaleDeviceRef.Should().Be("SCALE-01");
+        bags[1].WeightCaptureMethod.Should().Be("SCALE");
+        bags[1].WeighedAt.Should().Be(weighedAt);
+        bags[1].WeighedBy.Should().Be(10);
+        bags[1].WeighedByName.Should().Be("Trần Văn B");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("{invalid json")]
+    public async Task GetByLotIdAsync_PurchaseBags_FallBackToCurrentData_WhenSnapshotUnavailable(
+        string? bagDetailsJson)
+    {
+        using var db = CreateContext();
+        await SeedBaseEntitiesAsync(db);
+
+        var receipt = new PaddyPurchaseReceiptEntity
+        {
+            Id = 100,
+            ReceiptCode = "REC-LEGACY",
+            FarmerId = 1,
+            WarehouseId = 1,
+            ActualWeightKg = 12.5m,
+            BagCount = 1,
+            ReceiptDate = DateTime.UtcNow,
+            BagDetailsJson = bagDetailsJson
+        };
+        var paddyLot = new PaddyLotEntity
+        {
+            Id = 101,
+            LotCode = "PADDY-LEGACY",
+            LotType = LotTypeConstants.Paddy,
+            ProductVariantId = 1,
+            StatusId = 1,
+            WarehouseId = 1,
+            SourceReceiptId = receipt.Id
+        };
+        db.PaddyPurchaseReceipts.Add(receipt);
+        db.PaddyLots.Add(paddyLot);
+        db.PaddyLotBags.Add(new PaddyLotBagEntity
+        {
+            Id = 11,
+            LotId = paddyLot.Id,
+            BagNo = 1,
+            WeightKg = 12.5m,
+            BagKind = "Purchase",
+            Status = "Available"
+        });
+        await db.SaveChangesAsync();
+
+        var res = await Sut(db).GetByLotIdAsync(paddyLot.Id);
+
+        res.Status.Should().Be(200);
+        var bag = ((PaddyLotTraceabilityDto)res.Resources!).Purchases.Single().Bags.Single();
+        bag.BagId.Should().Be(11);
+        bag.BagNo.Should().Be(1);
+        bag.WeightKg.Should().Be(12.5m);
+    }
+
+    [Fact]
     public async Task GetByLotIdAsync_TracesBackward_FromRiceLotToPurchaseReceipt()
     {
         using var db = CreateContext();
@@ -702,6 +811,119 @@ public class PaddyLotTraceabilityServiceTests
         data.RelatedLots.Select(l => l.Id).Should().Contain(new[] { 1, 2 });
         data.MillingOrders.Should().HaveCount(1);
         data.MillingOrders[0].MillingCode.Should().Be("MO-10");
+    }
+
+    [Fact]
+    public async Task GetByLotIdAsync_RiceLot_UsesOnlyItsDirectSourceMillingOrder()
+    {
+        using var db = CreateContext();
+        await SeedBaseEntitiesAsync(db);
+
+        var paddyLot = new PaddyLotEntity { Id = 1, LotCode = "PADDY-A", LotType = LotTypeConstants.Paddy, ProductVariantId = 1, StatusId = 1, WarehouseId = 1 };
+        var riceA = new PaddyLotEntity { Id = 2, LotCode = "RICE-A", LotType = LotTypeConstants.Rice, ProductVariantId = 2, StatusId = 1, WarehouseId = 1, SourceMillingOrderId = 10 };
+        var riceB = new PaddyLotEntity { Id = 3, LotCode = "RICE-B", LotType = LotTypeConstants.Rice, ProductVariantId = 2, StatusId = 1, WarehouseId = 1, SourceMillingOrderId = 20 };
+        var riceC = new PaddyLotEntity { Id = 4, LotCode = "RICE-C", LotType = LotTypeConstants.Rice, ProductVariantId = 2, StatusId = 1, WarehouseId = 1, SourceMillingOrderId = 30 };
+        db.PaddyLots.AddRange(paddyLot, riceA, riceB, riceC);
+
+        db.MillingOrders.AddRange(
+            new MillingOrderEntity { Id = 10, MillingCode = "MO-01", StatusId = 1, WarehouseId = 1 },
+            new MillingOrderEntity { Id = 20, MillingCode = "MO-02", StatusId = 1, WarehouseId = 1 },
+            new MillingOrderEntity { Id = 30, MillingCode = "MO-03", StatusId = 1, WarehouseId = 1 });
+        db.MillingOrderInputs.AddRange(
+            new MillingOrderInputEntity { Id = 101, MillingOrderId = 10, PaddyLotId = 1, ConsumedWeightKg = 100m },
+            new MillingOrderInputEntity { Id = 201, MillingOrderId = 20, PaddyLotId = 1, ConsumedWeightKg = 100m },
+            new MillingOrderInputEntity { Id = 301, MillingOrderId = 30, PaddyLotId = 1, ConsumedWeightKg = 100m });
+        db.MillingOrderOutputs.AddRange(
+            new MillingOrderOutputEntity { Id = 102, MillingOrderId = 10, OutputLotId = 2, ProductVariantId = 2, OutputType = LotTypeConstants.Rice, OutputWeightKg = 70m },
+            new MillingOrderOutputEntity { Id = 202, MillingOrderId = 20, OutputLotId = 3, ProductVariantId = 2, OutputType = LotTypeConstants.Rice, OutputWeightKg = 70m },
+            new MillingOrderOutputEntity { Id = 302, MillingOrderId = 30, OutputLotId = 4, ProductVariantId = 2, OutputType = LotTypeConstants.Rice, OutputWeightKg = 70m });
+        await db.SaveChangesAsync();
+
+        var res = await Sut(db).GetByLotIdAsync(riceA.Id);
+
+        res.Status.Should().Be(200);
+        var data = (PaddyLotTraceabilityDto)res.Resources!;
+        data.MillingOrders.Select(x => x.MillingOrderId).Should().Equal(10);
+        data.Summary.MillingOrderCount.Should().Be(1);
+        data.RelatedLots.Select(x => x.Id).Should().BeEquivalentTo(new[] { paddyLot.Id, riceA.Id });
+        data.Timeline
+            .Where(x => x.ReferenceType == "MILLING_ORDER")
+            .Select(x => x.ReferenceId)
+            .Should().OnlyContain(x => x == 10);
+    }
+
+    [Fact]
+    public async Task GetByLotIdAsync_PaddyLot_StillIncludesEveryMillingOrderThatConsumedIt()
+    {
+        using var db = CreateContext();
+        await SeedBaseEntitiesAsync(db);
+
+        var paddyLot = new PaddyLotEntity { Id = 1, LotCode = "PADDY-A", LotType = LotTypeConstants.Paddy, ProductVariantId = 1, StatusId = 1, WarehouseId = 1 };
+        db.PaddyLots.Add(paddyLot);
+        db.MillingOrders.AddRange(
+            new MillingOrderEntity { Id = 10, MillingCode = "MO-01", StatusId = 1, WarehouseId = 1 },
+            new MillingOrderEntity { Id = 20, MillingCode = "MO-02", StatusId = 1, WarehouseId = 1 },
+            new MillingOrderEntity { Id = 30, MillingCode = "MO-03", StatusId = 1, WarehouseId = 1 });
+        db.MillingOrderInputs.AddRange(
+            new MillingOrderInputEntity { Id = 101, MillingOrderId = 10, PaddyLotId = 1, ConsumedWeightKg = 100m },
+            new MillingOrderInputEntity { Id = 201, MillingOrderId = 20, PaddyLotId = 1, ConsumedWeightKg = 100m },
+            new MillingOrderInputEntity { Id = 301, MillingOrderId = 30, PaddyLotId = 1, ConsumedWeightKg = 100m });
+        await db.SaveChangesAsync();
+
+        var res = await Sut(db).GetByLotIdAsync(paddyLot.Id);
+
+        res.Status.Should().Be(200);
+        var data = (PaddyLotTraceabilityDto)res.Resources!;
+        data.MillingOrders.Select(x => x.MillingOrderId).Should().BeEquivalentTo(new[] { 10, 20, 30 });
+        data.Summary.MillingOrderCount.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task GetByLotIdAsync_ByproductLot_UsesOnlyItsDirectSourceMillingOrder()
+    {
+        using var db = CreateContext();
+        await SeedBaseEntitiesAsync(db);
+
+        var paddyLot = new PaddyLotEntity { Id = 1, LotCode = "PADDY-A", LotType = LotTypeConstants.Paddy, ProductVariantId = 1, StatusId = 1, WarehouseId = 1 };
+        var branLot = new PaddyLotEntity { Id = 2, LotCode = "BRAN-A", LotType = LotTypeConstants.ByProduct, ProductVariantId = 3, StatusId = 1, WarehouseId = 1, SourceMillingOrderId = 10 };
+        db.PaddyLots.AddRange(paddyLot, branLot);
+        db.MillingOrders.AddRange(
+            new MillingOrderEntity { Id = 10, MillingCode = "MO-01", StatusId = 1, WarehouseId = 1 },
+            new MillingOrderEntity { Id = 20, MillingCode = "MO-02", StatusId = 1, WarehouseId = 1 });
+        db.MillingOrderInputs.AddRange(
+            new MillingOrderInputEntity { Id = 101, MillingOrderId = 10, PaddyLotId = 1, ConsumedWeightKg = 100m },
+            new MillingOrderInputEntity { Id = 201, MillingOrderId = 20, PaddyLotId = 1, ConsumedWeightKg = 100m });
+        db.MillingOrderOutputs.Add(
+            new MillingOrderOutputEntity { Id = 102, MillingOrderId = 10, OutputLotId = 2, ProductVariantId = 3, OutputType = "BRAN", OutputWeightKg = 20m, IsByproduct = true });
+        await db.SaveChangesAsync();
+
+        var res = await Sut(db).GetByLotIdAsync(branLot.Id);
+
+        res.Status.Should().Be(200);
+        var data = (PaddyLotTraceabilityDto)res.Resources!;
+        data.MillingOrders.Select(x => x.MillingOrderId).Should().Equal(10);
+        data.Summary.MillingOrderCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task GetByLotIdAsync_RiceLotWithoutSource_DoesNotInferMillingOrder()
+    {
+        using var db = CreateContext();
+        await SeedBaseEntitiesAsync(db);
+
+        var legacyRiceLot = new PaddyLotEntity { Id = 1, LotCode = "RICE-LEGACY", LotType = LotTypeConstants.Rice, ProductVariantId = 2, StatusId = 1, WarehouseId = 1 };
+        db.PaddyLots.Add(legacyRiceLot);
+        db.MillingOrders.Add(new MillingOrderEntity { Id = 10, MillingCode = "MO-10", StatusId = 1, WarehouseId = 1 });
+        db.MillingOrderInputs.Add(new MillingOrderInputEntity { Id = 101, MillingOrderId = 10, PaddyLotId = 1, ConsumedWeightKg = 100m });
+        await db.SaveChangesAsync();
+
+        var res = await Sut(db).GetByLotIdAsync(legacyRiceLot.Id);
+
+        res.Status.Should().Be(200);
+        var data = (PaddyLotTraceabilityDto)res.Resources!;
+        data.MillingOrders.Should().BeEmpty();
+        data.Summary.MillingOrderCount.Should().Be(0);
+        data.Timeline.Should().NotContain(x => x.ReferenceType == "MILLING_ORDER");
     }
 
     // ── 4. Graph Cycle & Max Depth Tests ─────────────────────────────────────

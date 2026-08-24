@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Backend.Application.Constants;
+using Backend.Application.DTOs.InboundOrders;
 using Backend.Application.DTOs.PaddyLots;
 using Backend.Application.Interfaces;
 using Backend.Domain.Entities;
@@ -20,6 +21,11 @@ namespace Backend.Application.Implements;
 
 public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
 {
+    private static readonly JsonSerializerOptions PurchaseBagJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     private readonly IApplicationDbContext _context;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<PaddyLotTraceabilityService> _logger;
@@ -163,6 +169,9 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
 
         var lotMap = new Dictionary<int, PaddyLot> { [requestedLot.Id] = requestedLot };
         var lotRoleMap = new Dictionary<int, string> { [requestedLot.Id] = "REQUESTED" };
+        var tracesDirectMillingSource =
+            string.Equals(requestedLot.LotType, LotTypeConstants.Rice, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(requestedLot.LotType, LotTypeConstants.ByProduct, StringComparison.OrdinalIgnoreCase);
 
         bool isTruncated = false;
         int currentDepth = 0;
@@ -189,23 +198,28 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
                     {
                         visitedReceiptIds.Add(lot.SourceReceiptId.Value);
                     }
-                    if (lot.SourceMillingOrderId.HasValue)
+                    if (lot.SourceMillingOrderId.HasValue &&
+                        (!tracesDirectMillingSource || lotId == requestedLot.Id))
                     {
                         visitedMillingOrderIds.Add(lot.SourceMillingOrderId.Value);
                     }
                 }
             }
 
-            // 2. Usages of current batch lots as inputs in MillingOrderInputs
-            var inputsForCurrentBatch = await _context.MillingOrderInputs
-                .AsNoTracking()
-                .Where(m => currentBatch.Contains(m.PaddyLotId) && !m.IsDeleted)
-                .Select(m => m.MillingOrderId)
-                .ToListAsync(cancellationToken);
-
-            foreach (var moId in inputsForCurrentBatch)
+            // Only a directly requested paddy lot can fan out to every milling order
+            // that consumed it. Rice/byproduct traces stay anchored to their source.
+            if (!tracesDirectMillingSource)
             {
-                visitedMillingOrderIds.Add(moId);
+                var inputsForCurrentBatch = await _context.MillingOrderInputs
+                    .AsNoTracking()
+                    .Where(m => currentBatch.Contains(m.PaddyLotId) && !m.IsDeleted)
+                    .Select(m => m.MillingOrderId)
+                    .ToListAsync(cancellationToken);
+
+                foreach (var moId in inputsForCurrentBatch)
+                {
+                    visitedMillingOrderIds.Add(moId);
+                }
             }
 
             // 3. For all milling orders in visitedMillingOrderIds, find all input and output lots
@@ -229,26 +243,31 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
                     }
                 }
 
-                var millingOutputs = await _context.MillingOrderOutputs
-                    .AsNoTracking()
-                    .Where(mo => visitedMillingOrderIds.Contains(mo.MillingOrderId) && !mo.IsDeleted && mo.OutputLotId != null)
-                    .Select(mo => new { mo.MillingOrderId, OutputLotId = mo.OutputLotId!.Value, mo.IsByproduct, mo.OutputType })
-                    .ToListAsync(cancellationToken);
-
-                foreach (var mo in millingOutputs)
+                // Paddy traces retain their forward lineage. Rice/byproduct traces are
+                // backward-only, so sibling outputs of the source order are excluded.
+                if (!tracesDirectMillingSource)
                 {
-                    if (visitedLotIds.Add(mo.OutputLotId))
+                    var millingOutputs = await _context.MillingOrderOutputs
+                        .AsNoTracking()
+                        .Where(mo => visitedMillingOrderIds.Contains(mo.MillingOrderId) && !mo.IsDeleted && mo.OutputLotId != null)
+                        .Select(mo => new { mo.MillingOrderId, OutputLotId = mo.OutputLotId!.Value, mo.IsByproduct, mo.OutputType })
+                        .ToListAsync(cancellationToken);
+
+                    foreach (var mo in millingOutputs)
                     {
-                        nextBatch.Add(mo.OutputLotId);
-                        if (!lotRoleMap.ContainsKey(mo.OutputLotId))
+                        if (visitedLotIds.Add(mo.OutputLotId))
                         {
-                            if (mo.IsByproduct || mo.OutputType != "RICE")
+                            nextBatch.Add(mo.OutputLotId);
+                            if (!lotRoleMap.ContainsKey(mo.OutputLotId))
                             {
-                                lotRoleMap[mo.OutputLotId] = "BYPRODUCT";
-                            }
-                            else
-                            {
-                                lotRoleMap[mo.OutputLotId] = "MILLING_OUTPUT";
+                                if (mo.IsByproduct || mo.OutputType != LotTypeConstants.Rice)
+                                {
+                                    lotRoleMap[mo.OutputLotId] = "BYPRODUCT";
+                                }
+                                else
+                                {
+                                    lotRoleMap[mo.OutputLotId] = "MILLING_OUTPUT";
+                                }
                             }
                         }
                     }
@@ -318,8 +337,17 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
                     .GroupBy(b => b.LotId)
                     .ToDictionary(g => g.Key, g => g.ToList())
                 : new Dictionary<int, List<PaddyLotBag>>();
+            var purchaseBagSnapshotsByReceipt = receipts.ToDictionary(
+                r => r.Id,
+                r => ParsePurchaseBagSnapshots(r.Id, r.BagDetailsJson));
             var weighedByIds = purchaseBagsByLot.Values.SelectMany(x => x)
-                .Where(x => x.WeighedBy.HasValue).Select(x => x.WeighedBy!.Value).Distinct().ToList();
+                .Where(x => x.WeighedBy.HasValue).Select(x => x.WeighedBy!.Value)
+                .Concat(purchaseBagSnapshotsByReceipt.Values
+                    .SelectMany(x => x)
+                    .Where(x => x.WeighedBy.HasValue)
+                    .Select(x => x.WeighedBy!.Value))
+                .Distinct()
+                .ToList();
             var weighedByNames = weighedByIds.Count == 0
                 ? new Dictionary<int, string>()
                 : await _context.Users.AsNoTracking().Where(x => weighedByIds.Contains(x.Id))
@@ -346,20 +374,11 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
                 QualityJson = r.QualityJson,
                 InitialQuality = ParseQualityJson(r.QualityJson),
                 // W14-J: Map từng bao thu mua kèm thông tin cân
-                Bags = r.PaddyLot != null && purchaseBagsByLot.TryGetValue(r.PaddyLot.Id, out var lotBags)
-                    ? lotBags.Select(b => new TraceabilityPurchaseBagDto
-                    {
-                        BagId = b.Id,
-                        BagNo = b.BagNo,
-                        WeightKg = b.WeightKg,
-                        ScaleDeviceRef = b.ScaleDeviceRef,
-                        WeightCaptureMethod = b.WeightCaptureMethod,
-                        WeighedAt = b.WeighedAt,
-                        WeighedBy = b.WeighedBy,
-                        WeighedByName = b.WeighedBy.HasValue && weighedByNames.TryGetValue(b.WeighedBy.Value, out var name)
-                            ? name : null
-                    }).ToList()
-                    : new List<TraceabilityPurchaseBagDto>()
+                Bags = BuildPurchaseBagTrace(
+                    r,
+                    purchaseBagsByLot,
+                    purchaseBagSnapshotsByReceipt.GetValueOrDefault(r.Id) ?? new List<CreateBagDto>(),
+                    weighedByNames)
             }).ToList();
         }
 
@@ -1103,5 +1122,83 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
         {
             return null;
         }
+    }
+
+    private List<CreateBagDto> ParsePurchaseBagSnapshots(int receiptId, string? rawJson)
+    {
+        if (string.IsNullOrWhiteSpace(rawJson))
+        {
+            return new List<CreateBagDto>();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<CreateBagDto>>(rawJson, PurchaseBagJsonOptions)
+                ?? new List<CreateBagDto>();
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
+        {
+            _logger.LogWarning(
+                ex,
+                "[Traceability] Invalid BagDetailsJson for purchase receipt ID {ReceiptId}; using current bag data as legacy fallback.",
+                receiptId);
+            return new List<CreateBagDto>();
+        }
+    }
+
+    private static List<TraceabilityPurchaseBagDto> BuildPurchaseBagTrace(
+        PaddyPurchaseReceipt receipt,
+        IReadOnlyDictionary<int, List<PaddyLotBag>> purchaseBagsByLot,
+        IReadOnlyCollection<CreateBagDto> snapshots,
+        IReadOnlyDictionary<int, string> weighedByNames)
+    {
+        var currentBags = receipt.PaddyLot != null &&
+            purchaseBagsByLot.TryGetValue(receipt.PaddyLot.Id, out var lotBags)
+                ? lotBags
+                : new List<PaddyLotBag>();
+
+        if (snapshots.Count == 0)
+        {
+            return currentBags.Select(b => new TraceabilityPurchaseBagDto
+            {
+                BagId = b.Id,
+                BagNo = b.BagNo,
+                WeightKg = b.WeightKg,
+                ScaleDeviceRef = b.ScaleDeviceRef,
+                WeightCaptureMethod = b.WeightCaptureMethod,
+                WeighedAt = b.WeighedAt,
+                WeighedBy = b.WeighedBy,
+                WeighedByName = GetWeighedByName(b.WeighedBy, weighedByNames)
+            }).ToList();
+        }
+
+        var currentBagsByNo = currentBags
+            .GroupBy(b => b.BagNo)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        return snapshots.Select(snapshot =>
+        {
+            currentBagsByNo.TryGetValue(snapshot.BagNo, out var currentBag);
+            return new TraceabilityPurchaseBagDto
+            {
+                BagId = currentBag?.Id ?? 0,
+                BagNo = snapshot.BagNo,
+                WeightKg = snapshot.WeightKg,
+                ScaleDeviceRef = snapshot.ScaleDeviceRef,
+                WeightCaptureMethod = snapshot.WeightCaptureMethod,
+                WeighedAt = snapshot.WeighedAt,
+                WeighedBy = snapshot.WeighedBy,
+                WeighedByName = GetWeighedByName(snapshot.WeighedBy, weighedByNames)
+            };
+        }).ToList();
+    }
+
+    private static string? GetWeighedByName(
+        int? weighedBy,
+        IReadOnlyDictionary<int, string> weighedByNames)
+    {
+        return weighedBy.HasValue && weighedByNames.TryGetValue(weighedBy.Value, out var name)
+            ? name
+            : null;
     }
 }
