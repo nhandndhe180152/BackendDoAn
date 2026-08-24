@@ -163,6 +163,9 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
 
         var lotMap = new Dictionary<int, PaddyLot> { [requestedLot.Id] = requestedLot };
         var lotRoleMap = new Dictionary<int, string> { [requestedLot.Id] = "REQUESTED" };
+        var tracesDirectMillingSource =
+            string.Equals(requestedLot.LotType, LotTypeConstants.Rice, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(requestedLot.LotType, LotTypeConstants.ByProduct, StringComparison.OrdinalIgnoreCase);
 
         bool isTruncated = false;
         int currentDepth = 0;
@@ -189,23 +192,28 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
                     {
                         visitedReceiptIds.Add(lot.SourceReceiptId.Value);
                     }
-                    if (lot.SourceMillingOrderId.HasValue)
+                    if (lot.SourceMillingOrderId.HasValue &&
+                        (!tracesDirectMillingSource || lotId == requestedLot.Id))
                     {
                         visitedMillingOrderIds.Add(lot.SourceMillingOrderId.Value);
                     }
                 }
             }
 
-            // 2. Usages of current batch lots as inputs in MillingOrderInputs
-            var inputsForCurrentBatch = await _context.MillingOrderInputs
-                .AsNoTracking()
-                .Where(m => currentBatch.Contains(m.PaddyLotId) && !m.IsDeleted)
-                .Select(m => m.MillingOrderId)
-                .ToListAsync(cancellationToken);
-
-            foreach (var moId in inputsForCurrentBatch)
+            // Only a directly requested paddy lot can fan out to every milling order
+            // that consumed it. Rice/byproduct traces stay anchored to their source.
+            if (!tracesDirectMillingSource)
             {
-                visitedMillingOrderIds.Add(moId);
+                var inputsForCurrentBatch = await _context.MillingOrderInputs
+                    .AsNoTracking()
+                    .Where(m => currentBatch.Contains(m.PaddyLotId) && !m.IsDeleted)
+                    .Select(m => m.MillingOrderId)
+                    .ToListAsync(cancellationToken);
+
+                foreach (var moId in inputsForCurrentBatch)
+                {
+                    visitedMillingOrderIds.Add(moId);
+                }
             }
 
             // 3. For all milling orders in visitedMillingOrderIds, find all input and output lots
@@ -229,26 +237,31 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
                     }
                 }
 
-                var millingOutputs = await _context.MillingOrderOutputs
-                    .AsNoTracking()
-                    .Where(mo => visitedMillingOrderIds.Contains(mo.MillingOrderId) && !mo.IsDeleted && mo.OutputLotId != null)
-                    .Select(mo => new { mo.MillingOrderId, OutputLotId = mo.OutputLotId!.Value, mo.IsByproduct, mo.OutputType })
-                    .ToListAsync(cancellationToken);
-
-                foreach (var mo in millingOutputs)
+                // Paddy traces retain their forward lineage. Rice/byproduct traces are
+                // backward-only, so sibling outputs of the source order are excluded.
+                if (!tracesDirectMillingSource)
                 {
-                    if (visitedLotIds.Add(mo.OutputLotId))
+                    var millingOutputs = await _context.MillingOrderOutputs
+                        .AsNoTracking()
+                        .Where(mo => visitedMillingOrderIds.Contains(mo.MillingOrderId) && !mo.IsDeleted && mo.OutputLotId != null)
+                        .Select(mo => new { mo.MillingOrderId, OutputLotId = mo.OutputLotId!.Value, mo.IsByproduct, mo.OutputType })
+                        .ToListAsync(cancellationToken);
+
+                    foreach (var mo in millingOutputs)
                     {
-                        nextBatch.Add(mo.OutputLotId);
-                        if (!lotRoleMap.ContainsKey(mo.OutputLotId))
+                        if (visitedLotIds.Add(mo.OutputLotId))
                         {
-                            if (mo.IsByproduct || mo.OutputType != "RICE")
+                            nextBatch.Add(mo.OutputLotId);
+                            if (!lotRoleMap.ContainsKey(mo.OutputLotId))
                             {
-                                lotRoleMap[mo.OutputLotId] = "BYPRODUCT";
-                            }
-                            else
-                            {
-                                lotRoleMap[mo.OutputLotId] = "MILLING_OUTPUT";
+                                if (mo.IsByproduct || mo.OutputType != LotTypeConstants.Rice)
+                                {
+                                    lotRoleMap[mo.OutputLotId] = "BYPRODUCT";
+                                }
+                                else
+                                {
+                                    lotRoleMap[mo.OutputLotId] = "MILLING_OUTPUT";
+                                }
                             }
                         }
                     }
