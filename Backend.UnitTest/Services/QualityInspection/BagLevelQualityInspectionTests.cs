@@ -514,6 +514,93 @@ public class BagLevelQualityInspectionTests
         modifyAfterCompleteRes.Message.Should().Contain("Phiếu kiểm tra đã hoàn thành, không thể chỉnh sửa");
     }
 
+    [Theory]
+    [InlineData(1_000_000, 6_000_000, 10_000_000, 4_000_000, 0)]
+    [InlineData(1_000_000, 10_000_000, 10_000_000, 0, 0)]
+    [InlineData(800_000, 10_000_000, 8_000_000, 0, 2_000_000)]
+    public async Task CompleteReceivingQc_ShouldRecordChargePaymentAndOverpayment(
+        decimal agreedPrice,
+        decimal paidAmount,
+        decimal expectedFinalTotal,
+        decimal expectedPayableBalance,
+        decimal expectedReceivableBalance)
+    {
+        var (sut, context) = CreateService();
+        var (inspectionId, lotId, bagIds) = await SetupBaselineReceivingLotWith3BagsAsync(context);
+
+        var bags = await context.PaddyLotBags.Where(x => bagIds.Contains(x.Id)).OrderBy(x => x.Id).ToListAsync();
+        bags[0].WeightKg = 4m;
+        bags[1].WeightKg = 6m;
+        bags[2].WeightKg = 2m;
+
+        const int receiptId = 700;
+        var lot = await context.PaddyLots.FirstAsync(x => x.Id == lotId);
+        lot.SourceReceiptId = receiptId;
+        context.PaddyPurchaseReceipts.Add(new PaddyPurchaseReceipt
+        {
+            Id = receiptId,
+            OrganizationId = 1,
+            ReceiptCode = "PPR-QC-DEBT",
+            FarmerId = 9,
+            WarehouseId = 1,
+            ActualWeightKg = 12m,
+            AgreedPrice = agreedPrice,
+            PaidAmount = paidAmount,
+            ReceiptDate = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        await sut.SaveBagResultAsync(inspectionId, new SaveBagInspectionResultDto
+        {
+            BagId = bagIds[0],
+            QualityResult = BagQualityResultConstants.Pass,
+            Disposition = BagDispositionConstants.AcceptNormal
+        });
+        await sut.SaveBagResultAsync(inspectionId, new SaveBagInspectionResultDto
+        {
+            BagId = bagIds[1],
+            QualityResult = BagQualityResultConstants.Pass,
+            Disposition = BagDispositionConstants.AcceptNormal
+        });
+        await sut.SaveBagResultAsync(inspectionId, new SaveBagInspectionResultDto
+        {
+            BagId = bagIds[2],
+            QualityResult = BagQualityResultConstants.IssueDetected,
+            Disposition = BagDispositionConstants.RejectReturn,
+            Note = "Loại sau QC"
+        });
+
+        var result = await sut.CompleteAsync(inspectionId, new CompleteInspectionDto { CompletedBy = 1001 });
+
+        result.Status.Should().Be(200);
+        var receipt = await context.PaddyPurchaseReceipts.FirstAsync(x => x.Id == receiptId);
+        receipt.TotalAmount.Should().Be(expectedFinalTotal);
+        receipt.DebtAmount.Should().Be(expectedPayableBalance);
+
+        var payable = await context.PartyDebts.SingleAsync(x => x.PartyType == "FARMER" && x.PartyId == 9 && x.Direction == "PAYABLE");
+        payable.CurrentBalance.Should().Be(expectedPayableBalance);
+        var payableTransactions = await context.DebtTransactions
+            .Where(x => x.PartyDebtId == payable.Id)
+            .OrderBy(x => x.Id)
+            .ToListAsync();
+        payableTransactions.Should().ContainSingle(x => x.TransactionType == LookupCodes.DebtTransactionType.Charge && x.Amount == expectedFinalTotal);
+        payableTransactions.Should().ContainSingle(x => x.TransactionType == LookupCodes.DebtTransactionType.Payment && x.Amount == Math.Min(paidAmount, expectedFinalTotal));
+
+        if (expectedReceivableBalance == 0)
+        {
+            context.PartyDebts.Should().NotContain(x => x.PartyType == "FARMER" && x.PartyId == 9 && x.Direction == "RECEIVABLE");
+        }
+        else
+        {
+            var receivable = await context.PartyDebts.SingleAsync(x => x.PartyType == "FARMER" && x.PartyId == 9 && x.Direction == "RECEIVABLE");
+            receivable.CurrentBalance.Should().Be(expectedReceivableBalance);
+            context.DebtTransactions.Should().ContainSingle(x =>
+                x.PartyDebtId == receivable.Id &&
+                x.TransactionType == LookupCodes.DebtTransactionType.Charge &&
+                x.Amount == expectedReceivableBalance);
+        }
+    }
+
     // ── W14-J: Moisture Config Tests ──────────────────────────────────────────
 
     [Fact]

@@ -56,7 +56,6 @@ public class ReceiveCustomerReturnOrderDto
 public class RegisterCustomerReturnRefundDto
 {
     public decimal Amount { get; set; }
-    public string PaymentReference { get; set; } = null!;
     public string? Note { get; set; }
 }
 
@@ -123,6 +122,7 @@ public class CustomerReturnOrderListDto
     
     public decimal ApprovedCreditAmount { get; set; }
     public decimal DebtReductionAmount { get; set; }
+    public decimal RefundedAmount { get; set; }
     public decimal RefundPendingAmount { get; set; }
     
     public DateTime? ApprovedDate { get; set; }

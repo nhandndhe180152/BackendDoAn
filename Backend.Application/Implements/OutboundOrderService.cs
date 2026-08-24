@@ -1529,8 +1529,12 @@ public class OutboundOrderService : IOutboundOrderService
                     : item.SalesOrderItem?.UnitSalePrice ?? 0;
                 return ActiveAllocations(item).Sum(a => a.QuantityPicked) * unitSalePrice;
             });
+        var applicableDeposit = Math.Min(
+            Math.Max(order.SalesOrder?.DepositAmount ?? 0m, 0m),
+            amountToChargeOnDispatch);
+        var outstandingOnDispatch = Math.Max(0m, amountToChargeOnDispatch - applicableDeposit);
 
-        if (amountToChargeOnDispatch > 0)
+        if (outstandingOnDispatch > 0)
         {
             if (!dto.DueDate.HasValue)
                 return ApiResponse.UnprocessableEntity("Vui lòng chọn hạn thanh toán trước khi xác nhận xuất kho có phát sinh công nợ.");
@@ -1753,7 +1757,7 @@ public class OutboundOrderService : IOutboundOrderService
                             RefType         = "OUTBOUND_ORDER",
                             RefId           = order.Id,
                             TransactionDate = now,
-                            DueDate         = dto.DueDate!.Value.Date,
+                            DueDate         = dto.DueDate?.Date,
                             Note            = $"Công nợ phát sinh từ phiếu xuất {order.Id} (Đơn bán {salesOrder.SOCode})",
                             CreatedDate     = now,
                             CreatedBy       = userId
@@ -1768,17 +1772,17 @@ public class OutboundOrderService : IOutboundOrderService
                         // chứng từ nào), thuật toán đối soát công nợ sẽ không match được và rơi xuống
                         // phân bổ FIFO theo hạn thanh toán → tiền cọc bị "chảy" nhầm sang chứng từ khác
                         // của cùng khách hàng (cọc hiển thị nhiều hơn thực tế). Dedup theo
-                        // DeduplicationKey để vẫn chỉ ghi 1 lần cho mỗi đơn bán dù đơn được tách
-                        // thành nhiều phiếu xuất.
+                        // Mỗi SalesOrder chỉ có một Outbound active. Gắn key theo Outbound để tiền cọc
+                        // được áp dụng lại cho phiếu giao thay thế sau khi phiếu trước giao thất bại.
                         if (salesOrder.DepositAmount.HasValue && salesOrder.DepositAmount.Value > 0)
                         {
-                            var depositKey = $"SALES_ORDER_DEPOSIT-{salesOrder.Id}";
+                            var depositKey = $"SALES_ORDER_DEPOSIT-{salesOrder.Id}-OUTBOUND-{order.Id}";
                             var depositRecorded = await _debtTransactionRepository.FirstOrDefaultAsync(x =>
                                 x.DeduplicationKey == depositKey && !x.IsDeleted);
 
                             if (depositRecorded == null)
                             {
-                                var depositAmount = salesOrder.DepositAmount.Value;
+                                var depositAmount = Math.Min(salesOrder.DepositAmount.Value, amountToCharge);
                                 partyDebt.CurrentBalance  -= depositAmount;
                                 partyDebt.LastModifiedDate  = now;
                                 partyDebt.UpdatedBy         = userId;
@@ -2769,25 +2773,38 @@ public class OutboundOrderService : IOutboundOrderService
             PartyDebt? partyDebt = null;
             if (salesOrder != null && !salesOrder.IsDeleted)
             {
-                var amountToCharge = order.TotalDispatchedSaleValue;
-                if (amountToCharge > 0)
+                var documentTransactions = await _debtTransactionRepository
+                    .FindByCondition(x =>
+                        x.RefType == "OUTBOUND_ORDER" &&
+                        x.RefId == order.Id &&
+                        !x.IsDeleted)
+                    .ToListAsync();
+                var documentOutstanding = Math.Max(0m,
+                    documentTransactions
+                        .Where(x => x.TransactionType == LookupCodes.DebtTransactionType.Charge)
+                        .Sum(x => x.Amount)
+                    - documentTransactions
+                        .Where(x => x.TransactionType == LookupCodes.DebtTransactionType.Payment ||
+                                    x.TransactionType == LookupCodes.DebtTransactionType.ReturnCredit)
+                        .Sum(x => x.Amount));
+
+                if (documentOutstanding > 0)
                 {
-                    // Kiểm tra xem đã có giao dịch CHARGE cho phiếu xuất này chưa
-                    var existingCharge = await _debtTransactionRepository.FirstOrDefaultAsync(x =>
-                        x.RefType == "OUTBOUND_ORDER" && x.RefId == order.Id && x.TransactionType == LookupCodes.DebtTransactionType.Charge && !x.IsDeleted);
+                    partyDebt = await _partyDebtRepository.FirstOrDefaultAsync(x =>
+                        !x.IsDeleted &&
+                        x.PartyType == "CUSTOMER" &&
+                        x.PartyId == salesOrder.CustomerId &&
+                        x.Direction == "RECEIVABLE" &&
+                        x.IsActive);
 
-                    if (existingCharge != null)
+                    if (partyDebt != null)
                     {
-                        partyDebt = await _partyDebtRepository.FirstOrDefaultAsync(x =>
-                            !x.IsDeleted &&
-                            x.PartyType == "CUSTOMER" &&
-                            x.PartyId == salesOrder.CustomerId &&
-                            x.Direction == "RECEIVABLE" &&
-                            x.IsActive);
-
-                        if (partyDebt != null)
+                        // Chỉ đảo số còn nợ thực của đúng chứng từ. Clamp theo sổ tổng để dữ liệu
+                        // lịch sử cũ không thể làm CUSTOMER RECEIVABLE âm.
+                        var reversalAmount = Math.Min(documentOutstanding, Math.Max(0m, partyDebt.CurrentBalance));
+                        if (reversalAmount > 0)
                         {
-                            partyDebt.CurrentBalance -= amountToCharge;
+                            partyDebt.CurrentBalance -= reversalAmount;
                             partyDebt.LastModifiedDate = now;
                             partyDebt.UpdatedBy = userId;
                             await _partyDebtRepository.UpdateAsync(partyDebt);
@@ -2795,12 +2812,13 @@ public class OutboundOrderService : IOutboundOrderService
                             var reversalTx = new DebtTransaction
                             {
                                 PartyDebtId = partyDebt.Id,
-                                TransactionType = "RETURN_CREDIT",
-                                Amount = amountToCharge,
+                                TransactionType = LookupCodes.DebtTransactionType.ReturnCredit,
+                                Amount = reversalAmount,
                                 BalanceAfter = partyDebt.CurrentBalance,
                                 RefType = "OUTBOUND_ORDER",
                                 RefId = order.Id,
                                 TransactionDate = now,
+                                DeduplicationKey = $"OUTBOUND_DELIVERY_FAILED:{order.Id}",
                                 Note = $"Hoàn trả công nợ do giao hàng thất bại (Phiếu xuất {order.Id})",
                                 CreatedDate = now,
                                 CreatedBy = userId

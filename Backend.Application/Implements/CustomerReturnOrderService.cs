@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Text.Json;
@@ -593,6 +594,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             WarehouseName = order.Warehouse.Name,
             ApprovedCreditAmount = order.ApprovedCreditAmount,
             DebtReductionAmount = order.DebtReductionAmount,
+            RefundedAmount = order.RefundedAmount,
             RefundPendingAmount = order.RefundPendingAmount,
             ApprovedDate = order.ApprovedDate,
             ApprovedByName = order.ApprovedByUser?.LastName + " " + order.ApprovedByUser?.FirstName,
@@ -982,6 +984,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             WarehouseName = order.Warehouse.Name,
             ApprovedCreditAmount = order.ApprovedCreditAmount,
             DebtReductionAmount = order.DebtReductionAmount,
+            RefundedAmount = order.RefundedAmount,
             RefundPendingAmount = order.RefundPendingAmount,
             ApprovedDate = order.ApprovedDate,
             ConfirmedAt = order.ConfirmedAt,
@@ -1374,7 +1377,28 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         var partyDebt = await _context.PartyDebts
             .FirstOrDefaultAsync(d => d.PartyType == LookupCodes.PartyType.Customer && d.PartyId == order.CustomerId && d.Direction == LookupCodes.DebtDirection.Receivable && d.IsActive && !d.IsDeleted, cancellationToken);
 
-        decimal currentReceivableBalance = partyDebt?.CurrentBalance ?? 0;
+        decimal currentReceivableBalance = 0m;
+        if (partyDebt != null && order.OutboundOrderId.HasValue)
+        {
+            var sourceTransactions = await _context.DebtTransactions
+                .Where(x =>
+                    x.PartyDebtId == partyDebt.Id &&
+                    x.RefType == "OUTBOUND_ORDER" &&
+                    x.RefId == order.OutboundOrderId.Value &&
+                    !x.IsDeleted)
+                .ToListAsync(cancellationToken);
+            currentReceivableBalance = Math.Max(0m,
+                sourceTransactions
+                    .Where(x => x.TransactionType == LookupCodes.DebtTransactionType.Charge ||
+                                x.TransactionType == LookupCodes.DebtTransactionType.SaleCharge)
+                    .Sum(x => x.Amount)
+                - sourceTransactions
+                    .Where(x => x.TransactionType == LookupCodes.DebtTransactionType.Payment ||
+                                x.TransactionType == LookupCodes.DebtTransactionType.ReturnCredit)
+                    .Sum(x => x.Amount));
+            currentReceivableBalance = Math.Min(currentReceivableBalance, Math.Max(0m, partyDebt.CurrentBalance));
+        }
+
         decimal debtReductionAmount = Math.Min(currentReceivableBalance, approvedCreditAmount);
         decimal refundPendingAmount = Math.Max(0, approvedCreditAmount - debtReductionAmount);
 
@@ -1751,8 +1775,33 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
             if (partyDebt != null)
             {
-                var beforeBalance = partyDebt.CurrentBalance;
-                debtReduction = Math.Min(beforeBalance, approvedCredit);
+                decimal sourceOutstanding = 0m;
+                if (order.OutboundOrderId.HasValue)
+                {
+                    var sourceTransactions = await _context.DebtTransactions
+                        .Where(x =>
+                            x.PartyDebtId == partyDebt.Id &&
+                            x.RefType == "OUTBOUND_ORDER" &&
+                            x.RefId == order.OutboundOrderId.Value &&
+                            !x.IsDeleted)
+                        .ToListAsync(cancellationToken);
+
+                    sourceOutstanding = Math.Max(0m,
+                        sourceTransactions
+                            .Where(x => x.TransactionType == LookupCodes.DebtTransactionType.Charge ||
+                                        x.TransactionType == LookupCodes.DebtTransactionType.SaleCharge)
+                            .Sum(x => x.Amount)
+                        - sourceTransactions
+                            .Where(x => x.TransactionType == LookupCodes.DebtTransactionType.Payment ||
+                                        x.TransactionType == LookupCodes.DebtTransactionType.ReturnCredit)
+                            .Sum(x => x.Amount));
+                }
+
+                // Chỉ khấu trừ số còn nợ của đúng Outbound nguồn; không lấy dư nợ đơn khác
+                // của cùng khách hàng để hấp thụ khoản ghi có.
+                debtReduction = Math.Min(
+                    approvedCredit,
+                    Math.Min(sourceOutstanding, Math.Max(0m, partyDebt.CurrentBalance)));
                 refundPending = Math.Max(0, approvedCredit - debtReduction);
 
                 if (debtReduction > 0)
@@ -1767,8 +1816,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                         TransactionType = LookupCodes.DebtTransactionType.ReturnCredit,
                         Amount = debtReduction,
                         BalanceAfter = partyDebt.CurrentBalance,
-                        RefType = InventoryReferenceTypeConstants.CustomerReturnOrder,
-                        RefId = order.Id,
+                        RefType = "OUTBOUND_ORDER",
+                        RefId = order.OutboundOrderId,
                         TransactionDate = now,
                         Note = $"Khấu trừ công nợ từ đơn trả hàng {order.ReturnCode}",
                         DeduplicationKey = deduplicationKey,
@@ -2191,8 +2240,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
     {
         if (!await CheckPermissionAsync("REFUND", cancellationToken))
             return ApiResponse.Forbidden(message: "Bạn không có quyền ghi nhận hoàn tiền.");
-        if (dto.Amount <= 0 || string.IsNullOrWhiteSpace(dto.PaymentReference))
-            return ApiResponse.BadRequest(message: "Số tiền và mã tham chiếu thanh toán là bắt buộc.");
+        if (dto.Amount <= 0)
+            return ApiResponse.BadRequest(message: "Số tiền hoàn phải lớn hơn 0.");
 
         var orgId = await GetCurrentOrganizationIdAsync();
         var order = await _context.CustomerReturnOrders.Include(x => x.CustomerReturnOrderStatus)
@@ -2203,8 +2252,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         if (dto.Amount > order.RefundPendingAmount)
             return ApiResponse.BadRequest(message: "Số tiền hoàn vượt quá số tiền còn phải hoàn.");
 
-        var paymentReference = dto.PaymentReference.Trim().ToUpperInvariant();
-        var deduplicationKey = $"CRT-REFUND-{order.Id}-{paymentReference}";
+        var cumulativeRefund = order.RefundedAmount + dto.Amount;
+        var deduplicationKey = $"CRT-REFUND-{order.Id}-{cumulativeRefund.ToString("0.##", CultureInfo.InvariantCulture)}";
         if (await _context.DebtTransactions.AnyAsync(x => x.DeduplicationKey == deduplicationKey, cancellationToken))
             return ApiResponse.Conflict(message: "Giao dịch hoàn tiền đã được ghi nhận trước đó.", code: "CUSTOMER_RETURN_REFUND_DUPLICATE");
 
@@ -2237,7 +2286,9 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             RefId = order.Id,
             TransactionDate = now,
             DeduplicationKey = deduplicationKey,
-            Note = $"Hoàn tiền đơn {order.ReturnCode}; tham chiếu {paymentReference}. {dto.Note}".Trim(),
+            Note = string.IsNullOrWhiteSpace(dto.Note)
+                ? $"Hoàn tiền đơn {order.ReturnCode}"
+                : $"Hoàn tiền đơn {order.ReturnCode}. {dto.Note.Trim()}",
             CreatedBy = GetCurrentUserId(),
             CreatedDate = now
         }, cancellationToken);

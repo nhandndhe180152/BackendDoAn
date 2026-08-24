@@ -170,6 +170,26 @@ public class SalesOrderServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_DepositGreaterThanCalculatedTotal_ReturnsBadRequest()
+    {
+        var dto = new CreateSalesOrderDto
+        {
+            CustomerId = 1,
+            DepositAmount = 101m,
+            Items = new List<CreateSalesOrderItemDto>
+            {
+                new() { ProductVariantId = 102, QuantityOrdered = 1m, UnitSalePrice = 100m }
+            }
+        };
+
+        var result = await Sut().CreateAsync(dto);
+
+        result.Status.Should().Be(400);
+        result.Message.Should().Contain("Tiền cọc");
+        _soRepo.Verify(r => r.CreateAsync(It.IsAny<global::Backend.Domain.Entities.SalesOrder>()), Times.Never);
+    }
+
+    [Fact]
     public async Task UpdateAsync_DuplicateItems_ReturnsBadRequest()
     {
         var so = new global::Backend.Domain.Entities.SalesOrder
@@ -193,6 +213,32 @@ public class SalesOrderServiceTests
 
         result.Status.Should().Be(400);
         result.Message.Should().Contain("trùng");
+    }
+
+    [Fact]
+    public async Task UpdateAsync_DepositGreaterThanRecalculatedTotal_ReturnsBadRequest()
+    {
+        var so = new global::Backend.Domain.Entities.SalesOrder
+        {
+            Id = 1,
+            TotalAmount = 500m,
+            Status = new SalesOrderStatus { Name = "Mới tạo", Code = SalesOrderStatusNames.New }
+        };
+        _soRepo.Setup(r => r.GetByIdDetailAsync(1)).ReturnsAsync(so);
+
+        var result = await Sut().UpdateAsync(new UpdateSalesOrderDto
+        {
+            Id = 1,
+            DepositAmount = 101m,
+            Items = new List<UpdateSalesOrderItemDto>
+            {
+                new() { ProductVariantId = 102, QuantityOrdered = 1m, UnitSalePrice = 100m }
+            }
+        });
+
+        result.Status.Should().Be(400);
+        result.Message.Should().Contain("Tiền cọc");
+        _soRepo.Verify(r => r.UpdateAsync(It.IsAny<global::Backend.Domain.Entities.SalesOrder>()), Times.Never);
     }
 
     [Fact]

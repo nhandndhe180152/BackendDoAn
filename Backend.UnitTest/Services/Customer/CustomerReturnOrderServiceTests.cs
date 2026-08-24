@@ -947,6 +947,92 @@ public class CustomerReturnOrderServiceTests
         _inventories.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData(20, 500000, 0, 200000, 300000, 0)]
+    [InlineData(20, 0, 500000, 0, 500000, 200000)]
+    [InlineData(22, 100000, 0, 100000, 0, 120000)]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task ConfirmAsync_AppliesCreditOnlyToSourceOutbound(
+        decimal returnQuantity,
+        decimal sourceOutstanding,
+        decimal otherOrderOutstanding,
+        decimal expectedDebtReduction,
+        decimal expectedReceivableBalance,
+        decimal expectedRefundPending)
+    {
+        var (order, _, _) = ArrangeGoodReturnForConfirmation(30, returnQuantity, withExistingOpenBag: false);
+        const int sourceOutboundId = 90;
+        order.OutboundOrderId = sourceOutboundId;
+
+        var receivable = _partyDebts.Single(x => x.Direction == LookupCodes.DebtDirection.Receivable);
+        receivable.CurrentBalance = sourceOutstanding + otherOrderOutstanding;
+
+        const decimal sourceCharge = 500000m;
+        _debtTransactions.Add(new DebtTransaction
+        {
+            PartyDebtId = receivable.Id,
+            RefType = "OUTBOUND_ORDER",
+            RefId = sourceOutboundId,
+            TransactionType = LookupCodes.DebtTransactionType.Charge,
+            Amount = sourceCharge
+        });
+        if (sourceCharge > sourceOutstanding)
+        {
+            _debtTransactions.Add(new DebtTransaction
+            {
+                PartyDebtId = receivable.Id,
+                RefType = "OUTBOUND_ORDER",
+                RefId = sourceOutboundId,
+                TransactionType = LookupCodes.DebtTransactionType.Payment,
+                Amount = sourceCharge - sourceOutstanding
+            });
+        }
+        if (otherOrderOutstanding > 0)
+        {
+            _debtTransactions.Add(new DebtTransaction
+            {
+                PartyDebtId = receivable.Id,
+                RefType = "OUTBOUND_ORDER",
+                RefId = 99,
+                TransactionType = LookupCodes.DebtTransactionType.Charge,
+                Amount = otherOrderOutstanding
+            });
+        }
+
+        var result = await _sut.ConfirmAsync(order.Id);
+
+        result.Status.Should().Be(200);
+        order.DebtReductionAmount.Should().Be(expectedDebtReduction);
+        order.RefundPendingAmount.Should().Be(expectedRefundPending);
+        receivable.CurrentBalance.Should().Be(expectedReceivableBalance);
+
+        var returnCredits = _debtTransactions
+            .Where(x => x.DeduplicationKey == $"CRT-CONFIRM-{order.Id}")
+            .ToList();
+        if (expectedDebtReduction > 0)
+        {
+            returnCredits.Should().ContainSingle(x =>
+                x.TransactionType == LookupCodes.DebtTransactionType.ReturnCredit &&
+                x.Amount == expectedDebtReduction &&
+                x.RefType == "OUTBOUND_ORDER" &&
+                x.RefId == sourceOutboundId);
+        }
+        else
+        {
+            returnCredits.Should().BeEmpty();
+        }
+
+        if (expectedRefundPending > 0)
+        {
+            var payable = _partyDebts.Single(x => x.Direction == LookupCodes.DebtDirection.Payable);
+            payable.CurrentBalance.Should().Be(expectedRefundPending);
+            _debtTransactions.Should().ContainSingle(x =>
+                x.TransactionType == LookupCodes.DebtTransactionType.RefundPayable &&
+                x.Amount == expectedRefundPending &&
+                x.RefId == order.Id);
+        }
+    }
+
     [Fact]
     [Trait("Service", "CustomerReturnOrder")]
     public async Task ConfirmAsync_QuantityExceedsLimit_ReturnsBadRequest()
@@ -1083,5 +1169,51 @@ public class CustomerReturnOrderServiceTests
         createdTx.Amount.Should().Be(50000);
         createdTx.BalanceAfter.Should().Be(50000);
         createdTx.PartyDebt.Should().Be(payable);
+    }
+
+    [Fact]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task RegisterRefundAsync_AmountAndOptionalNote_ReducesCustomerPayable()
+    {
+        var order = new CustomerReturnOrder
+        {
+            Id = 40,
+            OrganizationId = 1,
+            CustomerId = 12,
+            ReturnCode = "CRT-040",
+            CustomerReturnOrderStatusId = 4,
+            CustomerReturnOrderStatus = _customerReturnOrderStatuses.Single(x => x.Code == CustomerReturnOrderStatusNames.Confirmed),
+            ApprovedCreditAmount = 120000m,
+            RefundPendingAmount = 120000m
+        };
+        var payable = new global::Backend.Domain.Entities.PartyDebt
+        {
+            Id = 401,
+            OrganizationId = 1,
+            PartyType = LookupCodes.PartyType.Customer,
+            PartyId = 12,
+            Direction = LookupCodes.DebtDirection.Payable,
+            CurrentBalance = 120000m,
+            IsActive = true
+        };
+        _customerReturnOrders.Add(order);
+        _partyDebts.Add(payable);
+
+        var result = await _sut.RegisterRefundAsync(order.Id, new RegisterCustomerReturnRefundDto
+        {
+            Amount = 120000m,
+            Note = "Hoàn tại quầy"
+        });
+
+        result.Status.Should().Be(200);
+        payable.CurrentBalance.Should().Be(0m);
+        order.RefundedAmount.Should().Be(120000m);
+        order.RefundPendingAmount.Should().Be(0m);
+        order.RefundStatus.Should().Be(CustomerReturnRefundStatus.Refunded);
+        _debtTransactions.Should().ContainSingle(x =>
+            x.TransactionType == LookupCodes.DebtTransactionType.Payment &&
+            x.Amount == 120000m &&
+            x.DeduplicationKey == "CRT-REFUND-40-120000" &&
+            x.Note == "Hoàn tiền đơn CRT-040. Hoàn tại quầy");
     }
 }
