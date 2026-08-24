@@ -1037,4 +1037,83 @@ public class PaddyLotTraceabilityServiceTests
         data.RequestedLotId.Should().Be(10);
         data.RequestedLotCode.Should().Be("LOT-CODE-ABC");
     }
+
+    [Fact]
+    public async Task GetByLotIdAsync_ReturnsMixedPhysicalBag_FromEveryContentLot()
+    {
+        using var db = CreateContext();
+        await SeedBaseEntitiesAsync(db);
+
+        var ownerLot = new PaddyLotEntity
+        {
+            Id = 201,
+            LotCode = "LOT-A",
+            LotType = LotTypeConstants.Rice,
+            ProductVariantId = 2,
+            StatusId = 1,
+            WarehouseId = 1
+        };
+        var contentLot = new PaddyLotEntity
+        {
+            Id = 202,
+            LotCode = "LOT-B",
+            LotType = LotTypeConstants.Rice,
+            ProductVariantId = 2,
+            StatusId = 1,
+            WarehouseId = 1
+        };
+        var bag = new PaddyLotBagEntity
+        {
+            Id = 301,
+            LotId = ownerLot.Id,
+            BagNo = 15,
+            WeightKg = 10m,
+            StandardWeightKg = 10m,
+            IsFull = true,
+            BagKind = PaddyLotBagKinds.Finished,
+            Status = PaddyLotBagStatuses.Stored,
+            LocationId = 1
+        };
+
+        db.PaddyLots.AddRange(ownerLot, contentLot);
+        db.PaddyLotBags.Add(bag);
+        db.PaddyLotBagContents.AddRange(
+            new Backend.Domain.Entities.PaddyLotBagContent
+            {
+                BagId = bag.Id,
+                LotId = ownerLot.Id,
+                WeightKg = 6m
+            },
+            new Backend.Domain.Entities.PaddyLotBagContent
+            {
+                BagId = bag.Id,
+                LotId = contentLot.Id,
+                WeightKg = 1m
+            },
+            new Backend.Domain.Entities.PaddyLotBagContent
+            {
+                BagId = bag.Id,
+                LotId = contentLot.Id,
+                WeightKg = 3m
+            });
+        await db.SaveChangesAsync();
+
+        var ownerResponse = await Sut(db).GetByLotIdAsync(ownerLot.Id);
+        var contentResponse = await Sut(db).GetByLotIdAsync(contentLot.Id);
+
+        ownerResponse.Status.Should().Be(200);
+        contentResponse.Status.Should().Be(200);
+        foreach (var response in new[] { ownerResponse, contentResponse })
+        {
+            var physicalBag = ((PaddyLotTraceabilityDto)response.Resources!).PhysicalBags.Single();
+            physicalBag.BagId.Should().Be(bag.Id);
+            physicalBag.OwnerLotId.Should().Be(ownerLot.Id);
+            physicalBag.IsMixedLot.Should().BeTrue();
+            physicalBag.ContentLotCount.Should().Be(2);
+            physicalBag.Contents.Should().ContainSingle(x =>
+                x.LotId == ownerLot.Id && x.WeightKg == 6m && x.Percentage == 60m);
+            physicalBag.Contents.Should().ContainSingle(x =>
+                x.LotId == contentLot.Id && x.WeightKg == 4m && x.Percentage == 40m);
+        }
+    }
 }
