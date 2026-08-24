@@ -42,6 +42,16 @@ public class CustomerFeedbackService : ICustomerFeedbackService
         if (!CustomerFeedbackType.IsValid(dto.FeedbackType))
             return ApiResponse.BadRequest(message: "Loại feedback không hợp lệ.");
 
+        var requiresOutboundItem = dto.FeedbackType.Equals(CustomerFeedbackType.Quality, StringComparison.OrdinalIgnoreCase)
+            || dto.FeedbackType.Equals(CustomerFeedbackType.WrongProduct, StringComparison.OrdinalIgnoreCase)
+            || dto.FeedbackType.Equals(CustomerFeedbackType.Weight, StringComparison.OrdinalIgnoreCase)
+            || dto.FeedbackType.Equals(CustomerFeedbackType.Packaging, StringComparison.OrdinalIgnoreCase);
+        if (requiresOutboundItem && !dto.OutboundOrderItemId.HasValue)
+            return ApiResponse.BadRequest(message: "Loại phản hồi này phải gắn với một dòng hàng.");
+
+        if (dto.PaddyLotBagAllocationId.HasValue && !dto.OutboundOrderItemId.HasValue)
+            return ApiResponse.BadRequest(message: "Phải chọn dòng hàng trước khi chọn bao cụ thể.");
+
         var outbound = await _context.OutboundOrders
             .Include(o => o.OutboundOrderStatus)
             .Include(o => o.SalesOrder)
@@ -92,11 +102,16 @@ public class CustomerFeedbackService : ICustomerFeedbackService
                 
             if (bagAlloc == null)
                 return ApiResponse.BadRequest(message: "Bao lúa/gạo không tồn tại.");
+
+            if (bagAlloc.Status != PaddyLotBagAllocationStatuses.Consumed)
+                return ApiResponse.BadRequest(message: "Bao hàng này không phải bao đã giao cho khách.");
                 
             if (bagAlloc.ReferenceType != PaddyLotBagAllocationReferenceTypes.OutboundOrder || bagAlloc.ReferenceId != dto.OutboundOrderId)
                 return ApiResponse.BadRequest(message: "Bao hàng truyền vào không thuộc phiếu xuất này.");
-            var bagMatchesDeliveredLine = await _context.OutboundOrderItemAllocations.AnyAsync(
-                x => x.OutboundOrderItem.OutboundOrderId == dto.OutboundOrderId
+            var bagMatchesDeliveredLine = bagAlloc.ReferenceItemId.HasValue
+                && await _context.OutboundOrderItemAllocations.AnyAsync(
+                x => x.Id == bagAlloc.ReferenceItemId.Value
+                    && x.OutboundOrderItem.OutboundOrderId == dto.OutboundOrderId
                     && (!dto.OutboundOrderItemId.HasValue || x.OutboundOrderItemId == dto.OutboundOrderItemId.Value)
                     && (!dto.ProductVariantId.HasValue || x.OutboundOrderItem.ProductVariantId == dto.ProductVariantId.Value)
                     && x.PaddyLotId == bagAlloc.Bag.LotId

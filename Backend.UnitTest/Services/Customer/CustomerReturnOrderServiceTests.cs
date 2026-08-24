@@ -253,9 +253,48 @@ public class CustomerReturnOrderServiceTests
 
     [Fact]
     [Trait("Service", "CustomerReturnOrder")]
-    public async Task CreateAsync_ValidInput_ReturnsSuccess()
+    public async Task CreateAsync_WithoutFeedback_DoesNotCreateFeedback()
     {
-        // Arrange
+        var dto = ArrangeValidCreateDto();
+
+        var result = await _sut.CreateAsync(dto);
+
+        result.Status.Should().Be(201);
+        _customerReturnOrders.Should().ContainSingle();
+        _customerReturnOrders[0].ReturnReason.Should().Be("Hàng kém chất lượng");
+        _customerReturnOrders[0].CustomerFeedbackId.Should().BeNull();
+        _customerReturnOrders[0].CustomerFeedback.Should().BeNull();
+        _customerFeedbacks.Should().BeEmpty();
+    }
+
+    [Fact]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task CreateAsync_WithValidFeedback_PreservesFeedbackLink()
+    {
+        var dto = ArrangeValidCreateDto();
+        var feedback = new global::Backend.Domain.Entities.CustomerFeedback
+        {
+            Id = 700,
+            SalesOrderId = 100,
+            OutboundOrderId = 50,
+            FeedbackType = "QUALITY",
+            Description = "Gạo bị ẩm",
+            ResolutionStatus = "OPEN"
+        };
+        _customerFeedbacks.Add(feedback);
+        dto.CustomerFeedbackId = feedback.Id;
+
+        var result = await _sut.CreateAsync(dto);
+
+        result.Status.Should().Be(201);
+        _customerReturnOrders.Should().ContainSingle();
+        _customerReturnOrders[0].CustomerFeedbackId.Should().Be(feedback.Id);
+        _customerReturnOrders[0].CustomerFeedback.Should().BeSameAs(feedback);
+        _customerFeedbacks.Should().ContainSingle();
+    }
+
+    private CreateCustomerReturnOrderDto ArrangeValidCreateDto()
+    {
         var warehouse = new global::Backend.Domain.Entities.Warehouse { Id = 1, Code = "WH01", Name = "Warehouse A", IsActive = true };
         var customer = new global::Backend.Domain.Entities.Customer { Id = 10, OrganizationId = 1, Code = "CUS01", Name = "Customer A", IsActive = true };
         var pv = new ProductVariant { Id = 5, SKU = "PV-05", Name = "Variant 5", IsActive = true };
@@ -288,7 +327,7 @@ public class CustomerReturnOrderServiceTests
         _outboundOrderItemAllocations.Add(outboundAlloc);
         _salesOrderItems.Add(salesOrderItem);
 
-        var dto = new CreateCustomerReturnOrderDto
+        return new CreateCustomerReturnOrderDto
         {
             WarehouseId = 1,
             CustomerId = 10,
@@ -308,18 +347,6 @@ public class CustomerReturnOrderServiceTests
                 }
             }
         };
-
-        // Act
-        var result = await _sut.CreateAsync(dto);
-
-        // Assert
-        result.Status.Should().Be(201);
-        _customerReturnOrders.Should().ContainSingle();
-        _customerReturnOrders[0].ReturnReason.Should().Be("Hàng kém chất lượng");
-        _customerFeedbacks.Should().ContainSingle();
-        _customerFeedbacks[0].FeedbackType.Should().Be("OTHER");
-        _customerFeedbacks[0].Description.Should().Be("Hàng kém chất lượng");
-        _customerReturnOrders[0].CustomerFeedback.Should().BeSameAs(_customerFeedbacks[0]);
     }
 
     [Fact]
