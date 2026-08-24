@@ -25,6 +25,16 @@ namespace Backend.Application.Implements;
 
 public class CustomerReturnOrderService : ICustomerReturnOrderService
 {
+    private static readonly string[] ActiveReturnStatusCodes =
+    {
+        CustomerReturnOrderStatusNames.Draft,
+        CustomerReturnOrderStatusNames.PendingApproval,
+        CustomerReturnOrderStatusNames.Approved,
+        CustomerReturnOrderStatusNames.Received,
+        CustomerReturnOrderStatusNames.Inspected,
+        CustomerReturnOrderStatusNames.Confirmed
+    };
+
     private readonly IApplicationDbContext _context;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<CustomerReturnOrderService> _logger;
@@ -157,8 +167,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             if (outbound.SalesOrder == null)
                 return ApiResponse.UnprocessableEntity(message: "Phiếu xuất gốc không gắn với đơn bán nào.");
 
-            if (outbound.OutboundOrderStatus.Code != OutboundOrderStatusNames.Dispatched && outbound.OutboundOrderStatus.Code != OutboundOrderStatusNames.Completed)
-                return ApiResponse.UnprocessableEntity(message: "Chỉ được trả hàng đối với phiếu xuất đã Đang giao hàng hoặc Hoàn thành.");
+            if (outbound.OutboundOrderStatus.Code != OutboundOrderStatusNames.Completed)
+                return ApiResponse.UnprocessableEntity(message: "Chỉ được tạo phiếu trả hàng từ phiếu xuất đã giao thành công.");
 
             if (outbound.SalesOrder.CustomerId != dto.CustomerId)
                 return ApiResponse.BadRequest(message: "Khách hàng không khớp với đơn xuất hàng gốc.");
@@ -307,12 +317,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     // Check return limit
                     if (outboundAlloc != null)
                     {
-                        var previousReturnedQty = await _context.CustomerReturnOrderItemAllocations
-                            .Where(x => x.OutboundOrderItemAllocationId == allocDto.OutboundOrderItemAllocationId
-                                        && x.CustomerReturnOrderItem.CustomerReturnOrder.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Confirmed
-                                        && !x.IsDeleted
-                                        && !x.CustomerReturnOrderItem.CustomerReturnOrder.IsDeleted)
-                            .SumAsync(x => x.QuantityReturned, cancellationToken);
+                        var previousReturnedQty = await GetActiveReturnedQuantityAsync(
+                            outboundAlloc.Id, excludedOrderId: null, cancellationToken);
 
                         var maxReturnable = outboundAlloc.QuantityPicked - previousReturnedQty;
                         if (allocDto.QuantityReturned > maxReturnable)
@@ -402,8 +408,16 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         }
 
         var outbound = await _context.OutboundOrders
+            .Include(o => o.OutboundOrderStatus)
             .Include(o => o.SalesOrder)
             .FirstOrDefaultAsync(o => o.Id == order.OutboundOrderId && !o.IsDeleted, cancellationToken);
+
+        if (outbound == null || outbound.OutboundOrderStatus == null ||
+            outbound.OutboundOrderStatus.Code != OutboundOrderStatusNames.Completed)
+        {
+            return ApiResponse.UnprocessableEntity(
+                message: "Chỉ được tạo phiếu trả hàng từ phiếu xuất đã giao thành công.");
+        }
 
         foreach (var itemDto in dto.Items)
         {
@@ -469,13 +483,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                         .FirstOrDefaultAsync(x => x.Id == outboundAlloc.PaddyLotId.Value && !x.IsDeleted, cancellationToken);
                     originalLocationId = outboundAlloc.LocationId;
 
-                    var previousReturnedQty = await _context.CustomerReturnOrderItemAllocations
-                        .Where(x => x.OutboundOrderItemAllocationId == allocDto.OutboundOrderItemAllocationId
-                                    && x.CustomerReturnOrderItem.CustomerReturnOrder.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Confirmed
-                                    && !x.IsDeleted
-                                    && !x.CustomerReturnOrderItem.CustomerReturnOrder.IsDeleted
-                                    && x.CustomerReturnOrderItem.CustomerReturnOrderId != order.Id)
-                        .SumAsync(x => x.QuantityReturned, cancellationToken);
+                    var previousReturnedQty = await GetActiveReturnedQuantityAsync(
+                        outboundAlloc.Id, order.Id, cancellationToken);
 
                     var maxReturnable = outboundAlloc.QuantityPicked - previousReturnedQty;
                     if (allocDto.QuantityReturned > maxReturnable)
@@ -726,8 +735,9 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     .Sum(a => a.QuantityPicked - (_context.CustomerReturnOrderItemAllocations
                         .Where(r => !r.IsDeleted
                             && r.OutboundOrderItemAllocationId == a.Id
+                            && !r.CustomerReturnOrderItem.IsDeleted
                             && !r.CustomerReturnOrderItem.CustomerReturnOrder.IsDeleted
-                            && r.CustomerReturnOrderItem.CustomerReturnOrder.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Confirmed)
+                            && ActiveReturnStatusCodes.Contains(r.CustomerReturnOrderItem.CustomerReturnOrder.CustomerReturnOrderStatus.Code))
                         .Select(r => (decimal?)r.QuantityReturned)
                         .Sum() ?? 0))
             })
@@ -792,8 +802,9 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             .Where(r => !r.IsDeleted
                 && r.OutboundOrderItemAllocationId.HasValue
                 && allocationIds.Contains(r.OutboundOrderItemAllocationId.Value)
+                && !r.CustomerReturnOrderItem.IsDeleted
                 && !r.CustomerReturnOrderItem.CustomerReturnOrder.IsDeleted
-                && r.CustomerReturnOrderItem.CustomerReturnOrder.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Confirmed)
+                && ActiveReturnStatusCodes.Contains(r.CustomerReturnOrderItem.CustomerReturnOrder.CustomerReturnOrderStatus.Code))
             .GroupBy(r => r.OutboundOrderItemAllocationId!.Value)
             .Select(g => new { AllocationId = g.Key, Quantity = g.Sum(x => x.QuantityReturned) })
             .ToDictionaryAsync(x => x.AllocationId, x => x.Quantity, cancellationToken);
@@ -861,6 +872,28 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         if (location == null) return string.Empty;
         return string.Join("-", new[] { location.ZoneName, location.ShelfRow, location.ShelfLevel, location.SlotCode }
             .Where(x => !string.IsNullOrWhiteSpace(x)));
+    }
+
+    private async Task<decimal> GetActiveReturnedQuantityAsync(
+        int outboundAllocationId,
+        int? excludedOrderId,
+        CancellationToken cancellationToken)
+    {
+        var query = _context.CustomerReturnOrderItemAllocations
+            .Where(x => x.OutboundOrderItemAllocationId == outboundAllocationId
+                        && !x.IsDeleted
+                        && !x.CustomerReturnOrderItem.IsDeleted
+                        && !x.CustomerReturnOrderItem.CustomerReturnOrder.IsDeleted
+                        && ActiveReturnStatusCodes.Contains(
+                            x.CustomerReturnOrderItem.CustomerReturnOrder.CustomerReturnOrderStatus.Code));
+
+        if (excludedOrderId.HasValue)
+        {
+            query = query.Where(x =>
+                x.CustomerReturnOrderItem.CustomerReturnOrderId != excludedOrderId.Value);
+        }
+
+        return await query.SumAsync(x => x.QuantityReturned, cancellationToken);
     }
 
     public async Task<ApiResponse> GetPagedAsync(CustomerReturnOrderPagedQuery query, CancellationToken cancellationToken = default)
@@ -1086,7 +1119,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         if (order.CustomerReturnOrderStatus.Code != CustomerReturnOrderStatusNames.PendingApproval)
             return ApiResponse.UnprocessableEntity(message: "Chỉ được duyệt đơn trả hàng đang ở trạng thái DRAFT.");
 
-        // Check if limits are exceeded due to other concurrent returns confirmed in the meantime
+        // Re-check against every other active return before approval.
         foreach (var item in order.Items)
         {
             foreach (var alloc in item.Allocations)
@@ -1102,12 +1135,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 if (outboundAlloc.PaddyLotId == null)
                     return ApiResponse.BadRequest(message: $"Lỗi dữ liệu: Chi tiết xuất kho ID {alloc.OutboundOrderItemAllocationId} không được gắn với lô gạo nào.");
 
-                var previousReturnedQty = await _context.CustomerReturnOrderItemAllocations
-                    .Where(x => x.OutboundOrderItemAllocationId == alloc.OutboundOrderItemAllocationId
-                                && x.CustomerReturnOrderItem.CustomerReturnOrder.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Confirmed
-                                && !x.IsDeleted
-                                && !x.CustomerReturnOrderItem.CustomerReturnOrder.IsDeleted)
-                    .SumAsync(x => x.QuantityReturned, cancellationToken);
+                var previousReturnedQty = await GetActiveReturnedQuantityAsync(
+                    outboundAlloc.Id, order.Id, cancellationToken);
 
                 var maxReturnable = outboundAlloc.QuantityPicked - previousReturnedQty;
                 if (alloc.QuantityReturned > maxReturnable)
@@ -1246,19 +1275,28 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     if (!allocDto.QuarantineLocationId.HasValue)
                         return ApiResponse.BadRequest(message: "Phải chỉ định Quarantine Location cho hàng hỏng/lỗi (Damaged).");
 
-                    var loc = await _context.Locations.FirstOrDefaultAsync(l => l.Id == allocDto.QuarantineLocationId.Value && !l.IsDeleted && l.IsActive, cancellationToken);
-                    if (loc == null || loc.WarehouseId != order.WarehouseId || !loc.IsQuarantine ||
-                        loc.IsOutboundStaging || loc.OutboundLockOrderId.HasValue)
-                        return ApiResponse.BadRequest(message: "Quarantine Location không hợp lệ hoặc không thuộc khu cách ly (IsQuarantine = true) của kho.");
+                    var loc = await _context.Locations.FirstOrDefaultAsync(
+                        l => l.Id == allocDto.QuarantineLocationId.Value, cancellationToken);
+                    if (!IsValidQuarantineReturnLocation(
+                            loc, order.WarehouseId, alloc.ProductVariantId, allocDto.QuantityDamaged))
+                    {
+                        return ApiResponse.BadRequest(
+                            message: "Quarantine Location không hợp lệ, không tương thích SKU hoặc không còn đủ sức chứa.");
+                    }
                 }
 
                 if (allocDto.QuantityRejected > 0)
                 {
                     if (!allocDto.RejectedLocationId.HasValue || string.IsNullOrWhiteSpace(allocDto.RejectionReason))
                         return ApiResponse.BadRequest(message: "Hàng bị từ chối phải có vị trí giữ hàng và lý do từ chối.");
-                    var loc = await _context.Locations.FirstOrDefaultAsync(l => l.Id == allocDto.RejectedLocationId.Value && !l.IsDeleted && l.IsActive, cancellationToken);
-                    if (loc == null || loc.WarehouseId != order.WarehouseId || !loc.IsQuarantine || loc.IsOutboundStaging || loc.OutboundLockOrderId.HasValue)
-                        return ApiResponse.BadRequest(message: "Vị trí giữ hàng bị từ chối phải là vị trí cách ly hợp lệ của kho.");
+                    var loc = await _context.Locations.FirstOrDefaultAsync(
+                        l => l.Id == allocDto.RejectedLocationId.Value, cancellationToken);
+                    if (!IsValidQuarantineReturnLocation(
+                            loc, order.WarehouseId, alloc.ProductVariantId, allocDto.QuantityRejected))
+                    {
+                        return ApiResponse.BadRequest(
+                            message: "Vị trí giữ hàng bị từ chối không hợp lệ, không tương thích SKU hoặc không còn đủ sức chứa.");
+                    }
                 }
 
                 alloc.QuantityGood = allocDto.QuantityGood;
@@ -1471,13 +1509,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 if (!alloc.OutboundOrderItemAllocationId.HasValue)
                     continue;
 
-                var alreadyReturned = await _context.CustomerReturnOrderItemAllocations
-                    .Where(x => x.OutboundOrderItemAllocationId == alloc.OutboundOrderItemAllocationId 
-                             && x.CustomerReturnOrderItem.CustomerReturnOrder.CustomerReturnOrderStatus.Code == CustomerReturnOrderStatusNames.Confirmed
-                             && !x.IsDeleted
-                             && !x.CustomerReturnOrderItem.IsDeleted
-                             && !x.CustomerReturnOrderItem.CustomerReturnOrder.IsDeleted)
-                    .SumAsync(x => x.QuantityReturned, cancellationToken);
+                var alreadyReturned = await GetActiveReturnedQuantityAsync(
+                    alloc.OutboundOrderItemAllocationId.Value, order.Id, cancellationToken);
 
                 var maxReturnable = alloc.OutboundOrderItemAllocation!.QuantityPicked - alreadyReturned;
                 if (alloc.QuantityReturned > maxReturnable)
@@ -1587,7 +1620,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 // Atomic UPDATE location with capacity limit check
                 var affected = await _context.ExecuteSqlRawAsync(
                     "UPDATE Location SET CurrentOccupancy = CurrentOccupancy + {0}, CurrentProductVariantId = {1}, LastModifiedDate = {2}, UpdatedBy = {3} " +
-                    "WHERE Id = {4} AND WarehouseId = {5} AND IsActive = 1 AND IsDeleted = 0 AND IsOutboundStaging = 0 AND OutboundLockOrderId IS NULL AND (IsSingleTypeColumn = 0 OR CurrentProductVariantId IS NULL OR CurrentProductVariantId = {1}) AND (MaxCapacity IS NULL OR CurrentOccupancy + {0} <= MaxCapacity) AND IsQuarantine = 1",
+                    "WHERE Id = {4} AND WarehouseId = {5} AND IsActive = 1 AND IsDeleted = 0 AND IsOutboundStaging = 0 AND OutboundLockOrderId IS NULL AND (IsSingleTypeColumn = 0 OR CurrentOccupancy <= 0.001 OR CurrentProductVariantId IS NULL OR CurrentProductVariantId = {1}) AND (MaxCapacity IS NULL OR CurrentOccupancy + {0} <= MaxCapacity) AND IsQuarantine = 1",
                     new object[] { movementQuantity, alloc.ProductVariantId, now, userId, locationId, order.WarehouseId }, cancellationToken);
 
                 if (affected == 0)
@@ -1896,6 +1929,27 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         var isEmpty = location.CurrentOccupancy <= 0.001m;
         if (!isEmpty && location.CurrentProductVariantId != productVariantId)
             return false;
+
+        return !location.MaxCapacity.HasValue ||
+            location.CurrentOccupancy + quantity <= location.MaxCapacity.Value + 0.001m;
+    }
+
+    private static bool IsValidQuarantineReturnLocation(
+        Location? location, int warehouseId, int productVariantId, decimal quantity)
+    {
+        if (location == null || !location.IsActive || location.IsDeleted ||
+            location.WarehouseId != warehouseId || !location.IsQuarantine ||
+            location.IsOutboundStaging || location.OutboundLockOrderId.HasValue)
+        {
+            return false;
+        }
+
+        var isEmpty = location.CurrentOccupancy <= 0.001m;
+        if (location.IsSingleTypeColumn && !isEmpty &&
+            location.CurrentProductVariantId != productVariantId)
+        {
+            return false;
+        }
 
         return !location.MaxCapacity.HasValue ||
             location.CurrentOccupancy + quantity <= location.MaxCapacity.Value + 0.001m;

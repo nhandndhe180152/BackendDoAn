@@ -221,6 +221,110 @@ public class CustomerReturnOrderServiceTests
         };
     }
 
+    private InspectCustomerReturnOrderDto ArrangeQuarantineLocationScenario(
+        int orderId,
+        decimal occupancy,
+        int? currentProductVariantId,
+        bool isSingleTypeColumn,
+        decimal maxCapacity = 100m,
+        decimal quantity = 10m)
+    {
+        var order = new CustomerReturnOrder
+        {
+            Id = orderId,
+            OrganizationId = 1,
+            WarehouseId = 1,
+            CustomerReturnOrderStatusId = 7,
+            CustomerReturnOrderStatus = _customerReturnOrderStatuses.Single(x => x.Code == "RECEIVED")
+        };
+        var item = new CustomerReturnOrderItem
+        {
+            Id = orderId * 10,
+            CustomerReturnOrderId = orderId,
+            ProductVariantId = 5,
+            QuantityReturned = quantity
+        };
+        var allocation = new CustomerReturnOrderItemAllocation
+        {
+            Id = orderId * 10 + 1,
+            CustomerReturnOrderItemId = item.Id,
+            CustomerReturnOrderItem = item,
+            ProductVariantId = 5,
+            QuantityReturned = quantity,
+            QuantityReceived = quantity,
+            UnitCreditPrice = 10000m
+        };
+        item.Allocations.Add(allocation);
+        order.Items.Add(item);
+        _customerReturnOrders.Add(order);
+
+        _locations.Add(new Location
+        {
+            Id = orderId * 100,
+            WarehouseId = 1,
+            IsActive = true,
+            IsQuarantine = true,
+            IsSingleTypeColumn = isSingleTypeColumn,
+            CurrentOccupancy = occupancy,
+            CurrentProductVariantId = currentProductVariantId,
+            MaxCapacity = maxCapacity
+        });
+
+        return new InspectCustomerReturnOrderDto
+        {
+            Id = orderId,
+            Items = new List<InspectCustomerReturnOrderItemDto>
+            {
+                new()
+                {
+                    CustomerReturnOrderItemId = item.Id,
+                    QualityStatus = "DAMAGED",
+                    DamageReason = "Bao rách",
+                    Allocations = new List<InspectCustomerReturnOrderItemAllocationDto>
+                    {
+                        new()
+                        {
+                            ReturnAllocationId = allocation.Id,
+                            QuantityDamaged = quantity,
+                            CreditQuantity = quantity,
+                            QuarantineLocationId = orderId * 100
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    private void AddReturnReservation(
+        string statusCode,
+        decimal quantity,
+        int outboundAllocationId = 70,
+        int orderId = 800)
+    {
+        var status = _customerReturnOrderStatuses.Single(x => x.Code == statusCode);
+        var order = new CustomerReturnOrder
+        {
+            Id = orderId,
+            CustomerReturnOrderStatusId = status.Id,
+            CustomerReturnOrderStatus = status
+        };
+        var item = new CustomerReturnOrderItem
+        {
+            Id = orderId * 10,
+            CustomerReturnOrderId = orderId,
+            CustomerReturnOrder = order,
+            ProductVariantId = 5
+        };
+        _customerReturnOrderItemAllocations.Add(new CustomerReturnOrderItemAllocation
+        {
+            Id = orderId * 10 + 1,
+            OutboundOrderItemAllocationId = outboundAllocationId,
+            CustomerReturnOrderItemId = item.Id,
+            CustomerReturnOrderItem = item,
+            QuantityReturned = quantity
+        });
+    }
+
     private (CustomerReturnOrder Order, global::Backend.Domain.Entities.PaddyLot Lot, PaddyLotBag? ExistingOpenBag)
         ArrangeGoodReturnForConfirmation(
             int orderId, decimal quantity, bool withExistingOpenBag,
@@ -407,7 +511,7 @@ public class CustomerReturnOrderServiceTests
             OrganizationId = 1,
             WarehouseId = 1,
             SalesOrderId = 100,
-            OutboundOrderStatus = new OutboundOrderStatus { Name = "Đang giao hàng", Code = OutboundOrderStatusNames.Dispatched },
+            OutboundOrderStatus = new OutboundOrderStatus { Name = "Hoàn thành", Code = OutboundOrderStatusNames.Completed },
             SalesOrder = salesOrder
         };
         var outboundItem = new OutboundOrderItem { Id = 60, OutboundOrderId = 50, ProductVariantId = 5 };
@@ -507,6 +611,84 @@ public class CustomerReturnOrderServiceTests
         result.Message.Should().Contain("vượt quá số lượng tối đa");
     }
 
+    [Theory]
+    [InlineData("DRAFT")]
+    [InlineData("PENDING_APPROVAL")]
+    [InlineData("APPROVED")]
+    [InlineData("RECEIVED")]
+    [InlineData("INSPECTED")]
+    [InlineData("CONFIRMED")]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task CreateAsync_ActiveReturnStatus_ReservesReturnedQuantity(string statusCode)
+    {
+        var dto = ArrangeValidCreateDto();
+        AddReturnReservation(statusCode, quantity: 6m);
+
+        var result = await _sut.CreateAsync(dto);
+
+        result.Status.Should().Be(400);
+        result.Message.Should().Contain("vượt quá số lượng tối đa");
+    }
+
+    [Theory]
+    [InlineData("CANCELLED")]
+    [InlineData("REJECTED")]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task CreateAsync_InactiveReturnStatus_ReleasesReturnedQuantity(string statusCode)
+    {
+        var dto = ArrangeValidCreateDto();
+        AddReturnReservation(statusCode, quantity: 6m);
+
+        var result = await _sut.CreateAsync(dto);
+
+        result.Status.Should().Be(201);
+    }
+
+    [Fact]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task CreateAsync_DispatchedOutbound_ReturnsError()
+    {
+        var dto = ArrangeValidCreateDto();
+        _outboundOrders.Single().OutboundOrderStatus.Code = OutboundOrderStatusNames.Dispatched;
+
+        var result = await _sut.CreateAsync(dto);
+
+        result.Status.Should().Be(422);
+        result.Message.Should().Be("Chỉ được tạo phiếu trả hàng từ phiếu xuất đã giao thành công.");
+    }
+
+    [Fact]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task UpdateAsync_CurrentOrderReservation_IsExcluded()
+    {
+        var createDto = ArrangeValidCreateDto();
+        var draft = _customerReturnOrderStatuses.Single(x => x.Code == "DRAFT");
+        _customerReturnOrders.Add(new CustomerReturnOrder
+        {
+            Id = 900,
+            OrganizationId = 1,
+            WarehouseId = 1,
+            CustomerId = 10,
+            OutboundOrderId = 50,
+            CustomerReturnOrderStatusId = draft.Id,
+            CustomerReturnOrderStatus = draft
+        });
+        AddReturnReservation("DRAFT", quantity: 5m, orderId: 900);
+        createDto.Items.Single().QuantityReturned = 7m;
+        createDto.Items.Single().Allocations.Single().QuantityReturned = 7m;
+
+        var result = await _sut.UpdateAsync(new UpdateCustomerReturnOrderDto
+        {
+            Id = 900,
+            ReturnReason = "Điều chỉnh số lượng",
+            Items = createDto.Items
+        });
+
+        result.Status.Should().Be(200);
+        _customerReturnOrders.Single(x => x.Id == 900).Items
+            .Single().QuantityReturned.Should().Be(7m);
+    }
+
     [Fact]
     [Trait("Service", "CustomerReturnOrder")]
     public async Task ApproveAsync_ValidPendingApproval_TransitionsToApproved()
@@ -604,6 +786,47 @@ public class CustomerReturnOrderServiceTests
 
         result.Status.Should().Be(400);
         result.Message.Should().Contain("cột trống hoặc đang chứa cùng SKU");
+    }
+
+    [Fact]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task InspectAsync_QuarantineLocationWithoutCapacity_ReturnsError()
+    {
+        var dto = ArrangeQuarantineLocationScenario(
+            orderId: 24, occupancy: 95m, currentProductVariantId: 5,
+            isSingleTypeColumn: true, maxCapacity: 100m, quantity: 10m);
+
+        var result = await _sut.InspectAsync(dto);
+
+        result.Status.Should().Be(400);
+        result.Message.Should().Contain("không còn đủ sức chứa");
+    }
+
+    [Fact]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task InspectAsync_SingleTypeQuarantineWithSameSku_Succeeds()
+    {
+        var dto = ArrangeQuarantineLocationScenario(
+            orderId: 25, occupancy: 50m, currentProductVariantId: 5,
+            isSingleTypeColumn: true);
+
+        var result = await _sut.InspectAsync(dto);
+
+        result.Status.Should().Be(200);
+    }
+
+    [Fact]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task InspectAsync_SingleTypeQuarantineWithDifferentSku_ReturnsError()
+    {
+        var dto = ArrangeQuarantineLocationScenario(
+            orderId: 26, occupancy: 50m, currentProductVariantId: 6,
+            isSingleTypeColumn: true);
+
+        var result = await _sut.InspectAsync(dto);
+
+        result.Status.Should().Be(400);
+        result.Message.Should().Contain("không tương thích SKU");
     }
 
     [Fact]
