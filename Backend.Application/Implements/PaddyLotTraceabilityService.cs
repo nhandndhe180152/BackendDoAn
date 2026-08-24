@@ -313,73 +313,6 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
 
         var allLotIds = lotMap.Keys.ToList();
 
-        // Physical bags are discovered from their content lineage, not Bag.LotId.
-        // A mixed bag owned by LOT-A must therefore also appear when tracing LOT-B.
-        var requestedPhysicalBagIds = await _context.PaddyLotBagContents
-            .AsNoTracking()
-            .Where(x => x.LotId == requestedLot.Id && !x.IsDeleted && x.WeightKg > 0 &&
-                        !x.Bag.IsDeleted && x.Bag.Status == PaddyLotBagStatuses.Stored)
-            .Select(x => x.BagId)
-            .Distinct()
-            .ToListAsync(cancellationToken);
-        var physicalBags = requestedPhysicalBagIds.Count == 0
-            ? new List<TraceabilityPhysicalBagDto>()
-            : (await _context.PaddyLotBags
-                .AsNoTracking()
-                .Include(x => x.Lot)
-                .Include(x => x.Location)
-                .Include(x => x.Contents.Where(c => !c.IsDeleted && c.WeightKg > 0))
-                    .ThenInclude(x => x.Lot)
-                .Where(x => requestedPhysicalBagIds.Contains(x.Id) &&
-                            !x.IsDeleted && x.Status == PaddyLotBagStatuses.Stored)
-                .ToListAsync(cancellationToken))
-                .Select(bag =>
-                {
-                    var groupedContents = bag.Contents
-                        .Where(x => !x.IsDeleted && x.WeightKg > 0)
-                        .GroupBy(x => new
-                        {
-                            x.LotId,
-                            x.Lot.LotCode,
-                            x.Lot.SourceMillingOrderId
-                        })
-                        .Select(group => new TraceabilityBagContentDto
-                        {
-                            LotId = group.Key.LotId,
-                            LotCode = group.Key.LotCode,
-                            WeightKg = group.Sum(x => x.WeightKg),
-                            Percentage = bag.WeightKg > 0
-                                ? Math.Round(group.Sum(x => x.WeightKg) / bag.WeightKg * 100m, 2)
-                                : 0m,
-                            SourceMillingOrderId = group.Key.SourceMillingOrderId
-                        })
-                        .OrderBy(x => x.LotCode)
-                        .ToList();
-
-                    return new TraceabilityPhysicalBagDto
-                    {
-                        BagId = bag.Id,
-                        BagNo = bag.BagNo,
-                        OwnerLotId = bag.LotId,
-                        OwnerLotCode = bag.Lot.LotCode,
-                        WeightKg = bag.WeightKg,
-                        StandardWeightKg = bag.StandardWeightKg,
-                        IsFull = bag.IsFull,
-                        BagKind = bag.BagKind,
-                        Status = bag.Status,
-                        LocationId = bag.LocationId,
-                        LocationCode = bag.Location != null
-                            ? bag.Location.SlotCode ?? bag.Location.QrCode
-                            : null,
-                        IsMixedLot = groupedContents.Count > 1,
-                        ContentLotCount = groupedContents.Count,
-                        Contents = groupedContents
-                    };
-                })
-                .OrderBy(x => x.BagNo)
-                .ThenBy(x => x.BagId)
-                .ToList();
-
         // 4. Batch query associated entities
         // Purchases
         var purchasesList = new List<TraceabilityPurchaseDto>();
@@ -1170,7 +1103,6 @@ public class PaddyLotTraceabilityService : IPaddyLotTraceabilityService
             OutboundSales = outboundList,
             CustomerFeedbacks = feedbacksList,
             CustomerReturns = returnsList,
-            PhysicalBags = physicalBags,
             Timeline = timeline,
             Summary = summary
         };

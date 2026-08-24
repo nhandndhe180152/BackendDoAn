@@ -483,7 +483,7 @@ public class CustomerReturnOrderServiceTests
 
     [Fact]
     [Trait("Service", "CustomerReturnOrder")]
-    public async Task ConfirmAsync_ExistingOpenBagAndPartialReturn_TopsUpExistingBag()
+    public async Task ConfirmAsync_ExistingOpenBagAndPartialReturn_ReturnsConflictBeforeMutation()
     {
         // Arrange
         var order = new CustomerReturnOrder 
@@ -547,37 +547,34 @@ public class CustomerReturnOrderServiceTests
         // Act
         var result = await _sut.ConfirmAsync(1);
 
-        result.Status.Should().Be(200);
-        existingOpenBag.WeightKg.Should().Be(20m);
-        existingOpenBag.IsFull.Should().BeFalse();
-        existingOpenBag.OpenBagKey.Should().Be("5:1:100");
-        existingOpenBag.Contents.Should().Contain(x => x.LotId == 500 && x.WeightKg == 10m);
-        existingOpenBag.Movements.Should().ContainSingle(x =>
-            x.MovementType == PaddyLotBagMovementTypes.CustomerReturn &&
-            x.BeforeWeightKg == 10m && x.AfterWeightKg == 20m && x.WeightKg == 10m);
+        // Assert: validation runs before any inventory, lot, debt, or bag mutation.
+        result.Status.Should().Be(409);
+        result.Code.Should().Be("CUSTOMER_RETURN_OPEN_BAG_CONFLICT");
+        existingOpenBag.WeightKg.Should().Be(10m);
         _paddyLotBags.Should().ContainSingle();
-        lot.RemainingWeightKg.Should().Be(60m);
-        partyDebt.CurrentBalance.Should().Be(50000m);
+        _inventories.Should().BeEmpty();
+        _inventoryTransactions.Should().BeEmpty();
+        _debtTransactions.Should().BeEmpty();
+        lot.RemainingWeightKg.Should().Be(50m);
+        partyDebt.CurrentBalance.Should().Be(150000m);
     }
 
     [Fact]
     [Trait("Service", "CustomerReturnOrder")]
-    public async Task ConfirmAsync_ExistingOpenBagAndReturn_FillsOldBagThenCreatesRemainder()
+    public async Task ConfirmAsync_ExistingOpenBagAndExactFullReturn_CreatesNewFullBag()
     {
         var (_, lot, existingOpenBag) = ArrangeGoodReturnForConfirmation(12, 50m, withExistingOpenBag: true);
 
         var result = await _sut.ConfirmAsync(12);
 
         result.Status.Should().Be(200);
-        existingOpenBag!.WeightKg.Should().Be(50m);
-        existingOpenBag.IsFull.Should().BeTrue();
-        existingOpenBag.OpenBagKey.Should().BeNull();
-        existingOpenBag.Contents.Should().Contain(c => c.LotId == 500 && c.WeightKg == 40m);
+        existingOpenBag!.WeightKg.Should().Be(10m);
+        existingOpenBag.OpenBagKey.Should().Be("5:1:100");
         _paddyLotBags.Should().HaveCount(2);
         var returnedBag = _paddyLotBags.Single(x => x.Id != 900);
-        returnedBag.WeightKg.Should().Be(10m);
-        returnedBag.IsFull.Should().BeFalse();
-        returnedBag.OpenBagKey.Should().Be("5:1:100");
+        returnedBag.WeightKg.Should().Be(50m);
+        returnedBag.IsFull.Should().BeTrue();
+        returnedBag.OpenBagKey.Should().BeNull();
         returnedBag.BagKind.Should().Be(PaddyLotBagKinds.Finished);
         returnedBag.Movements.Should().ContainSingle(m =>
             m.MovementType == PaddyLotBagMovementTypes.CustomerReturn &&
@@ -611,19 +608,20 @@ public class CustomerReturnOrderServiceTests
 
     [Fact]
     [Trait("Service", "CustomerReturnOrder")]
-    public async Task ConfirmAsync_ExistingOpenBagAndLargeReturn_FillsThenCreatesFullAndOpenBags()
+    public async Task ConfirmAsync_ExistingOpenBagAndReturnWithRemainder_RejectsBeforeCreatingFullBags()
     {
         var (_, lot, existingOpenBag) = ArrangeGoodReturnForConfirmation(14, 110m, withExistingOpenBag: true);
 
         var result = await _sut.ConfirmAsync(14);
 
-        result.Status.Should().Be(200);
-        _paddyLotBags.Should().HaveCount(3);
-        existingOpenBag!.WeightKg.Should().Be(50m);
-        existingOpenBag.IsFull.Should().BeTrue();
-        _paddyLotBags.Should().ContainSingle(x => x.Id != 900 && x.WeightKg == 50m && x.IsFull);
-        _paddyLotBags.Should().ContainSingle(x => x.Id != 900 && x.WeightKg == 20m && !x.IsFull && x.OpenBagKey == "5:1:100");
-        lot.RemainingWeightKg.Should().Be(160m);
+        result.Status.Should().Be(409);
+        result.Code.Should().Be("CUSTOMER_RETURN_OPEN_BAG_CONFLICT");
+        _paddyLotBags.Should().ContainSingle().Which.Should().BeSameAs(existingOpenBag);
+        existingOpenBag!.WeightKg.Should().Be(10m);
+        _inventories.Should().BeEmpty();
+        _inventoryTransactions.Should().BeEmpty();
+        _debtTransactions.Should().BeEmpty();
+        lot.RemainingWeightKg.Should().Be(50m);
     }
 
     [Fact]

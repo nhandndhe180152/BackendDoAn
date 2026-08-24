@@ -1236,13 +1236,6 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                     if (loc == null || loc.WarehouseId != order.WarehouseId || loc.IsQuarantine ||
                         loc.IsOutboundStaging || loc.OutboundLockOrderId.HasValue)
                         return ApiResponse.BadRequest(message: "Restock Location không hợp lệ hoặc không thuộc kho của đơn hàng hoặc là khu cách ly.");
-                    if (loc.CurrentOccupancy > 0.001m &&
-                        loc.CurrentProductVariantId.HasValue &&
-                        loc.CurrentProductVariantId.Value != alloc.ProductVariantId)
-                    {
-                        return ApiResponse.BadRequest(
-                            message: "Vị trí nhập lại đang chứa SKU khác. Chỉ được nhập vào cột trống hoặc cột đang chứa cùng SKU.");
-                    }
                 }
 
                 if (allocDto.QuantityDamaged > 0)
@@ -1420,6 +1413,14 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
         if (status == null)
             return ApiResponse.Error(message: "Hệ thống chưa cấu hình trạng thái CONFIRMED.");
 
+        var openBagConflict = await ValidateReturnedGoodsOpenBagConflictAsync(order, cancellationToken);
+        if (openBagConflict)
+        {
+            return ApiResponse.Conflict(
+                message: "Không thể nhập hàng trả lẻ vào vị trí đã có bao thành phẩm lẻ cùng biến thể. Vui lòng chọn vị trí khác hoặc xử lý bao lẻ hiện tại.",
+                code: "CUSTOMER_RETURN_OPEN_BAG_CONFLICT");
+        }
+
         var targetLotLocations = order.Items.SelectMany(i => i.Allocations)
             .SelectMany(a => new[]
             {
@@ -1486,7 +1487,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
                 // Atomic UPDATE location with capacity limit check
                 var affected = await _context.ExecuteSqlRawAsync(
                     "UPDATE Location SET CurrentOccupancy = CurrentOccupancy + {0}, CurrentProductVariantId = {1}, LastModifiedDate = {2}, UpdatedBy = {3} " +
-                    "WHERE Id = {4} AND WarehouseId = {5} AND IsActive = 1 AND IsDeleted = 0 AND IsOutboundStaging = 0 AND OutboundLockOrderId IS NULL AND (CurrentOccupancy <= 0.001 OR CurrentProductVariantId IS NULL OR CurrentProductVariantId = {1}) AND (MaxCapacity IS NULL OR CurrentOccupancy + {0} <= MaxCapacity) AND IsQuarantine = 0",
+                    "WHERE Id = {4} AND WarehouseId = {5} AND IsActive = 1 AND IsDeleted = 0 AND IsOutboundStaging = 0 AND OutboundLockOrderId IS NULL AND (IsSingleTypeColumn = 0 OR CurrentProductVariantId IS NULL OR CurrentProductVariantId = {1}) AND (MaxCapacity IS NULL OR CurrentOccupancy + {0} <= MaxCapacity) AND IsQuarantine = 0",
                     new object[] { alloc.QuantityGood, alloc.ProductVariantId, now, userId, locationId, order.WarehouseId }, cancellationToken);
 
                 if (affected == 0)
@@ -1844,7 +1845,7 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             await dbTransaction.RollbackAsync(cancellationToken);
             _logger.LogWarning(ex, "Open bag conflict while confirming customer return {OrderId}", order.Id);
             return ApiResponse.Conflict(
-                message: "Bao thành phẩm lẻ vừa thay đổi bởi yêu cầu khác. Vui lòng tải lại dữ liệu và thử lại.",
+                message: "Không thể nhập hàng trả lẻ vào vị trí đã có bao thành phẩm lẻ cùng biến thể. Vui lòng tải lại dữ liệu và chọn vị trí khác.",
                 code: "CUSTOMER_RETURN_OPEN_BAG_CONFLICT");
         }
         catch (Exception ex)
@@ -1872,6 +1873,54 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             // Remove bypass header
             _httpContextAccessor.HttpContext?.Items.Remove("BypassLocationOccupancyInterceptor");
         }
+    }
+
+    private async Task<bool> ValidateReturnedGoodsOpenBagConflictAsync(
+        CustomerReturnOrder order,
+        CancellationToken cancellationToken)
+    {
+        var goodAllocations = order.Items
+            .Where(i => !i.IsDeleted)
+            .SelectMany(i => i.Allocations)
+            .Where(a => !a.IsDeleted && a.QuantityGood > 0 && a.RestockLocationId.HasValue)
+            .ToList();
+        if (goodAllocations.Count == 0 || _context.PaddyLotBags == null || _context.ProductVariants == null)
+            return false;
+
+        var variantIds = goodAllocations.Select(a => a.ProductVariantId).Distinct().ToList();
+        var standardWeights = await _context.ProductVariants.AsNoTracking()
+            .Where(x => variantIds.Contains(x.Id) && !x.IsDeleted && x.Weight > 0)
+            .Select(x => new { x.Id, x.Weight })
+            .ToDictionaryAsync(x => x.Id, x => x.Weight, cancellationToken);
+
+        var plannedPartialKeys = goodAllocations
+            .Where(a => standardWeights.TryGetValue(a.ProductVariantId, out var standardWeight)
+                && CreatesPartialBag(a.QuantityGood, standardWeight))
+            .Select(a => $"{a.ProductVariantId}:{order.WarehouseId}:{a.RestockLocationId!.Value}")
+            .ToList();
+        if (plannedPartialKeys.Count == 0)
+            return false;
+
+        // Two allocations in one confirmation must not independently create two
+        // partial Finished bags with the same invariant key.
+        if (plannedPartialKeys.GroupBy(x => x).Any(g => g.Count() > 1))
+            return true;
+
+        var distinctKeys = plannedPartialKeys.Distinct().ToList();
+        return await _context.PaddyLotBags.AsNoTracking().AnyAsync(x =>
+            x.OpenBagKey != null && distinctKeys.Contains(x.OpenBagKey) &&
+            x.Status == PaddyLotBagStatuses.Stored && !x.IsDeleted && !x.IsFull &&
+            x.BagKind == PaddyLotBagKinds.Finished,
+            cancellationToken);
+    }
+
+    private static bool CreatesPartialBag(decimal quantity, decimal standardWeight)
+    {
+        if (quantity <= 0.001m || standardWeight <= 0)
+            return false;
+
+        var remainder = quantity % standardWeight;
+        return remainder > 0.001m && remainder < standardWeight - 0.001m;
     }
 
     private static bool IsOpenBagKeyConflict(DbUpdateException exception)
@@ -1999,87 +2048,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             .Max() ?? 0;
         var nextBagNo = Math.Max(persistedMaxBagNo, pendingMaxBagNo) + 1;
 
-        if (!quarantined)
-        {
-            var openBagKey = $"{allocation.ProductVariantId}:{order.WarehouseId}:{locationId}";
-            var persistedOpenBags = await _context.PaddyLotBags
-                .Where(x => x.LocationId == locationId &&
-                            x.BagKind == PaddyLotBagKinds.Finished &&
-                            x.Status == PaddyLotBagStatuses.Stored &&
-                            !x.IsDeleted && !x.IsFull &&
-                            x.OpenBagKey == openBagKey)
-                .ToListAsync(cancellationToken);
-            var openBags = persistedOpenBags
-                .Concat(_context.PaddyLotBags.Local?.Where(x =>
-                    x.LocationId == locationId &&
-                    x.BagKind == PaddyLotBagKinds.Finished &&
-                    x.Status == PaddyLotBagStatuses.Stored &&
-                    !x.IsDeleted && !x.IsFull &&
-                    x.OpenBagKey == openBagKey) ?? Enumerable.Empty<PaddyLotBag>())
-                .Distinct()
-                .ToList();
-
-            if (openBags.Count > 1)
-            {
-                throw new InvalidOperationException(
-                    $"Vị trí {locationId} có nhiều hơn một bao mở của SKU {variant?.SKU ?? allocation.ProductVariantId.ToString()}.");
-            }
-
-            var openBag = openBags.SingleOrDefault();
-            if (openBag != null)
-            {
-                var availableKg = standardWeight - openBag.WeightKg;
-                if (availableKg < -0.001m)
-                {
-                    throw new InvalidOperationException(
-                        $"Bao #{openBag.BagNo} vượt trọng lượng chuẩn {standardWeight:0.###} kg.");
-                }
-
-                var topUpKg = Math.Min(remaining, Math.Max(0, availableKg));
-                if (topUpKg > 0.001m)
-                {
-                    var beforeWeight = openBag.WeightKg;
-                    openBag.WeightKg += topUpKg;
-                    openBag.IsFull = openBag.WeightKg >= standardWeight - 0.001m;
-                    openBag.StackOrder = openBag.IsFull ? nextStack++ : 0;
-                    openBag.OpenBagKey = openBag.IsFull ? null : openBagKey;
-                    openBag.UpdatedBy = userId;
-                    openBag.LastModifiedDate = now;
-
-                    var content = new PaddyLotBagContent
-                    {
-                        BagId = openBag.Id,
-                        Bag = openBag,
-                        LotId = allocation.PaddyLotId,
-                        WeightKg = topUpKg,
-                        CreatedBy = userId,
-                        CreatedDate = now
-                    };
-                    openBag.Contents.Add(content);
-                    await _context.PaddyLotBagContents.AddAsync(content, cancellationToken);
-                    var movement = new PaddyLotBagMovement
-                    {
-                        BagId = openBag.Id,
-                        Bag = openBag,
-                        MovementType = PaddyLotBagMovementTypes.CustomerReturn,
-                        ToLocationId = locationId,
-                        WeightKg = topUpKg,
-                        BeforeWeightKg = beforeWeight,
-                        AfterWeightKg = openBag.WeightKg,
-                        ReferenceType = InventoryReferenceTypeConstants.CustomerReturnOrder,
-                        ReferenceId = order.Id,
-                        ReferenceItemId = allocation.Id,
-                        Note = $"Bổ sung {topUpKg:0.###} kg từ lô #{allocation.PaddyLotId} vào bao mở khi nhập hàng khách trả",
-                        CreatedBy = userId,
-                        CreatedDate = now
-                    };
-                    openBag.Movements.Add(movement);
-                    await _context.PaddyLotBagMovements.AddAsync(movement, cancellationToken);
-                    remaining -= topUpKg;
-                }
-            }
-        }
-
+        // Returned goods always receive a new physical identity. They must not be
+        // topped up into an unrelated open bag, even when product/location match.
         while (remaining > 0.001m)
         {
             var weight = Math.Min(standardWeight, remaining);

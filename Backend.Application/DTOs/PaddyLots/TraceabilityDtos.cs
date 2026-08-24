@@ -15,36 +15,8 @@ public class PaddyLotTraceabilityDto
     public List<TraceabilityOutboundDto> OutboundSales { get; set; } = new();
     public List<TraceabilityCustomerFeedbackDto> CustomerFeedbacks { get; set; } = new();
     public List<TraceabilityCustomerReturnDto> CustomerReturns { get; set; } = new();
-    public List<TraceabilityPhysicalBagDto> PhysicalBags { get; set; } = new();
     public List<TraceabilityEventDto> Timeline { get; set; } = new();
     public TraceabilitySummaryDto Summary { get; set; } = new();
-}
-
-public class TraceabilityPhysicalBagDto
-{
-    public int BagId { get; set; }
-    public int BagNo { get; set; }
-    public int OwnerLotId { get; set; }
-    public string OwnerLotCode { get; set; } = string.Empty;
-    public decimal WeightKg { get; set; }
-    public decimal? StandardWeightKg { get; set; }
-    public bool IsFull { get; set; }
-    public string BagKind { get; set; } = string.Empty;
-    public string Status { get; set; } = string.Empty;
-    public int? LocationId { get; set; }
-    public string? LocationCode { get; set; }
-    public bool IsMixedLot { get; set; }
-    public int ContentLotCount { get; set; }
-    public List<TraceabilityBagContentDto> Contents { get; set; } = new();
-}
-
-public class TraceabilityBagContentDto
-{
-    public int LotId { get; set; }
-    public string LotCode { get; set; } = string.Empty;
-    public decimal WeightKg { get; set; }
-    public decimal Percentage { get; set; }
-    public int? SourceMillingOrderId { get; set; }
 }
 
 public class TraceabilityLotDto
