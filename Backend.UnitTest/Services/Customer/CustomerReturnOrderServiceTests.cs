@@ -155,8 +155,76 @@ public class CustomerReturnOrderServiceTests
         return mockDbSet;
     }
 
+    private InspectCustomerReturnOrderDto ArrangeInspectionLocationScenario(
+        int orderId, decimal occupancy, int? currentProductVariantId)
+    {
+        var order = new CustomerReturnOrder
+        {
+            Id = orderId,
+            OrganizationId = 1,
+            WarehouseId = 1,
+            CustomerReturnOrderStatusId = 7,
+            CustomerReturnOrderStatus = _customerReturnOrderStatuses[6]
+        };
+        var item = new CustomerReturnOrderItem
+        {
+            Id = orderId * 10,
+            CustomerReturnOrderId = orderId,
+            ProductVariantId = 5,
+            QuantityReturned = 4m
+        };
+        var allocation = new CustomerReturnOrderItemAllocation
+        {
+            Id = orderId * 10 + 1,
+            CustomerReturnOrderItemId = item.Id,
+            CustomerReturnOrderItem = item,
+            ProductVariantId = 5,
+            QuantityReturned = 4m,
+            QuantityReceived = 4m,
+            UnitCreditPrice = 10000m
+        };
+        item.Allocations.Add(allocation);
+        order.Items.Add(item);
+        _customerReturnOrders.Add(order);
+        _locations.Add(new Location
+        {
+            Id = orderId * 100,
+            WarehouseId = 1,
+            IsActive = true,
+            IsQuarantine = false,
+            CurrentOccupancy = occupancy,
+            CurrentProductVariantId = currentProductVariantId,
+            MaxCapacity = 100m
+        });
+
+        return new InspectCustomerReturnOrderDto
+        {
+            Id = orderId,
+            Items = new List<InspectCustomerReturnOrderItemDto>
+            {
+                new()
+                {
+                    CustomerReturnOrderItemId = item.Id,
+                    QualityStatus = "GOOD",
+                    Allocations = new List<InspectCustomerReturnOrderItemAllocationDto>
+                    {
+                        new()
+                        {
+                            ReturnAllocationId = allocation.Id,
+                            QuantityGood = 4m,
+                            CreditQuantity = 4m,
+                            RestockLocationId = orderId * 100
+                        }
+                    }
+                }
+            }
+        };
+    }
+
     private (CustomerReturnOrder Order, global::Backend.Domain.Entities.PaddyLot Lot, PaddyLotBag? ExistingOpenBag)
-        ArrangeGoodReturnForConfirmation(int orderId, decimal quantity, bool withExistingOpenBag)
+        ArrangeGoodReturnForConfirmation(
+            int orderId, decimal quantity, bool withExistingOpenBag,
+            decimal standardWeight = 10m, decimal existingOpenWeight = 6m)
     {
         var order = new CustomerReturnOrder
         {
@@ -217,25 +285,48 @@ public class CustomerReturnOrderServiceTests
         _productVariants.Add(new ProductVariant
         {
             Id = 5,
-            SKU = "RICE-50",
-            Name = "Gạo 50 kg",
-            Weight = 50m
+            SKU = "RICE-10",
+            Name = "Gạo 10 kg",
+            Weight = standardWeight
+        });
+        _locations.Add(new Location
+        {
+            Id = 100,
+            WarehouseId = 1,
+            IsActive = true,
+            IsQuarantine = false,
+            CurrentOccupancy = withExistingOpenBag ? existingOpenWeight : 0,
+            CurrentProductVariantId = withExistingOpenBag ? 5 : null,
+            MaxCapacity = 500m
         });
 
         if (!withExistingOpenBag)
             return (order, lot, null);
 
+        var sourceLot = new global::Backend.Domain.Entities.PaddyLot
+        {
+            Id = 501,
+            LotCode = "LOT-501",
+            ProductVariantId = 5,
+            InitialWeightKg = 100m,
+            RemainingWeightKg = existingOpenWeight,
+            StatusId = 2,
+            Status = _lotStatuses[0],
+            LotType = "RICE"
+        };
+        _paddyLots.Add(sourceLot);
+
         var existingOpenBag = new PaddyLotBag
         {
             Id = 900,
-            LotId = 500,
-            Lot = lot,
+            LotId = 501,
+            Lot = sourceLot,
             BagNo = 1,
-            WeightKg = 10m,
+            WeightKg = existingOpenWeight,
             LocationId = 100,
             Status = PaddyLotBagStatuses.Stored,
             IsFull = false,
-            StandardWeightKg = 50m,
+            StandardWeightKg = standardWeight,
             BagKind = PaddyLotBagKinds.Finished,
             OpenBagKey = "5:1:100"
         };
@@ -243,8 +334,8 @@ public class CustomerReturnOrderServiceTests
         {
             BagId = 900,
             Bag = existingOpenBag,
-            LotId = 500,
-            WeightKg = 10m
+            LotId = 501,
+            WeightKg = existingOpenWeight
         });
         _paddyLotBags.Add(existingOpenBag);
         _paddyLotBagContents.Add(existingOpenBag.Contents.Single());
@@ -483,145 +574,154 @@ public class CustomerReturnOrderServiceTests
 
     [Fact]
     [Trait("Service", "CustomerReturnOrder")]
-    public async Task ConfirmAsync_ExistingOpenBagAndPartialReturn_ReturnsConflictBeforeMutation()
+    public async Task InspectAsync_EmptyLocation_AcceptsGoodReturn()
     {
-        // Arrange
-        var order = new CustomerReturnOrder 
-        { 
-            Id = 1, 
-            OrganizationId = 1,
-            WarehouseId = 1, 
-            CustomerId = 10,
-            CustomerReturnOrderStatusId = 3, 
-            CustomerReturnOrderStatus = _customerReturnOrderStatuses[2] 
-        };
-        var item = new CustomerReturnOrderItem { Id = 10, CustomerReturnOrderId = 1, ProductVariantId = 5, QuantityReturned = 10 };
-        var alloc = new CustomerReturnOrderItemAllocation 
-        { 
-            Id = 20, 
-            CustomerReturnOrderItemId = 10, 
-            CustomerReturnOrderItem = item, 
-            ProductVariantId = 5,
-            QuantityReturned = 10, 
-            UnitCreditPrice = 10000,
-            QuantityGood = 10,
-            CreditQuantity = 10,
-            CreditAmount = 100000,
-            RestockLocationId = 100,
-            PaddyLotId = 500
-        };
-        order.Items.Add(item);
-        item.Allocations.Add(alloc);
+        var dto = ArrangeInspectionLocationScenario(21, occupancy: 0m, currentProductVariantId: null);
 
-        var lot = new global::Backend.Domain.Entities.PaddyLot { Id = 500, LotCode = "LOT-500", InitialWeightKg = 100, RemainingWeightKg = 50, StatusId = 2, Status = _lotStatuses[0], LotType = "RICE" };
-        var partyDebt = new global::Backend.Domain.Entities.PartyDebt { Id = 300, PartyType = "CUSTOMER", PartyId = 10, Direction = "RECEIVABLE", CurrentBalance = 150000, IsActive = true };
+        var result = await _sut.InspectAsync(dto);
 
-        _customerReturnOrders.Add(order);
-        _paddyLots.Add(lot);
-        _partyDebts.Add(partyDebt);
-        _productVariants.Add(new ProductVariant { Id = 5, SKU = "RICE-50", Name = "Gạo 50 kg", Weight = 50m });
-
-        var existingOpenBag = new PaddyLotBag
-        {
-            Id = 900,
-            LotId = 500,
-            BagNo = 1,
-            WeightKg = 10m,
-            LocationId = 100,
-            Status = PaddyLotBagStatuses.Stored,
-            IsFull = false,
-            StandardWeightKg = 50m,
-            BagKind = PaddyLotBagKinds.Finished,
-            OpenBagKey = "5:1:100"
-        };
-        existingOpenBag.Contents.Add(new PaddyLotBagContent
-        {
-            BagId = 900,
-            Bag = existingOpenBag,
-            LotId = 500,
-            WeightKg = 10m
-        });
-        _paddyLotBags.Add(existingOpenBag);
-        _paddyLotBagContents.Add(existingOpenBag.Contents.Single());
-
-        // Act
-        var result = await _sut.ConfirmAsync(1);
-
-        // Assert: validation runs before any inventory, lot, debt, or bag mutation.
-        result.Status.Should().Be(409);
-        result.Code.Should().Be("CUSTOMER_RETURN_OPEN_BAG_CONFLICT");
-        existingOpenBag.WeightKg.Should().Be(10m);
-        _paddyLotBags.Should().ContainSingle();
-        _inventories.Should().BeEmpty();
-        _inventoryTransactions.Should().BeEmpty();
-        _debtTransactions.Should().BeEmpty();
-        lot.RemainingWeightKg.Should().Be(50m);
-        partyDebt.CurrentBalance.Should().Be(150000m);
+        result.Status.Should().Be(200);
     }
 
     [Fact]
     [Trait("Service", "CustomerReturnOrder")]
-    public async Task ConfirmAsync_ExistingOpenBagAndExactFullReturn_CreatesNewFullBag()
+    public async Task InspectAsync_LocationWithSameSku_AcceptsGoodReturn()
     {
-        var (_, lot, existingOpenBag) = ArrangeGoodReturnForConfirmation(12, 50m, withExistingOpenBag: true);
+        var dto = ArrangeInspectionLocationScenario(22, occupancy: 6m, currentProductVariantId: 5);
+
+        var result = await _sut.InspectAsync(dto);
+
+        result.Status.Should().Be(200);
+    }
+
+    [Fact]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task InspectAsync_LocationWithDifferentSku_RejectsGoodReturn()
+    {
+        var dto = ArrangeInspectionLocationScenario(23, occupancy: 6m, currentProductVariantId: 6);
+
+        var result = await _sut.InspectAsync(dto);
+
+        result.Status.Should().Be(400);
+        result.Message.Should().Contain("cột trống hoặc đang chứa cùng SKU");
+    }
+
+    [Fact]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task ConfirmAsync_ExistingOpenBag6AndReturn4_TopsUpAcrossLotsWithoutNewBag()
+    {
+        ArrangeGoodReturnForConfirmation(11, 4m, withExistingOpenBag: true);
+
+        var result = await _sut.ConfirmAsync(11);
+
+        result.Status.Should().Be(200);
+        _paddyLotBags.Should().ContainSingle();
+        var bag = _paddyLotBags.Single();
+        bag.WeightKg.Should().Be(10m);
+        bag.IsFull.Should().BeTrue();
+        bag.OpenBagKey.Should().BeNull();
+        bag.Contents.Should().Contain(c => c.LotId == 501 && c.WeightKg == 6m);
+        bag.Contents.Should().Contain(c => c.LotId == 500 && c.WeightKg == 4m);
+        bag.Movements.Should().ContainSingle(m =>
+            m.BeforeWeightKg == 6m && m.AfterWeightKg == 10m && m.WeightKg == 4m);
+    }
+
+    [Fact]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task ConfirmAsync_ExistingOpenBag6AndReturn7_CreatesOneOpenRemainder()
+    {
+        ArrangeGoodReturnForConfirmation(12, 7m, withExistingOpenBag: true);
 
         var result = await _sut.ConfirmAsync(12);
 
         result.Status.Should().Be(200);
-        existingOpenBag!.WeightKg.Should().Be(10m);
-        existingOpenBag.OpenBagKey.Should().Be("5:1:100");
         _paddyLotBags.Should().HaveCount(2);
-        var returnedBag = _paddyLotBags.Single(x => x.Id != 900);
-        returnedBag.WeightKg.Should().Be(50m);
-        returnedBag.IsFull.Should().BeTrue();
-        returnedBag.OpenBagKey.Should().BeNull();
-        returnedBag.BagKind.Should().Be(PaddyLotBagKinds.Finished);
-        returnedBag.Movements.Should().ContainSingle(m =>
-            m.MovementType == PaddyLotBagMovementTypes.CustomerReturn &&
-            m.ReferenceType == InventoryReferenceTypeConstants.CustomerReturnOrder &&
-            m.ReferenceId == 12);
-        lot.RemainingWeightKg.Should().Be(100m);
+        var toppedUp = _paddyLotBags.Single(x => x.Id == 900);
+        toppedUp.WeightKg.Should().Be(10m);
+        toppedUp.IsFull.Should().BeTrue();
+        toppedUp.OpenBagKey.Should().BeNull();
+        var remainder = _paddyLotBags.Single(x => x.Id != 900);
+        remainder.WeightKg.Should().Be(3m);
+        remainder.IsFull.Should().BeFalse();
+        remainder.OpenBagKey.Should().Be("5:1:100");
+        remainder.Contents.Should().ContainSingle(c => c.LotId == 500 && c.WeightKg == 3m);
     }
 
     [Fact]
     [Trait("Service", "CustomerReturnOrder")]
-    public async Task ConfirmAsync_NoExistingOpenBagAndPartialReturn_CreatesStandardOpenBagWithLineage()
+    public async Task ConfirmAsync_ExistingOpenBag6AndReturn14_TopsUpThenCreatesOneFullBag()
     {
-        var (_, lot, _) = ArrangeGoodReturnForConfirmation(13, 10m, withExistingOpenBag: false);
+        ArrangeGoodReturnForConfirmation(13, 14m, withExistingOpenBag: true);
 
         var result = await _sut.ConfirmAsync(13);
 
         result.Status.Should().Be(200);
-        _paddyLotBags.Should().ContainSingle();
-        var returnedBag = _paddyLotBags.Single();
+        _paddyLotBags.Should().HaveCount(2);
+        _paddyLotBags.Single(x => x.Id == 900).WeightKg.Should().Be(10m);
+        var returnedBag = _paddyLotBags.Single(x => x.Id != 900);
         returnedBag.WeightKg.Should().Be(10m);
-        returnedBag.IsFull.Should().BeFalse();
-        returnedBag.OpenBagKey.Should().Be("5:1:100");
-        returnedBag.BagKind.Should().Be(PaddyLotBagKinds.Finished);
-        returnedBag.Contents.Should().ContainSingle(c => c.LotId == 500 && c.WeightKg == 10m);
-        returnedBag.Movements.Should().ContainSingle(m =>
-            m.MovementType == PaddyLotBagMovementTypes.CustomerReturn &&
-            m.ReferenceType == InventoryReferenceTypeConstants.CustomerReturnOrder &&
-            m.ReferenceId == 13 && m.ReferenceItemId == 131);
-        lot.RemainingWeightKg.Should().Be(60m);
+        returnedBag.IsFull.Should().BeTrue();
+        returnedBag.OpenBagKey.Should().BeNull();
+        _paddyLotBags.Should().NotContain(x => x.OpenBagKey != null);
     }
 
     [Fact]
     [Trait("Service", "CustomerReturnOrder")]
-    public async Task ConfirmAsync_ExistingOpenBagAndReturnWithRemainder_RejectsBeforeCreatingFullBags()
+    public async Task ConfirmAsync_NoOpenBagAndReturn11_CreatesFullAndSingleOpenBag()
     {
-        var (_, lot, existingOpenBag) = ArrangeGoodReturnForConfirmation(14, 110m, withExistingOpenBag: true);
+        ArrangeGoodReturnForConfirmation(14, 11m, withExistingOpenBag: false);
 
         var result = await _sut.ConfirmAsync(14);
 
+        result.Status.Should().Be(200);
+        _paddyLotBags.Should().HaveCount(2);
+        _paddyLotBags.Should().ContainSingle(x => x.IsFull && x.WeightKg == 10m);
+        _paddyLotBags.Should().ContainSingle(x =>
+            !x.IsFull && x.WeightKg == 1m && x.OpenBagKey == "5:1:100");
+    }
+
+    [Fact]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task ConfirmAsync_TwoAllocationsSameSkuAndLocation_TopUpPendingOpenBag()
+    {
+        var (order, _, _) = ArrangeGoodReturnForConfirmation(15, 3m, withExistingOpenBag: false);
+        var item = order.Items.Single();
+        item.Allocations.Add(new CustomerReturnOrderItemAllocation
+        {
+            Id = 152,
+            CustomerReturnOrderItemId = item.Id,
+            CustomerReturnOrderItem = item,
+            ProductVariantId = 5,
+            PaddyLotId = 500,
+            QuantityReturned = 2m,
+            QuantityGood = 2m,
+            RestockLocationId = 100
+        });
+
+        var result = await _sut.ConfirmAsync(15);
+
+        result.Status.Should().Be(200);
+        _paddyLotBags.Should().ContainSingle();
+        _paddyLotBags.Single().WeightKg.Should().Be(5m);
+        _paddyLotBags.Single().OpenBagKey.Should().Be("5:1:100");
+        _paddyLotBags.Count(x => x.OpenBagKey == "5:1:100").Should().Be(1);
+    }
+
+    [Fact]
+    [Trait("Service", "CustomerReturnOrder")]
+    public async Task ConfirmAsync_LocationContainsDifferentSku_RejectsBeforeMutation()
+    {
+        ArrangeGoodReturnForConfirmation(16, 4m, withExistingOpenBag: false);
+        var location = _locations.Single(x => x.Id == 100);
+        location.CurrentOccupancy = 5m;
+        location.CurrentProductVariantId = 6;
+
+        var result = await _sut.ConfirmAsync(16);
+
         result.Status.Should().Be(409);
-        result.Code.Should().Be("CUSTOMER_RETURN_OPEN_BAG_CONFLICT");
-        _paddyLotBags.Should().ContainSingle().Which.Should().BeSameAs(existingOpenBag);
-        existingOpenBag!.WeightKg.Should().Be(10m);
+        result.Code.Should().Be("RETURN_LOCATION_CHANGED");
+        _paddyLotBags.Should().BeEmpty();
         _inventories.Should().BeEmpty();
-        _inventoryTransactions.Should().BeEmpty();
-        _debtTransactions.Should().BeEmpty();
-        lot.RemainingWeightKg.Should().Be(50m);
     }
 
     [Fact]
@@ -651,6 +751,7 @@ public class CustomerReturnOrderServiceTests
             Id = 21, 
             CustomerReturnOrderItemId = 11, 
             CustomerReturnOrderItem = item, 
+            ProductVariantId = 5,
             QuantityReturned = 15, // Try to return 15
             OutboundOrderItemAllocationId = 99,
             OutboundOrderItemAllocation = outboundAlloc,
@@ -669,6 +770,11 @@ public class CustomerReturnOrderServiceTests
         _customerReturnOrders.Add(order);
         _paddyLots.Add(lot);
         _outboundOrderItemAllocations.Add(outboundAlloc);
+        _locations.Add(new Location
+        {
+            Id = 100, WarehouseId = 1, IsActive = true, IsQuarantine = false,
+            CurrentOccupancy = 0, MaxCapacity = 100m
+        });
 
         // Act
         var result = await _sut.ConfirmAsync(2);
@@ -702,6 +808,7 @@ public class CustomerReturnOrderServiceTests
             Id = 22, 
             CustomerReturnOrderItemId = 12, 
             CustomerReturnOrderItem = item, 
+            ProductVariantId = 5,
             QuantityReturned = 5, 
             UnitCreditPrice = 10000,
             QuantityGood = 5,
@@ -723,6 +830,11 @@ public class CustomerReturnOrderServiceTests
 
         _customerReturnOrders.Add(order);
         _paddyLots.Add(lot);
+        _locations.Add(new Location
+        {
+            Id = 100, WarehouseId = 1, IsActive = true, IsQuarantine = false,
+            CurrentOccupancy = 0, MaxCapacity = 100m
+        });
 
         // Act
         var result = await _sut.ConfirmAsync(3);
