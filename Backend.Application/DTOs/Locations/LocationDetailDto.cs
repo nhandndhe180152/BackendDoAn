@@ -27,5 +27,6 @@ public class LocationDetailDto
     public int? CurrentProductVariantId { get; set; }
     public string? CurrentProductVariantName { get; set; }
     public string? CurrentProductVariantSku { get; set; }
+    public bool IsSingleTypeColumn { get; set; }
     public DateTime CreatedDate { get; set; }
 }

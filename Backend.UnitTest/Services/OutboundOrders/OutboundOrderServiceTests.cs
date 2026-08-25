@@ -563,6 +563,186 @@ public class OutboundOrderServiceTests
     }
 
     [Fact]
+    public async Task ConfirmDispatchAsync_FullyCoveredByDeposit_CreatesZeroBalanceHistoryWithoutDueDate()
+    {
+        var salesOrder = new SalesOrder
+        {
+            Id = 10,
+            SOCode = "SO-PAID",
+            CustomerId = 20,
+            OrganizationId = 1,
+            TotalAmount = 100m,
+            DepositAmount = 100m
+        };
+        var inventory = new Backend.Domain.Entities.Inventory
+        {
+            Id = 30,
+            WarehouseId = 2,
+            LocationId = 3,
+            ProductVariantId = 4,
+            QuantityOnHand = 1m,
+            QuantityReserved = 1m
+        };
+        var order = new OutboundOrder
+        {
+            Id = 1,
+            SalesOrderId = salesOrder.Id,
+            SalesOrder = salesOrder,
+            OutboundOrderStatus = new OutboundOrderStatus { Code = OutboundOrderStatusNames.Packed },
+            OutboundOrderItems = new List<OutboundOrderItem>
+            {
+                new()
+                {
+                    Id = 11,
+                    QuantityOrdered = 1m,
+                    SalesOrderItem = new SalesOrderItem { QuantityOrdered = 1m, LineAmount = 100m },
+                    Allocations = new List<OutboundOrderItemAllocation>
+                    {
+                        new()
+                        {
+                            Id = 12,
+                            InventoryId = inventory.Id,
+                            Inventory = inventory,
+                            QuantityAllocated = 1m,
+                            QuantityPicked = 1m
+                        }
+                    }
+                }
+            }
+        };
+        var debtTransactions = new List<DebtTransaction>();
+        global::Backend.Domain.Entities.PartyDebt? createdDebt = null;
+
+        _obRepo.Setup(r => r.GetByIdDetailAsync(order.Id)).ReturnsAsync(order);
+        _soRepo.Setup(r => r.GetByIdDetailAsync(salesOrder.Id)).ReturnsAsync(salesOrder);
+        _obStatusRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<OutboundOrderStatus, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<OutboundOrderStatus, object>>[]>()!))
+            .ReturnsAsync(new OutboundOrderStatus { Id = 5, Code = OutboundOrderStatusNames.Dispatched });
+        _soStatusRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<SalesOrderStatus, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<SalesOrderStatus, object>>[]>()!))
+            .ReturnsAsync(new SalesOrderStatus { Id = 6, Code = SalesOrderStatusNames.Delivering });
+        _partyDebtRepo.Setup(r => r.CreateAsync(It.IsAny<global::Backend.Domain.Entities.PartyDebt>()))
+            .Callback<global::Backend.Domain.Entities.PartyDebt>(x => createdDebt = x)
+            .Returns(Task.CompletedTask);
+        _debtTxRepo.Setup(r => r.CreateAsync(It.IsAny<DebtTransaction>()))
+            .Callback<DebtTransaction>(debtTransactions.Add)
+            .Returns(Task.CompletedTask);
+
+        var result = await Sut().ConfirmDispatchAsync(order.Id, new ConfirmDispatchDto());
+
+        result.Status.Should().Be(200);
+        createdDebt.Should().NotBeNull();
+        createdDebt!.CurrentBalance.Should().Be(0m);
+        debtTransactions.Should().ContainSingle(x =>
+            x.TransactionType == LookupCodes.DebtTransactionType.Charge &&
+            x.Amount == 100m &&
+            x.DueDate == null);
+        debtTransactions.Should().ContainSingle(x =>
+            x.TransactionType == LookupCodes.DebtTransactionType.Payment &&
+            x.Amount == 100m);
+    }
+
+    [Fact]
+    public async Task FailDeliveryAsync_ChargeAndDepositPayment_ReversesOnlyDocumentOutstanding()
+    {
+        var salesOrder = new SalesOrder { Id = 10, CustomerId = 20 };
+        var location = new Location { Id = 3, IsActive = true };
+        var inventory = new Backend.Domain.Entities.Inventory
+        {
+            Id = 30,
+            WarehouseId = 2,
+            LocationId = location.Id,
+            ProductVariantId = 4,
+            QuantityOnHand = 0m
+        };
+        var order = new OutboundOrder
+        {
+            Id = 1,
+            SalesOrderId = salesOrder.Id,
+            OutboundOrderStatus = new OutboundOrderStatus { Code = OutboundOrderStatusNames.Dispatched },
+            TotalDispatchedSaleValue = 100m,
+            OutboundOrderItems = new List<OutboundOrderItem>
+            {
+                new()
+                {
+                    Allocations = new List<OutboundOrderItemAllocation>
+                    {
+                        new()
+                        {
+                            Id = 12,
+                            InventoryId = inventory.Id,
+                            QuantityPicked = 1m,
+                            Inventory = inventory
+                        }
+                    }
+                }
+            }
+        };
+        var debt = new global::Backend.Domain.Entities.PartyDebt
+        {
+            Id = 40,
+            PartyType = "CUSTOMER",
+            PartyId = salesOrder.CustomerId,
+            Direction = "RECEIVABLE",
+            CurrentBalance = 80m,
+            IsActive = true
+        };
+        var documentTransactions = new List<DebtTransaction>
+        {
+            new() { PartyDebtId = debt.Id, RefType = "OUTBOUND_ORDER", RefId = order.Id, TransactionType = LookupCodes.DebtTransactionType.Charge, Amount = 100m },
+            new() { PartyDebtId = debt.Id, RefType = "OUTBOUND_ORDER", RefId = order.Id, TransactionType = LookupCodes.DebtTransactionType.Payment, Amount = 20m }
+        };
+        DebtTransaction? reversal = null;
+
+        _obRepo.Setup(r => r.GetByIdDetailAsync(order.Id)).ReturnsAsync(order);
+        _soRepo.Setup(r => r.GetByIdDetailAsync(salesOrder.Id)).ReturnsAsync(salesOrder);
+        _obStatusRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<OutboundOrderStatus, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<OutboundOrderStatus, object>>[]>()!))
+            .ReturnsAsync(new OutboundOrderStatus { Id = 7, Code = OutboundOrderStatusNames.DeliveryFailed });
+        _invRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<Backend.Domain.Entities.Inventory, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<Backend.Domain.Entities.Inventory, object>>[]>()!))
+            .Returns(new List<Backend.Domain.Entities.Inventory> { inventory }.AsQueryable().BuildMock());
+        _invRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<Backend.Domain.Entities.Inventory, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns(new List<Backend.Domain.Entities.Inventory> { inventory }.AsQueryable().BuildMock());
+        _locationRepo.Setup(r => r.GetByIdAsync(location.Id)).ReturnsAsync(location);
+        _locationRepo.Setup(r => r.UpdateCapacitySafetyAsync(
+                location.Id, inventory.WarehouseId, 1m, inventory.ProductVariantId, false, It.IsAny<int>()))
+            .ReturnsAsync(1);
+        _debtTxRepo.Setup(r => r.FindByCondition(
+                It.IsAny<Expression<Func<DebtTransaction, bool>>>(),
+                It.IsAny<bool>()))
+            .Returns(new List<DebtTransaction>(documentTransactions).AsQueryable().BuildMock());
+        _partyDebtRepo.Setup(r => r.FirstOrDefaultAsync(
+                It.IsAny<Expression<Func<global::Backend.Domain.Entities.PartyDebt, bool>>>(),
+                It.IsAny<bool>(),
+                It.IsAny<Expression<Func<global::Backend.Domain.Entities.PartyDebt, object>>[]>()!))
+            .ReturnsAsync(debt);
+        _debtTxRepo.Setup(r => r.CreateAsync(It.IsAny<DebtTransaction>()))
+            .Callback<DebtTransaction>(x => reversal = x)
+            .Returns(Task.CompletedTask);
+
+        var result = await Sut(withLocationRepository: true)
+            .FailDeliveryAsync(order.Id, new FailDeliveryDto { Reason = "Khách không nhận" });
+
+        result.Status.Should().Be(200);
+        debt.CurrentBalance.Should().Be(0m);
+        reversal.Should().NotBeNull();
+        reversal!.TransactionType.Should().Be(LookupCodes.DebtTransactionType.ReturnCredit);
+        reversal.Amount.Should().Be(80m);
+        reversal.BalanceAfter.Should().Be(0m);
+    }
+
+    [Fact]
     public async Task ConfirmPackingAsync_PartiallyPickedOrder_ReturnsUnprocessableEntity()
     {
         var order = CreatePackedOrderWithReceivable();

@@ -70,6 +70,7 @@ public static class LocationMapping
             CurrentProductVariantId = entity.CurrentProductVariantId,
             CurrentProductVariantName = entity.CurrentProductVariant?.Name,
             CurrentProductVariantSku = entity.CurrentProductVariant?.SKU,
+            IsSingleTypeColumn = entity.IsSingleTypeColumn,
             CreatedDate = entity.CreatedDate
         };
     }
@@ -100,6 +101,7 @@ public static class LocationMapping
             CurrentProductVariantId = entity.CurrentProductVariantId,
             CurrentProductVariantName = entity.CurrentProductVariant?.Name,
             CurrentProductVariantSku = entity.CurrentProductVariant?.SKU,
+            IsSingleTypeColumn = entity.IsSingleTypeColumn,
             CreatedDate = entity.CreatedDate
         };
     }

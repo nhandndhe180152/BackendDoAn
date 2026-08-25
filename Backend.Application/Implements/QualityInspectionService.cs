@@ -1847,9 +1847,8 @@ public class QualityInspectionService : IQualityInspectionService
     /// <summary>
     /// W14-G: Chốt tài chính sau Receiving QC.<br/>
     /// Tính FinalTotal = AcceptedWeightKg × AgreedPrice, cập nhật receipt và ghi công nợ nhất quán.<br/>
-    /// Case 1: còn nợ nông dân → FARMER PAYABLE + DebtTransaction CHARGE.<br/>
-    /// Case 2: đã trả đủ → không tạo debt.<br/>
-    /// Case 3: trả dư, nông dân phải hoàn lại → FARMER RECEIVABLE + DebtTransaction CHARGE.<br/>
+    /// Luôn ghi FARMER PAYABLE CHARGE cho toàn bộ giá trị mua và PAYMENT cho phần đã trả.<br/>
+    /// Nếu trả dư, phần vượt giá trị mua được ghi thành FARMER RECEIVABLE CHARGE.<br/>
     /// Dùng DeduplicationKey chống post debt lần 2.
     /// </summary>
     private async Task FinalizeFinanceAfterQcAsync(
@@ -1904,43 +1903,59 @@ public class QualityInspectionService : IQualityInspectionService
 
         await _context.SaveChangesAsync();
 
-        // ── Ghi công nợ theo 3 trường hợp ───────────────────────────────────
-        if (debtNet > 0)
+        // Luôn giữ đầy đủ lịch sử tài chính của chứng từ mua, kể cả khi balance = 0.
+        if (finalTotal > 0)
         {
-            // Case 1: còn nợ nông dân → FARMER PAYABLE
-            await RecordQcDebtAsync(
+            await RecordQcDebtTransactionAsync(
                 receipt,
                 direction: LookupCodes.DebtDirection.Payable,
-                amount: debtNet,
-                deduplicationKey: $"PADDY_RECEIPT_QC_PAYABLE:{receipt.Id}",
+                transactionType: LookupCodes.DebtTransactionType.Charge,
+                amount: finalTotal,
+                deduplicationKey: $"PADDY_RECEIPT_QC_PAYABLE_CHARGE:{receipt.Id}",
                 refType: "PADDY_RECEIPT_QC_PAYABLE",
-                note: $"Phát sinh nợ sau QC nhận kho — phiếu {receipt.ReceiptCode}, accepted {acceptedWeightKg:F1} kg",
+                note: $"Giá trị mua sau QC nhận kho — phiếu {receipt.ReceiptCode}, accepted {acceptedWeightKg:F1} kg",
                 userId,
                 now);
         }
-        else if (debtNet < 0)
+
+        decimal paidAmountApplied = Math.Min(Math.Max(receipt.PaidAmount, 0m), finalTotal);
+        if (paidAmountApplied > 0)
         {
-            // Case 3: trả dư, nông dân phải hoàn lại → FARMER RECEIVABLE
-            decimal refund = Math.Abs(debtNet);
-            await RecordQcDebtAsync(
+            await RecordQcDebtTransactionAsync(
+                receipt,
+                direction: LookupCodes.DebtDirection.Payable,
+                transactionType: LookupCodes.DebtTransactionType.Payment,
+                amount: paidAmountApplied,
+                deduplicationKey: $"PADDY_RECEIPT_QC_PAYABLE_PAYMENT:{receipt.Id}",
+                refType: "PADDY_RECEIPT_QC_PAYABLE",
+                note: $"Số tiền đã trả cho phiếu mua {receipt.ReceiptCode}",
+                userId,
+                now);
+        }
+
+        decimal refund = Math.Max(0m, receipt.PaidAmount - finalTotal);
+        if (refund > 0)
+        {
+            await RecordQcDebtTransactionAsync(
                 receipt,
                 direction: LookupCodes.DebtDirection.Receivable,
+                transactionType: LookupCodes.DebtTransactionType.Charge,
                 amount: refund,
-                deduplicationKey: $"PADDY_RECEIPT_QC_REFUND:{receipt.Id}",
+                deduplicationKey: $"PADDY_RECEIPT_QC_REFUND_CHARGE:{receipt.Id}",
                 refType: "PADDY_RECEIPT_QC_REFUND",
                 note: $"Nông dân hoàn tiền trả dư sau QC — phiếu {receipt.ReceiptCode}, hoàn {refund:N0} VND",
                 userId,
                 now);
         }
-        // Case 2: debtNet == 0 — không tạo debt
     }
 
     /// <summary>
-    /// Tìm hoặc tạo PartyDebt theo direction, ghi DebtTransaction CHARGE với DeduplicationKey chống post lần 2.
+    /// Tìm hoặc tạo PartyDebt theo direction, ghi giao dịch với DeduplicationKey chống post lần 2.
     /// </summary>
-    private async Task RecordQcDebtAsync(
+    private async Task RecordQcDebtTransactionAsync(
         PaddyPurchaseReceipt receipt,
         string direction,
+        string transactionType,
         decimal amount,
         string deduplicationKey,
         string refType,
@@ -1980,14 +1995,17 @@ public class QualityInspectionService : IQualityInspectionService
             await _context.SaveChangesAsync(); // flush để lấy Id
         }
 
-        partyDebt.CurrentBalance  += amount;
+        decimal balanceDelta = transactionType == LookupCodes.DebtTransactionType.Payment
+            ? -amount
+            : amount;
+        partyDebt.CurrentBalance  += balanceDelta;
         partyDebt.LastModifiedDate = now;
         partyDebt.UpdatedBy        = userId;
 
         var tx = new DebtTransaction
         {
             PartyDebtId      = partyDebt.Id,
-            TransactionType  = LookupCodes.DebtTransactionType.Charge,
+            TransactionType  = transactionType,
             Amount           = amount,
             BalanceAfter     = partyDebt.CurrentBalance,
             RefType          = refType,

@@ -92,7 +92,6 @@ public sealed class RegisterCustomerReturnRefundDtoValidator : AbstractValidator
     public RegisterCustomerReturnRefundDtoValidator()
     {
         RuleFor(x => x.Amount).GreaterThan(0);
-        RuleFor(x => x.PaymentReference).NotEmpty().MaximumLength(100);
         RuleFor(x => x.Note).MaximumLength(300);
     }
 }

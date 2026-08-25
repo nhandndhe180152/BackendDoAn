@@ -63,6 +63,7 @@ public class UpdateSalesOrderDto
     public int Id { get; set; }
     public DateTime? ExpectedDeliveryDate { get; set; }
     public string? ShippingAddress { get; set; }
+    [Range(0, double.MaxValue)]
     public decimal? DepositAmount { get; set; }
     public string? Note { get; set; }
     public List<UpdateSalesOrderItemDto> Items { get; set; } = new();

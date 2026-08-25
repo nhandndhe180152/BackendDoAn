@@ -329,25 +329,6 @@ public class SalesOrderService : ISalesOrderService
 
         var now    = DateTimeHelper.VietnamNow();
         var userId = GetCurrentUserId();
-        var orgId  = await GetCurrentOrganizationIdAsync();
-
-        // Generate SOCode: SO-YYYYMMDD-XXXX
-        var datePart = now.ToString("yyyyMMdd");
-        var baseCode = $"SO-{datePart}";
-        var count    = await _salesOrderRepository
-            .FindByCondition(x => x.SOCode.StartsWith(baseCode))
-            .CountAsync();
-        var soCode = $"{baseCode}-{(count + 1):D4}";
-
-        // L2: Tránh race condition trùng mã khi nhiều request chạy đồng thời
-        int attempts = 0;
-        while (await _salesOrderRepository.AnyAsync(x => x.SOCode == soCode && x.OrganizationId == orgId) && attempts < 10)
-        {
-            attempts++;
-            soCode = $"{baseCode}-{(count + 1 + attempts):D4}";
-        }
-
-        var statusId = await GetStatusIdAsync(SalesOrderStatusNames.New);
 
         // BE tự tính LineAmount và TotalAmount — không nhận từ frontend
         var items      = new List<SalesOrderItem>();
@@ -374,6 +355,32 @@ public class SalesOrderService : ISalesOrderService
                 CreatedBy        = userId
             });
         }
+
+        var depositAmount = dto.DepositAmount ?? 0m;
+        if (depositAmount < 0m || depositAmount > total)
+            return ApiResponse.BadRequest(
+                "Tiền cọc phải từ 0 đến tổng giá trị đơn bán.",
+                ApiCodeConstants.SalesOrder.InvalidRequest);
+
+        var orgId = await GetCurrentOrganizationIdAsync();
+
+        // Generate SOCode: SO-YYYYMMDD-XXXX
+        var datePart = now.ToString("yyyyMMdd");
+        var baseCode = $"SO-{datePart}";
+        var count = await _salesOrderRepository
+            .FindByCondition(x => x.SOCode.StartsWith(baseCode))
+            .CountAsync();
+        var soCode = $"{baseCode}-{(count + 1):D4}";
+
+        // L2: Tránh race condition trùng mã khi nhiều request chạy đồng thời
+        int attempts = 0;
+        while (await _salesOrderRepository.AnyAsync(x => x.SOCode == soCode && x.OrganizationId == orgId) && attempts < 10)
+        {
+            attempts++;
+            soCode = $"{baseCode}-{(count + 1 + attempts):D4}";
+        }
+
+        var statusId = await GetStatusIdAsync(SalesOrderStatusNames.New);
 
         var order = new SalesOrder
         {
@@ -421,6 +428,22 @@ public class SalesOrderService : ISalesOrderService
             return ApiResponse.Conflict("Chỉ có thể chỉnh sửa đơn ở trạng thái Mới tạo.",
                 ApiCodeConstants.SalesOrder.InvalidState);
 
+        if (dto.Items.Any())
+        {
+            var duplicateItems = dto.Items.GroupBy(x => x.ProductVariantId).FirstOrDefault(g => g.Count() > 1);
+            if (duplicateItems != null)
+                return ApiResponse.BadRequest("Không được thêm trùng cùng một biến thể sản phẩm (SKU) trên đơn bán.", ApiCodeConstants.SalesOrder.InvalidRequest);
+        }
+
+        var updatedTotal = dto.Items.Any()
+            ? dto.Items.Sum(item => Math.Max(0m, item.QuantityOrdered * item.UnitSalePrice - item.DiscountAmount))
+            : so.TotalAmount;
+        var updatedDeposit = dto.DepositAmount ?? 0m;
+        if (updatedDeposit < 0m || updatedDeposit > updatedTotal)
+            return ApiResponse.BadRequest(
+                "Tiền cọc phải từ 0 đến tổng giá trị đơn bán.",
+                ApiCodeConstants.SalesOrder.InvalidRequest);
+
         var now = DateTimeHelper.VietnamNow();
         so.ExpectedDeliveryDate = dto.ExpectedDeliveryDate;
         so.ShippingAddress      = dto.ShippingAddress;
@@ -431,10 +454,6 @@ public class SalesOrderService : ISalesOrderService
 
         if (dto.Items.Any())
         {
-            var duplicateItems = dto.Items.GroupBy(x => x.ProductVariantId).FirstOrDefault(g => g.Count() > 1);
-            if (duplicateItems != null)
-                return ApiResponse.BadRequest("Không được thêm trùng cùng một biến thể sản phẩm (SKU) trên đơn bán.", ApiCodeConstants.SalesOrder.InvalidRequest);
-
             // Xóa items cũ
             foreach (var old in so.SalesOrderItems.ToList())
             {
