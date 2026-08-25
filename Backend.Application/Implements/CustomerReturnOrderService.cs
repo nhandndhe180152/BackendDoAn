@@ -77,42 +77,8 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
             ?? throw new InvalidOperationException("Không tìm thấy tổ chức hoạt động nào trong hệ thống.");
     }
 
-    private async Task<bool> CheckPermissionAsync(string action, CancellationToken cancellationToken)
-    {
-        var userId = GetCurrentUserId();
-        var roles = await _context.UserRoles
-            .Include(x => x.Role)
-            .Where(x => x.UserId == userId && !x.IsDeleted)
-            .Select(x => x.Role.Code)
-            .ToListAsync(cancellationToken);
-
-        if (roles.Contains(LookupCodes.Role.Admin)) return true;
-
-        if (action == LookupCodes.Action.Approve || action == LookupCodes.Action.Confirm || action == LookupCodes.Action.Cancel || action == LookupCodes.Action.Preview || action == "REJECT" || action == "REFUND")
-        {
-            return roles.Contains(LookupCodes.Role.WarehouseOwner);
-        }
-        if (action == LookupCodes.Action.Inspect || action == "RECEIVE")
-        {
-            return roles.Contains(LookupCodes.Role.WarehouseStaff);
-        }
-        if (action == LookupCodes.Action.Create && roles.Contains(LookupCodes.Role.EndUser))
-        {
-            return true;
-        }
-        if (action == LookupCodes.Action.Create || action == LookupCodes.Action.Update || action == "SUBMIT")
-        {
-            return roles.Contains(LookupCodes.Role.SalesStaff) || roles.Contains(LookupCodes.Role.WarehouseOwner);
-        }
-
-        return false;
-    }
-
     public async Task<ApiResponse> CreateAsync(CreateCustomerReturnOrderDto dto, CancellationToken cancellationToken = default)
     {
-        if (!await CheckPermissionAsync("CREATE", cancellationToken))
-            return ApiResponse.Forbidden(message: "Bạn không có quyền thực hiện hành động này.");
-
         if (dto.WarehouseId <= 0 || dto.CustomerId <= 0)
             return ApiResponse.BadRequest(message: "Kho tiếp nhận và khách hàng là bắt buộc.");
 
@@ -361,9 +327,6 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
     public async Task<ApiResponse> UpdateAsync(UpdateCustomerReturnOrderDto dto, CancellationToken cancellationToken = default)
     {
-        if (!await CheckPermissionAsync("UPDATE", cancellationToken))
-            return ApiResponse.Forbidden(message: "Bạn không có quyền thực hiện hành động này.");
-
         var orgId = await GetCurrentOrganizationIdAsync();
         var order = await _context.CustomerReturnOrders
             .Include(o => o.CustomerReturnOrderStatus)
@@ -688,9 +651,6 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
     public async Task<ApiResponse> GetReturnSourcesAsync(CustomerReturnSourceQuery query, CancellationToken cancellationToken = default)
     {
-        if (!await CheckPermissionAsync(LookupCodes.Action.Create, cancellationToken))
-            return ApiResponse.Forbidden(message: "Bạn không có quyền tạo phiếu trả hàng.");
-
         var orgId = await GetCurrentOrganizationIdAsync();
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
@@ -773,9 +733,6 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
     public async Task<ApiResponse> GetReturnSourceByIdAsync(int outboundOrderId, CancellationToken cancellationToken = default)
     {
-        if (!await CheckPermissionAsync(LookupCodes.Action.Create, cancellationToken))
-            return ApiResponse.Forbidden(message: "Bạn không có quyền tạo phiếu trả hàng.");
-
         var orgId = await GetCurrentOrganizationIdAsync();
         var order = await _context.OutboundOrders
             .AsNoTracking()
@@ -1013,8 +970,6 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
     public async Task<ApiResponse> SubmitAsync(int id, CancellationToken cancellationToken = default)
     {
-        if (!await CheckPermissionAsync("SUBMIT", cancellationToken))
-            return ApiResponse.Forbidden(message: "Bạn không có quyền gửi duyệt đơn trả hàng.");
         var orgId = await GetCurrentOrganizationIdAsync();
         var order = await _context.CustomerReturnOrders
             .Include(x => x.CustomerReturnOrderStatus)
@@ -1040,8 +995,6 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
     public async Task<ApiResponse> RejectAsync(int id, string reason, CancellationToken cancellationToken = default)
     {
-        if (!await CheckPermissionAsync("REJECT", cancellationToken))
-            return ApiResponse.Forbidden(message: "Bạn không có quyền từ chối đơn trả hàng.");
         if (string.IsNullOrWhiteSpace(reason)) return ApiResponse.BadRequest(message: "Lý do từ chối là bắt buộc.");
         var orgId = await GetCurrentOrganizationIdAsync();
         var order = await _context.CustomerReturnOrders.Include(x => x.CustomerReturnOrderStatus)
@@ -1065,8 +1018,6 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
     public async Task<ApiResponse> ReceiveAsync(ReceiveCustomerReturnOrderDto dto, CancellationToken cancellationToken = default)
     {
-        if (!await CheckPermissionAsync("RECEIVE", cancellationToken))
-            return ApiResponse.Forbidden(message: "Bạn không có quyền nhận hàng trả.");
         var orgId = await GetCurrentOrganizationIdAsync();
         var order = await _context.CustomerReturnOrders
             .Include(x => x.CustomerReturnOrderStatus)
@@ -1106,9 +1057,6 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
     public async Task<ApiResponse> ApproveAsync(int id, string? note, CancellationToken cancellationToken = default)
     {
-        if (!await CheckPermissionAsync("APPROVE", cancellationToken))
-            return ApiResponse.Forbidden(message: "Bạn không có quyền thực hiện hành động này.");
-
         var orgId = await GetCurrentOrganizationIdAsync();
         var order = await _context.CustomerReturnOrders
             .Include(o => o.CustomerReturnOrderStatus)
@@ -1166,9 +1114,6 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
     public async Task<ApiResponse> InspectAsync(InspectCustomerReturnOrderDto dto, CancellationToken cancellationToken = default)
     {
-        if (!await CheckPermissionAsync("INSPECT", cancellationToken))
-            return ApiResponse.Forbidden(message: "Bạn không có quyền thực hiện hành động này.");
-
         var orgId = await GetCurrentOrganizationIdAsync();
         var order = await _context.CustomerReturnOrders
             .Include(o => o.CustomerReturnOrderStatus)
@@ -1355,9 +1300,6 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
     public async Task<ApiResponse> GetImpactPreviewAsync(int id, CancellationToken cancellationToken = default)
     {
-        if (!await CheckPermissionAsync("PREVIEW", cancellationToken))
-            return ApiResponse.Forbidden(message: "Bạn không có quyền thực hiện hành động này.");
-
         var orgId = await GetCurrentOrganizationIdAsync();
         var order = await _context.CustomerReturnOrders
             .Include(o => o.CustomerReturnOrderStatus)
@@ -1442,9 +1384,6 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
     public async Task<ApiResponse> ConfirmAsync(int id, CancellationToken cancellationToken = default)
     {
-        if (!await CheckPermissionAsync("CONFIRM", cancellationToken))
-            return ApiResponse.Forbidden(message: "Bạn không có quyền thực hiện hành động này.");
-
         var orgId = await GetCurrentOrganizationIdAsync();
         var order = await _context.CustomerReturnOrders
             .Include(o => o.CustomerReturnOrderStatus)
@@ -2238,8 +2177,6 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
     public async Task<ApiResponse> RegisterRefundAsync(int id, RegisterCustomerReturnRefundDto dto, CancellationToken cancellationToken = default)
     {
-        if (!await CheckPermissionAsync("REFUND", cancellationToken))
-            return ApiResponse.Forbidden(message: "Bạn không có quyền ghi nhận hoàn tiền.");
         if (dto.Amount <= 0)
             return ApiResponse.BadRequest(message: "Số tiền hoàn phải lớn hơn 0.");
 
@@ -2299,9 +2236,6 @@ public class CustomerReturnOrderService : ICustomerReturnOrderService
 
     public async Task<ApiResponse> CancelAsync(int id, string reason, CancellationToken cancellationToken = default)
     {
-        if (!await CheckPermissionAsync("CANCEL", cancellationToken))
-            return ApiResponse.Forbidden(message: "Bạn không có quyền thực hiện hành động này.");
-
         if (string.IsNullOrWhiteSpace(reason))
             return ApiResponse.BadRequest(message: "Lý do huỷ đơn hàng không được để trống.");
 
